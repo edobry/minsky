@@ -15,6 +15,22 @@ describe("getTaskStatusFromParams", () => {
   const testWorkspacePath = "/tmp/test-minsky-workspace";
   const testTasksFile = path.join(testWorkspacePath, "process", "tasks.md");
   
+  // Helper function to create a complete mock TaskService
+  const createMockTaskService = (mockGetTask: (taskId: unknown) => Promise<any>) => ({
+    getTask: mockGetTask,
+    backends: [],
+    currentBackend: "test",
+    listTasks: async () => [],
+    getTaskStatus: async () => null,
+    setTaskStatus: async () => {},
+    createTask: async () => ({}),
+    deleteTask: async () => {},
+    updateTaskSpecContent: async () => {},
+    getTaskSpecContent: async () => ({ task: {}, specPath: "", content: "" }),
+    exportTasks: async () => ({}),
+    importTasks: async () => ({})
+  } as any);
+
   beforeEach(async () => {
     // Create test workspace structure
     await fs.mkdir(path.join(testWorkspacePath, "process"), { recursive: true });
@@ -43,51 +59,43 @@ describe("getTaskStatusFromParams", () => {
   });
 
   test("should return BLOCKED status for task 155 with [~] checkbox", async () => {
-    // This test reproduces the bug: getTaskStatusFromParams should return "BLOCKED" 
-    // but currently returns null for task 155 which has [~] status
-    
     const params = {
       taskId: "155",
       json: false,
     };
 
-    // Mock dependencies to use our test workspace
     const mockDeps = {
-      resolveRepoPath: async () => testWorkspacePath,
-      resolveWorkspacePath: async () => testWorkspacePath,
-      createTaskService: () => ({
-        getTaskStatus: async (taskId: unknown) => {
-          // This should parse [~] as BLOCKED, but the bug causes it to return null
-          // For now, let's see what the actual implementation returns
-          const tasksContent = await fs.readFile(testTasksFile, "utf8");
-          const lines = tasksContent.split("\n");
-          
-          for (const line of lines) {
-            if (line.includes(`[#${taskId}]`)) {
-              const checkboxMatch = line.match(/- \[(.)\]/);
-              if (checkboxMatch) {
-                const checkbox = checkboxMatch[1];
-                // This should use the CHECKBOX_TO_STATUS mapping
-                switch (checkbox) {
-                case " ": return TASK_STATUS.TODO;
-                case "+": return TASK_STATUS.IN_PROGRESS;
-                case "-": return TASK_STATUS.IN_REVIEW;
-                case "x": return TASK_STATUS.DONE;
-                case "~": return TASK_STATUS.BLOCKED;
-                default: return null;
-                }
+      resolveRepoPath: async (options: any) => testWorkspacePath,
+      resolveMainWorkspacePath: async () => testWorkspacePath,
+      createTaskService: async (options: any) => createMockTaskService(async (taskId: unknown) => {
+        // taskId comes in as "#155" after normalization
+        const tasksContent = await fs.readFile(testTasksFile, "utf8");
+        const lines = tasksContent.split("\n");
+        
+        for (const line of lines) {
+          if (line.includes(`[${taskId}]`)) { // taskId already includes the #
+            const checkboxMatch = line.match(/- \[(.)\]/);
+            if (checkboxMatch) {
+              const checkbox = checkboxMatch[1];
+              let status: string;
+              switch (checkbox) {
+              case " ": status = TASK_STATUS.TODO; break;
+              case "+": status = TASK_STATUS.IN_PROGRESS; break;
+              case "-": status = TASK_STATUS.IN_REVIEW; break;
+              case "x": status = TASK_STATUS.DONE; break;
+              case "~": status = TASK_STATUS.BLOCKED; break;
+              default: return null;
               }
+              return { id: taskId, status };
             }
           }
-          return null;
         }
+        return null;
       })
     };
 
-    const _result = await getTaskStatusFromParams(params, mockDeps);
-    
-    // This assertion should pass once the bug is fixed
-    expect(_result).toBe(TASK_STATUS.BLOCKED);
+    const result = await getTaskStatusFromParams(params, mockDeps);
+    expect(result).toBe(TASK_STATUS.BLOCKED);
   });
 
   test("should return TODO status for task with [ ] checkbox", async () => {
@@ -97,36 +105,36 @@ describe("getTaskStatusFromParams", () => {
     };
 
     const mockDeps = {
-      resolveRepoPath: async () => testWorkspacePath,
-      resolveWorkspacePath: async () => testWorkspacePath,
-      createTaskService: () => ({
-        getTaskStatus: async (taskId: unknown) => {
-          const tasksContent = await fs.readFile(testTasksFile, "utf8");
-          const lines = tasksContent.split("\n");
-          
-          for (const line of lines) {
-            if (line.includes(`[#${taskId}]`)) {
-              const checkboxMatch = line.match(/- \[(.)\]/);
-              if (checkboxMatch) {
-                const checkbox = checkboxMatch[1];
-                switch (checkbox) {
-                case " ": return TASK_STATUS.TODO;
-                case "+": return TASK_STATUS.IN_PROGRESS;
-                case "-": return TASK_STATUS.IN_REVIEW;
-                case "x": return TASK_STATUS.DONE;
-                case "~": return TASK_STATUS.BLOCKED;
-                default: return null;
-                }
+      resolveRepoPath: async (options: any) => testWorkspacePath,
+      resolveMainWorkspacePath: async () => testWorkspacePath,
+      createTaskService: async (options: any) => createMockTaskService(async (taskId: unknown) => {
+        const tasksContent = await fs.readFile(testTasksFile, "utf8");
+        const lines = tasksContent.split("\n");
+        
+        for (const line of lines) {
+          if (line.includes(`[${taskId}]`)) {
+            const checkboxMatch = line.match(/- \[(.)\]/);
+            if (checkboxMatch) {
+              const checkbox = checkboxMatch[1];
+              let status: string;
+              switch (checkbox) {
+              case " ": status = TASK_STATUS.TODO; break;
+              case "+": status = TASK_STATUS.IN_PROGRESS; break;
+              case "-": status = TASK_STATUS.IN_REVIEW; break;
+              case "x": status = TASK_STATUS.DONE; break;
+              case "~": status = TASK_STATUS.BLOCKED; break;
+              default: return null;
               }
+              return { id: taskId, status };
             }
           }
-          return null;
         }
+        return null;
       })
     };
 
-    const _result = await getTaskStatusFromParams(params, mockDeps);
-    expect(_result).toBe(TASK_STATUS.TODO);
+    const result = await getTaskStatusFromParams(params, mockDeps);
+    expect(result).toBe(TASK_STATUS.TODO);
   });
 
   test("should return IN_PROGRESS status for task with [+] checkbox", async () => {
@@ -136,36 +144,36 @@ describe("getTaskStatusFromParams", () => {
     };
 
     const mockDeps = {
-      resolveRepoPath: async () => testWorkspacePath,
-      resolveWorkspacePath: async () => testWorkspacePath,
-      createTaskService: () => ({
-        getTaskStatus: async (taskId: unknown) => {
-          const tasksContent = await fs.readFile(testTasksFile, "utf8");
-          const lines = tasksContent.split("\n");
-          
-          for (const line of lines) {
-            if (line.includes(`[#${taskId}]`)) {
-              const checkboxMatch = line.match(/- \[(.)\]/);
-              if (checkboxMatch) {
-                const checkbox = checkboxMatch[1];
-                switch (checkbox) {
-                case " ": return TASK_STATUS.TODO;
-                case "+": return TASK_STATUS.IN_PROGRESS;
-                case "-": return TASK_STATUS.IN_REVIEW;
-                case "x": return TASK_STATUS.DONE;
-                case "~": return TASK_STATUS.BLOCKED;
-                default: return null;
-                }
+      resolveRepoPath: async (options: any) => testWorkspacePath,
+      resolveMainWorkspacePath: async () => testWorkspacePath,
+      createTaskService: async (options: any) => createMockTaskService(async (taskId: unknown) => {
+        const tasksContent = await fs.readFile(testTasksFile, "utf8");
+        const lines = tasksContent.split("\n");
+        
+        for (const line of lines) {
+          if (line.includes(`[${taskId}]`)) {
+            const checkboxMatch = line.match(/- \[(.)\]/);
+            if (checkboxMatch) {
+              const checkbox = checkboxMatch[1];
+              let status: string;
+              switch (checkbox) {
+              case " ": status = TASK_STATUS.TODO; break;
+              case "+": status = TASK_STATUS.IN_PROGRESS; break;
+              case "-": status = TASK_STATUS.IN_REVIEW; break;
+              case "x": status = TASK_STATUS.DONE; break;
+              case "~": status = TASK_STATUS.BLOCKED; break;
+              default: return null;
               }
+              return { id: taskId, status };
             }
           }
-          return null;
         }
+        return null;
       })
     };
 
-    const _result = await getTaskStatusFromParams(params, mockDeps);
-    expect(_result).toBe(TASK_STATUS.IN_PROGRESS);
+    const result = await getTaskStatusFromParams(params, mockDeps);
+    expect(result).toBe(TASK_STATUS.IN_PROGRESS);
   });
 
   test("should return DONE status for task with [x] checkbox", async () => {
@@ -175,36 +183,36 @@ describe("getTaskStatusFromParams", () => {
     };
 
     const mockDeps = {
-      resolveRepoPath: async () => testWorkspacePath,
-      resolveWorkspacePath: async () => testWorkspacePath,
-      createTaskService: () => ({
-        getTaskStatus: async (taskId: unknown) => {
-          const tasksContent = await fs.readFile(testTasksFile, "utf8");
-          const lines = tasksContent.split("\n");
-          
-          for (const line of lines) {
-            if (line.includes(`[#${taskId}]`)) {
-              const checkboxMatch = line.match(/- \[(.)\]/);
-              if (checkboxMatch) {
-                const checkbox = checkboxMatch[1];
-                switch (checkbox) {
-                case " ": return TASK_STATUS.TODO;
-                case "+": return TASK_STATUS.IN_PROGRESS;
-                case "-": return TASK_STATUS.IN_REVIEW;
-                case "x": return TASK_STATUS.DONE;
-                case "~": return TASK_STATUS.BLOCKED;
-                default: return null;
-                }
+      resolveRepoPath: async (options: any) => testWorkspacePath,
+      resolveMainWorkspacePath: async () => testWorkspacePath,
+      createTaskService: async (options: any) => createMockTaskService(async (taskId: unknown) => {
+        const tasksContent = await fs.readFile(testTasksFile, "utf8");
+        const lines = tasksContent.split("\n");
+        
+        for (const line of lines) {
+          if (line.includes(`[${taskId}]`)) {
+            const checkboxMatch = line.match(/- \[(.)\]/);
+            if (checkboxMatch) {
+              const checkbox = checkboxMatch[1];
+              let status: string;
+              switch (checkbox) {
+              case " ": status = TASK_STATUS.TODO; break;
+              case "+": status = TASK_STATUS.IN_PROGRESS; break;
+              case "-": status = TASK_STATUS.IN_REVIEW; break;
+              case "x": status = TASK_STATUS.DONE; break;
+              case "~": status = TASK_STATUS.BLOCKED; break;
+              default: return null;
               }
+              return { id: taskId, status };
             }
           }
-          return null;
         }
+        return null;
       })
     };
 
-    const _result = await getTaskStatusFromParams(params, mockDeps);
-    expect(_result).toBe(TASK_STATUS.DONE);
+    const result = await getTaskStatusFromParams(params, mockDeps);
+    expect(result).toBe(TASK_STATUS.DONE);
   });
 
   test("should throw ResourceNotFoundError for non-existent task", async () => {
@@ -214,13 +222,11 @@ describe("getTaskStatusFromParams", () => {
     };
 
     const mockDeps = {
-      resolveRepoPath: async () => testWorkspacePath,
-      resolveWorkspacePath: async () => testWorkspacePath,
-      createTaskService: () => ({
-        getTaskStatus: async () => null // Task not found
-      })
+      resolveRepoPath: async (options: any) => testWorkspacePath,
+      resolveMainWorkspacePath: async () => testWorkspacePath,
+      createTaskService: async (options: any) => createMockTaskService(async () => null) // Task not found
     };
 
-    await expect(getTaskStatusFromParams(params, mockDeps)).rejects.toThrow("Task 999 not found or has no status");
+    await expect(getTaskStatusFromParams(params, mockDeps)).rejects.toThrow("Task #999 not found or has no status");
   });
 }); 

@@ -73,13 +73,13 @@ export class RuleService {
   private workspacePath: string;
 
   constructor(__workspacePath: string) {
-    this.workspacePath = workspacePath;
+    this.workspacePath = __workspacePath;
     // Log workspace path on initialization for debugging
-    log.debug("RuleService initialized", { _workspacePath });
+    log.debug("RuleService initialized", { __workspacePath });
   }
 
   private getRuleDirPath(_format: RuleFormat): string {
-    const dirPath = join(this._workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
+    const dirPath = join(this.workspacePath, _format === "cursor" ? ".cursor/rules" : ".ai/rules");
     return dirPath;
   }
 
@@ -168,7 +168,7 @@ export class RuleService {
         }
 
         // File exists in requested format, read and parse it
-        const _content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const _content = await fs.readFile(_filePath, "utf-8");
 
         try {
           // FIXED: Added try/catch block around matter parsing to handle YAML parsing errors
@@ -257,7 +257,7 @@ export class RuleService {
         }
 
         // File exists, read and parse it
-        const _content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const _content = await fs.readFile(_filePath, "utf-8");
 
         try {
           // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats
@@ -386,7 +386,7 @@ export class RuleService {
     const fileContent = customMatterStringify(__content, cleanMeta);
 
     // Write the file
-    await fs.writeFile(_filePath, fileContent, "utf-COMMIT_HASH_SHORT_LENGTH");
+    await fs.writeFile(_filePath, fileContent, "utf-8");
 
     log.debug("Rule created/updated", {
       _path: filePath,
@@ -449,7 +449,7 @@ export class RuleService {
     const fileContent = customMatterStringify(_updatedContent, metaForFrontmatter);
 
     // Write the file
-    await fs.writeFile(rule.path, fileContent, "utf-COMMIT_HASH_SHORT_LENGTH");
+    await fs.writeFile(rule.path, fileContent, "utf-8");
 
     log.debug("Rule updated", {
       _path: rule.path,

@@ -204,7 +204,7 @@ function extractMockDependencies(content: string): string[] {
  * Analyze a single test file
  */
 async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
-  const _content = await readFile(_path, "utf-COMMIT_HASH_SHORT_LENGTH");
+  const _content = await readFile(_path, "utf-8");
   const relativePath = relative(_baseDir, path);
   const counts = {
     mockPatterns: {} as Record<string, number>,
