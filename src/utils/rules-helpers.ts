@@ -18,7 +18,7 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
       const stats = await fs.stat(contentPath);
       if (stats.isFile()) {
         // If it's a file, read its contents
-        const content = await fs.readFile(_contentPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const content = await fs.readFile(_contentPath, "utf-8");
         return content.toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error

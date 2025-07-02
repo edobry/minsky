@@ -418,7 +418,7 @@
 
 - [ ] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
 
-- [+] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
+- [x] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
 
 - [x] Remove temporary SessionDB compatibility layer and update all imports [#225](process/tasks/225-remove-temporary-sessiondb-compatibility-layer-and-update-all-imports.md)
 

@@ -20,8 +20,10 @@ import {
   RepositoryConfig,
   GlobalUserConfig,
   BackendConfig,
-  CredentialConfig,
   SessionDbConfig,
+  GitHubConfig,
+  AIConfig,
+  PostgresConfig,
   DEFAULT_CONFIG,
   CONFIG_PATHS,
   ENV_VARS,
@@ -66,8 +68,8 @@ export class ConfigurationLoader {
 
     // GitHub token for credentials
     if (process.env[ENV_VARS.GITHUB_TOKEN]) {
-      config.credentials = {
-        github: {
+      config.github = {
+        credentials: {
           token: process.env[ENV_VARS.GITHUB_TOKEN],
           source: "environment",
         },
@@ -111,11 +113,11 @@ export class ConfigurationLoader {
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
-      return parseYaml(content) as GlobalUserConfig;
+      const contentStr = typeof content === "string" ? content : content.toString();
+      return parseYaml(contentStr) as GlobalUserConfig;
     } catch (error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-       
-      console.error(`Failed to load global user config from ${configPath}:`, _error);
+      console.error(`Failed to load global user config from ${configPath}:`, error);
       return null;
     }
   }
@@ -132,8 +134,9 @@ export class ConfigurationLoader {
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
-      return parseYaml(content) as RepositoryConfig;
-    } catch (_error) {
+      const contentStr = typeof content === "string" ? content : content.toString();
+      return parseYaml(contentStr) as RepositoryConfig;
+    } catch (error) {
       // Silently fail - configuration loading should be resilient
       return null;
     }
@@ -149,7 +152,6 @@ export class ConfigurationLoader {
     const resolved: ResolvedConfig = {
       backend: defaults.backend || "json-file",
       backendConfig: { ...defaults.backendConfig },
-      credentials: { ...defaults.credentials },
       detectionRules: [...(defaults.detectionRules || [])],
       sessiondb: { ...defaults.sessiondb } as SessionDbConfig,
     };
@@ -184,11 +186,21 @@ export class ConfigurationLoader {
         };
         resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, repoSessionDb);
       }
+
+      // Merge GitHub config from repository
+      if (repository.github) {
+        resolved.github = this.mergeGitHubConfig(resolved.github, repository.github);
+      }
+
+      // Merge AI config from repository
+      if (repository.ai) {
+        resolved.ai = this.mergeAIConfig(resolved.ai, repository.ai);
+      }
     }
 
     // Apply global user config
-    if (globalUser?.credentials) {
-      resolved.credentials = this.mergeCredentials(resolved.credentials, globalUser.credentials);
+    if (globalUser?.github) {
+      resolved.github = this.mergeGitHubConfig(resolved.github, globalUser.github);
     }
     if (globalUser?.sessiondb) {
       // Convert global user sessiondb format to SessionDbConfig format
@@ -198,13 +210,19 @@ export class ConfigurationLoader {
       };
       resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, globalSessionDb);
     }
+    if (globalUser?.ai) {
+      resolved.ai = this.mergeAIConfig(resolved.ai, globalUser.ai);
+    }
+    if (globalUser?.postgres) {
+      resolved.postgres = { ...globalUser.postgres };
+    }
 
     // Apply environment overrides
     if (environment.backend) {
       resolved.backend = environment.backend;
     }
-    if (environment.credentials) {
-      resolved.credentials = this.mergeCredentials(resolved.credentials, environment.credentials);
+    if (environment.github) {
+      resolved.github = this.mergeGitHubConfig(resolved.github, environment.github);
     }
     if (environment.sessiondb) {
       resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, environment.sessiondb);
@@ -214,11 +232,8 @@ export class ConfigurationLoader {
     if (cliFlags.backend) {
       resolved.backend = cliFlags.backend;
     }
-    if (cliFlags.backendConfig) {
-      resolved.backendConfig = { ...resolved.backendConfig, ...cliFlags.backendConfig };
-    }
-    if (cliFlags.credentials) {
-      resolved.credentials = this.mergeCredentials(resolved.credentials, cliFlags.credentials);
+    if (cliFlags.github) {
+      resolved.github = this.mergeGitHubConfig(resolved.github, cliFlags.github);
     }
     if (cliFlags.sessiondb) {
       resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, cliFlags.sessiondb);
@@ -237,47 +252,71 @@ export class ConfigurationLoader {
     const merged = { ...existing };
 
     if (repositoryBackends?.["github-issues"]) {
-      merged["github-issues"] = repositoryBackends["github-issues"];
+      merged["github-issues"] = {
+        ...merged["github-issues"],
+        ...repositoryBackends["github-issues"],
+      };
     }
 
     return merged;
   }
 
   /**
-   * Merge credential configurations
+   * Merge GitHub configurations
    */
-  private mergeCredentials(
-    existing: CredentialConfig,
-    newCredentials: GlobalUserConfig["credentials"] | CredentialConfig
-  ): CredentialConfig {
+  private mergeGitHubConfig(
+    existing: GitHubConfig | undefined,
+    newGitHub: GitHubConfig
+  ): GitHubConfig {
     const merged = { ...existing };
-
-    if (newCredentials?.github) {
-      merged.github = { ...merged.github, ...newCredentials.github };
+    
+    if (newGitHub.credentials) {
+      merged.credentials = {
+        ...merged.credentials,
+        ...newGitHub.credentials,
+      };
     }
 
     return merged;
   }
 
   /**
-   * Merge sessiondb configurations
+   * Merge AI configurations
+   */
+  private mergeAIConfig(
+    existing: AIConfig | undefined,
+    newAI: AIConfig
+  ): AIConfig {
+    const merged = { ...existing };
+    
+    if (newAI.default_provider) {
+      merged.default_provider = newAI.default_provider;
+    }
+
+    if (newAI.providers) {
+      merged.providers = {
+        ...merged.providers,
+        ...newAI.providers,
+      };
+    }
+
+    return merged;
+  }
+
+  /**
+   * Merge session database configurations
    */
   private mergeSessionDbConfig(
     existing: SessionDbConfig | undefined,
     newSessionDb: Partial<SessionDbConfig>
   ): SessionDbConfig {
-    const existingConfig = existing || {
+    const merged: SessionDbConfig = {
       backend: "json",
-      baseDir: undefined,
-      dbPath: undefined,
-      connectionString: undefined,
+      ...existing,
+      ...newSessionDb,
     };
-    return {
-      backend: newSessionDb.backend || existingConfig.backend,
-      baseDir: newSessionDb.baseDir || existingConfig.baseDir,
-      dbPath: newSessionDb.dbPath || existingConfig.dbPath,
-      connectionString: newSessionDb.connectionString || existingConfig.connectionString,
-    };
+
+    return merged;
   }
 
   /**
