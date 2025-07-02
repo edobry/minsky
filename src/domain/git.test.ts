@@ -737,7 +737,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         gitService.cloneWithDependencies(
           {
             repoUrl: "",
-            _session: "test-session",
+            session: "test-session",
           },
           mockDeps
         )
@@ -791,7 +791,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         gitService.cloneWithDependencies(
           {
             repoUrl: "https://github.com/user/nonexistent.git",
-            _session: "test-session",
+            session: "test-session",
           },
           mockDeps
         )
@@ -819,7 +819,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         gitService.cloneWithDependencies(
           {
             repoUrl: "https://github.com/user/repo.git",
-            _session: "test-session",
+            session: "test-session",
           },
           mockDeps
         )
@@ -836,18 +836,18 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         access: createMock() as any,
       };
 
-      const _result = await gitService.cloneWithDependencies(
+      const result = await gitService.cloneWithDependencies(
         {
           repoUrl: "local/path/to/repo",
-          _session: "test-session",
+          session: "test-session",
         },
         mockDeps
       );
 
       // Should normalize local path correctly (normalizeRepoName returns "local/repo" for "local/path/to/repo")
       // After further normalization for directory structure, becomes "local-repo"
-      expect(result._workdir).toContain("local-repo");
-      expect(result._session).toBe("test-session");
+      expect(result.workdir).toContain("local-repo");
+      expect(result.session).toBe("test-session");
     });
 
     test("should handle error scenarios with proper error propagation", async () => {
@@ -864,7 +864,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         gitService.mergeBranchWithDependencies("/test/repo", "feature", mockDeps)
       ).rejects.toThrow("Failed to merge branch");
       await expect(gitService.pullLatestWithDependencies("/test/repo", mockDeps)).rejects.toThrow(
-        "Failed to pull latest changes"
+        "Failed to fetch latest changes"
       );
     });
   });
