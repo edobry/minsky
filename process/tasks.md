@@ -405,3 +405,5 @@
 - [ ] Implement Core Agent Loop for Independent Minsky Operation [#216](process/tasks/216-implement-core-agent-loop-for-independent-minsky-operation.md)
 
 - [x] Execute session migration to simplified path structure [#217](process/tasks/217-execute-session-migration-to-simplified-path-structure.md)
+
+- [ ] Remove redundant repoPath field from session records [#218](/Users/edobry/Projects/minsky/process/tasks/218-remove-redundant-repopath-field-from-session-records.md)

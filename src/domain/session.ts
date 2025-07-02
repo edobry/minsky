@@ -709,12 +709,8 @@ export async function getSessionDirFromParams(
     throw new ResourceNotFoundError(`Session "${sessionName}" not found`);
   }
 
-  // Get repo path from session
-  const repoPath = session.repoPath;
-
-  if (!repoPath) {
-    throw new MinskyError(`Session "${sessionName}" does not have a repository path`);
-  }
+  // Get repo path from session using the getRepoPath method which has fallback logic
+  const repoPath = await deps.sessionDB.getRepoPath(session);
 
   return repoPath;
 }
