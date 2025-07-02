@@ -43,6 +43,7 @@ export { createMockFileSystem, setupTestMocks } from "./mocking";
 import { setupTestCleanup } from "./cleanup";
 import { setupEnhancedMocking, validateMockIsolation } from "./enhanced-mocking";
 import { testDataFactory } from "./test-isolation";
+import { createMock } from "./mocking";
 
 /**
  * Complete test environment setup with all enhanced utilities
@@ -73,3 +74,81 @@ export function setupCompleteTestEnvironment() {
     }
   };
 }
+
+/**
+ * Jest/Vitest compatibility layer for Bun
+ */
+export const compat = {
+  setupTestCompat: () => {
+    // No-op for basic compatibility
+  },
+  
+  createCompatMock: (implementation?: (...args: any[]) => any) => {
+    const mockFn = createMock(implementation);
+    
+    // Add Jest-style methods
+    mockFn.mockClear = () => {
+      mockFn.mock.calls.length = 0;
+      mockFn.mock.results.length = 0;
+    };
+    
+    mockFn.mockReset = () => {
+      mockFn.mockClear();
+      mockFn.mockImplementation(() => undefined);
+    };
+    
+    mockFn.mockImplementationOnce = (fn: (...args: any[]) => any) => {
+      let used = false;
+      const originalImpl = mockFn.mockImplementation;
+      mockFn.mockImplementation = (...args: any[]) => {
+        if (!used) {
+          used = true;
+          return fn(...args);
+        }
+        return originalImpl ? originalImpl(...args) : undefined;
+      };
+    };
+    
+    mockFn.mockReturnValueOnce = (value: any) => {
+      mockFn.mockImplementationOnce(() => value);
+    };
+    
+    return mockFn;
+  },
+  
+  asymmetricMatchers: {
+    anything: () => ({
+      asymmetricMatch: (actual: any) => actual !== null && actual !== undefined,
+      toString: () => "anything()"
+    }),
+    
+    any: (constructor: any) => ({
+      asymmetricMatch: (actual: any) => actual instanceof constructor,
+      toString: () => `any(${constructor.name})`
+    }),
+    
+    stringContaining: (substring: string) => ({
+      asymmetricMatch: (actual: any) => 
+        typeof actual === "string" && actual.includes(substring),
+      toString: () => `stringContaining(${substring})`
+    }),
+    
+    objectContaining: (obj: any) => ({
+      asymmetricMatch: (actual: any) => {
+        if (typeof actual !== "object" || actual === null) return false;
+        return Object.keys(obj).every(key => 
+          key in actual && actual[key] === obj[key]
+        );
+      },
+      toString: () => `objectContaining(${JSON.stringify(obj)})`
+    }),
+    
+    arrayContaining: (arr: any[]) => ({
+      asymmetricMatch: (actual: any) => {
+        if (!Array.isArray(actual)) return false;
+        return arr.every(item => actual.includes(item));
+      },
+      toString: () => `arrayContaining(${JSON.stringify(arr)})`
+    })
+  }
+};
