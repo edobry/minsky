@@ -24,7 +24,7 @@ export interface SessionDbFileOptions {
 export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDbState {
   const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
   const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
-  const baseDir = options.baseDir || join(xdgStateHome, "minsky", "sessions");
+  const baseDir = options.baseDir || join(xdgStateHome, "minsky");
 
   try {
     if (!existsSync(dbPath)) {
