@@ -4,7 +4,7 @@
  */
 import { normalizeRepoName } from "./repo-utils.js";
 import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils.js";
-import { SessionDB } from "./session.js";
+import { createSessionProvider } from "./session.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
 import { ValidationError, MinskyError } from "../errors/index.js";
 import { log } from "../utils/logger.js";
