@@ -4,9 +4,9 @@
 # Backend selection
 backend: "MINSKY_BACKEND"
 
-# GitHub token for credentials
-credentials:
-  github:
+# GitHub credentials
+github:
+  credentials:
     token: "GITHUB_TOKEN"
 
 # Session database configuration
