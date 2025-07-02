@@ -1,4 +1,4 @@
-# Simplify Session Storage: Move from Repository-Based to Session-ID-Based Paths
+# Investigate and Fix normalizeRepoName function and repo name formatting inconsistencies
 
 ## Status
 
@@ -10,363 +10,210 @@ MEDIUM
 
 ## Description
 
-**MAJOR DIRECTION CHANGE**: Through investigation of repository normalization issues, we discovered a much better architectural approach. Instead of solving repository identity problems, we should eliminate the need for repository identity in filesystem paths entirely by using session-ID-based storage.
+Investigate the normalizeRepoName function and its impact on repo name formatting stored in the session database, then implement fixes for the identified inconsistencies. This task consolidates the investigation of repo name formatting issues with fixing specific path resolution problems in session PR commands.
 
-## Problem Evolution
+## Problem Statement
 
-### Original Problem
-Session PR command fails because it looks for `/git/minsky/sessions/` but actual path is `/git/local-minsky/sessions/` - inconsistent repository naming between storage and lookup.
+The normalizeRepoName function appears to be producing repo names in formats like 'local/minsky' and 'local-minsky' which may not be consistent or correct for Minsky's design and workflows. This inconsistency is causing specific issues:
 
-### Initial Investigation Direction
-Attempted to solve repository identity normalization:
-- Standardize `local/` vs `local-` format inconsistencies
-- Implement Git-native identity resolution (check remote origins)
-- Handle cross-platform path issues
+1. **Session PR Path Resolution Issue**: Session pr command tries to access wrong directory path (without local- prefix). The command looks for `/Users/user/.local/state/minsky/git/minsky/sessions/task#X` but actual path is `/Users/user/.local/state/minsky/git/local-minsky/sessions/task#X`. This causes git operations to fail.
 
-### Critical Insight Discovery
-Through investigation, we realized the **fundamental question**: "Why do we need repository identity in filesystem paths at all?"
+2. **General Repo Name Inconsistencies**: Multiple formats being used across different scenarios, creating potential conflicts and maintenance issues.
 
-**Current Approach Problems**:
-- Complex path encoding: `/git/local-minsky/sessions/task#214/`
-- Repository normalization edge cases: Windows paths, remote origins, identity chains
-- Architectural complexity: Multiple layers of path parsing and resolution
-- Future brittleness: Adding new repo backends requires path encoding solutions
+## Phase 1: Investigation
 
-## New Architectural Direction
+### ✅ Investigation Results
 
-### Core Principle: Separate Storage from Metadata
+#### 1. Root Cause Identified
 
-**Current (Complex)**:
-```
-Filesystem Path: /git/{repoIdentity}/sessions/{sessionId}/
-Metadata: Stored in path structure
-```
+The issue stems from **two different normalization strategies** being applied at different points in the codebase:
 
-**Proposed (Simple)**:
-```
-Filesystem Path: /sessions/{sessionId}/
-Metadata: Stored in session record
-```
+**Source of Inconsistency:**
 
-### Motivating Principles
+- **normalizeRepoName/normalizeRepositoryURI** (in `src/domain/repository-uri.ts`): Returns `local/minsky` (forward slash)
+- **GitService methods** (in `src/domain/git.ts`): Convert `local/minsky` → `local-minsky` (hyphen) for filesystem paths
 
-1. **Separation of Concerns**: Filesystem structure for storage, database for metadata
-2. **Path Predictability**: Session path always `/sessions/{sessionId}/` 
-3. **Metadata Centralization**: Repository information belongs in session records
-4. **Future-Proof Design**: Works with any repository backend without encoding issues
-5. **Simplicity Over Cleverness**: Eliminate complex normalization layers
+**Evidence from Investigation:**
 
-### Architectural Benefits
-
-**Code Simplification**:
-- Eliminate entire repository normalization layer (`normalizeRepositoryURI` etc.)
-- Remove complex path parsing logic (hundreds of lines in `workspace.ts`, `session-db.ts`)
-- Simplify session directory resolution to trivial path join
-
-**Operational Benefits**:
-- Predictable session paths for debugging and tooling
-- No repository identity conflicts or edge cases
-- Simple session migration between environments
-- Clear separation between storage and business logic
-
-**Scalability Benefits**:
-- Easy to add new repository backends without path encoding concerns
-- Session IDs can be globally unique (UUIDs if needed)
-- Database queries replace filesystem traversal for session discovery
-
-## Implementation Plan
-
-### Phase 1: Core Storage Refactoring
-
-**1.1 Update Session Directory Resolution** ✅ COMPLETE
-```typescript
-// Before (complex)
-getSessionWorkdir(repoName: string, session: string): string {
-  const normalizedRepoName = normalizeRepoName(repoName);
-  return join(this.baseDir, normalizedRepoName, "sessions", session);
-}
-
-// After (simple) - IMPLEMENTED
-getSessionWorkdir(session: string): string {
-  return join(this.baseDir, "sessions", session);
-}
-```
-
-**1.2 Remove Repository Path Encoding** 🔄 IN-PROGRESS
-- ✅ Core session-db.ts functions updated and tested (19/19 tests passing)
-- ✅ GitService.getSessionWorkdir method simplified 
-- ✅ Removed normalizeRepoName imports from core session functions
-- 🔄 Fixing remaining GitService call sites that expect old signature
-- 🔄 Update path resolution in related services
-
-**1.3 Update Session Record Schema** ✅ VERIFIED
-- ✅ Session records have `repoUrl` field populated 
-- ✅ Repository metadata accessible via session records
-- ✅ Schema supports new architecture (repository info stored in records, not paths)
-
-### Phase 2: Path Resolution Updates (NEXT)
-
-**2.1 Simplify Workspace Detection**
-```typescript
-// Before: Complex path parsing
-const relativePath = gitRoot.substring(minskyPath.length + 1);
-const pathParts = relativePath.split("/");
-if (pathParts.length >= 3 && pathParts[1] === "sessions") {
-  const sessionName = pathParts[2];
-}
-
-// After: Simple basename
-const sessionName = basename(gitRoot);
-```
-
-**2.2 Update Session-to-Repository Resolution**
-- Repository information comes from session record, not path
-- Update `getSessionFromWorkspace` and related functions
-- Simplify workspace/session detection logic
-
-### Phase 3: Data Migration (ADDED)
-
-**3.1 Migration Strategy for Existing Sessions**
-- **Current Challenge**: Existing sessions in `/git/{repo}/sessions/{id}/` need migration to `/sessions/{id}/`
-- **Migration Approach**: Implement safe, incremental migration with rollback capability
-- **Session Database Updates**: Update session records to reflect new path structure
-- **Backward Compatibility**: Ensure sessions work during migration period
-
-**3.2 Migration Implementation Plan**
-```typescript
-// Migration utility functions needed:
-// 1. Detect legacy session directories
-// 2. Move session directories to new structure  
-// 3. Update session database records
-// 4. Verify migration success
-// 5. Provide rollback capability
-
-async function migrateLegacySessions() {
-  const legacyBasePath = join(baseDir, "git");
-  const newBasePath = join(baseDir, "sessions");
-  
-  // Scan for legacy sessions in git/{repo}/sessions/
-  // Move to sessions/{id}/
-  // Update database records
-}
-```
-
-**3.3 Migration Safety Requirements**
-- **Pre-Migration Backup**: Create backup of existing session directories
-- **Incremental Migration**: Migrate one session at a time with verification
-- **Rollback Support**: Ability to restore original structure if needed
-- **Migration Logging**: Detailed logging of migration progress and any issues
-- **Verification**: Post-migration verification that all sessions still work
-
-### Phase 4: Test Updates (ADDED)
-
-**4.1 Core Test Updates** ✅ COMPLETE
-- ✅ session-db.test.ts updated for new path structure
-- ✅ All 19 core tests passing with simplified paths
-
-**4.2 Integration Test Updates** 🔄 REQUIRED
-- **GitService Tests**: Update tests that call `getSessionWorkdir(repo, session)` 
-- **Repository Backend Tests**: Update path expectations in local/remote/github backend tests
-- **Workspace Detection Tests**: Update tests that expect old path parsing logic
-- **Session Management Tests**: Update integration tests for session operations
-- **CLI Command Tests**: Update tests for session commands that rely on paths
-
-**4.3 Test Categories Requiring Updates**
-```typescript
-// Tests expecting old signature:
-getSessionWorkdir(repoName, session) // → getSessionWorkdir(session)
-
-// Tests expecting old paths:
-/git/local-minsky/sessions/task#214/ // → /sessions/task#214/
-
-// Tests with repository path parsing:
-// Complex path parsing logic → Simple basename extraction
-```
-
-**4.4 Mock and Fixture Updates**
-- **Test Mocks**: Update dependency mocks to use new interface signatures
-- **Test Fixtures**: Update test data to reflect new path structure
-- **Integration Test Data**: Update end-to-end test scenarios
-
-### Phase 5: Command Interface Updates (UPDATED)
-
-**5.1 New Session Metadata Commands**
 ```bash
-# Show repository for current or specified session
-minsky session repo [sessionId]
+# Session list shows:
+task#214 (#214) - local/minsky
 
-# Show detailed session information including repository
-minsky session info <sessionId>
-
-# List sessions filtered by repository
-minsky sessions list --repo <repoPath|repoUrl>
-
-# NEW: Migration command
-minsky session migrate [--dry-run] [--rollback]
+# Actual directory path:
+/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#214
 ```
 
-**5.2 Migration Command Implementation**
-- **Dry Run Mode**: Show what would be migrated without making changes
-- **Progressive Migration**: Migrate sessions incrementally with progress reporting
-- **Rollback Support**: Restore original structure if migration fails
-- **Status Reporting**: Show migration progress and session status
+#### 2. Code Analysis
 
-## Testing Strategy
+**Key Functions Involved:**
 
-### **Critical Test Areas**
+1. **normalizeRepoName() → `local/minsky`**
 
-**1. Path Resolution Tests**
-- Verify all `getSessionWorkdir` calls work with single parameter
-- Test session directory creation with new structure
-- Validate workspace detection with simplified paths
+   ```typescript
+   // src/domain/repository-uri.ts:250
+   export function normalizeRepoName(repoUrl: string): string {
+     return normalizeRepositoryURI(repoUrl);
+   }
 
-**2. Migration Tests**
-- Test migration of various session types (local, remote, github)
-- Verify session functionality after migration
-- Test rollback capability
-- Test partial migration scenarios
+   // For local paths like "/Users/edobry/Projects/minsky"
+   // Returns: "local/minsky"
+   ```
 
-**3. Integration Tests**
-- End-to-end session creation workflow
-- Session PR generation with new paths
-- Session update and deletion operations
-- Cross-session operations and workspace detection
+2. **GitService.clone() → `local-minsky`**
 
-**4. Backward Compatibility Tests**
-- Verify graceful handling of legacy path references
-- Test migration detection and automatic migration triggers
-- Ensure no data loss during migration process
+   ```typescript
+   // src/domain/git.ts:265-276
+   if (repoName.startsWith("local/")) {
+     const parts = repoName.split("/");
+     if (parts.length > 1) {
+       normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
+     }
+   }
+   // Converts "local/minsky" → "local-minsky"
+   ```
 
-## Migration Strategy Details
+3. **GitService.getSessionWorkdir() → `local-minsky`**
 
-### **Migration Phases**
+   ```typescript
+   // src/domain/git.ts:254-258
+   const normalizedRepoName = repoName.includes("/")
+     ? repoName.replace(/[^a-zA-Z0-9-_]/g, "-")
+     : repoName;
+   // Converts "local/minsky" → "local-minsky"
+   ```
 
-**Phase A: Detection and Planning**
-```typescript
-// 1. Scan for legacy sessions
-const legacySessions = await detectLegacySessions();
+4. **getRepoPathFn() → tries to use `local/minsky`**
+   ```typescript
+   // src/domain/session/session-db.ts:118-125
+   const repoName = normalizeRepoName(record.repoName || record.repoUrl);
+   return join(state.baseDir, repoName, "sessions", record.session);
+   // Uses original "local/minsky", creating path mismatch
+   ```
 
-// 2. Plan migration order (handle dependencies)
-const migrationPlan = createMigrationPlan(legacySessions);
+#### 3. Impact Analysis
 
-// 3. Create backup of current state
-await createMigrationBackup();
+**Affected Areas:**
+
+- ✅ Session creation (works - uses GitService normalization)
+- ❌ Session directory resolution (fails - uses original normalization)
+- ❌ Session PR commands (fails - can't find correct directory)
+- ❌ Any operation that uses getRepoPathFn()
+
+**Session List Evidence:**
+
+```bash
+task#168 (task#168) - local-minsky  # ← Older session shows hyphen format
+task#214 (#214) - local/minsky      # ← Newer session shows slash format
 ```
 
-**Phase B: Incremental Migration**  
-```typescript
-// 4. Migrate sessions one by one
-for (const session of migrationPlan) {
-  await migrateSession(session);
-  await verifySessionMigration(session);
-}
+#### 4. Design Intent vs Implementation
 
-// 5. Update session database records
-await updateSessionDatabase();
-```
+**Intended Design:** Single consistent repo name format throughout system
+**Actual Implementation:** Two different formats depending on code path
 
-**Phase C: Verification and Cleanup**
-```typescript
-// 6. Verify all sessions work with new structure
-await verifyAllSessions();
+### ✅ Migration Strategy Defined
 
-// 7. Clean up legacy directories (optional)
-await cleanupLegacyDirectories();
-```
+**Approach:** Standardize on filesystem-safe format (`local-minsky`) throughout the system.
 
-### **Migration Safety Measures**
+**Reasoning:**
 
-**1. Backup Strategy**
-- Create timestamped backup of entire session structure
-- Store backup metadata for rollback reference
-- Verify backup integrity before starting migration
+1. Directory paths must be filesystem-safe (no slashes in directory names)
+2. GitService already creates directories with hyphen format
+3. Changing existing directory structure would be more disruptive
+4. Hyphen format is more consistent with filesystem conventions
 
-**2. Rollback Capability**
-```typescript
-async function rollbackMigration(backupId: string) {
-  // Restore from backup
-  // Revert database changes  
-  // Verify rollback success
-}
-```
+## Phase 2: Implementation
 
-**3. Migration Validation**
-- Test each migrated session before proceeding
-- Verify git operations work in new location
-- Confirm session database consistency
-- Validate workspace detection still works
+### 1. Fix normalizeRepoName Function
 
-### **Implementation Priority**
+- [ ] Update normalizeRepositoryURI to return filesystem-safe names for local repos
+- [ ] Change `local/minsky` → `local-minsky` in the core normalization logic
+- [ ] Ensure consistency across all repo name generation
 
-**High Priority (Blocking):**
-1. Fix remaining GitService call sites with parameter mismatches
-2. Update repository backend implementations
-3. Implement basic migration utility
+### 2. Fix Session Database Path Resolution
 
-**Medium Priority (Important):**
-4. Update integration tests for new path structure
-5. Implement migration command in CLI
-6. Add migration safety features (backup/rollback)
+- [ ] Update getRepoPathFn to use consistent repo name format
+- [ ] Ensure session workdir resolution uses same normalization
+- [ ] Test session operations with corrected paths
 
-**Lower Priority (Polish):**
-7. Update all remaining test suites
-8. Add migration status reporting
-9. Implement automatic migration detection
+### 3. Update All Dependent Code
+
+- [ ] Review and update any code that expects `local/` format
+- [ ] Ensure GitService methods use consistent normalization
+- [ ] Update tests to expect new format
+
+### 4. Migration for Existing Data
+
+- [ ] Update session records to use consistent repo name format
+- [ ] Handle backward compatibility during transition
+- [ ] Add migration logic for existing sessions
+
+### 5. Testing
+
+- [ ] Add comprehensive tests for normalizeRepoName function
+- [ ] Test session PR path resolution with various repo name formats
+- [ ] End-to-end testing of session workflows
+
+## Requirements
+
+1. **Investigation Deliverables** ✅ COMPLETE
+
+   - [x] normalizeRepoName function behavior fully documented
+   - [x] All inconsistencies identified and catalogued
+   - [x] Root cause of path resolution issues identified
+   - [x] Migration strategy defined
+
+2. **Implementation Requirements**
+
+   - [ ] Fix normalizeRepoName function to produce consistent output
+   - [ ] Fix session PR command path resolution issues
+   - [ ] Ensure all session commands work with corrected paths
+   - [ ] Maintain backward compatibility where possible
+
+3. **Testing Requirements**
+   - [ ] Unit tests for normalizeRepoName function
+   - [ ] Integration tests for session PR commands
+   - [ ] End-to-end tests covering various repository types
 
 ## Success Criteria
 
-1. **Functional**: All existing session operations work with new storage structure
-2. **Simple**: Session path resolution becomes trivial (`/sessions/{id}/`)
-3. **Clean**: Repository normalization complexity eliminated
-4. **Metadata**: Repository information accessible via session commands
-5. **Future-Ready**: New repository backends don't require path encoding
+1. **Investigation Phase Complete** ✅ DONE
+
+   - [x] normalizeRepoName function behavior fully documented
+   - [x] All inconsistencies identified and catalogued
+   - [x] Root cause of path resolution issues identified
+   - [x] Migration strategy defined (if needed)
+
+2. **Implementation Phase Complete**
+
+   - [ ] Session PR commands work correctly with all repository types
+   - [ ] No more path resolution failures due to missing prefixes
+   - [ ] Consistent repo name format used throughout the system
+   - [ ] All existing sessions continue to work (backward compatibility)
+   - [ ] Comprehensive test coverage for repo name handling
+
+3. **Verification**
+   - [ ] All session commands (start, pr, update, etc.) work correctly
+   - [ ] No regression in existing functionality
+   - [ ] Clean test suite with no path-related failures
+
+## Work Log
+
+### Investigation Phase (Complete)
+
+- ✅ Reproduced the issue: Session shows `local/minsky` but actual path is `local-minsky`
+- ✅ Identified root cause in GitService normalization logic
+- ✅ Analyzed all functions involved in repo name handling
+- ✅ Documented the inconsistency between storage and filesystem paths
+- ✅ Defined migration strategy
+
+### Next Steps
+
+- [ ] Implement the fix in normalizeRepositoryURI function
+- [ ] Update session database path resolution
+- [ ] Add comprehensive tests
+- [ ] Test with real session workflows
 
 ## Notes
 
-This represents a fundamental shift from "encode metadata in paths" to "paths for storage, database for metadata" - a much cleaner architectural approach that eliminates the entire class of repository identity problems we were trying to solve.
-
-The original issue (session PR path resolution failure) gets solved as a side effect of this cleaner design, while simultaneously making the codebase more maintainable and extensible.
-
-## Progress Log
-
-### ✅ Completed (2025-01-06)
-
-**Core Session-ID-Based Storage Implementation**:
-- **Session Path Simplification**: Successfully changed from `/git/{repoName}/sessions/{sessionId}/` to `/sessions/{sessionId}/`
-- **Base Directory Update**: Changed from `/minsky/git` to `/minsky` 
-- **Repository Normalization Removal**: Eliminated `normalizeRepoName` dependencies in core session functions
-- **GitService Interface Update**: Simplified `getSessionWorkdir(repoName, session)` to `getSessionWorkdir(session)`
-- **Test Coverage**: All 19 session-db tests passing with new simplified architecture
-- **Interface Updates**: Updated PrTestDependencies and ExtendedGitDependencies to use new signature
-
-**Evidence of Success**:
-```bash
-# Before: Complex repo-based paths
-/test/base/dir/local/minsky/sessions/test-session-1
-
-# After: Simple session-ID-based paths  
-/test/base/dir/sessions/test-session-1
-```
-
-### 🔄 In Progress
-
-**GitService Call Site Updates**:
-- Multiple locations still calling `getSessionWorkdir(repoName, session)` need updating
-- Repository backend services need interface updates
-- Dependency injection sites need parameter count fixes
-
-### 📋 Next Steps
-
-1. **Complete GitService Call Site Updates**
-   - Fix remaining "Expected 1 arguments, but got 2" errors
-   - Update all repository backend implementations
-   - Update test mocks and dependency objects
-
-2. **Update Workspace Detection Logic**
-   - Implement basename-based session detection
-   - Remove complex path parsing logic
-
-3. **Test End-to-End Integration**
-   - Verify session creation works with new paths
-   - Test session PR commands with simplified architecture
-   - Validate workspace detection
+This task consolidates the investigation from task #214 with the specific fix requirements from task #212. The investigation phase is complete and has revealed a clear path forward for implementation.

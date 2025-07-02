@@ -324,8 +324,6 @@
 
 - [x] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
 
-- [ ] Test Task Creation [#168](process/tasks/168-test-task-creation.md)
-
 - [ ] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
 - [+] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
@@ -400,8 +398,10 @@
 
 - [ ] Improve session pr command error handling and UX [#211](process/tasks/211-improve-session-pr-command-error-handling-and-ux.md)
 
-- [ ] Fix session pr path resolution issues [#212](process/tasks/212-fix-session-pr-path-resolution-issues.md)
+- [!] Fix session pr path resolution issues [#212](process/tasks/212-fix-session-pr-path-resolution-issues.md)
 
-- [ ] Investigate normalizeRepoName function and repo name formatting inconsistencies [#214](process/tasks/214-investigate-normalizereponame-function-and-repo-name-formatting-inconsistencies.md)
+- [+] Investigate normalizeRepoName function and repo name formatting inconsistencies [#214](process/tasks/214-investigate-normalizereponame-function-and-repo-name-formatting-inconsistencies.md)
 
 - [ ] Implement Core Agent Loop for Independent Minsky Operation [#216](process/tasks/216-implement-core-agent-loop-for-independent-minsky-operation.md)
+
+- [ ] Execute session migration to simplified path structure [#217](process/tasks/217-execute-session-migration-to-simplified-path-structure.md)
