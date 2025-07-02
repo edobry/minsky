@@ -161,7 +161,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         const headerText = trimmed.slice(2);
 
         // Try to extract task ID and title from header like "Task #TEST_VALUE: Title"
-        const taskMatch = headerText.match(/^Task\s+#?(\d+):\s*(.+)$/);
+        const taskMatch = headerText.match(/^Task\s+#?([A-Za-z0-9_]+):\s*(.+)$/);
         if (taskMatch && taskMatch[1] && taskMatch[2]) {
           id = `#${taskMatch[1]}`;
           title = taskMatch[2].trim();

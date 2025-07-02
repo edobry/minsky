@@ -8,7 +8,7 @@
 import { log } from "../../../utils/logger";
 import { StorageBackendFactory } from "../storage-backend-factory";
 import { SessionDbConfig } from "../../configuration/types";
-import { configurationService } from "../../configuration";
+import config from "config";
 import { getErrorMessage } from "../../../errors";
 
 export interface HealthStatus {
@@ -54,24 +54,23 @@ export class SessionDbHealthMonitor {
   /**
    * Perform comprehensive health check
    */
-  static async performHealthCheck(config?: SessionDbConfig): Promise<SystemHealth> {
+  static async performHealthCheck(sessionDbConfig?: SessionDbConfig): Promise<SystemHealth> {
     const startTime = Date.now();
 
     try {
       // Load configuration if not provided
-      if (!config) {
-        const loadedConfig = await configurationService.loadConfiguration(process.cwd());
-        config = loadedConfig.resolved.sessiondb;
+      if (!sessionDbConfig) {
+        sessionDbConfig = config.get("sessiondb") as SessionDbConfig;
       }
 
       // Check backend health
-      const backendHealth = await this.checkBackendHealth(config);
+      const backendHealth = await this.checkBackendHealth(sessionDbConfig);
 
       // Analyze performance metrics
       const performance = this.analyzePerformance();
 
       // Check storage-specific metrics
-      const storage = await this.checkStorageMetrics(config);
+      const storage = await this.checkStorageMetrics(sessionDbConfig);
 
       // Generate recommendations
       const recommendations = this.generateRecommendations(backendHealth, performance, storage);
@@ -103,7 +102,7 @@ export class SessionDbHealthMonitor {
         overall: "unhealthy",
         backend: {
           healthy: false,
-          backend: config?.backend || "unknown",
+          backend: sessionDbConfig?.backend || "unknown",
           responseTime: Date.now() - startTime,
           timestamp: new Date().toISOString(),
           errors: [
