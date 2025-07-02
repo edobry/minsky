@@ -349,7 +349,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
 
   // Initialize with provided files
   Object.entries(initialFiles).forEach(([path, content]) => {
-    files.set(_path, _content);
+    files.set(path, content);
     // Also add all parent directories
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) {
@@ -366,8 +366,8 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       }
       return files.get(path);
     }),
-    writeFileSync: createMock((path: unknown) => {
-      files.set(_path, data);
+    writeFileSync: createMock((path: unknown, data: unknown) => {
+      files.set(path as string, data as string);
       // Add parent directories
       const parts = path.split("/");
       for (let i = 1; i < parts.length; i++) {
@@ -404,8 +404,8 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       }
       return files.get(path);
     }),
-    writeFile: createMock(async (path: unknown) => {
-      files.set(_path, data);
+    writeFile: createMock(async (path: unknown, data: unknown) => {
+      files.set(path as string, data as string);
       // Add parent directories
       const parts = path.split("/");
       for (let i = 1; i < parts.length; i++) {
