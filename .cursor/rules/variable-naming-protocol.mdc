@@ -15,6 +15,24 @@ description: Use when encountering variable naming linter errors or "not defined
 
 This rule addresses a critical pattern error where underscores are inappropriately added to existing, working variable names during code modifications.
 
+## ⚠️ CRITICAL DISCOVERY: VARIABLE NAMING CAN CAUSE INFINITE LOOPS
+
+**NEWLY IDENTIFIED IN TASK #224**: Variable naming mismatches can cause infinite loops in tests, not just compilation errors.
+
+**Pattern Discovered**:
+- **Symptom**: Tests running for 4+ billion milliseconds (infinite execution)
+- **Root Cause**: Variable declaration/usage mismatches in async operations or loops
+- **Examples**: 
+  - `const _workspacePath = ...` but code uses `workspacePath` 
+  - Function parameter `_workspacePath` but function body uses `workspacePath`
+  - Variable `err` undefined in catch blocks causing retry loops
+
+**CRITICAL IMPACT**: This is not just a "variable not defined" error - it can make tests completely unusable by creating infinite execution deadlocks.
+
+**Performance Evidence**: Task #224 resolved infinite loops causing 99.999% execution time improvements:
+- JsonFileTaskBackend: 4,319,673,451ms → 241ms  
+- SessionPathResolver: 4,319,805,914ms → 143ms
+
 ## MANDATORY PRE-CHANGE VERIFICATION
 
 **BEFORE changing ANY variable name, MUST complete this checklist:**
@@ -23,6 +41,7 @@ This rule addresses a critical pattern error where underscores are inappropriate
 2. ✅ **Definition Check**: Where is this variable supposed to be defined?
 3. ✅ **Usage Analysis**: Is this variable already in use and working correctly?
 4. ✅ **Root Cause**: Am I fixing the actual issue or just renaming to avoid the error?
+5. ✅ **Performance Check**: Could this cause infinite loops in async operations?
 
 **If variable is already defined and working: DO NOT ADD UNDERSCORES**
 

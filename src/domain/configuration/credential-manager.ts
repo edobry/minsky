@@ -67,16 +67,17 @@ export class DefaultCredentialManager implements CredentialManager {
 
     // 2. Check global config file
     const globalConfig = await this.loadGlobalConfig();
-    if (globalConfig?.credentials?.github?.token) {
-      return globalConfig.credentials.github.token;
+    if (globalConfig?.github?.credentials?.token) {
+      return globalConfig.github.credentials.token;
     }
 
     // 3. Check token file if configured
-    if (globalConfig?.credentials?.github?.token_file) {
-      const tokenFile = this.expandTilde(globalConfig.credentials.github.token_file);
+    if (globalConfig?.github?.credentials?.token_file) {
+      const tokenFile = this.expandTilde(globalConfig.github.credentials.token_file);
       if (existsSync(tokenFile)) {
         try {
-          return readFileSync(tokenFile, { encoding: "utf8" }).trim();
+          const content = readFileSync(tokenFile, { encoding: "utf8" });
+          return typeof content === "string" ? content.trim() : content.toString().trim();
         } catch (error) {
           // Silently ignore file read errors
         }
@@ -92,22 +93,22 @@ export class DefaultCredentialManager implements CredentialManager {
   private async setGitHubCredential(source: CredentialSource, value?: string): Promise<void> {
     const globalConfig = (await this.loadGlobalConfig()) || this.createEmptyGlobalConfig();
 
-    if (!globalConfig.credentials) {
-      globalConfig.credentials = {};
+    if (!globalConfig.github) {
+      globalConfig.github = {};
     }
 
-    if (!globalConfig.credentials.github) {
-      globalConfig.credentials.github = { source };
+    if (!globalConfig.github.credentials) {
+      globalConfig.github.credentials = { source };
     }
 
-    globalConfig.credentials.github.source = source;
+    globalConfig.github.credentials.source = source;
 
     if (source === "file" && value) {
-      globalConfig.credentials.github.token = value;
+      globalConfig.github.credentials.token = value;
     }
 
     if (source === "prompt" && value) {
-      globalConfig.credentials.github.token = value;
+      globalConfig.github.credentials.token = value;
     }
 
     await this.saveGlobalConfig(globalConfig);
@@ -136,7 +137,8 @@ export class DefaultCredentialManager implements CredentialManager {
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
-      return parseYaml(content) as GlobalUserConfig;
+      const contentStr = typeof content === "string" ? content : content.toString();
+      return parseYaml(contentStr) as GlobalUserConfig;
     } catch (error) {
       return null;
     }
@@ -168,7 +170,7 @@ export class DefaultCredentialManager implements CredentialManager {
   private createEmptyGlobalConfig(): GlobalUserConfig {
     return {
       version: 1,
-      credentials: {}
+      github: {}
     };
   }
 

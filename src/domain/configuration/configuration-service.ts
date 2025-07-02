@@ -129,14 +129,14 @@ export class DefaultConfigurationService implements ConfigurationService {
       });
     }
 
-    // Credential validation
-    if (config.credentials?.github) {
-      const github = config.credentials.github;
+    // GitHub credential validation
+    if (config.github?.credentials) {
+      const github = config.github.credentials;
       const validSources: CredentialSource[] = ["environment", "file", "prompt"];
 
       if (!validSources.includes(github.source)) {
         errors.push({
-          field: "credentials.github.source",
+          field: "github.credentials.source",
           message: `Invalid credential source: ${github.source}. Valid options: ${validSources.join(", ")}`,
           code: "INVALID_CREDENTIAL_SOURCE",
         });
@@ -144,7 +144,7 @@ export class DefaultConfigurationService implements ConfigurationService {
 
       if (github.source === "file" && !github.token && !github.token_file) {
         warnings.push({
-          field: "credentials.github",
+          field: "github.credentials",
           message: "Neither token nor token_file specified for file-based credential source",
           code: "INCOMPLETE_FILE_CREDENTIALS",
         });
@@ -197,17 +197,17 @@ export class DefaultConfigurationService implements ConfigurationService {
 
     // Resolve GitHub credentials if needed
     if (
-      (config.backend === "github-issues" || config.credentials.github) &&
-      !config.credentials.github?.token
+      (config.backend === "github-issues" || config.github?.credentials) &&
+      !config.github?.credentials?.token
     ) {
       const githubToken = await this.credentialManager.getCredential("github");
       if (githubToken) {
-        resolved.credentials = {
-          ...resolved.credentials,
-          github: {
-            ...resolved.credentials.github,
+        resolved.github = {
+          ...resolved.github,
+          credentials: {
+            ...resolved.github?.credentials,
             token: githubToken,
-            source: resolved.credentials.github?.source || "environment",
+            source: resolved.github?.credentials?.source || "environment",
           },
         };
       }

@@ -11,23 +11,6 @@ backendConfig:
   markdown: {}
   json-file: {}
 
-# Credential configuration
-credentials:
-  github:
-    source: "environment"
-  postgres: {}
-  ai:
-    openai:
-      source: "environment"
-    anthropic:
-      source: "environment"
-    google:
-      source: "environment"
-    cohere:
-      source: "environment"
-    mistral:
-      source: "environment"
-
 # Backend detection rules
 detectionRules:
   - condition: "tasks_md_exists"
@@ -44,42 +27,36 @@ sessiondb:
   dbPath: null
   connectionString: null
 
+# GitHub configuration
+github:
+  credentials:
+    source: "environment"
+
 # AI configuration
 ai:
-  default_provider: null
   providers:
     openai:
+      credentials:
+        source: "environment"
       enabled: true
-      default_model: null
-      base_url: null
       models: []
-      max_tokens: null
-      temperature: null
     anthropic:
+      credentials:
+        source: "environment"
       enabled: true
-      default_model: null
-      base_url: null
       models: []
-      max_tokens: null
-      temperature: null
     google:
+      credentials:
+        source: "environment"
       enabled: true
-      default_model: null
-      base_url: null
       models: []
-      max_tokens: null
-      temperature: null
     cohere:
+      credentials:
+        source: "environment"
       enabled: true
-      default_model: null
-      base_url: null
       models: []
-      max_tokens: null
-      temperature: null
     mistral:
+      credentials:
+        source: "environment"
       enabled: true
-      default_model: null
-      base_url: null
       models: []
-      max_tokens: null
-      temperature: null

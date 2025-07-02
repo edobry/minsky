@@ -91,13 +91,13 @@ describe("MarkdownTaskBackend", () => {
     let task = await backend.getTask("#003");
     expect(task?._status).toBe("DONE");
     // Check file content
-    const file = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file = readFileSync(tasksPath, "utf-8");
     expect(file).toMatch(/- \[x\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
     expect(task?._status).toBe("TODO");
-    const file2 = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file2 = readFileSync(tasksPath, "utf-8");
     expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
   });
 
@@ -106,13 +106,13 @@ describe("MarkdownTaskBackend", () => {
     let task = await backend.getTask("#003");
     expect(task?._status).toBe("IN-PROGRESS");
     // Check file content
-    const file = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file = readFileSync(tasksPath, "utf-8");
     expect(file).toMatch(/- \[-\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
     expect(task?._status).toBe("TODO");
-    const file2 = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file2 = readFileSync(tasksPath, "utf-8");
     expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
   });
 
@@ -121,13 +121,13 @@ describe("MarkdownTaskBackend", () => {
     let task = await backend.getTask("#003");
     expect(task?._status).toBe("IN-REVIEW");
     // Check file content
-    const file = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file = readFileSync(tasksPath, "utf-8");
     expect(file).toMatch(/- \[\+\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
     expect(task?._status).toBe("TODO");
-    const file2 = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file2 = readFileSync(tasksPath, "utf-8");
     expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
   });
 
@@ -148,9 +148,9 @@ describe("MarkdownTaskBackend", () => {
 
   it("does nothing if task id does not exist for setTaskStatus", async () => {
     // Should not throw, should not change file
-    const before = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const before = readFileSync(tasksPath, "utf-8");
     await backend.setTaskStatus("#999", "DONE");
-    const after = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const after = readFileSync(tasksPath, "utf-8");
     expect(after).toBe(before);
   });
 
