@@ -57,7 +57,7 @@ export function expectToHaveBeenCalled(mockFn: { mock?: { calls: unknown[][] } }
  * @param expectedArgs The expected arguments
  */
 export function expectToHaveBeenCalledWith(
-  _mockFn: { mock?: { calls: unknown[][] } },
+  mockFn: { mock?: { calls: unknown[][] } },
   ...expectedArgs: unknown[]
 ): void {
   expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
@@ -85,7 +85,7 @@ export function expectToHaveBeenCalledWith(
  * @returns The argument at the specified position
  */
 export function getMockCallArg(
-  _mockFn: { mock?: { calls: unknown[][] } },
+  mockFn: { mock?: { calls: unknown[][] } },
   callIndex = 0,
   argIndex = 0
 ): unknown {
@@ -121,7 +121,7 @@ export function expectToHaveProperty(object: unknown, propertyPath: string, valu
  * @param precision The number of decimal places to check (default: 2)
  */
 export function expectToBeCloseTo(
-  _received: number,
+  received: number,
   expected: number,
   precision: number = 2
 ): void {

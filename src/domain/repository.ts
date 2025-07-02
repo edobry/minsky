@@ -354,8 +354,8 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const _session = repoSession.session;
-        const _workdir = gitService.getSessionWorkdir(_repoName, _session);
+        const sessionName = repoSession.session;
+        const workdir = gitService.getSessionWorkdir(sessionName);
 
         await gitService.push({
           _session,
@@ -374,13 +374,13 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const _workdir = gitService.getSessionWorkdir(_repoName, repoSession._session);
-        await gitService.pullLatest(_workdir);
+        const workdir = gitService.getSessionWorkdir(repoSession.session);
+        await gitService.pullLatest(workdir);
       },
 
-      branch: async (_session: string, name: string): Promise<BranchResult> => {
+      branch: async (session: string, name: string): Promise<BranchResult> => {
         const repoName = normalizeRepoName(config.url || "");
-        const _workdir = gitService.getSessionWorkdir(_repoName, _session);
+        const workdir = gitService.getSessionWorkdir(session);
 
         // Execute branch creation via Git command
         await (await import("util")).promisify((await import("child_process")).exec)(
@@ -388,8 +388,8 @@ export async function createRepositoryBackend(
         );
 
         return {
-          _workdir,
-          _branch: name,
+          workdir,
+          branch: name,
         };
       },
 
@@ -404,7 +404,7 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const _workdir = gitService.getSessionWorkdir(_repoName, repoSession._session);
+        const workdir = gitService.getSessionWorkdir(repoSession.session);
 
         // Execute checkout via Git command
         await (await import("util")).promisify((await import("child_process")).exec)(

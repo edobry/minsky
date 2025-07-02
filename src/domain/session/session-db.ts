@@ -4,7 +4,6 @@
  */
 
 import { join } from "path";
-import { normalizeRepoName } from "../repository-uri";
 
 /**
  * Session record structure
@@ -32,7 +31,7 @@ export interface SessionDbState {
  */
 export function initializeSessionDbState(options: { baseDir?: string } = {}): SessionDbState {
   const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-  const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
+  const baseDir = options.baseDir || join(xdgStateHome, "minsky");
 
   return {
     sessions: [],
@@ -77,9 +76,9 @@ export function addSessionFn(state: SessionDbState, record: SessionRecord): Sess
  * Update an existing session
  */
 export function updateSessionFn(
-  _state: SessionDbState,
-  _sessionName: string,
-  _updates: Partial<Omit<"session">>
+  state: SessionDbState,
+  sessionName: string,
+  updates: Partial<Omit<SessionRecord, "session">>
 ): SessionDbState {
   const index = state.sessions.findIndex((s) => s.session === sessionName);
   if (index === -1) {
@@ -126,18 +125,17 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
     return record.repoPath;
   }
 
-  const repoName = normalizeRepoName(record.repoName || record.repoUrl);
-  return join(state.baseDir, repoName, "sessions", record.session);
+  return join(state.baseDir, "sessions", record.session);
 }
 
 /**
  * Get the working directory for a session
  */
-export function getSessionWorkdirFn(_state: SessionDbState, _sessionName: string): string | null {
-  const _session = getSessionFn(_state, _sessionName);
+export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | null {
+  const session = getSessionFn(state, sessionName);
   if (!session) {
     return null;
   }
 
-  return getRepoPathFn(_state, _session);
+  return getRepoPathFn(state, session);
 }
