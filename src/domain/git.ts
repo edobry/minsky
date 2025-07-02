@@ -8,6 +8,13 @@ import { SessionDB, createSessionProvider, type SessionRecord } from "./session"
 import { TaskService, TASK_STATUS } from "./tasks";
 import { MinskyError } from "../errors/index";
 import { log } from "../utils/logger";
+import { 
+  ConflictDetectionService, 
+  ConflictPrediction, 
+  BranchDivergenceAnalysis,
+  EnhancedMergeResult,
+  SmartUpdateResult
+} from "./git/conflict-detection";
 
 const execAsync = promisify(exec);
 
@@ -86,6 +93,51 @@ export interface GitServiceInterface {
    * Check if repository has uncommitted changes
    */
   hasUncommittedChanges(repoPath: string): Promise<boolean>;
+
+  /**
+   * Predict conflicts before performing merge operations
+   */
+  predictMergeConflicts(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string
+  ): Promise<ConflictPrediction>;
+
+  /**
+   * Analyze branch divergence between session and base branches
+   */
+  analyzeBranchDivergence(
+    repoPath: string,
+    sessionBranch: string,
+    baseBranch: string
+  ): Promise<BranchDivergenceAnalysis>;
+
+  /**
+   * Enhanced merge with conflict prediction and better handling
+   */
+  mergeWithConflictPrevention(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string,
+    options?: {
+      skipConflictCheck?: boolean;
+      autoResolveDeleteConflicts?: boolean;
+      dryRun?: boolean;
+    }
+  ): Promise<EnhancedMergeResult>;
+
+  /**
+   * Smart session update that detects already-merged changes
+   */
+  smartSessionUpdate(
+    repoPath: string,
+    sessionBranch: string,
+    baseBranch: string,
+    options?: {
+      skipIfAlreadyMerged?: boolean;
+      autoResolveConflicts?: boolean;
+    }
+  ): Promise<SmartUpdateResult>;
 }
 
 // Define PrTestDependencies first so PrDependencies can extend it
@@ -2066,6 +2118,59 @@ Session requested: "${options.session}"
   async hasUncommittedChanges(repoPath: string): Promise<boolean> {
     const { stdout } = await execAsync(`git -C ${repoPath} status --porcelain`);
     return stdout.trim().length > 0;
+  }
+
+  /**
+   * Predict conflicts before performing merge operations
+   */
+  async predictMergeConflicts(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string
+  ): Promise<ConflictPrediction> {
+    return ConflictDetectionService.predictConflicts(repoPath, sourceBranch, targetBranch);
+  }
+
+  /**
+   * Analyze branch divergence between session and base branches
+   */
+  async analyzeBranchDivergence(
+    repoPath: string,
+    sessionBranch: string,
+    baseBranch: string
+  ): Promise<BranchDivergenceAnalysis> {
+    return ConflictDetectionService.analyzeBranchDivergence(repoPath, sessionBranch, baseBranch);
+  }
+
+  /**
+   * Enhanced merge with conflict prediction and better handling
+   */
+  async mergeWithConflictPrevention(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string,
+    options?: {
+      skipConflictCheck?: boolean;
+      autoResolveDeleteConflicts?: boolean;
+      dryRun?: boolean;
+    }
+  ): Promise<EnhancedMergeResult> {
+    return ConflictDetectionService.mergeWithConflictPrevention(repoPath, sourceBranch, targetBranch, options);
+  }
+
+  /**
+   * Smart session update that detects already-merged changes
+   */
+  async smartSessionUpdate(
+    repoPath: string,
+    sessionBranch: string,
+    baseBranch: string,
+    options?: {
+      skipIfAlreadyMerged?: boolean;
+      autoResolveConflicts?: boolean;
+    }
+  ): Promise<SmartUpdateResult> {
+    return ConflictDetectionService.smartSessionUpdate(repoPath, sessionBranch, baseBranch, options);
   }
 }
 
