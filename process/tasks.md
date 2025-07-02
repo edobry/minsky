@@ -374,10 +374,6 @@
 
 - [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#195](process/tasks/195-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
-- [ ] Test Task Creation Fix [#196](process/tasks/196-test-task-creation-fix.md)
-
-- [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#197](process/tasks/197-task-169-evaluate-and-deduplicate-improved-error-messages.md)
-
 - [ ] Task 170: Investigate Session Database Architecture Issues [#198](process/tasks/198-task-170-investigate-session-database-architecture-issues.md)
 
 - [ ] Task 171: Analyze and Modularize Overly Long Files [#199](process/tasks/199-task-171-analyze-and-modularize-overly-long-files.md)
@@ -424,4 +420,6 @@
 
 - [ ] Implement AI-Powered Session Review Workflow [#226](process/tasks/226-implement-ai-powered-session-review-workflow.md)
 
-- [ ] Extend conflict detection to comprehensive git workflow protection [#227](/Users/edobry/Projects/minsky/process/tasks/227-extend-conflict-detection-to-comprehensive-git-workflow-protection.md)
+- [ ] Extend conflict detection to comprehensive git workflow protection [#227](process/tasks/227-extend-conflict-detection-to-comprehensive-git-workflow-protection.md)
+
+- [ ] Exclude CLOSED tasks from default tasks list output [#228](/Users/edobry/Projects/minsky/process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)
