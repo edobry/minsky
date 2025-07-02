@@ -471,7 +471,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
 
       // For methods that don't exist, create a mock function
       if (typeof prop === "string") {
-        const _mockFn = createMock();
+        const mockFn = createMock();
         target[prop] = mockFn;
         return mockFn;
       }
@@ -541,7 +541,7 @@ export function createSpyOn<T extends object, M extends keyof T>(
   }
 
   // Create a mock function that calls the original
-  const _mockFn = mock((..._args: unknown[]) => {
+  const mockFn = mock((..._args: unknown[]) => {
     return (original as Function).apply(_obj, _args);
   });
 

@@ -132,12 +132,12 @@ describe("MarkdownTaskBackend", () => {
   });
 
   it("ignores tasks in code blocks", async () => {
-    const _tasks = await backend.listTasks();
+    const tasks = await backend.listTasks();
     expect(tasks.find((t) => t.id === "#999")).toBeUndefined();
   });
 
   it("ignores malformed lines", async () => {
-    const _tasks = await backend.listTasks();
+    const tasks = await backend.listTasks();
     expect(tasks.find((t) => t.title && t.title.includes("Malformed"))).toBeUndefined();
     expect(tasks.find((t) => t.title && t.title.includes("Not a real task"))).toBeUndefined();
   });
@@ -164,7 +164,7 @@ describe("MarkdownTaskBackend", () => {
 # Tasks
 \n\`\`\`markdown\n- [ ] In code block [#100](tasks/100.md)\n\`\`\`\n- [ ] Real Task [#101](tasks/101.md)\n\`\`\`\n- [ ] Also in code block [#102](tasks/102.md)\n\`\`\`\n- [x] Real Done [#103](tasks/103.md)\n`;
     writeFileSync(tasksPath, md);
-    const _tasks = await backend.listTasks();
+    const tasks = await backend.listTasks();
     expect(tasks.length).toBe(2);
     expect(tasks.map((t) => t.id)).toEqual(["#101", "#103"]);
   });
@@ -204,7 +204,7 @@ describe("TaskService", () => {
   });
 
   it("lists tasks via TaskService", async () => {
-    const _tasks = await service.listTasks();
+    const tasks = await service.listTasks();
     expect(tasks.length).toBe(3);
   });
 

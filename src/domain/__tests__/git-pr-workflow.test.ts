@@ -63,7 +63,7 @@ describe("Session Approve Workflow", () => {
   });
 
   test("successfully approves and merges a PR branch with task ID", async () => {
-    const _result = await approveSessionFromParams(
+    const result = await approveSessionFromParams(
       { _session: "test-session" },
       {
         gitService: mockGitService as any,

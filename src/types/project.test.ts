@@ -24,7 +24,7 @@ describe("ProjectContext", () => {
   describe("createProjectContext", () => {
     test("creates a ProjectContext for current working directory", () => {
       // Test with a path we know exists - the current working directory
-      const _context = createProjectContext(process.cwd());
+      const context = createProjectContext(process.cwd());
 
       expect(_context).toBeDefined();
       expect(context.repositoryPath).toBeDefined();
@@ -49,7 +49,7 @@ describe("ProjectContext", () => {
 
   describe("createProjectContextFromCwd", () => {
     test("creates a ProjectContext from current working directory", () => {
-      const _context = createProjectContextFromCwd();
+      const context = createProjectContextFromCwd();
 
       expect(_context).toBeDefined();
       expect(context.repositoryPath).toBeDefined();
