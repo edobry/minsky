@@ -401,6 +401,12 @@ export function setupCommonCommandCustomizations(program?: Command): void {
     commandOptions: {
       "config.list": {
         outputFormatter: (result: any) => {
+          // Check if JSON output was requested
+          if (result.json) {
+            log.cli(JSON.stringify(result, null, 2));
+            return;
+          }
+
           if (result.success && result.sources && result.resolved) {
             const resolvedOutput = formatResolvedConfiguration(result.resolved);
             log.cli(resolvedOutput);
@@ -413,6 +419,12 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       },
       "config.show": {
         outputFormatter: (result: any) => {
+          // Check if JSON output was requested
+          if (result.json) {
+            log.cli(JSON.stringify(result, null, 2));
+            return;
+          }
+
           if (result.success && result.configuration) {
             const output = formatResolvedConfiguration(result.configuration);
             log.cli(output);
