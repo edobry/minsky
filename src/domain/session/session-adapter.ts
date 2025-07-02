@@ -83,7 +83,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
       this.baseDir = join(dbPath, "..", "..", "git");
     } else {
       this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
-      this.baseDir = join(xdgStateHome, "minsky", "git");
+      this.baseDir = join(xdgStateHome, "minsky", "sessions");
     }
 
     // Initialize state (will be populated on first read)

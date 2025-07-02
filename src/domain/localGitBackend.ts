@@ -49,8 +49,9 @@ export class LocalGitBackend implements RepositoryBackend {
       ...config,
       type: RepositoryBackendType.LOCAL,
     };
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(_xdgStateHome, "minsky", "git");
+    const _xdgStateHome =
+      process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    this.baseDir = join(_xdgStateHome, "minsky", "sessions");
     this.sessionDb = new SessionDB();
     this.cache = RepositoryMetadataCache.getInstance();
   }
