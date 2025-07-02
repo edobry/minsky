@@ -253,7 +253,7 @@ export class GitService implements GitServiceInterface {
   getSessionWorkdir(session: string): string {
     // NEW: Simplified session-ID-based path structure
     // Before: /git/{repoName}/sessions/{sessionId}/
-    // After:  /sessions/{sessionId}/  
+    // After:  /sessions/{sessionId}/
     return join(this.baseDir, "sessions", session);
   }
 
@@ -296,7 +296,7 @@ export class GitService implements GitServiceInterface {
       log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
       const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
       try {
-        // Create session directory structure ONLY when ready to clone  
+        // Create session directory structure ONLY when ready to clone
         // This ensures no orphaned directories if validation fails
         await mkdir(dirname(workdir), { recursive: true });
         log.debug("Session parent directory created", { parentDir: dirname(workdir) });
@@ -423,8 +423,7 @@ export class GitService implements GitServiceInterface {
     const deps: PrDependencies = {
       execAsync,
       getSession: async (name: string) => this.sessionDb.getSession(name),
-      getSessionWorkdir: (session: string) =>
-        this.getSessionWorkdir(session),
+      getSessionWorkdir: (session: string) => this.getSessionWorkdir(session),
       getSessionByTaskId: async (taskId: string) => this.sessionDb.getSessionByTaskId?.(taskId),
     };
 
@@ -1159,7 +1158,9 @@ Need help? Run: minsky git pr --help
 
         if (hasConflicts) {
           // Leave repository in merging state for user to resolve conflicts
-          log.debug("Merge conflicts detected, leaving repository in merging state for manual resolution");
+          log.debug(
+            "Merge conflicts detected, leaving repository in merging state for manual resolution"
+          );
           return { workdir, merged: false, conflicts: true };
         }
         log.debug("No conflicts detected, re-throwing original error");
