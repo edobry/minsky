@@ -34,10 +34,10 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
     if (dbPath) {
       this.dbPath = dbPath;
-      this.baseDir = baseDir || join(dbPath, "..", "..", "git");
+      this.baseDir = baseDir || join(dbPath, "..", "..");
     } else {
       this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
-      this.baseDir = baseDir || join(xdgStateHome, "minsky", "git");
+      this.baseDir = baseDir || join(xdgStateHome, "minsky");
     }
   }
 

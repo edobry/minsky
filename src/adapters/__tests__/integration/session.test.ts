@@ -147,7 +147,7 @@ describe("Session Domain Methods", () => {
       const params = {};
 
       // Act
-      const _result = await mockListSessionsFromParams(params);
+      const result = await mockListSessionsFromParams(params);
 
       // Assert
       expect(mockListSessionsFromParams).toHaveBeenCalledWith(params);
@@ -228,7 +228,7 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockStartSessionFromParams(params);
+      const result = await mockStartSessionFromParams(params);
 
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
@@ -258,7 +258,7 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockStartSessionFromParams(params);
+      const result = await mockStartSessionFromParams(params);
 
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
@@ -307,7 +307,7 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockUpdateSessionFromParams(params);
+      const result = await mockUpdateSessionFromParams(params);
 
       // Assert
       expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
@@ -417,7 +417,7 @@ describe("Session Domain Methods", () => {
       }));
 
       // Act
-      const _result = await mockInspectSessionFromParams({});
+      const result = await mockInspectSessionFromParams({});
 
       // Assert
       expect(mockInspectSessionFromParams).toHaveBeenCalledWith({});

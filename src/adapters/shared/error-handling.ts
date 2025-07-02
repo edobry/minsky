@@ -54,7 +54,7 @@ export class SharedErrorHandler {
   static formatError(_error: unknown, debug: boolean = false): Record<string, unknown> {
     const normalizedError = ensureError(error);
     let errorType = "UNKNOWN_ERROR";
-    const _result: Record<string, unknown> = {
+    const result = {
       message: normalizedError.message,
     };
 

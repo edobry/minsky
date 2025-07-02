@@ -71,7 +71,7 @@ describe("Tasks Domain Methods", () => {
       mockGetTaskFromParams.mockResolvedValue(mockTasks[0]);
 
       // Act
-      const _result = await mockGetTaskFromParams(params);
+      const result = await mockGetTaskFromParams(params);
 
       // Assert
       expect(mockGetTaskFromParams).toHaveBeenCalledWith(params);
@@ -117,7 +117,7 @@ describe("Tasks Domain Methods", () => {
       mockListTasksFromParams.mockResolvedValue(mockTasks);
 
       // Act
-      const _result = await mockListTasksFromParams(params);
+      const result = await mockListTasksFromParams(params);
 
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
@@ -136,7 +136,7 @@ describe("Tasks Domain Methods", () => {
       mockListTasksFromParams.mockResolvedValue(filteredTasks);
 
       // Act
-      const _result = await mockListTasksFromParams(params);
+      const result = await mockListTasksFromParams(params);
 
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);

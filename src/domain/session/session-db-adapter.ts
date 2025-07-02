@@ -25,8 +25,35 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
-      // Use node-config directly to get sessiondb configuration
-      const sessionDbConfig = config.get("sessiondb") as any;
+      // Use node-config to get sessiondb configuration, with fallback to defaults
+      let sessionDbConfig: any;
+      
+      try {
+        // Check if sessiondb config exists before trying to get it
+        if (config.has("sessiondb")) {
+          sessionDbConfig = config.get("sessiondb") as any;
+        } else {
+          log.debug("Session database configuration not found in config, using defaults");
+          sessionDbConfig = null;
+        }
+      } catch (error) {
+        // Fallback to defaults when config is not available (e.g., running from outside project directory)
+        log.debug("Configuration not available, using default session storage settings", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        sessionDbConfig = null;
+      }
+
+      // Additional check: if sessionDbConfig is null/undefined, use defaults
+      if (!sessionDbConfig || typeof sessionDbConfig !== "object") {
+        log.debug("Session database configuration is missing or invalid, using defaults");
+        sessionDbConfig = {
+          backend: "json",
+          baseDir: null,
+          dbPath: null,
+          connectionString: null,
+        };
+      }
 
       // Convert SessionDbConfig to StorageConfig
       const storageConfig: Partial<StorageConfig> = {

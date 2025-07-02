@@ -2,10 +2,3 @@ version: 1
 backend: markdown
 sessiondb:
   backend: sqlite
-  sqlite:
-    path: /Users/edobry/.local/state/minsky/sessions.db
-  base_dir: /Users/edobry/.local/state/minsky/git
-# Override default backend to use markdown for tasks
-detectionRules:
-  - condition: "always"
-    backend: "markdown"
