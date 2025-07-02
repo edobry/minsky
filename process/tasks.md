@@ -407,3 +407,15 @@
 - [x] Execute session migration to simplified path structure [#217](process/tasks/217-execute-session-migration-to-simplified-path-structure.md)
 
 - [+] Remove redundant repoPath field from session records [#218](process/tasks/218-remove-redundant-repopath-field-from-session-records.md)
+
+- [ ] Add specific linting rules for underscore prefixes in variable declarations [#219](process/tasks/219-add-specific-linting-rules-for-underscore-prefixes-in-variable-declarations.md)
+
+- [ ] Improve Test Isolation and Reliability [#220](process/tasks/220-improve-test-isolation-and-reliability.md)
+
+- [ ] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
+
+- [ ] Enhanced Session PR Workflow [#222](process/tasks/222-enhanced-session-pr-workflow.md)
+
+- [ ] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
+
+- [ ] Restructure configuration to colocate credentials with their components [#224](/Users/edobry/Projects/minsky/process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
