@@ -2,7 +2,7 @@ import { join } from "path";
 import { mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { SessionDB } from "../session.js";
+import { createSessionProvider, type SessionProviderInterface } from "../session.js";
 import { normalizeRepositoryURI } from "../repository-uri.js";
 import type {
   RepositoryBackend,
@@ -33,7 +33,7 @@ export class RemoteGitBackend implements RepositoryBackend {
   private readonly repoUrl: string;
   private readonly repoName: string;
   private readonly defaultBranch?: string;
-  private sessionDb: SessionDB;
+  private sessionDb: SessionProviderInterface;
 
   /**
    * Create a new RemoteGitBackend instance
@@ -52,7 +52,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     }
 
     this.repoName = normalizeRepositoryURI(this.repoUrl);
-    this.sessionDb = new SessionDB();
+    this.sessionDb = createSessionProvider();
   }
 
   /**
