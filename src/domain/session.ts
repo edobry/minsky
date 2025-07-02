@@ -32,7 +32,6 @@ export interface SessionRecord {
   repoUrl: string;
   createdAt: string;
   taskId?: string;
-  repoPath?: string; // Add repoPath to the interface
   backendType?: "local" | "remote" | "github"; // Added for repository backend support
   github?: {
     owner?: string;
@@ -53,7 +52,6 @@ export interface Session {
   branch?: string;
   createdAt?: string;
   taskId?: string;
-  repoPath?: string;
   backendType?: "local" | "remote" | "github";
   github?: {
     owner?: string;
@@ -253,20 +251,11 @@ export class SessionDB implements SessionProviderInterface {
 
     // Handle case when session is missing
     if (!record.session) {
-      // If we have repoPath, use it directly
-      if (record.repoPath) {
-        return record.repoPath;
-      }
       // For workdir in some objects
       if (record.workdir) {
         return record.workdir;
       }
       throw new Error("Invalid session record: missing session");
-    }
-
-    // If the record already has a repoPath, use that
-    if (record.repoPath) {
-      return record.repoPath;
     }
 
     // Use simplified session-ID-based path structure: /sessions/{sessionId}/
@@ -514,7 +503,6 @@ export async function startSessionFromParams(
       createdAt: new Date().toISOString(),
       taskId,
       branch: branch || sessionName,
-      repoPath: sessionDir, // Include the repository path explicitly
     };
 
     let sessionAdded = false;
@@ -532,7 +520,7 @@ export async function startSessionFromParams(
       // Create a branch based on the session name - use branchWithoutSession
       // since session record hasn't been added to DB yet
       const branchResult = await deps.gitService.branchWithoutSession({
-        repoName: normalizeRepoName(repoUrl),
+        repoName: normalizedRepoName,
         session: sessionName,
         branch: branchName,
       });
@@ -618,7 +606,7 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
     return {
       session: sessionName,
       repoUrl,
-      repoName: normalizeRepoName(repoUrl),
+      repoName: normalizedRepoName,
       branch: branchName,
       taskId,
     };
@@ -818,7 +806,6 @@ export async function updateSessionFromParams(
             createdAt: new Date().toISOString(),
             taskId,
             branch: sessionName,
-            repoPath: currentDir,
           };
 
           await deps.sessionDB.addSession(newSessionRecord);
@@ -951,7 +938,6 @@ Resolution options:
         branch: currentBranch,
         createdAt: sessionRecord.createdAt,
         taskId: sessionRecord.taskId,
-        repoPath: workdir,
       };
     } catch (error) {
       // If there's an error during update, try to clean up any stashed changes

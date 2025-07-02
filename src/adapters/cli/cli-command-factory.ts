@@ -407,10 +407,18 @@ export function setupCommonCommandCustomizations(program?: Command): void {
             return;
           }
 
-          if (result.success && result.sources && result.resolved) {
-            // For config list, show sources AND resolved configuration
-            const sourcesOutput = formatConfigurationSources(result.resolved, result.sources);
-            log.cli(sourcesOutput);
+          if (result.success && result.resolved) {
+            let output = "";
+
+            // Show sources if explicitly requested
+            if (result.showSources && result.sources) {
+              output += formatConfigurationSources(result.resolved, result.sources);
+            } else {
+              // For config list, show flattened key=value pairs
+              output += formatFlattenedConfiguration(result.resolved);
+            }
+
+            log.cli(output);
           } else if (result.error) {
             log.cli(`Failed to load configuration: ${result.error}`);
           } else {
@@ -427,7 +435,16 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           }
 
           if (result.success && result.configuration) {
-            const output = formatResolvedConfiguration(result.configuration);
+            let output = "";
+
+            // Show sources if explicitly requested
+            if (result.showSources && result.sources) {
+              output += formatConfigurationSources(result.configuration, result.sources);
+            } else {
+              // Default human-friendly structured view
+              output += formatResolvedConfiguration(result.configuration);
+            }
+
             log.cli(output);
           } else if (result.error) {
             log.cli(`Failed to load configuration: ${result.error}`);
@@ -618,6 +635,48 @@ function sanitizeCredentials(creds: any): any {
   }
 
   return sanitized;
+}
+
+function formatFlattenedConfiguration(resolved: any): string {
+  const flatten = (obj: any, prefix = ""): string[] => {
+    const result: string[] = [];
+
+    for (const [key, value] of Object.entries(obj)) {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+
+      if (value === null || value === undefined) {
+        result.push(`${fullKey}=(null)`);
+      } else if (typeof value === "object" && !Array.isArray(value)) {
+        // Recursively flatten objects
+        result.push(...flatten(value, fullKey));
+      } else if (Array.isArray(value)) {
+        if (value.length === 0) {
+          result.push(`${fullKey}=(empty array)`);
+        } else {
+          value.forEach((item, index) => {
+            if (typeof item === "object") {
+              result.push(...flatten(item, `${fullKey}[${index}]`));
+            } else {
+              result.push(`${fullKey}[${index}]=${item}`);
+            }
+          });
+        }
+      } else if (
+        typeof value === "string" &&
+        (fullKey.includes("token") || fullKey.includes("password"))
+      ) {
+        // Hide sensitive values
+        result.push(`${fullKey}=*** (hidden)`);
+      } else {
+        result.push(`${fullKey}=${value}`);
+      }
+    }
+
+    return result;
+  };
+
+  const flatEntries = flatten(resolved);
+  return flatEntries.join("\n");
 }
 
 /**
