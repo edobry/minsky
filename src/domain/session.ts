@@ -514,6 +514,8 @@ export async function getSessionDirFromParams(
   return repoPath;
 }
 
+
+
 /**
  * Interface-agnostic function for updating a session
  */
@@ -661,8 +663,8 @@ export async function updateSessionFromParams(
       await deps.gitService.pullLatest(workdir, remote || "origin");
       log.debug("Latest changes pulled");
 
-      // Determine target branch for merge
-      const branchToMerge = branch || "main";
+      // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
+      const branchToMerge = branch || await deps.gitService.fetchDefaultBranch(workdir);
       const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
       
       // Enhanced conflict detection and smart merge handling
