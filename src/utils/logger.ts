@@ -145,21 +145,40 @@ export const log = {
     }
     agentLogger.info(message);
   },
-  debug: (message: unknown) => {
+  debug: (message: string, context?: LogContext) => {
     // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       // No-op in HUMAN mode to prevent "no transports" warning
       return;
     }
     // Otherwise, use agentLogger as normal
-    agentLogger.debug(message);
+    if (context) {
+      agentLogger.debug(message, context);
+    } else {
+      agentLogger.debug(message);
+    }
   },
-  warn: (message: unknown) => {
+  info: (message: string, context?: LogContext) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
-    agentLogger.warn(message);
+    if (context) {
+      agentLogger.info(message, context);
+    } else {
+      agentLogger.info(message);
+    }
+  },
+  warn: (message: string, context?: LogContext) => {
+    // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
+      return;
+    }
+    if (context) {
+      agentLogger.warn(message, context);
+    } else {
+      agentLogger.warn(message);
+    }
   },
   error: (
     message: string,

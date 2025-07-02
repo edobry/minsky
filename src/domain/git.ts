@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import type { ExecException } from "node:child_process";
 import { exec } from "node:child_process";
@@ -45,7 +45,7 @@ export interface GitServiceInterface {
   /**
    * Get the working directory for a session
    */
-  getSessionWorkdir(repoName: string, session: string): string;
+  getSessionWorkdir(session: string): string;
 
   /**
    * Stash changes in a repository
@@ -92,7 +92,7 @@ export interface GitServiceInterface {
 export interface PrTestDependencies {
   execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
   getSession: (name: string) => Promise<any>;
-  getSessionWorkdir: (repoName: string, session: string) => string;
+  getSessionWorkdir: (session: string) => string;
   getSessionByTaskId?: (taskId: string) => Promise<any>;
 }
 
@@ -105,7 +105,7 @@ export interface BasicGitDependencies {
 
 export interface ExtendedGitDependencies extends BasicGitDependencies {
   getSession: (name: string) => Promise<any>;
-  getSessionWorkdir: (repoName: string, session: string) => string;
+  getSessionWorkdir: (session: string) => string;
   mkdir: (path: string, options?: any) => Promise<void>;
   readdir: (path: string) => Promise<string[]>;
   access: (path: string) => Promise<void>;
@@ -234,7 +234,7 @@ export class GitService implements GitServiceInterface {
         "minsky",
         "git"
       );
-    this.sessionDb = createSessionProvider({ workingDir: process.cwd() }) as SessionDB;
+    this.sessionDb = createSessionProvider({ dbPath: process.cwd() }) as SessionDB;
   }
 
   // Add public method to get session record
@@ -250,12 +250,11 @@ export class GitService implements GitServiceInterface {
     return Math.random().toString(36).substring(2, 8);
   }
 
-  getSessionWorkdir(repoName: string, session: string): string {
-    // For consistency, ensure we're always using a normalized repo name
-    const normalizedRepoName = repoName.includes("/")
-      ? repoName.replace(/[^a-zA-Z0-9-_]/g, "-")
-      : repoName;
-    return join(this.baseDir, normalizedRepoName, "sessions", session);
+  getSessionWorkdir(session: string): string {
+    // NEW: Simplified session-ID-based path structure
+    // Before: /git/{repoName}/sessions/{sessionId}/
+    // After:  /sessions/{sessionId}/  
+    return join(this.baseDir, "sessions", session);
   }
 
   async clone(options: CloneOptions): Promise<CloneResult> {
@@ -283,7 +282,7 @@ export class GitService implements GitServiceInterface {
       normalizedRepoName,
     });
 
-    const workdir = this.getSessionWorkdir(normalizedRepoName, session);
+    const workdir = this.getSessionWorkdir(session);
     log.debug("Computed workdir path", { workdir });
 
     try {
@@ -293,17 +292,14 @@ export class GitService implements GitServiceInterface {
         throw new MinskyError("Repository URL is required for cloning");
       }
 
-      // Define sessions directory path but don't create it yet
-      const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
-
       // Clone the repository with verbose logging FIRST
       log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
       const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
       try {
-        // Create sessions directory structure ONLY when ready to clone
+        // Create session directory structure ONLY when ready to clone  
         // This ensures no orphaned directories if validation fails
-        await mkdir(sessionsDir, { recursive: true });
-        log.debug("Sessions directory created", { sessionsDir });
+        await mkdir(dirname(workdir), { recursive: true });
+        log.debug("Session parent directory created", { parentDir: dirname(workdir) });
 
         const { stdout, stderr } = await execAsync(cloneCmd);
         log.debug("git clone succeeded", {
@@ -391,7 +387,7 @@ export class GitService implements GitServiceInterface {
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     log.debug("Branch: got repoName", { repoName });
 
-    const workdir = this.getSessionWorkdir(repoName, options.session);
+    const workdir = this.getSessionWorkdir(options.session);
     log.debug("Branch: calculated workdir", { workdir });
 
     await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
@@ -412,7 +408,7 @@ export class GitService implements GitServiceInterface {
   }): Promise<BranchResult> {
     await this.ensureBaseDir();
 
-    const workdir = this.getSessionWorkdir(options.repoName, options.session);
+    const workdir = this.getSessionWorkdir(options.session);
     await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
 
     return {
@@ -427,8 +423,8 @@ export class GitService implements GitServiceInterface {
     const deps: PrDependencies = {
       execAsync,
       getSession: async (name: string) => this.sessionDb.getSession(name),
-      getSessionWorkdir: (repoName: string, session: string) =>
-        this.getSessionWorkdir(repoName, session),
+      getSessionWorkdir: (session: string) =>
+        this.getSessionWorkdir(session),
       getSessionByTaskId: async (taskId: string) => this.sessionDb.getSessionByTaskId?.(taskId),
     };
 
@@ -589,8 +585,7 @@ The session you're trying to create a PR for doesn't exist.
 Need help? Run: minsky git pr --help
 `);
     }
-    const repoName = session.repoName || normalizeRepoName(session.repoUrl);
-    const workdir = deps.getSessionWorkdir(repoName, sessionName);
+    const workdir = deps.getSessionWorkdir(sessionName);
 
     log.debug("Using workdir for PR", { workdir, session: sessionName });
     return workdir;
@@ -1207,7 +1202,7 @@ Need help? Run: minsky git pr --help
         throw new Error(`Session '${options.session}' not found.`);
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(repoName, options.session);
+      workdir = this.getSessionWorkdir(options.session);
       branch = options.session; // Session branch is named after the session
     } else if (options.repoPath) {
       workdir = options.repoPath;
@@ -1687,7 +1682,7 @@ Session requested: "${options.session}"
         throw new Error(`Session '${options.session}' not found.`);
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(repoName, options.session);
+      workdir = this.getSessionWorkdir(options.session);
     } else if (options.repoPath) {
       workdir = options.repoPath;
     } else {
@@ -1949,7 +1944,7 @@ Session requested: "${options.session}"
     const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
     await deps.mkdir(sessionsDir, { recursive: true });
 
-    const workdir = this.getSessionWorkdir(normalizedRepoName, session);
+    const workdir = this.getSessionWorkdir(session);
 
     try {
       // Validate repo URL
@@ -2000,8 +1995,7 @@ Session requested: "${options.session}"
       throw new Error(`Session '${options.session}' not found.`);
     }
 
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-    const workdir = deps.getSessionWorkdir(repoName, options.session);
+    const workdir = deps.getSessionWorkdir(options.session);
 
     await deps.execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
     return {
@@ -2024,8 +2018,7 @@ Session requested: "${options.session}"
       if (!record) {
         throw new Error(`Session '${options.session}' not found.`);
       }
-      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = deps.getSessionWorkdir(repoName, options.session);
+      workdir = deps.getSessionWorkdir(options.session);
       branch = options.session; // Session branch is named after the session
     } else if (options.repoPath) {
       workdir = options.repoPath;
