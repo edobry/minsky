@@ -58,6 +58,7 @@ export function createSessionData(
     session?: string;
     taskId?: string;
     repoName?: string;
+    repoUrl?: string;
     repoPath?: string;
     branch?: string;
     createdAt?: string;
@@ -70,6 +71,7 @@ export function createSessionData(
     session,
     taskId,
     repoName: overrides.repoName || "test/repo",
+    repoUrl: overrides.repoUrl || "https://github.com/test/repo.git",
     repoPath: overrides.repoPath || `/mock/repo/${createRandomId()}`,
     branch: overrides.branch || `task-${taskId}`,
     createdAt: overrides.createdAt || new Date().toISOString(),

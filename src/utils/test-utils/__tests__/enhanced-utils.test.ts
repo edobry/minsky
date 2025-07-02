@@ -189,32 +189,32 @@ describe("Enhanced Test Utilities", () => {
 
       // Verify task has all required properties
       expect(task.id).toMatch(/^#\d{3}$/);
-      expect(task._title).toBeDefined();
-      expect(task._status).toBeDefined();
+      expect(task.title).toBeDefined();
+      expect(task.status).toBeDefined();
     });
 
     test("should create task data with overrides", () => {
       const task = createTaskData({
         id: "#042",
-        _title: "Special Test Task",
-        _status: "IN-PROGRESS",
+        title: "Special Test Task",
+        status: "IN-PROGRESS",
       });
 
       // Verify overrides are applied
       expect(task.id).toBe("#042");
-      expect(task._title).toBe("Special Test Task");
-      expect(task._status).toBe("IN-PROGRESS");
+      expect(task.title).toBe("Special Test Task");
+      expect(task.status).toBe("IN-PROGRESS");
     });
 
     test("should create an array of task data", () => {
-      const tasks = createTaskDataArray(3, { _status: "IN-PROGRESS" });
+      const tasks = createTaskDataArray(3, { status: "IN-PROGRESS" });
 
       // Verify we get the right number of tasks
       expect(tasks.length).toBe(3);
 
       // Verify all tasks have the status we specified
       tasks.forEach((task) => {
-        expect(task._status).toBe("IN-PROGRESS");
+        expect(task.status).toBe("IN-PROGRESS");
       });
     });
 
