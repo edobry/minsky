@@ -121,15 +121,8 @@ export class SessionDB implements SessionProviderInterface {
 
   constructor(dbPath?: string) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-
-    if (dbPath) {
-      this.dbPath = dbPath;
-      // For custom dbPath, set baseDir based on a parallel directory structure
-      this.baseDir = join(dbPath, "..", "..", "git");
-    } else {
-      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
-      this.baseDir = join(xdgStateHome, "minsky", "git");
-    }
+    this.dbPath = dbPath || join(xdgStateHome, "minsky", "session-db.json");
+    this.baseDir = join(xdgStateHome, "minsky"); // Use base minsky directory
   }
 
   private async ensureDbDir(): Promise<void> {
@@ -145,13 +138,7 @@ export class SessionDB implements SessionProviderInterface {
       const data = await readFile(this.dbPath, "utf8");
       const sessions = JSON.parse(data);
 
-      // Migrate existing sessions to include repoName
-      return sessions.map((session: SessionRecord) => {
-        if (!session.repoName && session.repoUrl) {
-          session.repoName = normalizeRepoName(session.repoUrl);
-        }
-        return session;
-      });
+      return sessions;
     } catch (e) {
       return [];
     }
@@ -244,12 +231,12 @@ export class SessionDB implements SessionProviderInterface {
   }
 
   /**
-   * Gets the repository path for a session, checking both legacy and new paths
+   * Gets the repository path for a session using the simplified session-ID-based structure
    * @param record The session record or session result
    * @returns The repository path
    */
   async getRepoPath(record: SessionRecord | any): Promise<string> {
-    // Add defensive checks for the input to avoid paths[1] error
+    // Add defensive checks for the input
     if (!record) {
       throw new Error("Session record is required");
     }
@@ -264,8 +251,8 @@ export class SessionDB implements SessionProviderInterface {
       return record.cloneResult.workdir;
     }
 
-    // Handle case when repoName or session is missing
-    if (!record.repoName || !record.session) {
+    // Handle case when session is missing
+    if (!record.session) {
       // If we have repoPath, use it directly
       if (record.repoPath) {
         return record.repoPath;
@@ -274,7 +261,7 @@ export class SessionDB implements SessionProviderInterface {
       if (record.workdir) {
         return record.workdir;
       }
-      throw new Error("Invalid session record: missing repoName or session");
+      throw new Error("Invalid session record: missing session");
     }
 
     // If the record already has a repoPath, use that
@@ -282,53 +269,18 @@ export class SessionDB implements SessionProviderInterface {
       return record.repoPath;
     }
 
-    // Fix for local repository paths: handle the case where repoName contains slashes
-    // GitService.clone normalizes slashes to dashes, so we need to do the same here
-    let normalizedRepoName = record.repoName;
-    if (normalizedRepoName.startsWith("local/")) {
-      // Replace slashes with dashes in the path segments after "local/"
-      const parts = normalizedRepoName.split("/");
-      if (parts.length > 1) {
-        // Keep "local" as is, but normalize the rest
-        normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
-      }
-    }
+    // Use simplified session-ID-based path structure: /sessions/{sessionId}/
+    const sessionPath = join(this.baseDir, "sessions", record.session);
 
-    // Check for new path first (with sessions subdirectory)
-    const newPath = join(this.baseDir, normalizedRepoName, "sessions", record.session);
-    if (await this.repoExists(newPath)) {
-      return newPath;
-    }
-
-    // Try another common pattern for local repos
-    const altPath = join(
-      this.baseDir,
-      normalizedRepoName.replace(/\//g, "-"),
-      "sessions",
-      record.session
-    );
-    if (await this.repoExists(altPath)) {
-      return altPath;
-    }
-
-    // Fall back to legacy path
-    const legacyPath = join(this.baseDir, normalizedRepoName, record.session);
-    if (await this.repoExists(legacyPath)) {
-      return legacyPath;
-    }
-
-    // Default to new path structure even if it"s not exist yet
+    // Create the directory if it doesn't exist
     try {
-      // If the directory doesn't exist, try to create it
-      // This ensures session directories are created even if git clone encounters issues
-      await mkdir(join(this.baseDir, normalizedRepoName, "sessions"), { recursive: true });
-      return newPath;
+      await mkdir(join(this.baseDir, "sessions"), { recursive: true });
+      return sessionPath;
     } catch (error) {
-      // If we can't create the directory, fall back to the original path
       log.error(
         `Warning: Failed to create session directory: ${error instanceof Error ? error.message : String(error)}`
       );
-      return newPath;
+      return sessionPath;
     }
   }
 
@@ -347,16 +299,6 @@ export class SessionDB implements SessionProviderInterface {
   }
 
   /**
-   * Get the new repository path with sessions subdirectory for a session
-   * @param repoName The repository name
-   * @param sessionId The session ID
-   * @returns The new repository path
-   */
-  getNewSessionRepoPath(repoName: string, sessionId: string): string {
-    return join(this.baseDir, repoName, "sessions", sessionId);
-  }
-
-  /**
    * Get the working directory for a session
    * For backward compatibility with tests
    * @param sessionName The session name
@@ -368,46 +310,6 @@ export class SessionDB implements SessionProviderInterface {
       throw new Error(`Session "${sessionName}" not found.`);
     }
     return this.getRepoPath(session);
-  }
-
-  /**
-   * Migrate all sessions to use the sessions subdirectory structure
-   * This is called once to migrate existing repositories
-   */
-  async migrateSessionsToSubdirectory(): Promise<void> {
-    const sessions = await this.readDb();
-    let modified = false;
-
-    for (const session of sessions) {
-      // Skip sessions that already have a repoPath
-      if (session.repoPath?.includes("/sessions/")) {
-        continue;
-      }
-
-      const legacyPath = join(this.baseDir, session.repoName, session.session);
-      const newPath = join(this.baseDir, session.repoName, "sessions", session.session);
-
-      // Check if legacy path exists
-      if (await this.repoExists(legacyPath)) {
-        // Create new path directory structure
-        await mkdir(join(this.baseDir, session.repoName, "sessions"), { recursive: true });
-
-        // Move repository to new location
-        try {
-          await rename(legacyPath, newPath);
-          // Update session record
-          session.repoPath = newPath;
-          modified = true;
-        } catch (err) {
-          log.error(`Failed to migrate session ${session.session}:`, { error: err });
-        }
-      }
-    }
-
-    // Save changes
-    if (modified) {
-      await this.writeDb(sessions);
-    }
   }
 }
 
@@ -588,18 +490,10 @@ export async function startSessionFromParams(
       normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
     }
 
-    // Generate the expected repository path
-    const sessionDir =
-      deps.sessionDB instanceof SessionDB
-        ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
-        : join(
-          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-          "minsky",
-          "git",
-          normalizedRepoName,
-          "sessions",
-          sessionName
-        );
+    // Generate the expected repository path using simplified session-ID-based structure
+    const sessionBaseDir =
+      process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionName);
 
     // Check if session directory already exists and clean it up
     if (existsSync(sessionDir)) {
