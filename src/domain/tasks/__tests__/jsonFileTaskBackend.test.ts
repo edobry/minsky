@@ -21,7 +21,7 @@ let testSequenceNumber = 0;
 describe("JsonFileTaskBackend", () => {
   const testDir = join(process.cwd(), "test-tmp", "json-backend-test");
   let dbPath: string;
-  let _workspacePath: string;
+  let workspacePath;
   let backend: JsonFileTaskBackend;
 
   beforeEach(async () => {
@@ -166,7 +166,7 @@ describe("JsonFileTaskBackend", () => {
         _tasks: [{ id: "#005", _title: "Test Task TEST_ARRAY_SIZE", _status: "TODO" }],
       });
 
-      const _tasks = backend.parseTasks(jsonContent);
+      const tasks = backend.parseTasks(jsonContent);
       expect(tasks.length).toBe(1);
       if (tasks.length > 0 && tasks[0]) {
         expect(tasks[0].id).toBe("#005");
@@ -174,7 +174,7 @@ describe("JsonFileTaskBackend", () => {
     });
 
     test("should implement formatTasks", () => {
-      const _tasks: TaskData[] = [{ id: "#006", title: "Test Task SIZE_6", status: "TODO" }];
+      const tasks = [{ id: "#006", title: "Test Task SIZE_6", status: "TODO" }];
 
       const formatted = backend.formatTasks(_tasks);
       const parsed = JSON.parse(formatted);
@@ -210,7 +210,7 @@ describe("JsonFileTaskBackend", () => {
 - [x] Test Task Two [#002](process/tasks/002-test-task-two.md)
 `;
 
-      const _tasks = backend.parseTasks(markdownContent);
+      const tasks = backend.parseTasks(markdownContent);
       expect(tasks.length).toBe(2);
       if (tasks.length >= 2 && tasks[0] && tasks[1]) {
         expect(tasks[0].id).toBe("#001");

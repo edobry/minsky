@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import tsEslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
+import noUnderscorePrefixMismatch from "./src/eslint-rules/no-underscore-prefix-mismatch.js";
 
 export default [
   js.configs.recommended,
@@ -61,6 +62,11 @@ export default [
     plugins: {
       "@typescript-eslint": tsEslint,
       import: importPlugin,
+      custom: {
+        rules: {
+          "no-underscore-prefix-mismatch": noUnderscorePrefixMismatch,
+        },
+      },
     },
     files: ["**/*.ts", "**/*.js"],
     rules: {
@@ -70,6 +76,9 @@ export default [
       "no-useless-catch": "error", // Catches pointless try/catch blocks
       "no-var": "error", // Prevents var hoisting issues
       "prefer-template": "error", // Prevents string concatenation bugs
+      
+      // === VARIABLE NAMING RULES ===
+      "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
       
       // === STYLE RULES (DISABLED FOR NOW) ===
       "@typescript-eslint/no-explicit-any": "off", // Disabled - style preference

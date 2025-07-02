@@ -36,7 +36,7 @@ describe("CommandMapper", () => {
   });
 
   test("should add tool to server when addCommand is called", () => {
-    const _command = {
+    const command = {
       name: "test-command",
       description: "Test command description",
       parameters: z.object({ test: z.string() }),

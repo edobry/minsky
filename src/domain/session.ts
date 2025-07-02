@@ -1,6 +1,7 @@
 import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { join } from "path";
+import { getMinskyStateDir, getSessionDbPath } from "../utils/paths.js";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
@@ -108,198 +109,6 @@ export interface SessionProviderInterface {
    * Get the working directory for a session
    */
   getSessionWorkdir(sessionName: string): Promise<string>;
-}
-
-/**
- * Session database operations
- */
-export class SessionDB implements SessionProviderInterface {
-  private readonly dbPath: string;
-  private readonly baseDir: string; // Add baseDir property
-
-  constructor(dbPath?: string) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.dbPath = dbPath || join(xdgStateHome, "minsky", "session-db.json");
-    this.baseDir = join(xdgStateHome, "minsky"); // Use base minsky directory
-  }
-
-  private async ensureDbDir(): Promise<void> {
-    const dbDir = join(this.dbPath, "..");
-    await mkdir(dbDir, { recursive: true });
-  }
-
-  private async readDb(): Promise<SessionRecord[]> {
-    try {
-      if (!existsSync(this.dbPath)) {
-        return [];
-      }
-      const data = await readFile(this.dbPath, "utf8");
-      const sessions = JSON.parse(data);
-
-      return sessions;
-    } catch (e) {
-      return [];
-    }
-  }
-
-  // Alias for readDb to maintain backward compatibility with tests
-  async getSessions(): Promise<SessionRecord[]> {
-    return this.readDb();
-  }
-
-  private async writeDb(sessions: SessionRecord[]): Promise<void> {
-    try {
-      await this.ensureDbDir();
-      await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
-    } catch (error) {
-      log.error(
-        `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
-
-  // Alias for writeDb to maintain backward compatibility with tests
-  async saveSessions(sessions: SessionRecord[]): Promise<void> {
-    return this.writeDb(sessions);
-  }
-
-  async addSession(record: SessionRecord): Promise<void> {
-    const sessions = await this.readDb();
-    sessions.push(record);
-    await this.writeDb(sessions);
-  }
-
-  async listSessions(): Promise<SessionRecord[]> {
-    return this.readDb();
-  }
-
-  async getSession(session: string): Promise<SessionRecord | null> {
-    const sessions = await this.readDb();
-    return sessions.find((s) => s.session === session) || null;
-  }
-
-  async updateSession(
-    session: string,
-    updates: Partial<Omit<SessionRecord, "session">>
-  ): Promise<void> {
-    const sessions = await this.readDb();
-    const index = sessions.findIndex((s) => s.session === session);
-    if (index !== -1) {
-      const { session: _, ...safeUpdates } = updates as any;
-      sessions[index] = { ...sessions[index], ...safeUpdates };
-      await this.writeDb(sessions);
-    }
-  }
-
-  async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
-    try {
-      // Normalize both stored and input task IDs to allow matching with or without #
-      const normalize = (id: string | undefined) => {
-        if (!id) return undefined;
-        return id.startsWith("#") ? id : `#${id}`;
-      };
-      const sessions = await this.readDb();
-      const normalizedInput = normalize(taskId);
-      const found = sessions.find((s) => normalize(s.taskId) === normalizedInput);
-      return found || null; // Ensure we return null, not undefined
-    } catch (error) {
-      log.error(
-        `Error finding session by task ID: ${error instanceof Error ? error.message : String(error)}`
-      );
-      return null;
-    }
-  }
-
-  async deleteSession(session: string): Promise<boolean> {
-    try {
-      const sessions = await this.readDb();
-      const index = sessions.findIndex((s) => s.session === session);
-      if (index === -1) {
-        return false;
-      }
-      sessions.splice(index, 1);
-      await this.writeDb(sessions);
-      return true;
-    } catch (error) {
-      log.error(
-        `Error deleting session: ${error instanceof Error ? error.message : String(error)}`
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Gets the repository path for a session using the simplified session-ID-based structure
-   * @param record The session record or session result
-   * @returns The repository path
-   */
-  async getRepoPath(record: SessionRecord | any): Promise<string> {
-    // Add defensive checks for the input
-    if (!record) {
-      throw new Error("Session record is required");
-    }
-
-    // Special handling for SessionResult type returned by startSessionFromParams
-    if (record.sessionRecord) {
-      return this.getRepoPath(record.sessionRecord);
-    }
-
-    // Special handling for CloneResult
-    if (record.cloneResult?.workdir) {
-      return record.cloneResult.workdir;
-    }
-
-    // Handle case when session is missing
-    if (!record.session) {
-      // For workdir in some objects
-      if (record.workdir) {
-        return record.workdir;
-      }
-      throw new Error("Invalid session record: missing session");
-    }
-
-    // Use simplified session-ID-based path structure: /sessions/{sessionId}/
-    const sessionPath = join(this.baseDir, "sessions", record.session);
-
-    // Create the directory if it doesn't exist
-    try {
-      await mkdir(join(this.baseDir, "sessions"), { recursive: true });
-      return sessionPath;
-    } catch (error) {
-      log.error(
-        `Warning: Failed to create session directory: ${error instanceof Error ? error.message : String(error)}`
-      );
-      return sessionPath;
-    }
-  }
-
-  /**
-   * Check if a repository exists at the given path
-   * @param path The repository path to check
-   * @returns true if the repository exists
-   */
-  private async repoExists(path: string): Promise<boolean> {
-    try {
-      await access(path);
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }
-
-  /**
-   * Get the working directory for a session
-   * For backward compatibility with tests
-   * @param sessionName The session name
-   * @returns The working directory path
-   */
-  async getSessionWorkdir(sessionName: string): Promise<string> {
-    const session = await this.getSession(sessionName);
-    if (!session) {
-      throw new Error(`Session "${sessionName}" not found.`);
-    }
-    return this.getRepoPath(session);
-  }
 }
 
 /**
@@ -1382,13 +1191,8 @@ export function createSessionProvider(options?: {
   dbPath?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {
-  // Use new configuration-based backend by default, but allow fallback
-  if (options?.useNewBackend !== false) {
-    return new SessionDbAdapter();
-  }
-
-  // Fallback to legacy JSON file implementation
-  return new SessionDB(options?.dbPath);
+  // Always use the new configuration-based backend
+  return new SessionDbAdapter();
 }
 
 /**
