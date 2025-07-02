@@ -1,0 +1,7 @@
+---
+name: Test Quoting Rule
+description: 'This is a description with some: special! characters.'
+tags:
+  - test
+---
+Rule content for testing

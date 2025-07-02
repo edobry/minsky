@@ -86,7 +86,7 @@ describe("Rules Domain Methods", () => {
         }
         return Promise.resolve(mockRules);
       });
-      const _options = { format: "cursor" as const };
+      const options = { format: "cursor" as const };
 
       // Act
       const result = await mockListRules(options);
@@ -144,11 +144,11 @@ describe("Rules Domain Methods", () => {
       mockSearchRules.mockResolvedValue(mockRules);
 
       // Act
-      const _result = await mockSearchRules(_options);
+      const result = await mockSearchRules(options);
 
       // Assert
-      expect(mockSearchRules).toHaveBeenCalledWith(_options);
-      expect(_result).toEqual(mockRules);
+      expect(mockSearchRules).toHaveBeenCalledWith(options);
+      expect(result).toEqual(mockRules);
     });
 
     test("returns empty array when no matches", async () => {
@@ -157,11 +157,11 @@ describe("Rules Domain Methods", () => {
       mockSearchRules.mockResolvedValue([]);
 
       // Act
-      const _result = await mockSearchRules(_options);
+      const result = await mockSearchRules(options);
 
       // Assert
-      expect(mockSearchRules).toHaveBeenCalledWith(_options);
-      expect(_result).toEqual([]);
+      expect(mockSearchRules).toHaveBeenCalledWith(options);
+      expect(result).toEqual([]);
       expect(result.length).toBe(0);
     });
   });
