@@ -302,7 +302,7 @@
 
 - [+] Remove .js Extensions from TypeScript Imports [#156](process/tasks/156-remove-js-extensions-from-typescript-imports.md)
 
-- [+] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
+- [x] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
 
 - [ ] Implement Session-Aware Versions of Cursor Built-in Tools [#158](process/tasks/158-implement-session-aware-versions-of-cursor-built-in-tools.md)
 
@@ -410,9 +410,9 @@
 
 - [x] Add specific linting rules for underscore prefixes in variable declarations [#219](process/tasks/219-add-specific-linting-rules-for-underscore-prefixes-in-variable-declarations.md)
 
-- [ ] Improve Test Isolation and Reliability [#220](process/tasks/220-improve-test-isolation-and-reliability.md)
+- [+] Improve Test Isolation and Reliability [#220](process/tasks/220-improve-test-isolation-and-reliability.md)
 
-- [ ] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
+- [x] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
 
 - [ ] Enhanced Session PR Workflow [#222](process/tasks/222-enhanced-session-pr-workflow.md)
 
