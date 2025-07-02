@@ -780,6 +780,21 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
   title?: string;
   body?: string;
 }> {
+  // STEP 0: Validate parameters using schema
+  try {
+    // Import schema here to avoid circular dependency issues
+    const { sessionPrParamsSchema } = await import("../schemas/session.js");
+    sessionPrParamsSchema.parse(params);
+  } catch (error) {
+    if (error instanceof Error && error.name === "ZodError") {
+      // Extract the validation error message
+      const zodError = error as any;
+      const message = zodError.errors?.[0]?.message || "Invalid parameters";
+      throw new ValidationError(message);
+    }
+    throw error;
+  }
+
   try {
     // STEP 1: Validate we're in a session workspace and on a session branch
     const currentDir = process.cwd();
