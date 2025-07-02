@@ -258,13 +258,13 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockStartSessionFromParams(params);
+      const result = await mockStartSessionFromParams(params);
 
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(sessionResult);
+      expect(result).toEqual(sessionResult);
       expect(result.sessionRecord.taskId).toBe("TEST_VALUE");
-      expect(result.statusUpdateResult?._status).toBe("IN-PROGRESS");
+      expect(result.statusUpdateResult?.status).toBe("IN-PROGRESS");
     });
 
     test("throws error when required parameters are missing", async () => {
@@ -307,12 +307,12 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockUpdateSessionFromParams(params);
+      const result = await mockUpdateSessionFromParams(params);
 
       // Assert
       expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(updatedSessionData);
-      expect(result._branch).toBe("new-branch");
+      expect(result).toEqual(updatedSessionData);
+      expect(result.branch).toBe("new-branch");
       expect(result.notes).toBe("Session notes updated");
     });
 
@@ -328,11 +328,11 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockUpdateSessionFromParams(params);
+      const result = await mockUpdateSessionFromParams(params);
 
       // Assert
       expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toBeNull();
+      expect(result).toBeNull();
     });
 
     test("throws error when no name is provided", async () => {
@@ -417,12 +417,12 @@ describe("Session Domain Methods", () => {
       }));
 
       // Act
-      const _result = await mockInspectSessionFromParams({});
+      const result = await mockInspectSessionFromParams({});
 
       // Assert
       expect(mockInspectSessionFromParams).toHaveBeenCalledWith({});
-      expect(_result).toEqual(sessionData);
-      expect(result._session).toBe("current-session");
+      expect(result).toEqual(sessionData);
+      expect(result.session).toBe("current-session");
       expect(result.taskId).toBe("#TEST_VALUE");
     });
 
