@@ -844,9 +844,9 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         mockDeps
       );
 
-      // Should normalize local path correctly (normalizeRepoName returns "local/repo" for "local/path/to/repo")
-      // After further normalization for directory structure, becomes "local-repo"
-      expect(result.workdir).toContain("local-repo");
+      // NEW: Session-ID-based storage - repository name no longer in filesystem path
+      // Path contains session ID but NOT repository name (this is the architectural change)
+      expect(result.workdir).toContain("test-session");
       expect(result.session).toBe("test-session");
     });
 
