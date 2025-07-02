@@ -112,10 +112,12 @@ export function createStorageBackend(
   log.debug(`Creating storage backend: ${storageConfig.backend}`);
 
   switch (storageConfig.backend) {
-  case "json":
-    return new JsonFileStorage(
-      storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath!
-    );
+  case "json": {
+    const dbPath = storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath!;
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const baseDir = join(xdgStateHome, "minsky");
+    return new JsonFileStorage(dbPath, baseDir);
+  }
 
   case "sqlite": {
     const sqliteConfig: SqliteStorageConfig = {
@@ -187,7 +189,9 @@ export class StorageBackendFactory {
           await (backend as any).close();
         }
       } catch (error) {
-        log.warn("Error closing storage backend:", error);
+        log.warn("Error closing storage backend:", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     this.backends.clear();
