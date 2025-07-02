@@ -526,6 +526,7 @@ export async function startSessionFromParams(
       const gitCloneResult = await deps.gitService.clone({
         repoUrl,
         session: sessionName,
+        workdir: sessionDir, // Explicit workdir path computed by SessionDB
       });
 
       // Create a branch based on the session name - use branchWithoutSession

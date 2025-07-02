@@ -113,8 +113,8 @@ export interface ExtendedGitDependencies extends BasicGitDependencies {
 
 export interface CloneOptions {
   repoUrl: string;
+  workdir: string; // Explicit path where to clone, provided by caller
   session?: string;
-  destination?: string;
   branch?: string;
 }
 
@@ -257,29 +257,13 @@ export class GitService implements GitServiceInterface {
     await this.ensureBaseDir();
 
     const session = options.session || this.generateSessionId();
-    const repoName = normalizeRepoName(options.repoUrl);
+    const workdir = options.workdir;
 
-    // Fix for local repository paths: handle the case where repoName contains slashes
-    let normalizedRepoName = repoName;
-    if (repoName.startsWith("local/")) {
-      // Replace slashes with dashes in the path segments after "local/"
-      const parts = repoName.split("/");
-      if (parts.length > 1) {
-        // Keep "local" as is, but normalize the rest
-        normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
-      }
-    } else {
-      // For other repository types, replace any slashes with dashes
-      normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
-    }
-
-    log.debug("Normalized repo name for directory structure", {
-      originalRepoName: repoName,
-      normalizedRepoName,
+    log.debug("Clone operation starting", {
+      repoUrl: options.repoUrl,
+      workdir,
+      session,
     });
-
-    const workdir = this.getSessionWorkdir(session);
-    log.debug("Computed workdir path", { workdir });
 
     try {
       // Validate repo URL
@@ -2236,24 +2220,24 @@ export async function mergePrFromParams(params: {
  */
 export async function cloneFromParams(params: {
   url: string;
+  workdir: string; // Explicit workdir path
   session?: string;
-  destination?: string;
   branch?: string;
 }): Promise<CloneResult> {
   try {
     const git = new GitService();
     const result = await git.clone({
       repoUrl: params.url,
+      workdir: params.workdir,
       session: params.session,
-      destination: params.destination,
       branch: params.branch,
     });
     return result;
   } catch (error) {
     log.error("Error cloning repository", {
       url: params.url,
+      workdir: params.workdir,
       session: params.session,
-      destination: params.destination,
       branch: params.branch,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
