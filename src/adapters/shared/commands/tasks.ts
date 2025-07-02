@@ -195,11 +195,11 @@ const tasksStatusSetRegistration = {
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    log.systemDebug("Starting tasks.status.set execution");
+    log.debug("Starting tasks.status.set execution");
     if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Normalize and validate task ID first
-    log.systemDebug("About to normalize task ID");
+    log.debug("About to normalize task ID");
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
@@ -209,7 +209,7 @@ const tasksStatusSetRegistration = {
 
     // Verify the task exists before prompting for status and get current status
     // This will throw ResourceNotFoundError if task doesn't exist
-    log.systemDebug("About to get previous status");
+    log.debug("About to get previous status");
     const previousStatus = await getTaskStatusFromParams({
       taskId: normalizedTaskId,
       repo: params.repo,
@@ -217,7 +217,7 @@ const tasksStatusSetRegistration = {
       session: params.session,
       backend: params.backend,
     });
-    log.systemDebug("Previous status retrieved successfully");
+    log.debug("Previous status retrieved successfully");
 
     let status = params.status;
 
