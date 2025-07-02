@@ -447,7 +447,7 @@ ssl = true`
       const repoConfigDir = join(testDir, ".minsky");
       mkdirSync(repoConfigDir);
       const configFile = join(repoConfigDir, "config.toml");
-      writeFileSync(configFile, '[sessiondb]\nbackend = "sqlite"');
+      writeFileSync(configFile, "[sessiondb]\nbackend = \"sqlite\"");
 
       // Make file unreadable (this might not work on all systems)
       try {
