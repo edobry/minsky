@@ -147,13 +147,13 @@ describe("Session Domain Methods", () => {
       const params = {};
 
       // Act
-      const _result = await mockListSessionsFromParams(params);
+      const result = await mockListSessionsFromParams(params);
 
       // Assert
       expect(mockListSessionsFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(sessionsData);
-      expect(result[0]?._session).toBe("session1");
-      expect(result[1]?._session).toBe("session2");
+      expect(result).toEqual(sessionsData);
+      expect(result[0]?.session).toBe("session1");
+      expect(result[1]?.session).toBe("session2");
     });
   });
 
@@ -228,13 +228,13 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockStartSessionFromParams(params);
+      const result = await mockStartSessionFromParams(params);
 
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(sessionResult);
-      expect(result.sessionRecord._session).toBe("new-session");
-      expect(result.cloneResult?._workdir).toBe("/path/to/workdir");
+      expect(result).toEqual(sessionResult);
+      expect(result.sessionRecord.session).toBe("new-session");
+      expect(result.cloneResult?.workdir).toBe("/path/to/workdir");
     });
 
     test("starts a new session with task parameter", async () => {
