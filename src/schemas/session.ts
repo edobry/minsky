@@ -131,6 +131,10 @@ export const sessionUpdateParamsSchema = z
     noStash: flagSchema("Skip stashing local changes"),
     noPush: flagSchema("Skip pushing changes to remote after update"),
     force: flagSchema("Force update even if the session workspace is dirty"),
+    skipConflictCheck: flagSchema("Skip proactive conflict detection before update"),
+    autoResolveDeleteConflicts: flagSchema("Automatically resolve delete/modify conflicts by accepting deletions"),
+    dryRun: flagSchema("Check for conflicts without performing actual update"),
+    skipIfAlreadyMerged: flagSchema("Skip update if session changes are already in base branch"),
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.name !== undefined || data.task !== undefined, {
@@ -175,6 +179,8 @@ export const sessionPrParamsSchema = z
     debug: flagSchema("Enable debug output"),
     noStatusUpdate: flagSchema("Skip updating task status"),
     skipUpdate: flagSchema("Skip session update before creating PR"),
+    autoResolveDeleteConflicts: flagSchema("Automatically resolve delete/modify conflicts by accepting deletions"),
+    skipConflictCheck: flagSchema("Skip proactive conflict detection during update"),
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.body || data.bodyPath, {
