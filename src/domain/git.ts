@@ -229,11 +229,7 @@ export class GitService implements GitServiceInterface {
   constructor(baseDir?: string) {
     this.baseDir =
       baseDir ||
-      join(
-        process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-        "minsky",
-        "git"
-      );
+      join(process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"), "minsky");
     this.sessionDb = createSessionProvider({ dbPath: process.cwd() }) as SessionDB;
   }
 
@@ -1324,9 +1320,7 @@ Need help? Run: minsky git pr --help
 
     // Add debugging for session lookup
     if (options.session) {
-      log.debug(
-        `Attempting to look up session in database: ${options.session}, dbPath: ${this.sessionDb.dbPath}`
-      );
+      log.debug(`Attempting to look up session in database: ${options.session}`);
     }
 
     // Determine working directory and current branch
@@ -1527,7 +1521,7 @@ Session requested: "${options.session}"
         }
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(repoName, options.session);
+      workdir = this.getSessionWorkdir(options.session);
       // Get current branch from repo instead of assuming session name is branch name
       const { stdout: branchOut } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`

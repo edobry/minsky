@@ -408,8 +408,9 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           }
 
           if (result.success && result.sources && result.resolved) {
-            const resolvedOutput = formatResolvedConfiguration(result.resolved);
-            log.cli(resolvedOutput);
+            // For config list, show sources AND resolved configuration
+            const sourcesOutput = formatConfigurationSources(result.resolved, result.sources);
+            log.cli(sourcesOutput);
           } else if (result.error) {
             log.cli(`Failed to load configuration: ${result.error}`);
           } else {
@@ -466,6 +467,24 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       },
     },
   });
+}
+
+function formatConfigurationSources(resolved: any, sources: any[]): string {
+  let output = "📋 CONFIGURATION SOURCES\n";
+  output += `${"=".repeat(40)}\n`;
+
+  // Show source precedence
+  output += "Source Precedence (highest to lowest):\n";
+  sources.forEach((source, index) => {
+    output += `  ${index + 1}. ${source.name}\n`;
+  });
+
+  output += "\n📋 RESOLVED CONFIGURATION\n";
+  output += formatResolvedConfiguration(resolved);
+
+  output += "\n\n💡 For just the final configuration, use: minsky config show";
+
+  return output;
 }
 
 function formatResolvedConfiguration(resolved: any): string {
