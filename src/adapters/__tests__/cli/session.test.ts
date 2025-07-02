@@ -31,20 +31,24 @@ describe("Session CLI Commands", () => {
       {
         session: "004",
         repoName: "local/minsky",
-        repoUrl: "file:///Users/edobry/Projects/minsky",
-        createdAt: "2024-04-29T15:01:00.000Z",
+        repoUrl: "https://github.com/edobry/minsky",
+        createdAt: "2024-01-01T00:00:00.000Z",
         taskId: null, // Session with no task ID
         branch: "004",
-        repoPath: "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/004",
+        repoPath: "/Users/edobry/.local/state/minsky/sessions/004",
+        backendType: "local",
+        remote: { authMethod: "ssh", depth: 1 },
       },
       {
         session: "task#160",
-        repoName: "local/minsky",
-        repoUrl: "/Users/edobry/Projects/minsky",
-        createdAt: "2025-06-25T18:54:44.999Z",
+        repoName: "local-minsky",
+        repoUrl: "https://github.com/edobry/minsky",
+        createdAt: "2024-01-01T00:00:00.000Z",
         taskId: "#160", // Session with task ID
         branch: "task#160",
-        repoPath: "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#160",
+        repoPath: "/Users/edobry/.local/state/minsky/sessions/task#160",
+        backendType: "local",
+        remote: { authMethod: "ssh", depth: 1 },
       },
     ];
 
@@ -504,7 +508,7 @@ describe("Session CLI Commands", () => {
     test("TASK #168 FIX: should correctly parse session name from path structure", async () => {
       // Arrange: Test the core path parsing logic without complex mocking
       const sessionName = "task#168";
-      const minskyPath = "/tmp/test/minsky/git";
+      const minskyPath = "/tmp/test/minsky/sessions";
 
       // Test new path format: <minsky_path>/<repo_name>/sessions/<session_name>
       const newFormatPath = `${minskyPath}/local-minsky/sessions/${sessionName}`;
@@ -530,7 +534,7 @@ describe("Session CLI Commands", () => {
       const testCases = ["task#168", "task#42", "feature-branch", "bug-fix-123", "simple-session"];
 
       testCases.forEach((sessionName) => {
-        const minskyPath = "/tmp/test/minsky/git";
+        const minskyPath = "/tmp/test/minsky/sessions";
         const sessionPath = `${minskyPath}/local-minsky/sessions/${sessionName}`;
         const pathParts = sessionPath.substring(minskyPath.length + 1).split("/");
 

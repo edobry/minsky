@@ -124,17 +124,17 @@ export function normalizeTaskId(id: string): string | null {
   if (!id) return null;
 
   // If already in #XXX format, validate and return
-  if (/^#\d+$/.test(id)) {
+  if (/^#[a-zA-Z0-9_]+$/.test(id)) {
     return id;
   }
 
-  // If purely numeric, convert to #XXX format
-  if (/^\d+$/.test(id)) {
+  // If purely alphanumeric, convert to #XXX format
+  if (/^[a-zA-Z0-9_]+$/.test(id)) {
     return `#${id}`;
   }
 
-  // If in different format, try to extract numeric portion
-  const match = id.match(/(\d+)/);
+  // If in different format, try to extract alphanumeric portion
+  const match = id.match(/([a-zA-Z0-9_]+)/);
   if (match && match[1]) {
     return `#${match[1]}`;
   }

@@ -193,16 +193,16 @@ export function registerGitCommands(): void {
     name: "commit",
     description: "Commit changes to the repository",
     parameters: commitCommandParams,
-    execute: async (params, _context) => {
-      log.debug("Executing git.commit _command", { params, _context });
+    execute: async (params, context) => {
+      log.debug("Executing git.commit command", { params });
 
-      const _result = await commitChangesFromParams({
+      const result = await commitChangesFromParams({
         message: params.message,
         all: params.all,
         amend: params.amend,
         noStage: params.noStage,
         repo: params.repo,
-        _session: params._session,
+        session: params.session,
       });
 
       return {
@@ -220,12 +220,12 @@ export function registerGitCommands(): void {
     name: "push",
     description: "Push changes to the remote repository",
     parameters: pushCommandParams,
-    execute: async (params, _context) => {
-      log.debug("Executing git.push _command", { params, _context });
+    execute: async (params, context) => {
+      log.debug("Executing git.push command", { params });
 
-      const _result = await pushFromParams({
+      const result = await pushFromParams({
         repo: params.repo,
-        _session: params._session,
+        session: params.session,
         remote: params.remote,
         force: params.force,
         debug: params.debug,
@@ -233,7 +233,7 @@ export function registerGitCommands(): void {
 
       return {
         success: result.pushed,
-        _workdir: result.workdir,
+        workdir: result.workdir,
       };
     },
   });
@@ -245,20 +245,20 @@ export function registerGitCommands(): void {
     name: "clone",
     description: "Clone a Git repository",
     parameters: cloneCommandParams,
-    execute: async (params, _context) => {
-      log.debug("Executing git.clone _command", { params, _context });
+    execute: async (params, context) => {
+      log.debug("Executing git.clone command", { params });
 
-      const _result = await cloneFromParams({
+      const result = await cloneFromParams({
         url: params.url,
-        _session: params._session,
+        session: params.session,
         destination: params.destination,
-        _branch: params._branch,
+        branch: params.branch,
       });
 
       return {
         success: true,
-        _workdir: result.workdir,
-        _session: result.session,
+        workdir: result.workdir,
+        session: result.session,
       };
     },
   });
@@ -270,18 +270,18 @@ export function registerGitCommands(): void {
     name: "branch",
     description: "Create a new branch",
     parameters: branchCommandParams,
-    execute: async (params, _context) => {
-      log.debug("Executing git._branch _command", { params, _context });
+    execute: async (params, context) => {
+      log.debug("Executing git.branch command", { params });
 
-      const _result = await branchFromParams({
-        _session: params._session,
+      const result = await branchFromParams({
+        session: params.session,
         name: params.name,
       });
 
       return {
         success: true,
-        _workdir: result.workdir,
-        _branch: result.branch,
+        workdir: result.workdir,
+        branch: result.branch,
       };
     },
   });
@@ -293,14 +293,14 @@ export function registerGitCommands(): void {
     name: "pr",
     description: "Create a new pull request",
     parameters: prCommandParams,
-    execute: async (params, _context) => {
-      log.debug("Executing git.pr _command", { params, _context });
+    execute: async (params, context) => {
+      log.debug("Executing git.pr command", { params });
 
-      const _result = await createPullRequestFromParams({
-        _session: params._session,
+      const result = await createPullRequestFromParams({
+        session: params.session,
         repo: params.repo,
-        _branch: params._branch,
-        _taskId: params.task,
+        branch: params.branch,
+        taskId: params.task,
         debug: params.debug,
         noStatusUpdate: params.noStatusUpdate,
       });

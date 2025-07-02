@@ -8,31 +8,103 @@ alwaysApply: false
 ## Systematic Test Debugging Process
 When encountering test failures, follow this process:
 
-1. **Isolation**
+### 1. **Categorize Issues First (CRITICAL)**
+Before attempting fixes, categorize failures by type:
+- **Timeout/Infinite Loop Issues**: Tests taking >30 seconds or timing out
+- **Variable Naming Issues**: "X is not defined" errors, underscore prefix mismatches  
+- **Mock Implementation Issues**: Function signature mismatches, missing methods
+- **Property Naming Issues**: Object property references (_status vs status, _session vs session)
+- **Data Structure Issues**: Mock data not matching test expectations
+
+**MANDATORY**: Fix one category completely before moving to the next. Never jump between different types of problems.
+
+### 2. **Isolation and Verification**
    - Run the specific failing test file: `bun test path/to/file.test.ts`
    - Use `it.only()` or `test.only()` to focus on a specific test case
+   - Verify fixes in isolation before testing with full suite
 
-2. **Framework Verification**
+### 3. **Critical Discovery: Variable Naming Can Cause Infinite Loops**
+**NEWLY IDENTIFIED PATTERN**: Variable naming mismatches can cause infinite test execution (4+ billion milliseconds)
+
+**Root Causes**:
+- Declaration/usage mismatches: `const _workspacePath = X` but code uses `workspacePath`
+- Parameter/reference mismatches: Function parameter `_workspacePath` but usage `workspacePath`
+- Undefined variable references in loops or async operations
+
+**Detection**: Tests that run for extremely long times (>30 seconds) before timing out
+**Solution**: Apply variable-naming-protocol decision tree systematically
+
+### 4. **Integration Test Common Patterns**
+**Recurring Variable Naming Issues**:
+- `_result` vs `result` in test method declarations
+- `_options` vs `options` in parameter references
+- Property naming: `_status` vs `status`, `_session` vs `session`, `_branch` vs `branch`
+- Mock data structure conflicts (object spread overriding properties)
+
+**Solution Pattern**:
+```typescript
+// WRONG: Variable name mismatch
+const _result = await someFunction();
+expect(result).toBe(expected); // ERROR: result not defined
+
+// CORRECT: Consistent naming  
+const result = await someFunction();
+expect(result).toBe(expected);
+```
+
+### 5. **Framework Verification**
    - Check imports for completeness and correctness
    - Verify mock setup follows established patterns
    - Review cleanup procedures in afterEach blocks
 
-3. **Error Analysis**
+### 6. **Error Analysis**
    - Type errors: Check for import issues or framework API mismatches
    - Runtime errors: Examine stack traces for mock setup issues
    - Assertion failures: Compare expected vs. actual values
+   - **Timeout errors**: Check for variable naming mismatches causing infinite loops
 
-4. **Common bun:test Issues & Solutions**
-   | Issue | Solution |
-   |-------|----------|
-   | `mock.fn is not a function` | Use `jest.fn()` instead |
-   | `mock.restoreAll is not a function` | Use `mock.restore()` |
-   | Missing mock methods | Use `jest.fn()`, not `mock()` |
-   | Linter errors on valid code | Proceed if runtime works correctly |
+### 7. **Systematic Category-by-Category Fixing**
+**Proven Methodology from Task #224**:
 
-5. **Documentation**
-   - After resolving an issue, document the solution in comments
-   - For significant issues, update the team knowledge base
+1. **Phase 1: Critical Timeouts**
+   - Identify infinite loop sources (often variable naming)
+   - Fix variable declaration/usage mismatches
+   - Verify execution time improvements
+
+2. **Phase 2: Variable Naming Issues**  
+   - Apply variable-naming-protocol systematically
+   - Fix _result/_options/_session pattern mismatches
+   - Update property references to remove inappropriate underscores
+
+3. **Phase 3: Mock Implementation**
+   - Add missing functions to mocks
+   - Fix function signature mismatches
+   - Update type definitions
+
+4. **Phase 4: Data Structure Alignment**
+   - Fix mock data to match test expectations
+   - Resolve object spread conflicts
+   - Update property names in test data
+
+### 8. **Quantified Progress Tracking**
+**Track specific metrics**:
+- Tests passing per category (e.g., "Rules Integration: 15/15 passing")
+- Overall success rates (e.g., "Integration tests: 42/45 passing (93%)")
+- Performance improvements (e.g., "4.3B ms → 241ms execution time")
+
+**Avoid vague descriptions**: Use specific counts, not "better" or "improved"
+
+## Common bun:test Issues & Solutions
+
+| Issue | Solution | Category |
+|----|----|----|
+| `mock.fn is not a function` | Use `jest.fn()` instead | Mock Implementation |
+| `mock.restoreAll is not a function` | Use `mock.restore()` | Mock Implementation |
+| Missing mock methods | Use `jest.fn()`, not `mock()` | Mock Implementation |
+| Tests timeout after 30+ seconds | Check for variable naming mismatches | Timeout/Infinite Loop |
+| "X is not defined" errors | Apply variable-naming-protocol decision tree | Variable Naming |
+| Property access errors | Check _property vs property naming | Property Naming |
+| Linter errors on valid code | Proceed if runtime works correctly | Framework |
 
 ## Effective Debugging Strategies
 
@@ -40,6 +112,13 @@ When encountering test failures, follow this process:
 - Use `console.log(mockFunction.mock.calls)` to see all calls and arguments
 - Verify the number of calls with `.mock.calls.length`
 - Inspect call arguments with `.mock.calls[0][0]` syntax
+
+### Variable Naming Issue Detection
+**CRITICAL PROTOCOL**: Before any variable name changes:
+- [ ] Check if variable is defined with underscore but used without
+- [ ] Apply variable-naming-protocol decision tree  
+- [ ] Remove underscores from definitions, not usage
+- [ ] Verify no infinite loops in execution
 
 ### Testing Framework Version Issues
 - When updating bun, check for any test API changes
@@ -55,3 +134,19 @@ When encountering test failures, follow this process:
 - If linter errors persist but tests run correctly, prioritize runtime behavior
 - Add explicit type annotations where TypeScript inference fails
 - Consider adding `// @ts-ignore` comments as a last resort for known discrepancies
+
+## Success Verification Protocol
+
+After debugging:
+1. **Isolation Test**: Verify specific test file passes alone
+2. **Category Test**: Verify all tests in same category pass
+3. **Integration Test**: Verify fixes don't break other test categories  
+4. **Performance Test**: Confirm no infinite loops (execution <30 seconds)
+5. **Documentation**: Update progress with specific metrics
+
+## Task #224 Learnings Integration
+
+**Major Discovery**: Variable naming mismatches as root cause of infinite loops
+**Methodology Success**: Category-by-category systematic fixing approach
+**Metrics Effectiveness**: Quantified progress tracking maintained focus
+**Protocol Validation**: Variable naming protocol eliminated all violations

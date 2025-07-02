@@ -21,7 +21,7 @@ function customMatterStringify(__content: string, _data: any): string {
     forceQuotes: false, // Don't force quotes on all strings
   });
 
-  return `---\n${yamlStr}---\n${content}`;
+  return `---\n${yamlStr}---\n${__content}`;
 }
 
 export interface Rule {
@@ -73,14 +73,14 @@ export interface SearchRuleOptions {
 export class RuleService {
   private workspacePath: string;
 
-  constructor(__workspacePath: string) {
+  constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
     // Log workspace path on initialization for debugging
-    log.debug("RuleService initialized", { _workspacePath });
+    log.debug("RuleService initialized", { workspacePath });
   }
 
-  private getRuleDirPath(_format: RuleFormat): string {
-    const dirPath = join(this._workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
+  private getRuleDirPath(format: RuleFormat): string {
+    const dirPath = join(this.workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
     return dirPath;
   }
 
@@ -154,7 +154,7 @@ export class RuleService {
     if (options.format) {
       const requestedFormat = options.format;
       const dirPath = this.getRuleDirPath(requestedFormat);
-      const filePath = join(_dirPath, `${bareId}.mdc`);
+      const filePath = join(dirPath, `${bareId}.mdc`);
 
       if (options.debug) {
         log.debug("Checking requested format", { format: requestedFormat, filePath });
@@ -169,12 +169,12 @@ export class RuleService {
         }
 
         // File exists in requested format, read and parse it
-        const _content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const content = await fs.readFile(filePath, "utf-8") as string;
 
         try {
           // FIXED: Added try/catch block around matter parsing to handle YAML parsing errors
           // Some rule files may have formatting issues in their frontmatter that cause gray-matter to throw
-          const { data, _content: ruleContent } = matter(_content);
+          const { data, content: ruleContent } = matter(content);
 
           if (options.debug) {
             log.debug("Successfully parsed frontmatter", {
@@ -201,7 +201,7 @@ export class RuleService {
           if (options.debug) {
             log.error("Error parsing frontmatter", {
               filePath,
-              error: getErrorMessage(matterError),
+              error: getErrorMessage(error),
               content: content.substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
@@ -243,7 +243,7 @@ export class RuleService {
       if (options.format === format) continue;
 
       const dirPath = this.getRuleDirPath(format);
-      const filePath = join(_dirPath, `${bareId}.mdc`);
+      const filePath = join(dirPath, `${bareId}.mdc`);
 
       if (options.debug) {
         log.debug("Checking alternative format", { format, filePath });
@@ -258,11 +258,11 @@ export class RuleService {
         }
 
         // File exists, read and parse it
-        const _content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const content = await fs.readFile(filePath, "utf-8") as string;
 
         try {
           // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats
-          const { data, _content: ruleContent } = matter(_content);
+          const { data, content: ruleContent } = matter(content);
 
           if (options.debug) {
             log.debug("Successfully parsed frontmatter in alternative format", {
@@ -310,7 +310,7 @@ export class RuleService {
           if (options.debug) {
             log.error("Error parsing frontmatter in alternative format", {
               filePath,
-              error: getErrorMessage(matterError),
+              error: getErrorMessage(error),
               content: content.substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
@@ -343,7 +343,7 @@ export class RuleService {
 
     // If we reach here, the rule was not found in any format
     if (options.debug) {
-      log.error("Rule not found in any format", { _id: bareId, requestedFormat: options.format });
+      log.error("Rule not found in any format", { id: bareId, requestedFormat: options.format });
     }
 
     if (options.format) {
@@ -365,10 +365,10 @@ export class RuleService {
   ): Promise<Rule> {
     const format = options.format || "cursor";
     const dirPath = this.getRuleDirPath(format);
-    const filePath = join(_dirPath, `${id}.mdc`);
+    const filePath = join(dirPath, `${id}.mdc`);
 
     // Ensure directory exists
-    await fs.mkdir(_dirPath, { recursive: true });
+    await fs.mkdir(dirPath, { recursive: true });
 
     // Check if rule already exists
     if (existsSync(filePath) && !options.overwrite) {
@@ -384,10 +384,10 @@ export class RuleService {
     });
 
     // Use custom stringify function instead of matterStringify
-    const fileContent = customMatterStringify(__content, cleanMeta);
+    const fileContent = customMatterStringify(content, cleanMeta);
 
     // Write the file
-    await fs.writeFile(_filePath, fileContent, "utf-COMMIT_HASH_SHORT_LENGTH");
+    await fs.writeFile(filePath, fileContent, "utf-8");
 
     log.debug("Rule created/updated", {
       _path: filePath,
@@ -413,7 +413,7 @@ export class RuleService {
     options: UpdateRuleOptions,
     ruleOptions: RuleOptions = {}
   ): Promise<Rule> {
-    const rule = await this.getRule(_id, ruleOptions);
+    const rule = await this.getRule(id, ruleOptions);
 
     // No changes needed
     if (!options.content && !options.meta) {
@@ -436,7 +436,7 @@ export class RuleService {
     // Populate metaForFrontmatter with defined values from mergedMeta
     for (const key in mergedMeta) {
       if (
-        Object.prototype.hasOwnProperty.call(_mergedMeta, key) &&
+        Object.prototype.hasOwnProperty.call(mergedMeta, key) &&
         mergedMeta[key as keyof RuleMeta] !== undefined
       ) {
         metaForFrontmatter[key as keyof RuleMeta] = mergedMeta[key as keyof RuleMeta];
@@ -447,20 +447,20 @@ export class RuleService {
     const updatedContent = options.content || rule.content;
 
     // Use custom stringify function instead of matterStringify
-    const fileContent = customMatterStringify(_updatedContent, metaForFrontmatter);
+    const fileContent = customMatterStringify(updatedContent, metaForFrontmatter);
 
     // Write the file
-    await fs.writeFile(rule.path, fileContent, "utf-COMMIT_HASH_SHORT_LENGTH");
+    await fs.writeFile(rule.path, fileContent, "utf-8");
 
     log.debug("Rule updated", {
       _path: rule.path,
       id,
       format: rule.format,
-      contentChanged: !!options._content,
+      contentChanged: !!options.content,
       metaChanged: !!options.meta,
     });
 
-    return this.getRule(_id, { format: rule.format, debug: ruleOptions.debug }); // Re-fetch to get updated rule
+    return this.getRule(id, { format: rule.format, debug: ruleOptions.debug }); // Re-fetch to get updated rule
   }
 
   /**

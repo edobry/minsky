@@ -104,6 +104,14 @@ export interface TaskBackend {
    * @returns Promise resolving to true if file exists, false otherwise
    */
   fileExists(path: string): Promise<boolean>;
+
+  /**
+   * Delete a task
+   * @param id Task ID to delete
+   * @param options Delete options
+   * @returns Promise resolving to true if deleted, false otherwise
+   */
+  deleteTask(id: string, options?: { force?: boolean }): Promise<boolean>;
 }
 
 /**

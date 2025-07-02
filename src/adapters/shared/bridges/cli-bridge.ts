@@ -461,7 +461,37 @@ export class CliCommandBridge {
         } else if (commandDef.id === "rules.get" && result.rule) {
           // Handle rules get results
           this.formatRuleDetails(result.rule);
+        } else if (commandDef.id === "tasks.status.get") {
+          // Handle tasks status get results with friendly formatting
+          const resultObj = result as Record<string, unknown>;
+          const taskId = String(resultObj.taskId || "unknown");
+          const status = String(resultObj.status || "unknown");
+          log.cli(`Task ${taskId} is ${status.toLowerCase()}`);
+        } else if (commandDef.id === "tasks.status.set") {
+          // Handle tasks status set results with friendly formatting
+          const resultObj = result as Record<string, unknown>;
+          const taskId = String(resultObj.taskId || "unknown");
+          const status = String(resultObj.status || "unknown");
+          const previousStatus = String(resultObj.previousStatus || "unknown");
+          if (status === previousStatus) {
+            log.cli(`Task ${taskId} status is already ${status.toLowerCase()}`);
+          } else {
+            log.cli(
+              `Task ${taskId} status changed from ${previousStatus.toLowerCase()} to ${status.toLowerCase()}`
+            );
+          }
         } else {
+          // Special handling for delete command - check if this is a user-friendly result
+          if (commandDef.id === "tasks.delete") {
+            const resultObj = result as Record<string, unknown>;
+            // If json flag is false/undefined, just show the message
+            if (!resultObj.json) {
+              log.cli(String(resultObj.message || "Task deleted successfully"));
+              return;
+            }
+            // Otherwise fall through to normal JSON formatting
+          }
+
           // Generic object handling - show all simple properties and handle complex ones
           const meaningfulEntries = Object.entries(result).filter(([key]) => key !== "success");
 

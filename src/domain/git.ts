@@ -1,13 +1,24 @@
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import type { ExecException } from "node:child_process";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { normalizeRepoName } from "./repo-utils";
-import { SessionDB, createSessionProvider } from "./session";
+import {
+  createSessionProvider,
+  type SessionRecord,
+  type SessionProviderInterface,
+} from "./session";
 import { TaskService, TASK_STATUS } from "./tasks";
 import { MinskyError, createSessionNotFoundMessage, createErrorContext, getErrorMessage } from "../errors/index";
 import { log } from "../utils/logger";
+import { 
+  ConflictDetectionService, 
+  ConflictPrediction, 
+  BranchDivergenceAnalysis,
+  EnhancedMergeResult,
+  SmartUpdateResult
+} from "./git/conflict-detection";
 
 const execAsync = promisify(exec);
 
@@ -45,7 +56,7 @@ export interface GitServiceInterface {
   /**
    * Get the working directory for a session
    */
-  getSessionWorkdir(repoName: string, session: string): string;
+  getSessionWorkdir(session: string): string;
 
   /**
    * Stash changes in a repository
@@ -86,13 +97,58 @@ export interface GitServiceInterface {
    * Check if repository has uncommitted changes
    */
   hasUncommittedChanges(repoPath: string): Promise<boolean>;
+
+  /**
+   * Predict conflicts before performing merge operations
+   */
+  predictMergeConflicts(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string
+  ): Promise<ConflictPrediction>;
+
+  /**
+   * Analyze branch divergence between session and base branches
+   */
+  analyzeBranchDivergence(
+    repoPath: string,
+    sessionBranch: string,
+    baseBranch: string
+  ): Promise<BranchDivergenceAnalysis>;
+
+  /**
+   * Enhanced merge with conflict prediction and better handling
+   */
+  mergeWithConflictPrevention(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string,
+    options?: {
+      skipConflictCheck?: boolean;
+      autoResolveDeleteConflicts?: boolean;
+      dryRun?: boolean;
+    }
+  ): Promise<EnhancedMergeResult>;
+
+  /**
+   * Smart session update that detects already-merged changes
+   */
+  smartSessionUpdate(
+    repoPath: string,
+    sessionBranch: string,
+    baseBranch: string,
+    options?: {
+      skipIfAlreadyMerged?: boolean;
+      autoResolveConflicts?: boolean;
+    }
+  ): Promise<SmartUpdateResult>;
 }
 
 // Define PrTestDependencies first so PrDependencies can extend it
 export interface PrTestDependencies {
   execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
   getSession: (name: string) => Promise<any>;
-  getSessionWorkdir: (repoName: string, session: string) => string;
+  getSessionWorkdir: (session: string) => string;
   getSessionByTaskId?: (taskId: string) => Promise<any>;
 }
 
@@ -105,7 +161,7 @@ export interface BasicGitDependencies {
 
 export interface ExtendedGitDependencies extends BasicGitDependencies {
   getSession: (name: string) => Promise<any>;
-  getSessionWorkdir: (repoName: string, session: string) => string;
+  getSessionWorkdir: (session: string) => string;
   mkdir: (path: string, options?: any) => Promise<void>;
   readdir: (path: string) => Promise<string[]>;
   access: (path: string) => Promise<void>;
@@ -113,8 +169,8 @@ export interface ExtendedGitDependencies extends BasicGitDependencies {
 
 export interface CloneOptions {
   repoUrl: string;
+  workdir: string; // Explicit path where to clone, provided by caller
   session?: string;
-  destination?: string;
   branch?: string;
 }
 
@@ -224,17 +280,13 @@ export interface MergePrResult {
 
 export class GitService implements GitServiceInterface {
   private readonly baseDir: string;
-  private sessionDb: SessionDB;
+  private sessionDb: SessionProviderInterface;
 
   constructor(baseDir?: string) {
     this.baseDir =
       baseDir ||
-      join(
-        process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-        "minsky",
-        "git"
-      );
-    this.sessionDb = createSessionProvider({ workingDir: process.cwd() }) as SessionDB;
+      join(process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"), "minsky");
+    this.sessionDb = createSessionProvider({ dbPath: process.cwd() });
   }
 
   // Add public method to get session record
@@ -250,56 +302,24 @@ export class GitService implements GitServiceInterface {
     return Math.random().toString(36).substring(2, 8);
   }
 
-  getSessionWorkdir(repoName: string, session: string): string {
-    // For consistency, ensure we're always using a normalized repo name
-    const normalizedRepoName = repoName.includes("/")
-      ? repoName.replace(/[^a-zA-Z0-9-_]/g, "-")
-      : repoName;
-    return join(this.baseDir, normalizedRepoName, "sessions", session);
+  getSessionWorkdir(session: string): string {
+    // NEW: Simplified session-ID-based path structure
+    // Before: /git/{repoName}/sessions/{sessionId}/
+    // After:  /sessions/{sessionId}/
+    return join(this.baseDir, "sessions", session);
   }
 
   async clone(options: CloneOptions): Promise<CloneResult> {
-    log.debug("GitService.clone called with options", {
-      repoUrl: options.repoUrl,
-      session: options.session,
-      destination: options.destination,
-      branch: options.branch,
-    });
-
     await this.ensureBaseDir();
-    log.debug("Base directory ensured", { baseDir: this.baseDir });
 
     const session = options.session || this.generateSessionId();
-    log.debug("Using session name", { session, wasProvided: !!options.session });
+    const workdir = options.workdir;
 
-    // Get the repository name from the URL
-    const repoName = normalizeRepoName(options.repoUrl);
-    log.debug("Repository name determined", { repoName });
-
-    // For compatibility with other code, ensure consistent normalization
-    // This is crucial for local repositories which may have paths with slashes
-    let normalizedRepoName = repoName;
-
-    // Special handling for local repositories to match SessionDB's normalization
-    if (repoName.startsWith("local/")) {
-      // First, try the format used in session records
-      const parts = repoName.split("/");
-      if (parts.length > 1) {
-        // Use "local-" prefix plus remaining parts normalized
-        normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
-      }
-    } else {
-      // For other repository types, replace any slashes with dashes
-      normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
-    }
-
-    log.debug("Normalized repo name for directory structure", {
-      originalRepoName: repoName,
-      normalizedRepoName,
+    log.debug("Clone operation starting", {
+      repoUrl: options.repoUrl,
+      workdir,
+      session,
     });
-
-    const workdir = this.getSessionWorkdir(normalizedRepoName, session);
-    log.debug("Computed workdir path", { workdir });
 
     try {
       // Validate repo URL
@@ -308,16 +328,14 @@ export class GitService implements GitServiceInterface {
         throw new MinskyError("Repository URL is required for cloning");
       }
 
-      // Create the sessions directory structure ONLY after git clone succeeds
-      const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
-
       // Clone the repository with verbose logging FIRST
       log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
       const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
       try {
-        // Create parent directory structure before clone
-        await mkdir(sessionsDir, { recursive: true });
-        log.debug("Sessions directory created", { sessionsDir });
+        // Create session directory structure ONLY when ready to clone
+        // This ensures no orphaned directories if validation fails
+        await mkdir(dirname(workdir), { recursive: true });
+        log.debug("Session parent directory created", { parentDir: dirname(workdir) });
 
         const { stdout, stderr } = await execAsync(cloneCmd);
         log.debug("git clone succeeded", {
@@ -330,7 +348,7 @@ export class GitService implements GitServiceInterface {
           command: cloneCmd,
         });
 
-        // Clean up the directory we created if git clone fails
+        // Clean up orphaned session directory if git clone fails
         try {
           const fs = await import("fs/promises");
           await fs.rm(workdir, { recursive: true, force: true });
@@ -405,7 +423,7 @@ export class GitService implements GitServiceInterface {
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     log.debug("Branch: got repoName", { repoName });
 
-    const workdir = this.getSessionWorkdir(repoName, options.session);
+    const workdir = this.getSessionWorkdir(options.session);
     log.debug("Branch: calculated workdir", { workdir });
 
     await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
@@ -426,7 +444,7 @@ export class GitService implements GitServiceInterface {
   }): Promise<BranchResult> {
     await this.ensureBaseDir();
 
-    const workdir = this.getSessionWorkdir(options.repoName, options.session);
+    const workdir = this.getSessionWorkdir(options.session);
     await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
 
     return {
@@ -441,8 +459,7 @@ export class GitService implements GitServiceInterface {
     const deps: PrDependencies = {
       execAsync,
       getSession: async (name: string) => this.sessionDb.getSession(name),
-      getSessionWorkdir: (repoName: string, session: string) =>
-        this.getSessionWorkdir(repoName, session),
+      getSessionWorkdir: (session: string) => this.getSessionWorkdir(session),
       getSessionByTaskId: async (taskId: string) => this.sessionDb.getSessionByTaskId?.(taskId),
     };
 
@@ -583,8 +600,7 @@ You need to specify one of these options to identify the target repository:
       
       throw new MinskyError(createSessionNotFoundMessage(sessionName, context));
     }
-    const repoName = session.repoName || normalizeRepoName(session.repoUrl);
-    const workdir = deps.getSessionWorkdir(repoName, sessionName);
+    const workdir = deps.getSessionWorkdir(sessionName);
 
     log.debug("Using workdir for PR", { workdir, session: sessionName });
     return workdir;
@@ -1102,20 +1118,19 @@ You need to specify one of these options to identify the target repository:
 
   async pullLatest(workdir: string, remote: string = "origin"): Promise<PullResult> {
     try {
-      // Get current branch
-      const { stdout: branch } = await execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
-      const currentBranch = branch.trim();
-
-      // Get current commit hash
+      // Get current commit hash before fetch
       const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Pull latest changes
-      await execAsync(`git -C ${workdir} pull ${remote} ${currentBranch}`);
+      // Fetch latest changes from remote (don't pull current branch)
+      // This gets all refs from remote without merging anything
+      await execAsync(`git -C ${workdir} fetch ${remote}`);
 
-      // Get new commit hash
+      // Get commit hash after fetch (should be the same since we only fetched)
       const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Return whether any changes were pulled
+      // Return whether local working directory changed (should be false for fetch-only)
+      // The 'updated' flag indicates if remote refs were updated, but we can't easily detect that
+      // For session updates, the subsequent merge step will show if changes were applied
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
       throw new Error(
@@ -1158,10 +1173,10 @@ You need to specify one of these options to identify the target repository:
         });
 
         if (hasConflicts) {
-          // Abort the merge and report conflicts
-          log.debug("Aborting merge due to conflicts");
-          await execAsync(`git -C ${workdir} merge --abort`);
-          log.debug("Merge aborted, returning conflict result");
+          // Leave repository in merging state for user to resolve conflicts
+          log.debug(
+            "Merge conflicts detected, leaving repository in merging state for manual resolution"
+          );
           return { workdir, merged: false, conflicts: true };
         }
         log.debug("No conflicts detected, re-throwing original error");
@@ -1204,7 +1219,7 @@ You need to specify one of these options to identify the target repository:
         throw new Error(`Session '${options.session}' not found.`);
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(repoName, options.session);
+      workdir = this.getSessionWorkdir(options.session);
       branch = options.session; // Session branch is named after the session
     } else if (options.repoPath) {
       workdir = options.repoPath;
@@ -1323,11 +1338,90 @@ You need to specify one of these options to identify the target repository:
     let sourceBranch: string;
     const baseBranch = options.baseBranch || "main";
 
+    // Add debugging for session lookup
+    if (options.session) {
+      log.debug(`Attempting to look up session in database: ${options.session}`);
+    }
+
     // Determine working directory and current branch
     if (options.session) {
-      const record = await this.sessionDb.getSession(options.session);
+      let record = await this.sessionDb.getSession(options.session);
+
+      // Add more detailed debugging
+      log.debug(
+        `Session database lookup result: ${options.session}, found: ${!!record}, recordData: ${record ? JSON.stringify({ repoName: record.repoName, repoUrl: record.repoUrl, taskId: record.taskId }) : "null"}`
+      );
+
+      // TASK #168 FIX: Implement session self-repair for preparePr
       if (!record) {
-        throw new MinskyError(`
+        log.debug("Session not found in database, attempting self-repair in preparePr", {
+          session: options.session,
+        });
+
+        // Check if we're currently in a session workspace directory
+        const currentDir = process.cwd();
+        const pathParts = currentDir.split("/");
+        const sessionsIndex = pathParts.indexOf("sessions");
+
+        if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
+          const sessionNameFromPath = pathParts[sessionsIndex + 1];
+
+          // If the session name matches the one we're looking for, attempt self-repair
+          if (sessionNameFromPath === options.session) {
+            log.debug("Attempting to register orphaned session in preparePr", {
+              session: options.session,
+              currentDir,
+            });
+
+            try {
+              // Get the repository URL from git remote
+              const repoUrl = await this.execInRepository(currentDir, "git remote get-url origin");
+              const repoName = normalizeRepoName(repoUrl.trim());
+
+              // Extract task ID from session name if it follows the task#N pattern
+              const taskIdMatch = options.session.match(/^task#(\d+)$/);
+              const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
+
+              // Create session record
+              const newSessionRecord: SessionRecord = {
+                session: options.session,
+                repoUrl: repoUrl.trim(),
+                repoName,
+                createdAt: new Date().toISOString(),
+                taskId,
+                branch: options.session,
+                repoPath: currentDir,
+              };
+
+              // Register the session
+              await this.sessionDb.addSession(newSessionRecord);
+              record = newSessionRecord;
+
+              log.debug("Successfully registered orphaned session in preparePr", {
+                session: options.session,
+                repoUrl: repoUrl.trim(),
+                taskId,
+              });
+            } catch (selfRepairError) {
+              log.debug("Session self-repair failed in preparePr", {
+                session: options.session,
+                error: selfRepairError,
+              });
+
+              // Before throwing error, let's try to understand what sessions are in the database
+              try {
+                const allSessions = await this.sessionDb.listSessions();
+                log.debug(
+                  `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
+                    .map((s) => s.session)
+                    .slice(0, 10)
+                    .join(", ")}, searchedFor=${options.session}`
+                );
+              } catch (listError) {
+                log.error(`Failed to list sessions for debugging: ${listError}`);
+              }
+
+              throw new MinskyError(`
 🔍 Session "${options.session}" Not Found in Database
 
 The session exists in the file system but isn't registered in the session database.
@@ -1351,14 +1445,103 @@ This can happen when sessions are created outside of Minsky or the database gets
 🗃️ Check registered sessions:
    minsky sessions list
 
-⚠️  Note: Session PR commands must be run from the main workspace, not from within the session directory.
+⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
 Current directory: ${process.cwd()}
 Session requested: "${options.session}"
 `);
+            }
+          } else {
+            // Before throwing error, let's try to understand what sessions are in the database
+            try {
+              const allSessions = await this.sessionDb.listSessions();
+              log.debug(
+                `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
+                  .map((s) => s.session)
+                  .slice(0, 10)
+                  .join(", ")}, searchedFor=${options.session}`
+              );
+            } catch (listError) {
+              log.error(`Failed to list sessions for debugging: ${listError}`);
+            }
+
+            throw new MinskyError(`
+🔍 Session "${options.session}" Not Found in Database
+
+The session exists in the file system but isn't registered in the session database.
+This can happen when sessions are created outside of Minsky or the database gets out of sync.
+
+💡 How to fix this:
+
+📋 Check if session exists on disk:
+   ls -la ~/.local/state/minsky/git/*/sessions/
+
+🔄 If session exists, re-register it:
+   cd /path/to/main/workspace
+   minsky sessions import "${options.session}"
+
+🆕 Or create a fresh session:
+   minsky session start ${options.session}
+
+📁 Alternative - use repository path directly:
+   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
+
+🗃️ Check registered sessions:
+   minsky sessions list
+
+⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
+
+Current directory: ${process.cwd()}
+Session requested: "${options.session}"
+`);
+          }
+        } else {
+          // Before throwing error, let's try to understand what sessions are in the database
+          try {
+            const allSessions = await this.sessionDb.listSessions();
+            log.debug(
+              `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
+                .map((s) => s.session)
+                .slice(0, 10)
+                .join(", ")}, searchedFor=${options.session}`
+            );
+          } catch (listError) {
+            log.error(`Failed to list sessions for debugging: ${listError}`);
+          }
+
+          throw new MinskyError(`
+🔍 Session "${options.session}" Not Found in Database
+
+The session exists in the file system but isn't registered in the session database.
+This can happen when sessions are created outside of Minsky or the database gets out of sync.
+
+💡 How to fix this:
+
+📋 Check if session exists on disk:
+   ls -la ~/.local/state/minsky/git/*/sessions/
+
+🔄 If session exists, re-register it:
+   cd /path/to/main/workspace
+   minsky sessions import "${options.session}"
+
+🆕 Or create a fresh session:
+   minsky session start ${options.session}
+
+📁 Alternative - use repository path directly:
+   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
+
+🗃️ Check registered sessions:
+   minsky sessions list
+
+⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
+
+Current directory: ${process.cwd()}
+Session requested: "${options.session}"
+`);
+        }
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(repoName, options.session);
+      workdir = this.getSessionWorkdir(options.session);
       // Get current branch from repo instead of assuming session name is branch name
       const { stdout: branchOut } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
@@ -1514,7 +1697,7 @@ Session requested: "${options.session}"
         throw new Error(`Session '${options.session}' not found.`);
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(repoName, options.session);
+      workdir = this.getSessionWorkdir(options.session);
     } else if (options.repoPath) {
       workdir = options.repoPath;
     } else {
@@ -1739,22 +1922,19 @@ Session requested: "${options.session}"
     remote: string = "origin"
   ): Promise<PullResult> {
     try {
-      // Get current branch
-      const { stdout: branch } = await deps.execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      const currentBranch = branch.trim();
-
-      // Get current commit hash
+      // Get current commit hash before fetch
       const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Pull latest changes
-      await deps.execAsync(`git -C ${workdir} pull ${remote} ${currentBranch}`);
+      // Fetch latest changes from remote (don't pull current branch)
+      // This gets all refs from remote without merging anything
+      await deps.execAsync(`git -C ${workdir} fetch ${remote}`);
 
-      // Get new commit hash
+      // Get commit hash after fetch (should be the same since we only fetched)
       const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Return whether any changes were pulled
+      // Return whether local working directory changed (should be false for fetch-only)
+      // The 'updated' flag indicates if remote refs were updated, but we can't easily detect that
+      // For session updates, the subsequent merge step will show if changes were applied
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
       throw new Error(
@@ -1779,7 +1959,7 @@ Session requested: "${options.session}"
     const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
     await deps.mkdir(sessionsDir, { recursive: true });
 
-    const workdir = this.getSessionWorkdir(normalizedRepoName, session);
+    const workdir = this.getSessionWorkdir(session);
 
     try {
       // Validate repo URL
@@ -1830,8 +2010,7 @@ Session requested: "${options.session}"
       throw new Error(`Session '${options.session}' not found.`);
     }
 
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-    const workdir = deps.getSessionWorkdir(repoName, options.session);
+    const workdir = deps.getSessionWorkdir(options.session);
 
     await deps.execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
     return {
@@ -1854,8 +2033,7 @@ Session requested: "${options.session}"
       if (!record) {
         throw new Error(`Session '${options.session}' not found.`);
       }
-      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = deps.getSessionWorkdir(repoName, options.session);
+      workdir = deps.getSessionWorkdir(options.session);
       branch = options.session; // Session branch is named after the session
     } else if (options.repoPath) {
       workdir = options.repoPath;
@@ -1924,6 +2102,59 @@ Session requested: "${options.session}"
   async hasUncommittedChanges(repoPath: string): Promise<boolean> {
     const { stdout } = await execAsync(`git -C ${repoPath} status --porcelain`);
     return stdout.trim().length > 0;
+  }
+
+  /**
+   * Predict conflicts before performing merge operations
+   */
+  async predictMergeConflicts(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string
+  ): Promise<ConflictPrediction> {
+    return ConflictDetectionService.predictConflicts(repoPath, sourceBranch, targetBranch);
+  }
+
+  /**
+   * Analyze branch divergence between session and base branches
+   */
+  async analyzeBranchDivergence(
+    repoPath: string,
+    sessionBranch: string,
+    baseBranch: string
+  ): Promise<BranchDivergenceAnalysis> {
+    return ConflictDetectionService.analyzeBranchDivergence(repoPath, sessionBranch, baseBranch);
+  }
+
+  /**
+   * Enhanced merge with conflict prediction and better handling
+   */
+  async mergeWithConflictPrevention(
+    repoPath: string,
+    sourceBranch: string,
+    targetBranch: string,
+    options?: {
+      skipConflictCheck?: boolean;
+      autoResolveDeleteConflicts?: boolean;
+      dryRun?: boolean;
+    }
+  ): Promise<EnhancedMergeResult> {
+    return ConflictDetectionService.mergeWithConflictPrevention(repoPath, sourceBranch, targetBranch, options);
+  }
+
+  /**
+   * Smart session update that detects already-merged changes
+   */
+  async smartSessionUpdate(
+    repoPath: string,
+    sessionBranch: string,
+    baseBranch: string,
+    options?: {
+      skipIfAlreadyMerged?: boolean;
+      autoResolveConflicts?: boolean;
+    }
+  ): Promise<SmartUpdateResult> {
+    return ConflictDetectionService.smartSessionUpdate(repoPath, sessionBranch, baseBranch, options);
   }
 }
 
@@ -2078,24 +2309,24 @@ export async function mergePrFromParams(params: {
  */
 export async function cloneFromParams(params: {
   url: string;
+  workdir: string; // Explicit workdir path
   session?: string;
-  destination?: string;
   branch?: string;
 }): Promise<CloneResult> {
   try {
     const git = new GitService();
     const result = await git.clone({
       repoUrl: params.url,
+      workdir: params.workdir,
       session: params.session,
-      destination: params.destination,
       branch: params.branch,
     });
     return result;
   } catch (error) {
     log.error("Error cloning repository", {
       url: params.url,
+      workdir: params.workdir,
       session: params.session,
-      destination: params.destination,
       branch: params.branch,
       error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,

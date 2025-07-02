@@ -79,8 +79,8 @@ describe("DefaultConfigurationService", () => {
     it("should validate a valid global user config", () => {
       const _config: GlobalUserConfig = {
         version: 1,
-        credentials: {
-          github: {
+        github: {
+          credentials: {
             source: "environment"
           }
         }
@@ -105,8 +105,8 @@ describe("DefaultConfigurationService", () => {
     it("should validate credential sources", () => {
       const _config: GlobalUserConfig = {
         version: 1,
-        credentials: {
-          github: {
+        github: {
+          credentials: {
             source: "invalid-source" as any
           }
         }
@@ -121,8 +121,8 @@ describe("DefaultConfigurationService", () => {
     it("should warn about incomplete file credentials", () => {
       const _config: GlobalUserConfig = {
         version: 1,
-        credentials: {
-          github: {
+        github: {
+          credentials: {
             source: "file"
             // Missing token and token_file
           }

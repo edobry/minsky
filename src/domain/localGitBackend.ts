@@ -24,7 +24,6 @@ import {
   RepositoryError,
 } from "../utils/repository-utils.js";
 import { normalizeRepoName } from "./repo-utils.js";
-import { SessionDB } from "./session.js";
 import { log } from "../utils/logger";
 
 const execAsync = promisify(exec);
@@ -35,7 +34,6 @@ const execAsync = promisify(exec);
 export class LocalGitBackend implements RepositoryBackend {
   private readonly config: RepositoryConfig;
   private readonly baseDir: string;
-  private readonly sessionDb: SessionDB;
   private localPath: string = "";
   private cache: RepositoryMetadataCache;
 
@@ -49,9 +47,9 @@ export class LocalGitBackend implements RepositoryBackend {
       ...config,
       type: RepositoryBackendType.LOCAL,
     };
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(_xdgStateHome, "minsky", "git");
-    this.sessionDb = new SessionDB();
+    const _xdgStateHome =
+      process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    this.baseDir = join(_xdgStateHome, "minsky", "sessions");
     this.cache = RepositoryMetadataCache.getInstance();
   }
 
@@ -89,8 +87,8 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns The repository path
    */
-  private getSessionWorkdir(_repoName: string, _session: string): string {
-    return join(this.baseDir, repoName, "sessions", _session);
+  private getSessionWorkdir(session: string): string {
+    return join(this.baseDir, "sessions", session);
   }
 
   /**
@@ -99,7 +97,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result
    */
-  async clone(__session: string): Promise<CloneResult> {
+  async clone(session: string): Promise<CloneResult> {
     if (!this.config.path) {
       throw new RepositoryError("Local repository path is required for LOCAL backend");
     }
@@ -109,8 +107,8 @@ export class LocalGitBackend implements RepositoryBackend {
       const repoName = normalizeRepoName(this.config.path);
 
       // Create the destination directory
-      const _workdir = this.getSessionWorkdir(_repoName, _session);
-      await mkdir(dirname(_workdir), { recursive: true });
+      const workdir = this.getSessionWorkdir(session);
+      await mkdir(dirname(workdir), { recursive: true });
 
       // Clone the repository
       await this.execGit(["clone", this.config.path, workdir]);
@@ -120,8 +118,8 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // Return the clone result
       return {
-        _workdir,
-        _session,
+        workdir,
+        session: session,
       };
     } catch (error) {
       throw new RepositoryError(

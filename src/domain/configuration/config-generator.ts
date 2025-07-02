@@ -50,7 +50,7 @@ export class ConfigurationGenerator {
     config.repository = {
       auto_detect_backend: options.autoDetectBackend ?? true,
       detection_rules: [
-        { condition: "github_remote_exists", backend: "github-issues" },
+        { condition: "tasks_md_exists", backend: "github-issues" },
         { condition: "tasks_md_exists", backend: "markdown" },
         { condition: "always", backend: "json-file" },
       ],
@@ -68,14 +68,14 @@ export class ConfigurationGenerator {
     };
 
     if (options.githubToken || options.githubTokenSource) {
-      config.credentials = {
-        github: {
+      config.github = {
+        credentials: {
           source: options.githubTokenSource || "file",
         },
       };
 
       if (options.githubToken && options.githubTokenSource === "file") {
-        config.credentials.github.token = options.githubToken;
+        config.github.credentials!.token = options.githubToken;
       }
     }
 
@@ -121,7 +121,6 @@ export class ConfigurationGenerator {
       stringifyYaml(config, {
         indent: 2,
         lineWidth: 100,
-        quotingType: "\"",
       });
 
     writeFileSync(configPath, yamlContent, { encoding: "utf8" });

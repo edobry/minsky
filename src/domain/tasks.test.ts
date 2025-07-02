@@ -91,13 +91,13 @@ describe("MarkdownTaskBackend", () => {
     let task = await backend.getTask("#003");
     expect(task?._status).toBe("DONE");
     // Check file content
-    const file = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file = readFileSync(tasksPath, "utf-8");
     expect(file).toMatch(/- \[x\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
     expect(task?._status).toBe("TODO");
-    const file2 = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file2 = readFileSync(tasksPath, "utf-8");
     expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
   });
 
@@ -106,13 +106,13 @@ describe("MarkdownTaskBackend", () => {
     let task = await backend.getTask("#003");
     expect(task?._status).toBe("IN-PROGRESS");
     // Check file content
-    const file = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file = readFileSync(tasksPath, "utf-8");
     expect(file).toMatch(/- \[-\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
     expect(task?._status).toBe("TODO");
-    const file2 = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file2 = readFileSync(tasksPath, "utf-8");
     expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
   });
 
@@ -121,23 +121,23 @@ describe("MarkdownTaskBackend", () => {
     let task = await backend.getTask("#003");
     expect(task?._status).toBe("IN-REVIEW");
     // Check file content
-    const file = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file = readFileSync(tasksPath, "utf-8");
     expect(file).toMatch(/- \[\+\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
     expect(task?._status).toBe("TODO");
-    const file2 = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const file2 = readFileSync(tasksPath, "utf-8");
     expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
   });
 
   it("ignores tasks in code blocks", async () => {
-    const _tasks = await backend.listTasks();
+    const tasks = await backend.listTasks();
     expect(tasks.find((t) => t.id === "#999")).toBeUndefined();
   });
 
   it("ignores malformed lines", async () => {
-    const _tasks = await backend.listTasks();
+    const tasks = await backend.listTasks();
     expect(tasks.find((t) => t.title && t.title.includes("Malformed"))).toBeUndefined();
     expect(tasks.find((t) => t.title && t.title.includes("Not a real task"))).toBeUndefined();
   });
@@ -148,9 +148,9 @@ describe("MarkdownTaskBackend", () => {
 
   it("does nothing if task id does not exist for setTaskStatus", async () => {
     // Should not throw, should not change file
-    const before = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const before = readFileSync(tasksPath, "utf-8");
     await backend.setTaskStatus("#999", "DONE");
-    const after = readFileSync(tasksPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const after = readFileSync(tasksPath, "utf-8");
     expect(after).toBe(before);
   });
 
@@ -164,7 +164,7 @@ describe("MarkdownTaskBackend", () => {
 # Tasks
 \n\`\`\`markdown\n- [ ] In code block [#100](tasks/100.md)\n\`\`\`\n- [ ] Real Task [#101](tasks/101.md)\n\`\`\`\n- [ ] Also in code block [#102](tasks/102.md)\n\`\`\`\n- [x] Real Done [#103](tasks/103.md)\n`;
     writeFileSync(tasksPath, md);
-    const _tasks = await backend.listTasks();
+    const tasks = await backend.listTasks();
     expect(tasks.length).toBe(2);
     expect(tasks.map((t) => t.id)).toEqual(["#101", "#103"]);
   });
@@ -204,7 +204,7 @@ describe("TaskService", () => {
   });
 
   it("lists tasks via TaskService", async () => {
-    const _tasks = await service.listTasks();
+    const tasks = await service.listTasks();
     expect(tasks.length).toBe(3);
   });
 

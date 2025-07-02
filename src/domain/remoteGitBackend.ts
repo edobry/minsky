@@ -23,8 +23,9 @@ import {
   RepositoryError,
 } from "../utils/repository-utils.js";
 import { normalizeRepoName } from "./repo-utils.js";
-import { SessionDB } from "./session.js";
+import { createSessionProvider } from "./session.js";
 import { log } from "../utils/logger";
+import { getMinskyStateDir } from "../utils/paths.js";
 const execAsync = promisify(exec);
 
 /**
@@ -33,7 +34,7 @@ const execAsync = promisify(exec);
 export class RemoteGitBackend implements RepositoryBackend {
   protected config: RemoteGitConfig;
   private readonly baseDir: string;
-  private readonly sessionDb: SessionDB;
+  private readonly sessionDb: any;
   private localPath: string = "";
   private cache: RepositoryMetadataCache;
 
@@ -54,9 +55,8 @@ export class RemoteGitBackend implements RepositoryBackend {
       url: config.url,
     } as RemoteGitConfig;
 
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(_xdgStateHome, "minsky", "git");
-    this.sessionDb = new SessionDB();
+    this.baseDir = getMinskyStateDir();
+    this.sessionDb = createSessionProvider();
     this.cache = RepositoryMetadataCache.getInstance();
   }
 
@@ -94,8 +94,8 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns The repository path
    */
-  protected getSessionWorkdir(_repoName: string, _session: string): string {
-    return join(this.baseDir, repoName, "sessions", _session);
+  protected getSessionWorkdir(session: string): string {
+    return join(this.baseDir, "sessions", session);
   }
 
   /**
@@ -104,14 +104,14 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result
    */
-  async clone(__session: string): Promise<CloneResult> {
+  async clone(session: string): Promise<CloneResult> {
     try {
       // Normalize the repository name
       const repoName = normalizeRepoName(this.config.url);
 
       // Create the destination directory
-      const _workdir = this.getSessionWorkdir(_repoName, _session);
-      await mkdir(dirname(_workdir), { recursive: true });
+      const workdir = this.getSessionWorkdir(session);
+      await mkdir(dirname(workdir), { recursive: true });
 
       // Clone options
       const cloneArgs = ["clone", this.config.url, workdir];
@@ -129,8 +129,8 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Return the clone result
       return {
-        _workdir,
-        _session,
+        workdir,
+        session,
       };
     } catch (error) {
       throw new RepositoryError(

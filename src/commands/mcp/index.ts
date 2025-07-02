@@ -21,6 +21,7 @@ import {
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
 import { DEFAULT_DEV_PORT } from "../../utils/constants";
+import { exit } from "../../utils/process.js";
 
 const INSPECTOR_PORT = 3001;
 
@@ -68,11 +69,11 @@ export function createMCPCommand(): Command {
           // Validate that the path exists and is a directory
           if (!fs.existsSync(repositoryPath)) {
             log.cliError(`Repository path does not exist: ${repositoryPath}`);
-            process.exit(1);
+            exit(1);
           }
           if (!fs.statSync(repositoryPath).isDirectory()) {
             log.cliError(`Repository path is not a directory: ${repositoryPath}`);
-            process.exit(1);
+            exit(1);
           }
 
           try {
@@ -85,7 +86,7 @@ export function createMCPCommand(): Command {
             if (SharedErrorHandler.isDebugMode() && error instanceof Error) {
               log.cliError(error.message);
             }
-            process.exit(1);
+            exit(1);
           }
         }
 
@@ -181,12 +182,12 @@ export function createMCPCommand(): Command {
         // Handle termination signals
         process.on("SIGINT", () => {
           log.cli("\nStopping Minsky MCP Server...");
-          process.exit(0);
+          exit(0);
         });
 
         process.on("SIGTERM", () => {
           log.cli("\nStopping Minsky MCP Server...");
-          process.exit(0);
+          exit(0);
         });
       } catch (error) {
         // Log detailed error info for debugging
@@ -226,7 +227,7 @@ export function createMCPCommand(): Command {
           }
         }
 
-        process.exit(1);
+        exit(1);
       }
     });
 

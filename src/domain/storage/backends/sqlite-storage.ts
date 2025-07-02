@@ -122,7 +122,7 @@ implements DatabaseStorage<TEntity, TState>
       // and possibly other fields like baseDir
       const state = {
         sessions,
-        baseDir: process.env.XDG_STATE_HOME || `${process.env.HOME}/.local/state/minsky/git`,
+        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky`,
       } as TState;
 
       return { success: true, data: state };

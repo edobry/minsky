@@ -1,0 +1,27 @@
+# Test environment configuration for Minsky
+# This file is used when NODE_ENV=test to avoid warnings from node-config
+
+# Use the same defaults as the default configuration for tests
+backend: "markdown"
+
+# Backend-specific configurations
+backendConfig:
+  github-issues: {}
+  markdown: {}
+  json-file: {}
+
+# Session database configuration for tests
+sessiondb:
+  backend: "json"
+  baseDir: null
+  dbPath: null
+  connectionString: null
+
+# Detection rules for tests
+detectionRules:
+  - condition: "tasks_md_exists"
+    backend: "markdown"
+  - condition: "json_file_exists"
+    backend: "json-file"
+  - condition: "always"
+    backend: "markdown"

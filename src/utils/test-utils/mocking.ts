@@ -349,7 +349,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
 
   // Initialize with provided files
   Object.entries(initialFiles).forEach(([path, content]) => {
-    files.set(_path, _content);
+    files.set(path, content);
     // Also add all parent directories
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) {
@@ -366,8 +366,8 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       }
       return files.get(path);
     }),
-    writeFileSync: createMock((path: unknown) => {
-      files.set(_path, data);
+    writeFileSync: createMock((path: unknown, data: unknown) => {
+      files.set(path as string, data as string);
       // Add parent directories
       const parts = path.split("/");
       for (let i = 1; i < parts.length; i++) {
@@ -404,18 +404,18 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       }
       return files.get(path);
     }),
-    writeFile: createMock(async (path: unknown) => {
-      files.set(_path, data);
+    writeFile: createMock(async (path: unknown, data: unknown) => {
+      files.set(path as string, data as string);
       // Add parent directories
       const parts = path.split("/");
       for (let i = 1; i < parts.length; i++) {
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
-    mkdir: createMock(async (path: unknown) => {
+    mkdir: createMock(async (path: unknown, options?: { recursive?: boolean }) => {
       directories.add(path);
       // If recursive option, add all parent directories
-      if (_options?.recursive) {
+      if (options?.recursive) {
         const parts = path.split("/");
         for (let i = 1; i <= parts.length; i++) {
           directories.add(parts.slice(0, i).join("/"));
@@ -424,8 +424,8 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     }),
 
     // Access the internal state for validation in tests
-    _files: files,
-    _directories: directories,
+    files: files,
+    directories: directories,
   };
 
   return mockFs;
@@ -471,7 +471,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
 
       // For methods that don't exist, create a mock function
       if (typeof prop === "string") {
-        const _mockFn = createMock();
+        const mockFn = createMock();
         target[prop] = mockFn;
         return mockFn;
       }
@@ -541,7 +541,7 @@ export function createSpyOn<T extends object, M extends keyof T>(
   }
 
   // Create a mock function that calls the original
-  const _mockFn = mock((..._args: unknown[]) => {
+  const mockFn = mock((..._args: unknown[]) => {
     return (original as Function).apply(_obj, _args);
   });
 

@@ -59,7 +59,7 @@ describe("Task Functions", () => {
 - [x] Completed task [#002](#)
 - [+] In progress task [#003](#)`;
 
-      const _tasks = parseTasksFromMarkdown(markdown);
+      const tasks = parseTasksFromMarkdown(markdown);
       expect(_tasks).toHaveLength(3);
 
       expect(tasks[0].id).toBe("#001");
@@ -86,7 +86,7 @@ Code block with task-like content:
 
 - [x] Second real task [#003](#)`;
 
-      const _tasks = parseTasksFromMarkdown(markdown);
+      const tasks = parseTasksFromMarkdown(markdown);
       expect(_tasks).toHaveLength(2);
       expect(tasks[0].id).toBe("#001");
       expect(tasks[1].id).toBe("#003");
@@ -334,7 +334,7 @@ It has multiple lines.
 1. Do something
 `;
 
-      const _spec = parseTaskSpecFromMarkdown(markdown);
+      const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec._title).toBe("Test Task Title");
       expect(spec.id).toBe("#TEST_VALUE");
       expect(spec.description).toBe("This is a test task description.\nIt has multiple lines.");
@@ -348,7 +348,7 @@ It has multiple lines.
 Description here.
 `;
 
-      const _spec = parseTaskSpecFromMarkdown(markdown);
+      const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec._title).toBe("No ID Task");
       expect(spec.id).toBeUndefined();
       expect(spec.description).toBe("Description here.");
@@ -362,7 +362,7 @@ Description here.
 Description here.
 `;
 
-      const _spec = parseTaskSpecFromMarkdown(markdown);
+      const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec._title).toBe("Just a general title");
       expect(spec.description).toBe("Description here.");
     });

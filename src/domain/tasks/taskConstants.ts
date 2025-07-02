@@ -14,6 +14,7 @@ export const TASK_STATUS = {
   IN_REVIEW: "IN-REVIEW",
   DONE: "DONE",
   BLOCKED: "BLOCKED",
+  CLOSED: "CLOSED",
 } as const;
 
 /**
@@ -35,6 +36,7 @@ export const TASK_STATUS_CHECKBOX: Record<TaskStatus, string> = {
   [TASK_STATUS.IN_REVIEW]: "-",
   [TASK_STATUS.DONE]: "x",
   [TASK_STATUS.BLOCKED]: "~",
+  [TASK_STATUS.CLOSED]: "!",
 };
 
 /**
@@ -47,6 +49,7 @@ export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
   x: TASK_STATUS.DONE,
   X: TASK_STATUS.DONE, // Accept both cases for DONE
   "~": TASK_STATUS.BLOCKED,
+  "!": TASK_STATUS.CLOSED,
 };
 
 /**
@@ -58,6 +61,7 @@ export const STATUS_TO_CHECKBOX: Record<string, string> = {
   "IN-REVIEW": "-",
   DONE: "x",
   BLOCKED: "~",
+  CLOSED: "!",
 };
 
 /**
@@ -76,8 +80,12 @@ export function isValidTaskStatus(status: string): status is TaskStatus {
  * This ensures we never have to manually update regex patterns when adding new statuses
  */
 function generateCheckboxPattern(): string {
+  const specialRegexChars = ["+", "-", "*", "?", "^", "$", "(", ")", "[", "]", "{", "}", "|", "\\"];
   const checkboxChars = Object.keys(CHECKBOX_TO_STATUS)
-    .map((char) => (char === " " ? " " : `\\${char}`)) // Escape special regex chars except space
+    .map((char) => {
+      if (char === " ") return " ";
+      return specialRegexChars.includes(char) ? `\\${char}` : char;
+    })
     .join("|");
   return checkboxChars;
 }
@@ -90,8 +98,9 @@ export const TASK_REGEX_PATTERNS = {
   /**
    * Pattern for matching task lines: - [x] Title [#TEST_VALUE](path)
    * Dynamically includes all valid checkbox characters
+   * Supports both numeric and alphanumeric task IDs
    */
-  TASK_LINE: new RegExp(`^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[#(\\d+)\\]\\([^)]+\\)`),
+  TASK_LINE: new RegExp(`^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[#([A-Za-z0-9_]+)\\]\\([^)]+\\)`),
 
   /**
    * Pattern for replacing checkbox status in task lines
