@@ -292,7 +292,7 @@ describe("Session Domain Methods", () => {
 
       const updatedSessionData = {
         ...sessionData,
-        _branch: "new-branch",
+        branch: "new-branch",
         notes: "Session notes updated",
       };
 
