@@ -99,6 +99,11 @@ export interface GitServiceInterface {
   hasUncommittedChanges(repoPath: string): Promise<boolean>;
 
   /**
+   * Fetch the default branch for a repository
+   */
+  fetchDefaultBranch(repoPath: string): Promise<string>;
+
+  /**
    * Predict conflicts before performing merge operations
    */
   predictMergeConflicts(
@@ -1410,7 +1415,6 @@ Need help? Run: minsky git pr --help
                 createdAt: new Date().toISOString(),
                 taskId,
                 branch: options.session,
-                repoPath: currentDir,
               };
 
               // Register the session
