@@ -63,7 +63,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
     // Create task service with JsonFileTaskBackend
     const backend = createJsonFileTaskBackend({
       name: "json-file",
-      _workspacePath,
+      workspacePath,
       dbFilePath: dbPath,
     });
 
@@ -80,23 +80,23 @@ describe("TaskService JsonFile Integration (v2)", () => {
     test("should default to jsonFile backend", () => {
       // Create service with json-file backend specified
       const defaultService = new TaskService({
-        _workspacePath,
+        workspacePath,
         backend: "json-file",
         customBackends: [
           createJsonFileTaskBackend({
             name: "json-file",
-            _workspacePath,
+            workspacePath,
             dbFilePath: dbPath,
           }),
         ],
       });
 
-      expect(defaultService.getWorkspacePath()).toBe(_workspacePath);
+      expect(defaultService.getWorkspacePath()).toBe(workspacePath);
     });
 
     test("should list tasks from JSON storage", async () => {
       // Initially should be empty
-      const _tasks = await taskService.listTasks();
+      const tasks = await taskService.listTasks();
       expect(tasks.length).toBe(0);
     });
 
