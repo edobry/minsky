@@ -422,4 +422,4 @@
 
 - [ ] Extend conflict detection to comprehensive git workflow protection [#227](process/tasks/227-extend-conflict-detection-to-comprehensive-git-workflow-protection.md)
 
-- [ ] Exclude CLOSED tasks from default tasks list output [#228](/Users/edobry/Projects/minsky/process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)
+- [-] Exclude CLOSED tasks from default tasks list output [#228](process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)

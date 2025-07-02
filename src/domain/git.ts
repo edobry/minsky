@@ -1617,9 +1617,12 @@ Session requested: "${options.session}"
         // Branch doesn't exist, which is fine
       }
 
+      // Fix for origin/origin/main bug: Don't prepend origin/ if baseBranch already has it
+      const remoteBaseBranch = baseBranch.startsWith("origin/") ? baseBranch : `origin/${baseBranch}`;
+      
       // Create PR branch FROM base branch (Task #025 specification)
-      await execAsync(`git -C ${workdir} switch -C ${prBranch} origin/${baseBranch}`);
-      log.debug(`Created PR branch ${prBranch} from origin/${baseBranch}`);
+      await execAsync(`git -C ${workdir} switch -C ${prBranch} ${remoteBaseBranch}`);
+      log.debug(`Created PR branch ${prBranch} from ${remoteBaseBranch}`);
     } catch (err) {
       throw new MinskyError(
         `Failed to create PR branch: ${err instanceof Error ? err.message : String(err)}`
