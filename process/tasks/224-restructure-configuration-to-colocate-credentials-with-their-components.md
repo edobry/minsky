@@ -58,26 +58,17 @@ github:
   # Future: other github settings can go here
 
 ai:
-  default_provider: null
   providers:
     openai:
       credentials:
         source: "environment"
       enabled: true
-      default_model: null
-      base_url: null
       models: []
-      max_tokens: null
-      temperature: null
     anthropic:
       credentials:
         source: "environment"
       enabled: true
-      default_model: null
-      base_url: null
       models: []
-      max_tokens: null
-      temperature: null
     # ... other providers
 ```
 
