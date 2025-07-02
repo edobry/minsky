@@ -157,11 +157,11 @@ describe("TaskService JsonFile Integration (v2)", () => {
 
     test("should filter tasks by status", async () => {
       // Create multiple test tasks
-      const task1Spec = join(_workspacePath, "process", "tasks", "filter-test-1.md");
+      const task1Spec = join(workspacePath, "process", "tasks", "filter-test-1.md");
       const task1Content = "# Task #125: Filter Test 1\n\n## Context\n\nFirst test task.";
       mockFS.files.set(task1Spec, task1Content);
 
-      const task2Spec = join(_workspacePath, "process", "tasks", "filter-test-2.md");
+      const task2Spec = join(workspacePath, "process", "tasks", "filter-test-2.md");
       const task2Content = "# Task #126: Filter Test 2\n\n## Context\n\nSecond test task.";
       mockFS.files.set(task2Spec, task2Content);
 
@@ -173,14 +173,14 @@ describe("TaskService JsonFile Integration (v2)", () => {
       await taskService.setTaskStatus("#126", "DONE");
 
       // Filter by TODO status
-      const todoTasks = await taskService.listTasks({ _status: "TODO" });
+      const todoTasks = await taskService.listTasks({ status: "TODO" });
       expect(todoTasks.length).toBe(1);
       if (todoTasks[0]) {
         expect(todoTasks[0].id).toBe("#125");
       }
 
       // Filter by DONE status
-      const doneTasks = await taskService.listTasks({ _status: "DONE" });
+      const doneTasks = await taskService.listTasks({ status: "DONE" });
       expect(doneTasks.length).toBe(1);
       if (doneTasks[0]) {
         expect(doneTasks[0].id).toBe("#126");
@@ -213,9 +213,9 @@ describe("TaskService JsonFile Integration (v2)", () => {
 
     test("should validate task status values", async () => {
       // Create a test task first
-      const _specPath = join(_workspacePath, "process", "tasks", "validation-test.md");
+      const specPath = join(workspacePath, "process", "tasks", "validation-test.md");
       const specContent = "# Task #127: Validation Test\n\n## Context\n\nTest validation.";
-      mockFS.files.set(_specPath, specContent);
+      mockFS.files.set(specPath, specContent);
       await taskService.createTask("process/tasks/validation-test.md");
 
       // Should reject invalid status
@@ -228,9 +228,9 @@ describe("TaskService JsonFile Integration (v2)", () => {
   describe("Synchronization", () => {
     test("should persist changes across service instances", async () => {
       // Create task with first service instance
-      const _specPath = join(_workspacePath, "process", "tasks", "persistence-test.md");
+      const specPath = join(workspacePath, "process", "tasks", "persistence-test.md");
       const specContent = "# Task #128: Persistence Test\n\n## Context\n\nTest persistence.";
-      mockFS.files.set(_specPath, specContent);
+      mockFS.files.set(specPath, specContent);
 
       await taskService.createTask("process/tasks/persistence-test.md");
       await taskService.setTaskStatus("#128", "IN-PROGRESS");
@@ -238,7 +238,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
       // Create new service instance pointing to same database
       const newBackend = createJsonFileTaskBackend({
         name: "json-file",
-        _workspacePath,
+        workspacePath,
         dbFilePath: dbPath,
       });
 
@@ -250,9 +250,9 @@ describe("TaskService JsonFile Integration (v2)", () => {
       // Should see the task and its updated status
       const task = await newService.getTask("#128");
       expect(task?.id).toBe("#128");
-      expect(task?._status).toBe("IN-PROGRESS");
+      expect(task?.status).toBe("IN-PROGRESS");
 
-      const _tasks = await newService.listTasks();
+      const tasks = await newService.listTasks();
       expect(tasks.length).toBe(1);
     });
   });
