@@ -41,7 +41,7 @@ export class LocalGitBackend implements RepositoryBackend {
    */
   constructor(__config: RepositoryBackendConfig) {
     const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(_xdgStateHome, "minsky", "git");
+    this.baseDir = join(xdgStateHome, "minsky");
     this.repoUrl = config.repoUrl;
     this.repoName = normalizeRepositoryURI(this.repoUrl);
     this.sessionDb = new SessionDB();

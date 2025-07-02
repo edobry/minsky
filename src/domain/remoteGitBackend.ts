@@ -25,6 +25,7 @@ import {
 import { normalizeRepoName } from "./repo-utils.js";
 import { SessionDB } from "./session.js";
 import { log } from "../utils/logger";
+import { getMinskyStateDir } from "../utils/paths.js";
 const execAsync = promisify(exec);
 
 /**
@@ -54,8 +55,7 @@ export class RemoteGitBackend implements RepositoryBackend {
       url: config.url,
     } as RemoteGitConfig;
 
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(_xdgStateHome, "minsky", "git");
+    this.baseDir = getMinskyStateDir();
     this.sessionDb = new SessionDB();
     this.cache = RepositoryMetadataCache.getInstance();
   }
