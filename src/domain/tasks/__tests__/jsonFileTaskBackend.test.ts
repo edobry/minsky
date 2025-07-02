@@ -12,16 +12,16 @@ import { rmSync, existsSync } from "fs";
 import { randomUUID } from "crypto";
 import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { JsonFileTaskBackend } from "../jsonFileTaskBackend";
-import type {} from "../../../types/tasks/taskData";
+import type { TaskData } from "../../../types/tasks/taskData";
 import { log } from "../../../utils/logger";
 
-// Global test isolation to prevent race conditions
+// Test isolation counter
 let testSequenceNumber = 0;
 
 describe("JsonFileTaskBackend", () => {
   const testDir = join(process.cwd(), "test-tmp", "json-backend-test");
   let dbPath: string;
-  let _workspacePath: string;
+  let workspacePath: string;
   let backend: JsonFileTaskBackend;
 
   beforeEach(async () => {
@@ -34,13 +34,13 @@ describe("JsonFileTaskBackend", () => {
 
     // Create test directories
     await mkdir(testDir, { recursive: true });
-    await mkdir(_workspacePath, { recursive: true });
-    await mkdir(join(_workspacePath, "process", "tasks"), { recursive: true });
+    await mkdir(workspacePath, { recursive: true });
+    await mkdir(join(workspacePath, "process", "tasks"), { recursive: true });
 
     // Create backend instance
     backend = createJsonFileTaskBackend({
       name: "json-file",
-      _workspacePath,
+      workspacePath,
       dbFilePath: dbPath,
     }) as JsonFileTaskBackend;
   });
@@ -52,13 +52,13 @@ describe("JsonFileTaskBackend", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       // Clean up test directories
-      if (existsSync(_workspacePath)) {
-        rmSync(_workspacePath, { recursive: true, force: true });
+      if (existsSync(workspacePath)) {
+        rmSync(workspacePath, { recursive: true, force: true });
       }
       if (existsSync(dbPath)) {
         rmSync(dbPath, { force: true });
       }
-    } catch {
+    } catch (error) {
       // Log but don't fail tests on cleanup errors
       log.cliWarn("Cleanup warning:", error);
     }
@@ -103,12 +103,12 @@ describe("JsonFileTaskBackend", () => {
       await backend.createTaskData(testTask);
 
       // Update task
-      const updated = await backend.updateTaskData("#002", { _status: "IN-PROGRESS" });
-      expect(updated?._status).toBe("IN-PROGRESS");
+      const updated = await backend.updateTaskData("#002", { status: "IN-PROGRESS" });
+      expect(updated?.status).toBe("IN-PROGRESS");
 
       // Verify update
       const retrieved = await backend.getTaskById("#002");
-      expect(retrieved?._status).toBe("IN-PROGRESS");
+      expect(retrieved?.status).toBe("IN-PROGRESS");
     });
 
     test("should delete tasks", async () => {
@@ -145,7 +145,7 @@ describe("JsonFileTaskBackend", () => {
     test("should implement saveTasksData", async () => {
       const taskData = JSON.stringify(
         {
-          _tasks: [{ id: "#004", _title: "Test Task 4", _status: "TODO" }],
+          tasks: [{ id: "#004", title: "Test Task 4", status: "TODO" }],
           lastUpdated: new Date().toISOString(),
           metadata: {},
         },
@@ -158,7 +158,7 @@ describe("JsonFileTaskBackend", () => {
 
       // Verify the task was saved
       const retrieved = await backend.getTaskById("#004");
-      expect(retrieved?._title).toBe("Test Task 4");
+      expect(retrieved?.title).toBe("Test Task 4");
     });
 
     test("should implement parseTasks", () => {
@@ -166,7 +166,7 @@ describe("JsonFileTaskBackend", () => {
         _tasks: [{ id: "#005", _title: "Test Task TEST_ARRAY_SIZE", _status: "TODO" }],
       });
 
-      const _tasks = backend.parseTasks(jsonContent);
+      const tasks = backend.parseTasks(jsonContent);
       expect(tasks.length).toBe(1);
       if (tasks.length > 0 && tasks[0]) {
         expect(tasks[0].id).toBe("#005");
@@ -229,7 +229,7 @@ describe("JsonFileTaskBackend", () => {
 
     test("should return correct workspace path", () => {
       const path = backend.getWorkspacePath();
-      expect(path).toBe(_workspacePath);
+      expect(path).toBe(workspacePath);
     });
   });
 });

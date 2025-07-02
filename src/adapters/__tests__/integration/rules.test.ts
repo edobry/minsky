@@ -69,11 +69,11 @@ describe("Rules Domain Methods", () => {
       mockListRules.mockResolvedValue(mockRules);
 
       // Act
-      const _result = await mockListRules();
+      const result = await mockListRules();
 
       // Assert
       expect(mockListRules).toHaveBeenCalledWith();
-      expect(_result).toEqual(mockRules);
+      expect(result).toEqual(mockRules);
       expect(result.length).toBe(2);
     });
 
@@ -89,11 +89,11 @@ describe("Rules Domain Methods", () => {
       const _options = { format: "cursor" as const };
 
       // Act
-      const _result = await mockListRules(_options);
+      const result = await mockListRules(options);
 
       // Assert
-      expect(mockListRules).toHaveBeenCalledWith(_options);
-      expect(_result).toEqual([mockRules[0]]);
+      expect(mockListRules).toHaveBeenCalledWith(options);
+      expect(result).toEqual([mockRules[0]]);
       expect(result.length).toBe(1);
     });
   });
