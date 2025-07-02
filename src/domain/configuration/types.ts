@@ -5,6 +5,48 @@
  * that supports both repository-level settings (committed) and global user settings.
  */
 
+// Component-specific configuration with colocated credentials
+
+export interface GitHubConfig {
+  credentials?: {
+    source: "environment" | "file" | "prompt";
+    token?: string;
+    token_file?: string;
+  };
+  // Future: other GitHub settings can go here
+}
+
+export interface AIProviderConfig {
+  credentials?: {
+    source: "environment" | "file" | "prompt";
+    api_key?: string;
+    api_key_file?: string;
+  };
+  enabled?: boolean;
+  default_model?: string;
+  base_url?: string;
+  models?: string[];
+  max_tokens?: number;
+  temperature?: number;
+}
+
+export interface AIConfig {
+  default_provider?: string;
+  providers?: {
+    openai?: AIProviderConfig;
+    anthropic?: AIProviderConfig;
+    google?: AIProviderConfig;
+    cohere?: AIProviderConfig;
+    mistral?: AIProviderConfig;
+  };
+}
+
+export interface PostgresConfig {
+  connection_string?: string;
+}
+
+// Repository and Global User Configuration
+
 export interface RepositoryConfig {
   version: number;
   backends?: {
@@ -30,54 +72,24 @@ export interface RepositoryConfig {
     };
     base_dir?: string;
   };
-  ai?: {
-    default_provider?: string;
-    providers?: {
-      openai?: AIProviderRepoConfig;
-      anthropic?: AIProviderRepoConfig;
-      google?: AIProviderRepoConfig;
-      cohere?: AIProviderRepoConfig;
-      mistral?: AIProviderRepoConfig;
-    };
-  };
+  ai?: AIConfig;
+  github?: GitHubConfig;
 }
 
 export interface GlobalUserConfig {
   version: number;
-  credentials?: {
-    github?: {
-      source: "environment" | "file" | "prompt";
-      token?: string;
-      token_file?: string;
-    };
-    postgres?: {
-      connection_string?: string;
-    };
-    ai?: {
-      openai?: AICredentialConfig;
-      anthropic?: AICredentialConfig;
-      google?: AICredentialConfig;
-      cohere?: AICredentialConfig;
-      mistral?: AICredentialConfig;
-    };
-  };
+  github?: GitHubConfig;
   sessiondb?: {
     sqlite?: {
       path?: string;
     };
     base_dir?: string;
   };
-  ai?: {
-    default_provider?: string;
-    providers?: {
-      openai?: AIProviderUserConfig;
-      anthropic?: AIProviderUserConfig;
-      google?: AIProviderUserConfig;
-      cohere?: AIProviderUserConfig;
-      mistral?: AIProviderUserConfig;
-    };
-  };
+  ai?: AIConfig;
+  postgres?: PostgresConfig;
 }
+
+// Core Configuration Types
 
 export interface DetectionRule {
   condition: "json_file_exists" | "tasks_md_exists" | "always";
@@ -87,19 +99,11 @@ export interface DetectionRule {
 export interface ResolvedConfig {
   backend: string;
   backendConfig: BackendConfig;
-  credentials: CredentialConfig;
   detectionRules: DetectionRule[];
   sessiondb: SessionDbConfig;
-  ai?: {
-    default_provider?: string;
-    providers?: {
-      openai?: AIProviderUserConfig;
-      anthropic?: AIProviderUserConfig;
-      google?: AIProviderUserConfig;
-      cohere?: AIProviderUserConfig;
-      mistral?: AIProviderUserConfig;
-    };
-  };
+  github?: GitHubConfig;
+  ai?: AIConfig;
+  postgres?: PostgresConfig;
 }
 
 export interface BackendConfig {
@@ -111,29 +115,14 @@ export interface BackendConfig {
   "json-file"?: Record<string, unknown>;
 }
 
-export interface CredentialConfig {
-  github?: {
-    token?: string;
-    source: "environment" | "file" | "prompt";
-  };
-  postgres?: {
-    connection_string?: string;
-  };
-  ai?: {
-    openai?: AICredentialConfig;
-    anthropic?: AICredentialConfig;
-    google?: AICredentialConfig;
-    cohere?: AICredentialConfig;
-    mistral?: AICredentialConfig;
-  };
-}
-
 export interface SessionDbConfig {
   backend: "json" | "sqlite" | "postgres";
   dbPath?: string;
   baseDir?: string;
   connectionString?: string;
 }
+
+// Configuration Management Types
 
 export interface ConfigurationLoadResult {
   resolved: ResolvedConfig;
@@ -166,28 +155,7 @@ export interface ValidationWarning {
   code: string;
 }
 
-// AI Provider Configuration Types
-export interface AIProviderRepoConfig {
-  default_model?: string;
-  base_url?: string;
-  enabled?: boolean;
-  models?: string[];
-}
-
-export interface AIProviderUserConfig {
-  default_model?: string;
-  base_url?: string;
-  enabled?: boolean;
-  models?: string[];
-  max_tokens?: number;
-  temperature?: number;
-}
-
-export interface AICredentialConfig {
-  source: "environment" | "file" | "prompt";
-  api_key?: string;
-  api_key_file?: string;
-}
+// Service Interfaces
 
 export type CredentialSource = "environment" | "file" | "prompt";
 
@@ -217,7 +185,6 @@ export interface BackendDetector {
 export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
   backend: "json-file",
   backendConfig: {},
-  credentials: {},
   detectionRules: [
     { condition: "tasks_md_exists", backend: "markdown" },
     { condition: "json_file_exists", backend: "json-file" },

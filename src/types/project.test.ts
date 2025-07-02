@@ -26,7 +26,7 @@ describe("ProjectContext", () => {
       // Test with a path we know exists - the current working directory
       const context = createProjectContext(process.cwd());
 
-      expect(_context).toBeDefined();
+      expect(context).toBeDefined();
       expect(context.repositoryPath).toBeDefined();
       expect(typeof context.repositoryPath).toBe("string");
     });
@@ -37,7 +37,7 @@ describe("ProjectContext", () => {
 
       try {
         createProjectContext("/definitely/does/not/exist/path/12345");
-      } catch {
+      } catch (error) {
         threwError = true;
         errorMessage = error instanceof Error ? error.message : String(error);
       }
@@ -51,7 +51,7 @@ describe("ProjectContext", () => {
     test("creates a ProjectContext from current working directory", () => {
       const context = createProjectContextFromCwd();
 
-      expect(_context).toBeDefined();
+      expect(context).toBeDefined();
       expect(context.repositoryPath).toBeDefined();
       expect(typeof context.repositoryPath).toBe("string");
 

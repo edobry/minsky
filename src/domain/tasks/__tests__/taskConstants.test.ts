@@ -9,7 +9,7 @@ import {
 } from "../taskConstants.js";
 
 const TEST_VALUE = 123;
-const TEST_ARRAY_SIZE = 3;
+const TEST_ARRAY_SIZE = 6;
 
 describe("Task Constants and Utilities", () => {
   describe("Basic Constants", () => {
@@ -20,6 +20,7 @@ describe("Task Constants and Utilities", () => {
         "IN_REVIEW",
         "DONE",
         "BLOCKED",
+        "CLOSED",
       ]);
     });
 
@@ -30,6 +31,7 @@ describe("Task Constants and Utilities", () => {
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.IN_REVIEW]).toBe("-");
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.DONE]).toBe("x");
       expect(TASK_STATUS_CHECKBOX[TASK_STATUS.BLOCKED]).toBe("~");
+      expect(TASK_STATUS_CHECKBOX[TASK_STATUS.CLOSED]).toBe("!");
 
       // Test checkbox to status mapping
       expect(CHECKBOX_TO_STATUS[" "]).toBe(TASK_STATUS.TODO);
@@ -38,17 +40,19 @@ describe("Task Constants and Utilities", () => {
       expect(CHECKBOX_TO_STATUS["x"]).toBe(TASK_STATUS.DONE);
       expect(CHECKBOX_TO_STATUS["X"]).toBe(TASK_STATUS.DONE); // Both cases
       expect(CHECKBOX_TO_STATUS["~"]).toBe(TASK_STATUS.BLOCKED);
+      expect(CHECKBOX_TO_STATUS["!"]).toBe(TASK_STATUS.CLOSED);
     });
   });
 
   describe("Regex Patterns", () => {
     test("should match valid task lines", () => {
       const testLines = [
-        "- [ ] Test task [#TEST_VALUE](path/to/spec.md)",
+        `- [ ] Test task [#${TEST_VALUE}](path/to/spec.md)`,
         "- [x] Completed task [#456](path/to/spec.md)",
         "- [+] In progress task [#789](path/to/spec.md)",
         "- [-] In review task [#101](path/to/spec.md)",
         "- [~] Blocked task [#202](path/to/spec.md)",
+        "- [!] Closed task [#303](path/to/spec.md)",
       ];
 
       testLines.forEach((line) => {
@@ -58,10 +62,10 @@ describe("Task Constants and Utilities", () => {
 
     test("should not match invalid task lines", () => {
       const invalidLines = [
-        "- [?] Invalid checkbox [#TEST_VALUE](path/to/spec.md)",
+        `- [?] Invalid checkbox [#${TEST_VALUE}](path/to/spec.md)`,
         "- [ ] Missing link",
         "Not a task line at all",
-        "  - [ ] Indented task [#TEST_VALUE](path/to/spec.md)", // Should not match due to indentation
+        `  - [ ] Indented task [#${TEST_VALUE}](path/to/spec.md)`,
       ];
 
       invalidLines.forEach((line) => {
@@ -74,8 +78,8 @@ describe("Task Constants and Utilities", () => {
     test("should parse valid task lines correctly", () => {
       const testCases = [
         {
-          line: "- [ ] Test task [#TEST_VALUE](path/to/spec.md)",
-          expected: { checkbox: " ", title: "Test task", id: "#TEST_VALUE" },
+          line: `- [ ] Test task [#${TEST_VALUE}](path/to/spec.md)`,
+          expected: { checkbox: " ", title: "Test task", id: `#${TEST_VALUE}` },
         },
         {
           line: "- [x] Completed task [#456](path/to/spec.md)",
@@ -88,14 +92,14 @@ describe("Task Constants and Utilities", () => {
       ];
 
       testCases.forEach(({ line, expected }) => {
-        const _result = TASK_PARSING_UTILS.parseTaskLine(line);
-        expect(_result).toEqual(expected);
+        const result = TASK_PARSING_UTILS.parseTaskLine(line);
+        expect(result).toEqual(expected);
       });
     });
 
     test("should return null for invalid task lines", () => {
       const invalidLines = [
-        "- [?] Invalid checkbox [#TEST_VALUE](path/to/spec.md)",
+        `- [?] Invalid checkbox [#${TEST_VALUE}](path/to/spec.md)`,
         "- [ ] Missing link",
         "Not a task line at all",
       ];
@@ -106,16 +110,16 @@ describe("Task Constants and Utilities", () => {
     });
 
     test("should replace checkbox status correctly", () => {
-      const originalLine = "- [ ] Test task [#TEST_VALUE](path/to/spec.md)";
-      const _result = TASK_PARSING_UTILS.replaceCheckboxStatus(originalLine, TASK_STATUS.BLOCKED);
-      expect(_result).toBe("- [~] Test task [#TEST_VALUE](path/to/spec.md)");
+      const originalLine = `- [ ] Test task [#${TEST_VALUE}](path/to/spec.md)`;
+      const result = TASK_PARSING_UTILS.replaceCheckboxStatus(originalLine, TASK_STATUS.BLOCKED);
+      expect(result).toBe(`- [~] Test task [#${TEST_VALUE}](path/to/spec.md)`);
     });
 
     test("should get status from checkbox correctly", () => {
       expect(TASK_PARSING_UTILS.getStatusFromCheckbox(" ")).toBe(TASK_STATUS.TODO);
       expect(TASK_PARSING_UTILS.getStatusFromCheckbox("x")).toBe(TASK_STATUS.DONE);
       expect(TASK_PARSING_UTILS.getStatusFromCheckbox("~")).toBe(TASK_STATUS.BLOCKED);
-      expect(TASK_PARSING_UTILS.getStatusFromCheckbox("?")).toBe(TASK_STATUS.TODO); // Invalid defaults to TODO
+      expect(TASK_PARSING_UTILS.getStatusFromCheckbox("?")).toBe(TASK_STATUS.TODO);
     });
 
     test("should get checkbox from status correctly", () => {
@@ -140,37 +144,33 @@ describe("Task Constants and Utilities", () => {
       expect(isValidTaskStatus("IN-REVIEW")).toBe(true);
       expect(isValidTaskStatus("DONE")).toBe(true);
       expect(isValidTaskStatus("BLOCKED")).toBe(true);
+      expect(isValidTaskStatus("CLOSED")).toBe(true);
     });
 
     test("should reject invalid statuses", () => {
       expect(isValidTaskStatus("INVALID")).toBe(false);
       expect(isValidTaskStatus("")).toBe(false);
-      expect(isValidTaskStatus("todo")).toBe(false); // Case sensitive
+      expect(isValidTaskStatus("todo")).toBe(false);
     });
   });
 
   describe("Dynamic Pattern Generation", () => {
     test("should generate patterns that include all status characters", () => {
-      // Test that our regex patterns include all checkbox characters
       const allCheckboxChars = Object.keys(CHECKBOX_TO_STATUS);
 
       allCheckboxChars.forEach((char) => {
-        const testLine = `- [${char}] Test task [#TEST_VALUE](path/to/spec.md)`;
+        const testLine = `- [${char}] Test task [#${TEST_VALUE}](path/to/spec.md)`;
         expect(TASK_REGEX_PATTERNS.TASK_LINE.test(testLine)).toBe(true);
       });
     });
 
     test("should handle new status additions gracefully", () => {
-      // This test documents that adding new statuses only requires updating the constants
-      // The regex patterns are generated dynamically, so they should automatically include new statuses
       const currentStatusCount = Object.keys(TASK_STATUS).length;
       const currentCheckboxCount = Object.keys(CHECKBOX_TO_STATUS).length;
 
-      // We should have at least TEST_ARRAY_SIZE statuses and their corresponding checkboxes
       expect(currentStatusCount).toBeGreaterThanOrEqual(TEST_ARRAY_SIZE);
       expect(currentCheckboxCount).toBeGreaterThanOrEqual(TEST_ARRAY_SIZE);
 
-      // The patterns should be generated from the current constants
       expect(TASK_REGEX_PATTERNS.TASK_LINE).toBeDefined();
       expect(TASK_REGEX_PATTERNS.CHECKBOX_REPLACE).toBeDefined();
     });

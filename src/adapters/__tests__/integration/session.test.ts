@@ -151,9 +151,9 @@ describe("Session Domain Methods", () => {
 
       // Assert
       expect(mockListSessionsFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(sessionsData);
-      expect(result[0]?._session).toBe("session1");
-      expect(result[1]?._session).toBe("session2");
+      expect(result).toEqual(sessionsData);
+      expect(result[0]?.session).toBe("session1");
+      expect(result[1]?.session).toBe("session2");
     });
   });
 
@@ -232,9 +232,9 @@ describe("Session Domain Methods", () => {
 
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(sessionResult);
-      expect(result.sessionRecord._session).toBe("new-session");
-      expect(result.cloneResult?._workdir).toBe("/path/to/workdir");
+      expect(result).toEqual(sessionResult);
+      expect(result.sessionRecord.session).toBe("new-session");
+      expect(result.cloneResult?.workdir).toBe("/path/to/workdir");
     });
 
     test("starts a new session with task parameter", async () => {
@@ -262,9 +262,9 @@ describe("Session Domain Methods", () => {
 
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(sessionResult);
+      expect(result).toEqual(sessionResult);
       expect(result.sessionRecord.taskId).toBe("TEST_VALUE");
-      expect(result.statusUpdateResult?._status).toBe("IN-PROGRESS");
+      expect(result.statusUpdateResult?.status).toBe("IN-PROGRESS");
     });
 
     test("throws error when required parameters are missing", async () => {
@@ -292,7 +292,7 @@ describe("Session Domain Methods", () => {
 
       const updatedSessionData = {
         ...sessionData,
-        _branch: "new-branch",
+        branch: "new-branch",
         notes: "Session notes updated",
       };
 
@@ -311,8 +311,8 @@ describe("Session Domain Methods", () => {
 
       // Assert
       expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(updatedSessionData);
-      expect(result._branch).toBe("new-branch");
+      expect(result).toEqual(updatedSessionData);
+      expect(result.branch).toBe("new-branch");
       expect(result.notes).toBe("Session notes updated");
     });
 
@@ -328,11 +328,11 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockUpdateSessionFromParams(params);
+      const result = await mockUpdateSessionFromParams(params);
 
       // Assert
       expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toBeNull();
+      expect(result).toBeNull();
     });
 
     test("throws error when no name is provided", async () => {
@@ -421,8 +421,8 @@ describe("Session Domain Methods", () => {
 
       // Assert
       expect(mockInspectSessionFromParams).toHaveBeenCalledWith({});
-      expect(_result).toEqual(sessionData);
-      expect(result._session).toBe("current-session");
+      expect(result).toEqual(sessionData);
+      expect(result.session).toBe("current-session");
       expect(result.taskId).toBe("#TEST_VALUE");
     });
 

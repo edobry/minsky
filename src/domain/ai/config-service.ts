@@ -14,7 +14,7 @@ import {
   ValidationWarning,
 } from "./types";
 import { ConfigurationService } from "../configuration/types";
-import { log } from "../shared-logging";
+import { log } from "../../utils/logger";
 
 export class DefaultAIConfigurationService implements AIConfigurationService {
   constructor(private configService: ConfigurationService) {}
@@ -101,8 +101,8 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     // Try config files
     try {
       const result = await this.configService.loadConfiguration(process.cwd());
-      const credentialConfig =
-        result.resolved.credentials?.ai?.[provider as keyof typeof result.resolved.credentials.ai];
+      const providerConfig = result.resolved.ai?.providers?.[provider as keyof typeof result.resolved.ai.providers];
+      const credentialConfig = providerConfig?.credentials;
 
       if (credentialConfig?.source === "file" && credentialConfig.api_key_file) {
         // Would read from file in real implementation

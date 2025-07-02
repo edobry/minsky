@@ -75,9 +75,9 @@ describe("Tasks Domain Methods", () => {
 
       // Assert
       expect(mockGetTaskFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(mockTasks[0]);
+      expect(result).toEqual(mockTasks[0]);
       expect(result.id).toBe("TEST_VALUE");
-      expect(result._title).toBe("Test Task 1");
+      expect(result.title).toBe("Test Task 1");
     });
 
     test("throws error when task not found", async () => {
@@ -121,7 +121,7 @@ describe("Tasks Domain Methods", () => {
 
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(mockTasks);
+      expect(result).toEqual(mockTasks);
       expect(result.length).toBe(3);
     });
 
@@ -140,9 +140,9 @@ describe("Tasks Domain Methods", () => {
 
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual([mockTasks[1]]);
+      expect(result).toEqual([mockTasks[1]]);
       expect(result.length).toBe(1);
-      expect(result[0]?._status).toBe(TASK_STATUS.IN_PROGRESS);
+      expect(result[0]?.status).toBe(TASK_STATUS.IN_PROGRESS);
     });
 
     test("handles custom repo path", async () => {
