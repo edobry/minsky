@@ -180,7 +180,7 @@ describe("SessionAdapter", () => {
     };
 
     await adapter.addSession(testSession);
-    const _workdir = await adapter.getSessionWorkdir("test-session");
+    const workdir = await adapter.getSessionWorkdir("test-session");
 
     expect(workdir !== null).toBe(true);
     expect(_workdir).toContain("test-repo/sessions/test-session");

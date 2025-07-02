@@ -28,7 +28,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const baseDir = resolve(___dirname, "../..");
 
 // Configuration
-const _config = {
+const config = {
   outputFile: "test-analysis-report.json",
   targetDir: "src",
   testFilePattern: /\.test\.ts$/,
@@ -150,7 +150,7 @@ async function findTestFiles(dir: string): Promise<string[]> {
     const entries = await readdir(_currentDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      const _path = join(_currentDir, entry.name);
+      const path = join(_currentDir, entry.name);
 
       if (entry.isDirectory()) {
         await scan(path);
@@ -204,7 +204,7 @@ function extractMockDependencies(content: string): string[] {
  * Analyze a single test file
  */
 async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
-  const _content = await readFile(_path, "utf-COMMIT_HASH_SHORT_LENGTH");
+  const content = await readFile(_path, "utf-COMMIT_HASH_SHORT_LENGTH");
   const relativePath = relative(_baseDir, path);
   const counts = {
     mockPatterns: {} as Record<string, number>,

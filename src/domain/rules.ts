@@ -168,7 +168,7 @@ export class RuleService {
         }
 
         // File exists in requested format, read and parse it
-        const _content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
 
         try {
           // FIXED: Added try/catch block around matter parsing to handle YAML parsing errors
@@ -257,7 +257,7 @@ export class RuleService {
         }
 
         // File exists, read and parse it
-        const _content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
 
         try {
           // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats

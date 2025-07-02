@@ -371,7 +371,7 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(_workspacePath);
 
         // Process content if provided (could be file path)
-        const _content = params.content
+        const content = params.content
           ? await readContentFromFileIfExists(params._content)
           : undefined;
 
