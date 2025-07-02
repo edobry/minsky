@@ -156,10 +156,6 @@ export class SessionDbAdapter implements SessionProviderInterface {
       return record.workdir;
     }
 
-    if (record.repoPath) {
-      return record.repoPath;
-    }
-
     // Use the functional implementation to compute the path
     const state = await this.getState();
     return getRepoPathFn(state, record);
