@@ -292,21 +292,21 @@ export class TaskService {
 
     // Get current tasks and add the new one
     const tasksResult = await this.currentBackend.getTasksData();
-    let _tasks: TaskData[] = [];
+    let tasks: TaskData[] = [];
     if (tasksResult.success && tasksResult.content) {
-      _tasks = this.currentBackend.parseTasks(tasksResult.content);
+      tasks = this.currentBackend.parseTasks(tasksResult.content);
     }
 
     // Add or replace the task
-    const existingIndex = _tasks.findIndex((t) => t.id === newTask.id);
+    const existingIndex = tasks.findIndex((t) => t.id === newTask.id);
     if (existingIndex >= 0) {
-      _tasks[existingIndex] = newTask;
+      tasks[existingIndex] = newTask;
     } else {
-      _tasks.push(newTask);
+      tasks.push(newTask);
     }
 
     // Format and save the updated tasks
-    const updatedContent = this.currentBackend.formatTasks(_tasks);
+    const updatedContent = this.currentBackend.formatTasks(tasks);
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
       throw new Error(`Failed to save tasks _data: ${saveResult.error?.message}`);

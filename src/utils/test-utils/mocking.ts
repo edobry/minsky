@@ -412,10 +412,10 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
-    mkdir: createMock(async (path: unknown) => {
+    mkdir: createMock(async (path: unknown, options?: { recursive?: boolean }) => {
       directories.add(path);
       // If recursive option, add all parent directories
-      if (_options?.recursive) {
+      if (options?.recursive) {
         const parts = path.split("/");
         for (let i = 1; i <= parts.length; i++) {
           directories.add(parts.slice(0, i).join("/"));
