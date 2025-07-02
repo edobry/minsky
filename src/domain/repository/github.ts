@@ -49,7 +49,7 @@ export class GitHubBackend implements RepositoryBackend {
    */
   constructor(config: RepositoryBackendConfig) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(xdgStateHome, "minsky", "git");
+    this.baseDir = join(xdgStateHome, "minsky");
 
     // Extract GitHub-specific options
     this.owner = config.github?.owner;

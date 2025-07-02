@@ -60,7 +60,7 @@ describe("JsonFileTaskBackend", () => {
       }
     } catch (error) {
       // Log but don't fail tests on cleanup errors
-      log.cliWarn("Cleanup warning:", error);
+      log.cliWarn(`Cleanup warning: ${error}`);
     }
   });
 
@@ -163,7 +163,7 @@ describe("JsonFileTaskBackend", () => {
 
     test("should implement parseTasks", () => {
       const jsonContent = JSON.stringify({
-        _tasks: [{ id: "#005", _title: "Test Task TEST_ARRAY_SIZE", _status: "TODO" }],
+        tasks: [{ id: "#005", title: "Test Task TEST_ARRAY_SIZE", status: "TODO" }],
       });
 
       const tasks = backend.parseTasks(jsonContent);
@@ -174,9 +174,9 @@ describe("JsonFileTaskBackend", () => {
     });
 
     test("should implement formatTasks", () => {
-      const _tasks: TaskData[] = [{ id: "#006", title: "Test Task SIZE_6", status: "TODO" }];
+      const tasks: TaskData[] = [{ id: "#006", title: "Test Task SIZE_6", status: "TODO" }];
 
-      const formatted = backend.formatTasks(_tasks);
+      const formatted = backend.formatTasks(tasks);
       const parsed = JSON.parse(formatted);
       expect(parsed.tasks.length).toBe(1);
       expect(parsed.tasks[0].id).toBe("#006");
@@ -197,7 +197,7 @@ describe("JsonFileTaskBackend", () => {
 
       // Parse spec
       const parsed = backend.parseTaskSpec(specContent);
-      expect(parsed._title).toBe("Test Task");
+      expect(parsed.title).toBe("Test Task");
       expect(parsed.description).toBe("This is a test task specification.");
     });
   });
@@ -210,13 +210,13 @@ describe("JsonFileTaskBackend", () => {
 - [x] Test Task Two [#002](process/tasks/002-test-task-two.md)
 `;
 
-      const _tasks = backend.parseTasks(markdownContent);
+      const tasks = backend.parseTasks(markdownContent);
       expect(tasks.length).toBe(2);
       if (tasks.length >= 2 && tasks[0] && tasks[1]) {
         expect(tasks[0].id).toBe("#001");
-        expect(tasks[0]._status).toBe("TODO");
+        expect(tasks[0].status).toBe("TODO");
         expect(tasks[1].id).toBe("#002");
-        expect(tasks[1]._status).toBe("DONE");
+        expect(tasks[1].status).toBe("DONE");
       }
     });
   });

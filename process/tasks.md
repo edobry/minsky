@@ -408,7 +408,7 @@
 
 - [+] Remove redundant repoPath field from session records [#218](process/tasks/218-remove-redundant-repopath-field-from-session-records.md)
 
-- [ ] Add specific linting rules for underscore prefixes in variable declarations [#219](process/tasks/219-add-specific-linting-rules-for-underscore-prefixes-in-variable-declarations.md)
+- [x] Add specific linting rules for underscore prefixes in variable declarations [#219](process/tasks/219-add-specific-linting-rules-for-underscore-prefixes-in-variable-declarations.md)
 
 - [ ] Improve Test Isolation and Reliability [#220](process/tasks/220-improve-test-isolation-and-reliability.md)
 
@@ -418,4 +418,8 @@
 
 - [ ] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
 
-- [ ] Restructure configuration to colocate credentials with their components [#224](/Users/edobry/Projects/minsky/process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
+- [ ] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
+
+- [ ] Remove temporary SessionDB compatibility layer and update all imports [#225](process/tasks/225-remove-temporary-sessiondb-compatibility-layer-and-update-all-imports.md)
+
+- [ ] Implement AI-Powered Session Review Workflow [#226](process/tasks/226-implement-ai-powered-session-review-workflow.md)
