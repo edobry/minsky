@@ -75,15 +75,15 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   private state: SessionDbState;
 
   constructor(dbPath?: string) {
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
 
     if (dbPath) {
       this.dbPath = dbPath;
       // For custom dbPath, set baseDir based on a parallel directory structure
-      this.baseDir = join(dbPath, "..", "..", "git");
+      this.baseDir = join(dbPath, "..", "..");
     } else {
       this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
-      this.baseDir = join(xdgStateHome, "minsky", "sessions");
+      this.baseDir = join(xdgStateHome, "minsky");
     }
 
     // Initialize state (will be populated on first read)
