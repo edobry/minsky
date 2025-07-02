@@ -24,7 +24,6 @@ export function createConfigListCommand(): Command {
           backend: config.get("backend"),
           backendConfig: config.get("backendConfig"),
           credentials: config.get("credentials"),
-          detectionRules: config.get("detectionRules"),
           sessiondb: config.get("sessiondb"),
           ai: config.has("ai") ? config.get("ai") : undefined,
         };
@@ -75,10 +74,7 @@ function displayConfigurationSources(resolved: any, sources: any[]) {
     process.stdout.write(`SessionDB Backend: ${resolved.sessiondb.backend}\n`);
   }
 
-  if (resolved.detectionRules && resolved.detectionRules.length > 0) {
-    // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-    process.stdout.write(`Detection Rules: ${resolved.detectionRules.length} configured\n`);
-  }
+  // Backend detection is now handled directly in code (no configuration needed)
 
   // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
   process.stdout.write("\nFor detailed configuration values, use: minsky config show\n");

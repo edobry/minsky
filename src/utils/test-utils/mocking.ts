@@ -349,7 +349,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
 
   // Initialize with provided files
   Object.entries(initialFiles).forEach(([path, content]) => {
-    files.set(path, content);
+    files.set(_path, _content);
     // Also add all parent directories
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) {
@@ -366,8 +366,8 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       }
       return files.get(path);
     }),
-    writeFileSync: createMock((path: unknown, data: unknown) => {
-      files.set(path, data);
+    writeFileSync: createMock((path: unknown) => {
+      files.set(_path, data);
       // Add parent directories
       const parts = path.split("/");
       for (let i = 1; i < parts.length; i++) {
@@ -404,18 +404,18 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       }
       return files.get(path);
     }),
-    writeFile: createMock(async (path: unknown, data: unknown) => {
-      files.set(path, data);
+    writeFile: createMock(async (path: unknown) => {
+      files.set(_path, data);
       // Add parent directories
       const parts = path.split("/");
       for (let i = 1; i < parts.length; i++) {
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
-    mkdir: createMock(async (path: unknown, options?: { recursive?: boolean }) => {
+    mkdir: createMock(async (path: unknown) => {
       directories.add(path);
       // If recursive option, add all parent directories
-      if (options?.recursive) {
+      if (_options?.recursive) {
         const parts = path.split("/");
         for (let i = 1; i <= parts.length; i++) {
           directories.add(parts.slice(0, i).join("/"));
@@ -424,8 +424,8 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     }),
 
     // Access the internal state for validation in tests
-    files: files,
-    directories: directories,
+    _files: files,
+    _directories: directories,
   };
 
   return mockFs;

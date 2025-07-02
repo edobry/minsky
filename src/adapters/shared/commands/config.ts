@@ -11,6 +11,7 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../command-registry";
 import config from "config";
 import { log } from "../../../utils/logger";
@@ -74,7 +75,6 @@ const configListRegistration = {
         backend: config.get("backend"),
         backendConfig: config.get("backendConfig"),
         credentials: config.get("credentials"),
-        detectionRules: config.get("detectionRules"),
         sessiondb: config.get("sessiondb"),
         ai: config.has("ai") ? config.get("ai") : undefined,
       };
@@ -116,7 +116,6 @@ const configShowRegistration = {
         backend: config.get("backend"),
         backendConfig: config.get("backendConfig"),
         credentials: config.get("credentials"),
-        detectionRules: config.get("detectionRules"),
         sessiondb: config.get("sessiondb"),
         ai: config.has("ai") ? config.get("ai") : undefined,
       };

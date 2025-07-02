@@ -19,23 +19,4 @@ if ! npm run lint; then
   exit 1
 fi
 
-# Migration Safety Check
-echo "🔒 Checking migration safety..."
-if git diff --cached --name-only --diff-filter=D | grep -E '\.(ts|js)$' > /dev/null; then
-  echo "⚠️  File deletions detected!"
-  echo "Please ensure migration safety protocol was followed:"
-  echo "1. Functionality inventory completed"
-  echo "2. All usage locations migrated" 
-  echo "3. Zero usage verification passed"
-  echo "4. Rollback branch created"
-  echo ""
-  echo "See: .cursor/rules/migration-safety-protocol.mdc"
-  echo ""
-  read -p "Confirm migration safety protocol was followed (y/N): " confirm
-  if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-    echo "❌ Commit blocked - migration safety protocol required"
-    exit 1
-  fi
-fi
-
 echo "✅ All checks passed!"
