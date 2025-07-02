@@ -238,6 +238,30 @@ const sessionUpdateCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
+  skipConflictCheck: {
+    schema: z.boolean(),
+    description: "Skip proactive conflict detection before update",
+    required: false,
+    defaultValue: false,
+  },
+  autoResolveDeleteConflicts: {
+    schema: z.boolean(),
+    description: "Automatically resolve delete/modify conflicts by accepting deletions",
+    required: false,
+    defaultValue: false,
+  },
+  dryRun: {
+    schema: z.boolean(),
+    description: "Check for conflicts without performing actual update",
+    required: false,
+    defaultValue: false,
+  },
+  skipIfAlreadyMerged: {
+    schema: z.boolean(),
+    description: "Skip update if session changes are already in base branch",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
@@ -322,6 +346,18 @@ const sessionPrCommandParams: CommandParameterMap = {
   skipUpdate: {
     schema: z.boolean(),
     description: "Skip session update before creating PR",
+    required: false,
+    defaultValue: false,
+  },
+  autoResolveDeleteConflicts: {
+    schema: z.boolean(),
+    description: "Automatically resolve delete/modify conflicts by accepting deletions",
+    required: false,
+    defaultValue: false,
+  },
+  skipConflictCheck: {
+    schema: z.boolean(),
+    description: "Skip proactive conflict detection during update",
     required: false,
     defaultValue: false,
   },
@@ -528,6 +564,10 @@ export function registerSessionCommands(): void {
           noPush: params.noPush,
           force: params.force,
           json: params.json,
+          skipConflictCheck: params.skipConflictCheck,
+          autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
+          dryRun: params.dryRun,
+          skipIfAlreadyMerged: params.skipIfAlreadyMerged,
         });
 
         return {
@@ -598,6 +638,8 @@ export function registerSessionCommands(): void {
           noStatusUpdate: params.noStatusUpdate,
           debug: params.debug,
           skipUpdate: params.skipUpdate,
+          autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
+          skipConflictCheck: params.skipConflictCheck,
         });
 
         return {

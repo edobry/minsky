@@ -16,6 +16,7 @@ import { log } from "../utils/logger.js";
 import { installDependencies } from "../utils/package-manager.js";
 import { type GitServiceInterface, preparePrFromParams } from "./git.js";
 import { createGitService } from "./git.js";
+import { ConflictDetectionService } from "./git/conflict-detection.js";
 import { normalizeRepoName, resolveRepoPath } from "./repo-utils.js";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
 import {
@@ -715,7 +716,7 @@ export async function updateSessionFromParams(
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<Session> {
-  let { name, branch, remote, noStash, noPush, force } = params;
+  let { name, branch, remote, noStash, noPush, force, skipConflictCheck, autoResolveDeleteConflicts, dryRun, skipIfAlreadyMerged } = params;
 
   log.debug("updateSessionFromParams called", { params });
 
@@ -851,58 +852,89 @@ export async function updateSessionFromParams(
       await deps.gitService.pullLatest(workdir, remote || "origin");
       log.debug("Latest changes pulled");
 
-      // Merge specified branch from remote (this was the key fix)
+      // Determine target branch for merge
       const branchToMerge = branch || "main";
       const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
-      log.debug("Merging branch", { branchToMerge: remoteBranchToMerge, workdir });
-      const mergeResult = await deps.gitService.mergeBranch(workdir, remoteBranchToMerge);
-      log.debug("Branch merge completed", { mergeResult });
-
-      if (mergeResult.conflicts) {
-        // Check if we're in a situation where session changes were already merged to main
-        const currentDir = process.cwd();
-        const isSessionWorkspace = currentDir.includes("/sessions/");
-
-        const conflictMessage = isSessionWorkspace
-          ? `
-🚫 Merge conflicts detected when updating session '${sessionName}'
-
-This usually happens when your session changes were already merged into main branch.
-
-Current situation:
-• Session branch: ${sessionName}
-• Trying to merge: ${remoteBranchToMerge}
-• Location: ${workdir}
-• Repository is now in MERGING state with conflict markers
-
-Resolution options:
-
-1️⃣ If your changes are already in main (most common):
-   Skip the conflict resolution - your session is ready for PR creation:
-
-   minsky session pr --title "Your PR title" --skip-update
-
-2️⃣ To resolve conflicts manually:
-   cd ${workdir}
-   git status
-   # Edit the files listed as "both modified" to resolve conflicts
-   # Look for <<<<<<< HEAD, =======, and >>>>>>> markers
-   git add .
-   git commit -m "resolve merge conflicts"
-   # Then retry: minsky session pr --title "Your PR title"
-
-3️⃣ To abort and reset your session to match main:
-   cd ${workdir}
-   git merge --abort
-   git reset --hard ${remoteBranchToMerge}
-   git push --force-with-lease
-
-💡 For most cases, option 1 (skip update with --skip-update) is the right choice.
-          `.trim()
-          : `Merge conflicts detected when merging ${remoteBranchToMerge} into session '${sessionName}'. Repository is now in MERGING state. Please resolve conflicts manually in ${workdir} or abort the merge with 'git merge --abort'.`;
-
-        throw new MinskyError(conflictMessage);
+      
+      // Enhanced conflict detection and smart merge handling
+      if (dryRun) {
+        log.cli("🔍 Performing dry run conflict check...");
+        
+        const conflictPrediction = await ConflictDetectionService.predictConflicts(
+          workdir, currentBranch, remoteBranchToMerge
+        );
+        
+        if (conflictPrediction.hasConflicts) {
+          log.cli("⚠️  Conflicts detected during dry run:");
+          log.cli(conflictPrediction.userGuidance);
+          log.cli("\n🛠️  Recovery commands:");
+          conflictPrediction.recoveryCommands.forEach(cmd => log.cli(`   ${cmd}`));
+          
+          throw new MinskyError("Dry run detected conflicts. Use the guidance above to resolve them.");
+        } else {
+          log.cli("✅ No conflicts detected. Safe to proceed with update.");
+          return {
+            session: sessionName,
+            repoName: sessionRecord.repoName || "unknown",
+            repoUrl: sessionRecord.repoUrl,
+            branch: currentBranch,
+            createdAt: sessionRecord.createdAt,
+            taskId: sessionRecord.taskId,
+          };
+        }
       }
+
+      // Use smart session update for enhanced conflict handling
+      const updateResult = await ConflictDetectionService.smartSessionUpdate(
+        workdir, 
+        currentBranch, 
+        remoteBranchToMerge,
+        {
+          skipIfAlreadyMerged,
+          autoResolveConflicts: autoResolveDeleteConflicts
+        }
+      );
+
+      if (!updateResult.updated && updateResult.skipped) {
+        log.cli(`✅ ${updateResult.reason}`);
+        
+        if (updateResult.reason?.includes("already in base")) {
+          log.cli("\n💡 Your session changes are already merged. You can create a PR with --skip-update:");
+          log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
+        }
+        
+        return {
+          session: sessionName,
+          repoName: sessionRecord.repoName || "unknown", 
+          repoUrl: sessionRecord.repoUrl,
+          branch: currentBranch,
+          createdAt: sessionRecord.createdAt,
+          taskId: sessionRecord.taskId,
+        };
+      }
+
+      if (!updateResult.updated && updateResult.conflictDetails) {
+        // Enhanced conflict guidance
+        log.cli("🚫 Update failed due to merge conflicts:");
+        log.cli(updateResult.conflictDetails);
+        
+        if (updateResult.divergenceAnalysis) {
+          const analysis = updateResult.divergenceAnalysis;
+          log.cli("\n📊 Branch Analysis:");
+          log.cli(`   • Session ahead: ${analysis.aheadCommits} commits`);
+          log.cli(`   • Session behind: ${analysis.behindCommits} commits`);
+          log.cli(`   • Recommended action: ${analysis.recommendedAction}`);
+          
+          if (analysis.sessionChangesInBase) {
+            log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
+            log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
+          }
+        }
+        
+        throw new MinskyError(updateResult.conflictDetails);
+      }
+
+      log.debug("Enhanced merge completed successfully", { updateResult });
 
       // Push changes if needed
       if (!noPush) {
@@ -1131,23 +1163,38 @@ Need help? Run 'git status' to see what files have changed.
       baseBranch: params.baseBranch,
     });
 
-    // STEP 5: Run session update first to merge latest changes from main (unless --skip-update is specified)
+    // STEP 5: Enhanced session update with conflict detection (unless --skip-update is specified)
     if (!params.skipUpdate) {
-      log.cli("Updating session with latest changes from main...");
+      log.cli("🔍 Checking for conflicts before PR creation...");
+      
       try {
+        // Use enhanced update with conflict detection options
         await updateSessionFromParams({
           name: sessionName,
           repo: params.repo,
           json: false,
+          skipConflictCheck: params.skipConflictCheck,
+          autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
+          skipIfAlreadyMerged: true, // Skip update if changes already merged
         });
-        log.cli("Session updated successfully");
+        log.cli("✅ Session updated successfully");
       } catch (error) {
-        throw new MinskyError(
-          `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
-        );
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        // Enhanced error handling for common conflict scenarios
+        if (errorMessage.includes("already in base") || errorMessage.includes("already merged")) {
+          log.cli("💡 Your session changes are already in the base branch. Proceeding with PR creation...");
+        } else if (errorMessage.includes("conflicts")) {
+          log.cli("⚠️  Merge conflicts detected. Consider using conflict resolution options:");
+          log.cli("   • --auto-resolve-delete-conflicts: Auto-resolve delete/modify conflicts");
+          log.cli("   • --skip-update: Skip update entirely if changes are already merged");
+          throw new MinskyError(`Failed to update session before creating PR: ${errorMessage}`);
+        } else {
+          throw new MinskyError(`Failed to update session before creating PR: ${errorMessage}`);
+        }
       }
     } else {
-      log.cli("Skipping session update (--skip-update specified)");
+      log.cli("⏭️  Skipping session update (--skip-update specified)");
     }
 
     // STEP 6: Now proceed with PR creation
