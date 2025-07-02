@@ -1,5 +1,12 @@
 #!/usr/bin/env bun
 
+// Set NODE_CONFIG_DIR to point to user config directory before any imports
+// This must be done before any module imports that might load node-config
+import { homedir } from "os";
+import { join } from "path";
+const userConfigDir = join(homedir(), ".config", "minsky");
+process.env.NODE_CONFIG_DIR = userConfigDir;
+
 import { Command } from "commander";
 import { log } from "./utils/logger.js";
 import { exit } from "./utils/process.js";
@@ -51,15 +58,13 @@ async function main(): Promise<void> {
   await cli.parseAsync(Bun.argv);
 }
 
-// Only run the CLI if this file is executed directly (not imported as a module)
-if (import.meta.url === `file://${Bun.argv[1]}`) {
-  main().catch((err) => {
-    log.systemDebug(`Error caught in main: ${err}`);
-    log.systemDebug(`Error stack: ${err.stack}`);
-    log.error(`Unhandled error in CLI: ${err.message}`);
-    if (err.stack) log.debug(err.stack);
-    exit(1);
-  });
-}
+// Run the CLI
+main().catch((err) => {
+  log.systemDebug(`Error caught in main: ${err}`);
+  log.systemDebug(`Error stack: ${err.stack}`);
+  log.error(`Unhandled error in CLI: ${err.message}`);
+  if (err.stack) log.debug(err.stack);
+  exit(1);
+});
 
 export default cli;

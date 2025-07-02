@@ -22,6 +22,7 @@ import {
   getTaskStatusFromParams,
   setTaskStatusFromParams,
   createTaskFromParams,
+  deleteTaskFromParams,
 } from "../../domain/index.js";
 
 import type { TaskStatus } from "../../domain/tasks/taskConstants.js";
@@ -186,6 +187,43 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       return {
         success: true,
         task,
+      };
+    }
+  );
+
+  // Task delete command
+  commandMapper.addTaskCommand(
+    "delete",
+    "Delete a task by ID",
+    z.object({
+      taskId: z.string().describe("ID of the task to delete"),
+      force: z.boolean().optional().describe("Force deletion without confirmation"),
+      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
+    }),
+    async (args: any) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.delete", {
+          repositoryPath: args.repositoryPath,
+        });
+      }
+
+      const params = {
+        ...args,
+        force: args.force ?? false, // Provide default for 'force'
+        json: true, // Always use JSON format for MCP
+        repo: args.repositoryPath, // Pass the repository path to the domain function
+      };
+
+      const result = await deleteTaskFromParams(params);
+
+      return {
+        success: result.success,
+        taskId: result.taskId,
+        task: result.task,
+        message: result.success 
+          ? `Task ${result.taskId} deleted successfully`
+          : `Failed to delete task ${result.taskId}`,
       };
     }
   );

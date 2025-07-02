@@ -25,7 +25,7 @@ export interface SessionDbFileOptions {
 export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDbState {
   const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
   const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
-  const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
+  const baseDir = options.baseDir || join(xdgStateHome, "minsky");
 
   try {
     if (!existsSync(dbPath)) {
@@ -35,16 +35,8 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
     const data = readFileSync(dbPath, "utf8") as string;
     const sessions = JSON.parse(data);
 
-    // Migrate existing sessions to include repoName
-    const migratedSessions = sessions.map((session: unknown) => {
-      if (!session.repoName && session.repoUrl) {
-        session.repoName = normalizeRepoName(session.repoUrl);
-      }
-      return session;
-    });
-
     return {
-      sessions: migratedSessions,
+      sessions,
       baseDir,
     };
   } catch (error) {

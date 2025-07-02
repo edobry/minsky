@@ -1,3 +1,0 @@
-$ bun test "--reporter=junit"
-error: --reporter=junit expects an output file from --reporter-outfile
-error: script "test" exited with code 1

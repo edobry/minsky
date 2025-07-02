@@ -5,12 +5,11 @@
  */
 
 import { Command } from "commander";
-import { configurationService } from "../../domain/configuration";
+import config from "config";
 import { exit } from "../../utils/process.js";
 
 interface ShowOptions {
   json?: boolean;
-  workingDir?: string;
 }
 
 export function createConfigShowCommand(): Command {
@@ -20,14 +19,20 @@ export function createConfigShowCommand(): Command {
     .option("--working-dir <dir>", "Working directory", process.cwd())
     .action(async (options: ShowOptions) => {
       try {
-        const workingDir = options.workingDir || process.cwd();
-        const result = await configurationService.loadConfiguration(workingDir);
+        // Use node-config directly for resolved configuration
+        const resolved = {
+          backend: config.get("backend"),
+          backendConfig: config.get("backendConfig"),
+          credentials: config.get("credentials"),
+          sessiondb: config.get("sessiondb"),
+          ai: config.has("ai") ? config.get("ai") : undefined,
+        };
 
         if (options.json) {
           // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-          process.stdout.write(`${JSON.stringify(result.resolved)}\n`);
+          process.stdout.write(`${JSON.stringify(resolved)}\n`);
         } else {
-          displayResolvedConfiguration(result.resolved);
+          displayResolvedConfiguration(resolved);
         }
       } catch (error) {
         // @ts-expect-error - Bun supports process.stderr.write at runtime, types incomplete
@@ -81,12 +86,5 @@ function displayResolvedConfiguration(resolved: any) {
     }
   }
 
-  if (resolved.detectionRules && resolved.detectionRules.length > 0) {
-    // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-    process.stdout.write("\nDetection Rules:\n");
-    resolved.detectionRules.forEach((rule: any, index: number) => {
-      // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-      process.stdout.write(`  ${index + 1}. ${rule.condition} → ${rule.backend}\n`);
-    });
-  }
+  // Backend detection is now handled directly in code (no configuration needed)
 }

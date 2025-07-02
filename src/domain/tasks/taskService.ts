@@ -8,7 +8,7 @@ import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
-import { configurationService } from "../configuration";
+import config from "config";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants.js";
 import { getErrorMessage } from "../errors/index";
 
@@ -31,6 +31,14 @@ export interface TaskServiceOptions {
  */
 export interface CreateTaskOptions {
   /** Force creation even if it would overwrite */
+  force?: boolean;
+}
+
+/**
+ * Options for deleting a task
+ */
+export interface DeleteTaskOptions {
+  /** Force deletion without confirmation */
   force?: boolean;
 }
 
@@ -98,7 +106,7 @@ export class TaskService {
    * @param options Options for filtering tasks
    * @returns Promise resolving to array of tasks
    */
-  async listTasks(_options?: TaskListOptions): Promise<TaskData[]> {
+  async listTasks(options?: TaskListOptions): Promise<TaskData[]> {
     // Get raw data
     const result = await this.currentBackend.getTasksData();
     if (!result.success || !result.content) {
@@ -106,14 +114,14 @@ export class TaskService {
     }
 
     // Parse data using pure function
-    let _tasks = this.currentBackend.parseTasks(result.content);
+    let tasks = this.currentBackend.parseTasks(result.content);
 
     // Apply filters if provided
-    if (_options?.status) {
-      _tasks = _tasks.filter((task) => task.status === _options.status);
+    if (options?.status) {
+      tasks = tasks.filter((task) => task.status === options.status);
     }
 
-    return _tasks;
+    return tasks;
   }
 
   /**
@@ -169,11 +177,10 @@ export class TaskService {
       throw new Error(`Status must be one of: ${TASK_STATUS_VALUES.join(", ")}`);
     }
 
-    // First check if the task exists
-    const task = await this.getTask(id);
-    if (!task) {
-      // Return silently if task doesn't exist
-      return;
+    // Normalize the task ID for consistent matching
+    const normalizedId = normalizeTaskId(id);
+    if (!normalizedId) {
+      throw new Error(`Invalid task ID: ${id}`);
     }
 
     // Get all tasks
@@ -183,10 +190,21 @@ export class TaskService {
     }
 
     // Parse tasks
-    const _tasks = this.currentBackend.parseTasks(result.content);
+    const tasks = this.currentBackend.parseTasks(result.content);
 
-    // Update the task status in the array
-    const updatedTasks = _tasks.map((t) => (t.id === task.id ? { ...t, status: status } : t));
+    // Find the task to update using proper ID matching
+    const taskIndex = tasks.findIndex((t) => {
+      const taskNormalizedId = normalizeTaskId(t.id);
+      return taskNormalizedId === normalizedId;
+    });
+
+    if (taskIndex === -1) {
+      throw new Error(`Task ${normalizedId} not found`);
+    }
+
+    // Update the task status
+    const updatedTasks = [...tasks];
+    updatedTasks[taskIndex] = { ...updatedTasks[taskIndex], status: status };
 
     // Format the updated tasks
     const updatedContent = this.currentBackend.formatTasks(updatedTasks);
@@ -194,7 +212,7 @@ export class TaskService {
     // Save the changes
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
-      throw new Error(`Failed to save tasks _data: ${saveResult.error?.message}`);
+      throw new Error(`Failed to save tasks data: ${saveResult.error?.message}`);
     }
   }
 
@@ -275,21 +293,21 @@ export class TaskService {
 
     // Get current tasks and add the new one
     const tasksResult = await this.currentBackend.getTasksData();
-    let _tasks: TaskData[] = [];
+    let tasks: TaskData[] = [];
     if (tasksResult.success && tasksResult.content) {
-      _tasks = this.currentBackend.parseTasks(tasksResult.content);
+      tasks = this.currentBackend.parseTasks(tasksResult.content);
     }
 
     // Add or replace the task
-    const existingIndex = _tasks.findIndex((t) => t.id === newTask.id);
+    const existingIndex = tasks.findIndex((t) => t.id === newTask.id);
     if (existingIndex >= 0) {
-      _tasks[existingIndex] = newTask;
+      tasks[existingIndex] = newTask;
     } else {
-      _tasks.push(newTask);
+      tasks.push(newTask);
     }
 
     // Format and save the updated tasks
-    const updatedContent = this.currentBackend.formatTasks(_tasks);
+    const updatedContent = this.currentBackend.formatTasks(tasks);
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
       throw new Error(`Failed to save tasks _data: ${saveResult.error?.message}`);
@@ -377,6 +395,17 @@ export class TaskService {
   }
 
   /**
+   * Delete a task
+   * @param id Task ID
+   * @param options Delete options
+   * @returns Promise resolving to true if deleted, false otherwise
+   */
+  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
+    // Delegate to the current backend
+    return await this.currentBackend.deleteTask(id, options);
+  }
+
+  /**
    * Get the content of a task specification file
    * @param id Task ID
    * @returns Promise resolving to object with spec content and path
@@ -406,6 +435,27 @@ export class TaskService {
       specPath: task.specPath,
       task,
     };
+  }
+
+  /**
+   * Get the path to a task specification file
+   * @param id Task ID
+   * @returns Promise resolving to the specification file path
+   */
+  async getTaskSpecPath(id: string): Promise<string> {
+    // First verify the task exists
+    const task = await this.getTask(id);
+    if (!task) {
+      throw new Error(`Task "${id}" not found`);
+    }
+
+    // If the task already has a specPath, return it
+    if (task.specPath) {
+      return task.specPath;
+    }
+
+    // Otherwise, generate the path using the backend
+    return this.currentBackend.getTaskSpecPath(id, task.title);
   }
 
   /**
@@ -445,33 +495,37 @@ export class TaskService {
    * @param options Options for creating the task
    * @returns Promise resolving to the created task
    */
-  async createTaskFromTitleAndDescription(title: string, description: string, options: CreateTaskOptions = {}): Promise<TaskData> {
+  async createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options: CreateTaskOptions = {}
+  ): Promise<TaskData> {
     // Generate a task specification file content
     const taskSpecContent = this.generateTaskSpecification(title, description);
-    
+
     // Create a temporary file path for the spec
     const fs = await import("fs/promises");
     const path = await import("path");
     const os = await import("os");
-    
+
     const tempDir = os.tmpdir();
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
-    
+
     try {
       // Write the spec content to the temporary file
       await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
-      
+
       // Use the existing createTask method
       const task = await this.createTask(tempSpecPath, options);
-      
+
       // Clean up the temporary file
       try {
         await fs.unlink(tempSpecPath);
       } catch (error) {
         // Ignore cleanup errors
       }
-      
+
       return task;
     } catch (error) {
       // Clean up the temporary file on error
@@ -543,16 +597,13 @@ export async function createConfiguredTaskService(
   }
 
   try {
-    // Load configuration using the configuration service
-    const configResult = await configurationService.loadConfiguration(workspacePath);
-
-    // Use the resolved backend from configuration
-    const resolvedBackend = configResult.resolved.backend || "json-file"; // fallback to json-file
+    // Use node-config directly to get the resolved backend
+    const resolvedBackend = (config.get("backend") as string) || "json-file"; // fallback to json-file
 
     log.debug("Resolved backend from configuration", {
       workspacePath,
       backend: resolvedBackend,
-      configSource: configResult.resolved.backend ? "configuration" : "default",
+      configSource: config.get("backend") ? "configuration" : "default",
     });
 
     return createTaskService({

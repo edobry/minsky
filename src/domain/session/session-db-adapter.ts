@@ -14,22 +14,48 @@ import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import { configurationService } from "../configuration";
+import config from "config";
 import { homedir } from "os";
 import { join } from "path";
 
 export class SessionDbAdapter implements SessionProviderInterface {
   private storage: DatabaseStorage<SessionRecord, SessionDbState> | null = null;
-  private readonly workingDir: string;
 
-  constructor(workingDir?: string) {
-    this.workingDir = workingDir || process.cwd();
+  constructor() {
+    // No longer taking workingDir parameter - use global configuration instead
   }
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
-      // Load configuration to determine storage backend
-      const configResult = await configurationService.loadConfiguration(this.workingDir);
-      const sessionDbConfig = configResult.resolved.sessiondb;
+      // Use node-config to get sessiondb configuration, with fallback to defaults
+      let sessionDbConfig: any;
+      
+      try {
+        // Check if sessiondb config exists before trying to get it
+        if (config.has("sessiondb")) {
+          sessionDbConfig = config.get("sessiondb") as any;
+        } else {
+          log.debug("Session database configuration not found in config, using defaults");
+          sessionDbConfig = null;
+        }
+      } catch (error) {
+        // Fallback to defaults when config is not available (e.g., running from outside project directory)
+        log.debug("Configuration not available, using default session storage settings", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        sessionDbConfig = null;
+      }
+
+      // Additional check: if sessionDbConfig is null/undefined, use defaults
+      if (!sessionDbConfig || typeof sessionDbConfig !== "object") {
+        log.debug("Session database configuration is missing or invalid, using defaults");
+        sessionDbConfig = {
+          backend: "json",
+          baseDir: null,
+          dbPath: null,
+          connectionString: null,
+        };
+      }
 
       // Convert SessionDbConfig to StorageConfig
       const storageConfig: Partial<StorageConfig> = {
@@ -149,10 +175,6 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
     if (record.workdir) {
       return record.workdir;
-    }
-
-    if (record.repoPath) {
-      return record.repoPath;
     }
 
     // Use the functional implementation to compute the path

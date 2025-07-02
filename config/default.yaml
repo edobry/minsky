@@ -1,0 +1,62 @@
+# Default configuration for Minsky
+# This file contains the base configuration values that will be used
+# unless overridden by environment-specific configs or environment variables
+
+# Backend configuration
+backend: "markdown"
+
+# Backend-specific configurations
+backendConfig:
+  github-issues: {}
+  markdown: {}
+  json-file: {}
+
+# Backend detection rules
+detectionRules:
+  - condition: "tasks_md_exists"
+    backend: "markdown"
+  - condition: "json_file_exists"
+    backend: "json-file"
+  - condition: "always"
+    backend: "markdown"
+
+# Session database configuration
+sessiondb:
+  backend: "json"
+  baseDir: null
+  dbPath: null
+  connectionString: null
+
+# GitHub configuration
+github:
+  credentials:
+    source: "environment"
+
+# AI configuration
+ai:
+  providers:
+    openai:
+      credentials:
+        source: "environment"
+      enabled: true
+      models: []
+    anthropic:
+      credentials:
+        source: "environment"
+      enabled: true
+      models: []
+    google:
+      credentials:
+        source: "environment"
+      enabled: true
+      models: []
+    cohere:
+      credentials:
+        source: "environment"
+      enabled: true
+      models: []
+    mistral:
+      credentials:
+        source: "environment"
+      enabled: true
+      models: []

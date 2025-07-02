@@ -131,8 +131,8 @@ export function normalizeRepositoryUri(
     isLocal = true;
     // Extract local path
     const localPath = normalizedUri.replace(/^file:\/\//, "");
-    // For local repos, use local/<basename> as the name
-    normalizedName = `local/${basename(localPath)}`;
+    // For local repos, use local-<basename> as the name (filesystem-safe)
+    normalizedName = `local-${basename(localPath)}`;
 
     // Validate that the path exists if requested
     if (validateLocalExists && !existsSync(localPath)) {
@@ -143,8 +143,8 @@ export function normalizeRepositoryUri(
   else if (normalizedUri.startsWith("/") || normalizedUri.match(/^[A-Z]:\\/i)) {
     format = UriFormat.PATH;
     isLocal = true;
-    // For local repos, use local/<basename> as the name
-    normalizedName = `local/${basename(normalizedUri)}`;
+    // For local repos, use local-<basename> as the name (filesystem-safe)
+    normalizedName = `local-${basename(normalizedUri)}`;
 
     // Validate that the path exists if requested
     if (validateLocalExists && !existsSync(normalizedUri)) {

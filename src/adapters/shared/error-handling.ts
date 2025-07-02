@@ -16,6 +16,7 @@ import {
   ensureError,
 } from "../../errors/index.js";
 import { log, isStructuredMode } from "../../utils/logger.js";
+import { exit } from "../../utils/process.js";
 /**
  * Interface for adapter-specific error handlers
  */
@@ -53,7 +54,7 @@ export class SharedErrorHandler {
   static formatError(_error: unknown, debug: boolean = false): Record<string, unknown> {
     const normalizedError = ensureError(error);
     let errorType = "UNKNOWN_ERROR";
-    const _result: Record<string, unknown> = {
+    const result = {
       message: normalizedError.message,
     };
 
@@ -173,7 +174,7 @@ export class SharedErrorHandler {
     }
 
     // Exit with the specified code
-    process.exit(exitCode);
+    exit(exitCode);
   }
 }
 
@@ -241,7 +242,7 @@ export class CliErrorHandler implements ErrorHandler {
     }
 
     // Exit with the specified code
-    process.exit(exitCode);
+    exit(exitCode);
   }
 }
 
@@ -266,7 +267,7 @@ export class McpErrorHandler implements ErrorHandler {
 
     // In MCP context, we want to return a structured error
     // But since this function is marked as 'never', we have to exit
-    process.exit(exitCode);
+    exit(exitCode);
   }
 }
 

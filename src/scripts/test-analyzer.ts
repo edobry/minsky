@@ -21,13 +21,14 @@ import { join, resolve, relative } from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
 import { log } from "../utils/logger.js";
+import { exit } from "../utils/process.js";
 
 // Get current directory
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const baseDir = resolve(___dirname, "../..");
 
 // Configuration
-const _config = {
+const config = {
   outputFile: "test-analysis-report.json",
   targetDir: "src",
   testFilePattern: /\.test\.ts$/,
@@ -145,11 +146,11 @@ interface AnalysisReport {
 async function findTestFiles(dir: string): Promise<string[]> {
   const files: string[] = [];
 
-  async function scan(__currentDir: string) {
-    const entries = await readdir(_currentDir, { withFileTypes: true });
+  async function scan(currentDir: string) {
+    const entries = await readdir(currentDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      const _path = join(_currentDir, entry.name);
+      const path = join(currentDir, entry.name);
 
       if (entry.isDirectory()) {
         await scan(path);
@@ -171,7 +172,7 @@ function extractImports(content: string): string[] {
   const imports: string[] = [];
   let match: RegExpExecArray | null;
 
-  while ((match = importRegex.exec(_content)) !== null) {
+  while ((match = importRegex.exec(content)) !== null) {
     const importPath = match[1];
     if (importPath) {
       imports.push(importPath);
@@ -203,7 +204,7 @@ function extractMockDependencies(content: string): string[] {
  * Analyze a single test file
  */
 async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
-  const _content = await readFile(_path, "utf-COMMIT_HASH_SHORT_LENGTH");
+  const content = await readFile(_path, "utf-8");
   const relativePath = relative(_baseDir, path);
   const counts = {
     mockPatterns: {} as Record<string, number>,
@@ -634,7 +635,7 @@ async function main() {
     );
   } catch (error) {
     log.cliError("Error running test analyzer:", error);
-    process.exit(1);
+    exit(1);
   }
 }
 

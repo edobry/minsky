@@ -225,6 +225,18 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           },
         },
       },
+      "tasks.delete": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          taskId: {
+            asArgument: true,
+            description: "ID of the task to delete",
+          },
+          force: {
+            description: "Force deletion without confirmation",
+          },
+        },
+      },
       "tasks.spec": {
         useFirstRequiredParamAsArgument: true,
         parameters: {
@@ -370,8 +382,14 @@ export function setupCommonCommandCustomizations(program?: Command): void {
             alias: "t",
             description: "Task ID associated with the session",
           },
-          noUpdate: {
+          skipUpdate: {
             description: "Skip session update before creating PR",
+          },
+          noStatusUpdate: {
+            description: "Skip updating task status",
+          },
+          debug: {
+            description: "Enable debug output",
           },
         },
       },
@@ -383,9 +401,26 @@ export function setupCommonCommandCustomizations(program?: Command): void {
     commandOptions: {
       "config.list": {
         outputFormatter: (result: any) => {
-          if (result.success && result.sources && result.resolved) {
-            const resolvedOutput = formatResolvedConfiguration(result.resolved);
-            log.cli(resolvedOutput);
+          // Check if JSON output was requested
+          if (result.json) {
+            // For JSON output, return flattened key-value pairs (matching normal output)
+            const flattened = flattenObjectToKeyValue(result.resolved);
+            log.cli(JSON.stringify(flattened, null, 2));
+            return;
+          }
+
+          if (result.success && result.resolved) {
+            let output = "";
+
+            // Show sources if explicitly requested
+            if (result.showSources && result.sources) {
+              output += formatConfigurationSources(result.resolved, result.sources);
+            } else {
+              // For config list, show flattened key=value pairs
+              output += formatFlattenedConfiguration(result.resolved);
+            }
+
+            log.cli(output);
           } else if (result.error) {
             log.cli(`Failed to load configuration: ${result.error}`);
           } else {
@@ -395,8 +430,23 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       },
       "config.show": {
         outputFormatter: (result: any) => {
+          // Check if JSON output was requested
+          if (result.json) {
+            log.cli(JSON.stringify(result, null, 2));
+            return;
+          }
+
           if (result.success && result.configuration) {
-            const output = formatResolvedConfiguration(result.configuration);
+            let output = "";
+
+            // Show sources if explicitly requested
+            if (result.showSources && result.sources) {
+              output += formatConfigurationSources(result.configuration, result.sources);
+            } else {
+              // Default human-friendly structured view
+              output += formatResolvedConfiguration(result.configuration);
+            }
+
             log.cli(output);
           } else if (result.error) {
             log.cli(`Failed to load configuration: ${result.error}`);
@@ -436,6 +486,24 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       },
     },
   });
+}
+
+function formatConfigurationSources(resolved: any, sources: any[]): string {
+  let output = "📋 CONFIGURATION SOURCES\n";
+  output += `${"=".repeat(40)}\n`;
+
+  // Show source precedence
+  output += "Source Precedence (highest to lowest):\n";
+  sources.forEach((source, index) => {
+    output += `  ${index + 1}. ${source.name}\n`;
+  });
+
+  output += "\n📋 RESOLVED CONFIGURATION\n";
+  output += formatResolvedConfiguration(resolved);
+
+  output += "\n\n💡 For just the final configuration, use: minsky config show";
+
+  return output;
 }
 
 function formatResolvedConfiguration(resolved: any): string {
@@ -569,6 +637,69 @@ function sanitizeCredentials(creds: any): any {
   }
 
   return sanitized;
+}
+
+function formatFlattenedConfiguration(resolved: any): string {
+  const flatten = (obj: any, prefix = ""): string[] => {
+    const result: string[] = [];
+
+    for (const [key, value] of Object.entries(obj)) {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+
+      if (value === null || value === undefined) {
+        result.push(`${fullKey}=(null)`);
+      } else if (typeof value === "object" && !Array.isArray(value)) {
+        // Recursively flatten objects
+        result.push(...flatten(value, fullKey));
+      } else if (Array.isArray(value)) {
+        if (value.length === 0) {
+          result.push(`${fullKey}=(empty array)`);
+        } else {
+          value.forEach((item, index) => {
+            if (typeof item === "object") {
+              result.push(...flatten(item, `${fullKey}[${index}]`));
+            } else {
+              result.push(`${fullKey}[${index}]=${item}`);
+            }
+          });
+        }
+      } else if (
+        typeof value === "string" &&
+        (fullKey.includes("token") || fullKey.includes("password"))
+      ) {
+        // Hide sensitive values
+        result.push(`${fullKey}=*** (hidden)`);
+      } else {
+        result.push(`${fullKey}=${value}`);
+      }
+    }
+
+    return result;
+  };
+
+  const flatEntries = flatten(resolved);
+  return flatEntries.join("\n");
+}
+
+function flattenObjectToKeyValue(obj: any): any {
+  const flattened: any = {};
+
+  function flatten(current: any, prefix = ""): void {
+    if (typeof current === "object" && current !== null) {
+      const keys = Object.keys(current);
+      for (const key of keys) {
+        const fullKey = prefix ? `${prefix}.${key}` : key;
+        if (typeof current[key] === "object" && current[key] !== null) {
+          flatten(current[key], fullKey);
+        } else {
+          flattened[fullKey] = current[key];
+        }
+      }
+    }
+  }
+
+  flatten(obj);
+  return flattened;
 }
 
 /**

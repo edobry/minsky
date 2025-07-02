@@ -100,7 +100,7 @@
 
 - [x] Prevent Session Creation Within Existing Sessions [#053](process/tasks/053-prevent-session-creation-within-existing-sessions.md)
 
-- [ ] Restore Full Test Suite for `init` Command [#054](process/tasks/054-restore-full-test-suite-for-init-command.md)
+- [ ] Configure Husky Hooks for Session Repositories [#054](process/tasks/054-configure-husky-hooks-for-session-repositories.md)
 
 - [x] Document and Fix Rule Sync Bug in Minsky CLI [#055](process/tasks/055-document-and-fix-rule-sync-bug-in-minsky-cli.md)
 
@@ -173,8 +173,6 @@
 - [x] Align CLI Commands with Revised Concepts [#089](process/tasks/089-align-cli-commands-with-revised-concepts.md)
 
 - [ ] Prepare for Future Non-Filesystem Workspaces [#090](process/tasks/090-prepare-for-future-non-filesystem-workspaces.md)
-
-- [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
 
 - [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
 
@@ -270,9 +268,7 @@
 
 - [x] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
-- [x] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
-
-- [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
+- [x] Add Session Context Autodetection [#139](process/tasks/139-add-session-context-autodetection.md)
 
 - [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
 
@@ -306,7 +302,7 @@
 
 - [+] Remove .js Extensions from TypeScript Imports [#156](process/tasks/156-remove-js-extensions-from-typescript-imports.md)
 
-- [+] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
+- [x] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
 
 - [ ] Implement Session-Aware Versions of Cursor Built-in Tools [#158](process/tasks/158-implement-session-aware-versions-of-cursor-built-in-tools.md)
 
@@ -322,19 +318,19 @@
 
 - [ ] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
 
-- [+] Replace Direct process.exit() Calls with Custom exit() Utility [#165](process/tasks/165-replace-direct-process-exit-calls-with-custom-exit-utility.md)
+- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#165](process/tasks/165-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
 - [ ] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
 
-- [ ] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
+- [x] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
 
-- [ ] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#168](process/tasks/168-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
+- [ ] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
-- [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#169](process/tasks/169-task-169-evaluate-and-deduplicate-improved-error-messages.md)
+- [+] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
-- [ ] Task 170: Investigate Session Database Architecture Issues [#170](process/tasks/170-task-170-investigate-session-database-architecture-issues.md)
+- [ ] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
-- [ ] Task 171: Analyze and Modularize Overly Long Files [#171](process/tasks/171-task-171-analyze-and-modularize-overly-long-files.md)
+- [ ] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
 
 - [ ] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
 
@@ -346,4 +342,84 @@
 
 - [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
 
-- [ ] Establish Codemod Best Practices and Standards [#178](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/169/process/tasks/178-establish-codemod-best-practices-and-standards.md)
+- [ ] Bug Analysis: Conflicting Session PR Error Messages [#178](process/tasks/178-bug-analysis-conflicting-session-pr-error-messages.md)
+
+- [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
+
+- [ ] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
+
+- [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
+
+- [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
+
+- [x] Improve Error Handling for MCP Server Port Conflicts [#184](process/tasks/184-improve-error-handling-for-mcp-server-port-conflicts.md)
+
+- [ ] Restore Full Test Suite for `init` Command [#185](process/tasks/185-restore-full-test-suite-for-init-command.md)
+
+- [+] Fix ESLint Warnings and Errors [#186](process/tasks/186-fix-eslint-warnings-and-errors.md)
+
+- [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#187](process/tasks/187-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
+
+- [ ] Import Existing GitHub Issues Under Minsky Management [#188](process/tasks/188-import-existing-github-issues-under-minsky-management.md)
+
+- [ ] Restore Init Command Interactivity [#189](process/tasks/189-restore-init-command-interactivity.md)
+
+- [ ] Design Containerized Session Workspace Architecture [#190](process/tasks/190-design-containerized-session-workspace-architecture.md)
+
+- [ ] Fix GitHub Token Validation for Non-GitHub Commands [#192](process/tasks/192-fix-github-token-validation-for-non-github-commands.md)
+
+- [x] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md)
+
+- [x] Replace Direct process.exit() Calls with Custom exit() Utility [#194](process/tasks/194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
+
+- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#195](process/tasks/195-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
+
+- [ ] Test Task Creation Fix [#196](process/tasks/196-test-task-creation-fix.md)
+
+- [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#197](process/tasks/197-task-169-evaluate-and-deduplicate-improved-error-messages.md)
+
+- [ ] Task 170: Investigate Session Database Architecture Issues [#198](process/tasks/198-task-170-investigate-session-database-architecture-issues.md)
+
+- [ ] Task 171: Analyze and Modularize Overly Long Files [#199](process/tasks/199-task-171-analyze-and-modularize-overly-long-files.md)
+
+- [ ] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
+
+- [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
+
+- [ ] Improve Session PR Command Output and Body Generation [#203](process/tasks/203-improve-session-pr-command-output-and-body-generation.md)
+
+- [x] Add CLOSED task status for irrelevant tasks [#207](process/tasks/207-add-closed-task-status-for-irrelevant-tasks.md)
+
+- [x] Improve user-friendly output formatting for tasks delete command [#208](process/tasks/208-improve-user-friendly-output-formatting-for-tasks-delete-command.md)
+
+- [x] Investigate and Evaluate Configuration System Architecture [#209](process/tasks/209-investigate-and-evaluate-configuration-system-architecture.md)
+
+- [x] Fix CLI output suppression in session workspaces [#210](process/tasks/210-fix-cli-output-suppression-in-session-workspaces.md)
+
+- [ ] Improve session pr command error handling and UX [#211](process/tasks/211-improve-session-pr-command-error-handling-and-ux.md)
+
+- [!] Fix session pr path resolution issues [#212](process/tasks/212-fix-session-pr-path-resolution-issues.md)
+
+- [x] Investigate normalizeRepoName function and repo name formatting inconsistencies [#214](process/tasks/214-investigate-normalizereponame-function-and-repo-name-formatting-inconsistencies.md)
+
+- [ ] Implement Core Agent Loop for Independent Minsky Operation [#216](process/tasks/216-implement-core-agent-loop-for-independent-minsky-operation.md)
+
+- [x] Execute session migration to simplified path structure [#217](process/tasks/217-execute-session-migration-to-simplified-path-structure.md)
+
+- [+] Remove redundant repoPath field from session records [#218](process/tasks/218-remove-redundant-repopath-field-from-session-records.md)
+
+- [x] Add specific linting rules for underscore prefixes in variable declarations [#219](process/tasks/219-add-specific-linting-rules-for-underscore-prefixes-in-variable-declarations.md)
+
+- [+] Improve Test Isolation and Reliability [#220](process/tasks/220-improve-test-isolation-and-reliability.md)
+
+- [x] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
+
+- [ ] Enhanced Session PR Workflow [#222](process/tasks/222-enhanced-session-pr-workflow.md)
+
+- [ ] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
+
+- [x] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
+
+- [x] Remove temporary SessionDB compatibility layer and update all imports [#225](process/tasks/225-remove-temporary-sessiondb-compatibility-layer-and-update-all-imports.md)
+
+- [ ] Implement AI-Powered Session Review Workflow [#226](process/tasks/226-implement-ai-powered-session-review-workflow.md)

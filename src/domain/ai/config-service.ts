@@ -14,13 +14,21 @@ import {
   ValidationWarning,
 } from "./types";
 import { ConfigurationService } from "../configuration/types";
-import { log } from "../shared-logging";
+import { log } from "../../utils/logger";
 
 export class DefaultAIConfigurationService implements AIConfigurationService {
   constructor(private configService: ConfigurationService) {}
 
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {
     try {
+      // First, try to resolve API key from all sources (env vars + config files)
+      const apiKey = await this.resolveAPIKey(provider);
+
+      // If no API key is available, we can't use this provider
+      if (!apiKey) {
+        return null;
+      }
+
       const result = await this.configService.loadConfiguration(process.cwd());
       const config = result.resolved;
 
@@ -28,14 +36,10 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
       const repoConfig = config.ai?.providers?.[provider as keyof typeof config.ai.providers];
       const userConfig = config.ai?.providers?.[provider as keyof typeof config.ai.providers];
 
-      if (!repoConfig && !userConfig) {
-        return null;
-      }
-
-      // Merge configurations with user config taking precedence for personal settings
+      // Create provider config with API key and any available settings
       return {
         provider: provider as any,
-        apiKey: await this.resolveAPIKey(provider),
+        apiKey,
         baseURL: userConfig?.base_url || repoConfig?.base_url,
         defaultModel: userConfig?.default_model || repoConfig?.default_model,
         supportedCapabilities: await this.getProviderCapabilities(provider),
@@ -97,8 +101,8 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     // Try config files
     try {
       const result = await this.configService.loadConfiguration(process.cwd());
-      const credentialConfig =
-        result.resolved.credentials?.ai?.[provider as keyof typeof result.resolved.credentials.ai];
+      const providerConfig = result.resolved.ai?.providers?.[provider as keyof typeof result.resolved.ai.providers];
+      const credentialConfig = providerConfig?.credentials;
 
       if (credentialConfig?.source === "file" && credentialConfig.api_key_file) {
         // Would read from file in real implementation

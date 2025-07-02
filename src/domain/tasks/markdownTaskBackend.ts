@@ -124,6 +124,64 @@ export class MarkdownTaskBackend implements TaskBackend {
     return writeTaskSpecFile(fullPath, content);
   }
 
+  async deleteTask(id: string, options?: { force?: boolean }): Promise<boolean> {
+    try {
+      // Get all tasks first
+      const tasksResult = await this.getTasksData();
+      if (!tasksResult.success || !tasksResult.content) {
+        return false;
+      }
+
+      // Parse tasks and find the one to delete
+      const tasks = this.parseTasks(tasksResult.content);
+      const taskToDelete = tasks.find(task => task.id === id || task.id === `#${id}` || task.id.slice(1) === id);
+      
+      if (!taskToDelete) {
+        log.debug(`Task ${id} not found for deletion`);
+        return false;
+      }
+
+      // Remove the task from the array
+      const updatedTasks = tasks.filter(task => task.id !== taskToDelete.id);
+
+      // Save the updated tasks
+      const updatedContent = this.formatTasks(updatedTasks);
+      const saveResult = await this.saveTasksData(updatedContent);
+      
+      if (!saveResult.success) {
+        log.error(`Failed to save tasks after deleting ${id}:`, {
+          error: saveResult.error?.message
+        });
+        return false;
+      }
+
+      // Try to delete the spec file if it exists
+      if (taskToDelete.specPath) {
+        try {
+          const fullSpecPath = taskToDelete.specPath.startsWith("/") 
+            ? taskToDelete.specPath 
+            : join(this.workspacePath, taskToDelete.specPath);
+          
+          if (await this.fileExists(fullSpecPath)) {
+            const { unlink } = await import("fs/promises");
+            await unlink(fullSpecPath);
+            log.debug(`Deleted spec file: ${fullSpecPath}`);
+          }
+        } catch (error) {
+          // Log but don't fail the operation if spec file deletion fails
+          log.debug(`Could not delete spec file for task ${id}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      return true;
+    } catch (error) {
+      log.error(`Failed to delete task ${id}:`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
   // ---- Helper Methods ----
 
   getWorkspacePath(): string {
@@ -155,6 +213,14 @@ export class MarkdownTaskBackend implements TaskBackend {
       });
       return [];
     }
+  }
+
+  /**
+   * Indicates this backend stores data in repository files
+   * @returns true because Markdown backend stores data in filesystem within the repo
+   */
+  isInTreeBackend(): boolean {
+    return true;
   }
 }
 

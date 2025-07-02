@@ -107,7 +107,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Mock the CORRECT preparePr implementation
       const correctPreparePrSpy = createMock(async (options: unknown) => {
-        const _workdir = "/test/repo";
+        const workdir = "/test/repo";
         const sourceBranch = "feature-branch";
         const baseBranch = options.baseBranch || "main";
         const prBranch = `pr/${sourceBranch}`;
@@ -144,7 +144,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       (gitService as any).preparePr = correctPreparePrSpy;
 
       // Execute the CORRECT preparePr method
-      const _result = await gitService.preparePr({
+      const result = await gitService.preparePr({
         _session: "test-session",
         baseBranch: "main",
         _title: "Test PR",
@@ -214,7 +214,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       try {
         // Execute sessionPrFromParams
-        const _result = await sessionPrFromParams({
+        const result = await sessionPrFromParams({
           _session: "test-session",
           _title: "Test Session PR",
           body: "Test body",
@@ -247,7 +247,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       // This test verifies that the prepared merge commit created by preparePr
       // can be fast-forward merged by session approve
 
-      const _workdir = "/test/repo";
+      const workdir = "/test/repo";
       const prBranch = "pr/feature-branch";
       const baseBranch = "main";
 
