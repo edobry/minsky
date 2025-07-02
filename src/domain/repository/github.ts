@@ -3,7 +3,7 @@ import { HTTP_OK } from "../utils/constants";
 import { mkdir } from "fs/promises";
 import { promisify } from "util";
 import { exec } from "child_process";
-import { SessionDB } from "../session.js";
+import { createSessionProvider, type SessionProviderInterface } from "../session.js";
 import { normalizeRepositoryURI } from "../repository-uri.js";
 import { GitService } from "../git.js";
 import type { RepositoryStatus, ValidationResult } from "../repository.js";
@@ -40,7 +40,7 @@ export class GitHubBackend implements RepositoryBackend {
   private readonly repoName: string;
   private readonly owner?: string;
   private readonly repo?: string;
-  private sessionDb: SessionDB;
+  private sessionDb: SessionProviderInterface;
   private gitService: GitService;
 
   /**
@@ -66,7 +66,7 @@ export class GitHubBackend implements RepositoryBackend {
     }
 
     this.repoName = normalizeRepositoryURI(this.repoUrl);
-    this.sessionDb = new SessionDB();
+    this.sessionDb = createSessionProvider();
     this.gitService = new GitService(this.baseDir);
   }
 
