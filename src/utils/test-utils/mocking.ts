@@ -424,8 +424,8 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     }),
 
     // Access the internal state for validation in tests
-    _files: files,
-    _directories: directories,
+    files: files,
+    directories: directories,
   };
 
   return mockFs;
