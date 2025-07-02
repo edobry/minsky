@@ -1469,44 +1469,8 @@ export async function sessionReviewFromParams(
   return result;
 }
 
-// Temporary alias for backward compatibility
-// TODO: Remove this once all imports are updated to use createSessionProvider()
-export const SessionDB = class SessionDB {
-  private provider: SessionProviderInterface;
+// Re-export types from session-db module for convenience
+export type { SessionRecord, SessionDbState } from "./session/session-db";
 
-  constructor() {
-    this.provider = createSessionProvider();
-  }
-
-  async listSessions() {
-    return this.provider.listSessions();
-  }
-
-  async getSession(session: string) {
-    return this.provider.getSession(session);
-  }
-
-  async getSessionByTaskId(taskId: string) {
-    return this.provider.getSessionByTaskId(taskId);
-  }
-
-  async addSession(record: SessionRecord) {
-    return this.provider.addSession(record);
-  }
-
-  async updateSession(session: string, updates: Partial<Omit<SessionRecord, "session">>) {
-    return this.provider.updateSession(session, updates);
-  }
-
-  async deleteSession(session: string) {
-    return this.provider.deleteSession(session);
-  }
-
-  async getRepoPath(record: SessionRecord) {
-    return this.provider.getRepoPath(record);
-  }
-
-  async getSessionWorkdir(sessionName: string) {
-    return this.provider.getSessionWorkdir(sessionName);
-  }
-};
+// Re-export the SessionDbAdapter class
+export { SessionDbAdapter } from "./session/session-db-adapter";
