@@ -403,7 +403,9 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         outputFormatter: (result: any) => {
           // Check if JSON output was requested
           if (result.json) {
-            log.cli(JSON.stringify(result, null, 2));
+            // For JSON output, return flattened key-value pairs (matching normal output)
+            const flattened = flattenObjectToKeyValue(result.resolved);
+            log.cli(JSON.stringify(flattened, null, 2));
             return;
           }
 
@@ -677,6 +679,27 @@ function formatFlattenedConfiguration(resolved: any): string {
 
   const flatEntries = flatten(resolved);
   return flatEntries.join("\n");
+}
+
+function flattenObjectToKeyValue(obj: any): any {
+  const flattened: any = {};
+
+  function flatten(current: any, prefix = ""): void {
+    if (typeof current === "object" && current !== null) {
+      const keys = Object.keys(current);
+      for (const key of keys) {
+        const fullKey = prefix ? `${prefix}.${key}` : key;
+        if (typeof current[key] === "object" && current[key] !== null) {
+          flatten(current[key], fullKey);
+        } else {
+          flattened[fullKey] = current[key];
+        }
+      }
+    }
+  }
+
+  flatten(obj);
+  return flattened;
 }
 
 /**
