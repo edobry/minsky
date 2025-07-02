@@ -13,11 +13,11 @@ import {
   ValidationError,
   ValidationWarning,
 } from "./types";
-import { ConfigurationService } from "../configuration/types";
-import { log } from "../shared-logging";
+import config from "config";
+// import { log } from "../shared-logging";
 
 export class DefaultAIConfigurationService implements AIConfigurationService {
-  constructor(private configService: ConfigurationService) {}
+  constructor() {}
 
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {
     try {
@@ -29,23 +29,19 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
         return null;
       }
 
-      const result = await this.configService.loadConfiguration(process.cwd());
-      const config = result.resolved;
-
-      // Get provider-specific config from both repo and user levels
-      const repoConfig = config.ai?.providers?.[provider as keyof typeof config.ai.providers];
-      const userConfig = config.ai?.providers?.[provider as keyof typeof config.ai.providers];
+      // Get provider-specific config using node-config
+      const aiConfig = config.get("ai") as any;
+      const providerConfig = aiConfig?.providers?.[provider];
 
       // Create provider config with API key and any available settings
       return {
         provider: provider as any,
         apiKey,
-        baseURL: userConfig?.base_url || repoConfig?.base_url,
-        defaultModel: userConfig?.default_model || repoConfig?.default_model,
+        baseURL: providerConfig?.base_url,
+        defaultModel: providerConfig?.default_model,
         supportedCapabilities: await this.getProviderCapabilities(provider),
       };
     } catch (error) {
-      log.error(`Failed to get provider config for ${provider}`, { error });
       return null;
     }
   }
@@ -58,10 +54,9 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
   async getDefaultProvider(): Promise<string> {
     try {
-      const result = await this.configService.loadConfiguration(process.cwd());
-      return result.resolved.ai?.default_provider || "openai";
+      const aiConfig = config.get("ai") as any;
+      return aiConfig?.default_provider || "openai";
     } catch (error) {
-      log.error("Failed to get default provider", { error });
       return "openai";
     }
   }
@@ -86,7 +81,6 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       return this.validateAPIKeyFormat(provider, apiKey);
     } catch (error) {
-      log.debug(`API key validation failed for ${provider}`, { error });
       return false;
     }
   }
@@ -100,9 +94,8 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
     // Try config files
     try {
-      const result = await this.configService.loadConfiguration(process.cwd());
-      const credentialConfig =
-        result.resolved.credentials?.ai?.[provider as keyof typeof result.resolved.credentials.ai];
+      const credentials = config.get("credentials") as any;
+      const credentialConfig = credentials?.ai?.[provider];
 
       if (credentialConfig?.source === "file" && credentialConfig.api_key_file) {
         // Would read from file in real implementation
@@ -113,7 +106,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
         return credentialConfig.api_key;
       }
     } catch (error) {
-      log.debug(`Failed to resolve API key for ${provider}`, { error });
+      // Failed to resolve API key from config
     }
 
     return undefined;
