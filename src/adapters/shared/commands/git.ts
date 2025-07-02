@@ -196,7 +196,7 @@ export function registerGitCommands(): void {
     execute: async (params, _context) => {
       log.debug("Executing git.commit _command", { params, _context });
 
-      const _result = await commitChangesFromParams({
+      const result = await commitChangesFromParams({
         message: params.message,
         all: params.all,
         amend: params.amend,
@@ -223,7 +223,7 @@ export function registerGitCommands(): void {
     execute: async (params, _context) => {
       log.debug("Executing git.push _command", { params, _context });
 
-      const _result = await pushFromParams({
+      const result = await pushFromParams({
         repo: params.repo,
         _session: params._session,
         remote: params.remote,
@@ -248,7 +248,7 @@ export function registerGitCommands(): void {
     execute: async (params, _context) => {
       log.debug("Executing git.clone _command", { params, _context });
 
-      const _result = await cloneFromParams({
+      const result = await cloneFromParams({
         url: params.url,
         _session: params._session,
         destination: params.destination,
@@ -273,7 +273,7 @@ export function registerGitCommands(): void {
     execute: async (params, _context) => {
       log.debug("Executing git._branch _command", { params, _context });
 
-      const _result = await branchFromParams({
+      const result = await branchFromParams({
         _session: params._session,
         name: params.name,
       });
@@ -296,7 +296,7 @@ export function registerGitCommands(): void {
     execute: async (params, _context) => {
       log.debug("Executing git.pr _command", { params, _context });
 
-      const _result = await createPullRequestFromParams({
+      const result = await createPullRequestFromParams({
         _session: params._session,
         repo: params.repo,
         _branch: params._branch,

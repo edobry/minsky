@@ -5,7 +5,7 @@
 import { readFile, writeFile, mkdir, access, readdir, unlink, stat } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
 import { z } from "zod";
-import { SessionDB } from "../../domain/session.js";
+import { createSessionProvider, type SessionProviderInterface } from "../../domain/session.js";
 import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { log } from "../../utils/logger.js";
 
@@ -13,10 +13,10 @@ import { log } from "../../utils/logger.js";
  * Session path resolver class for enforcing workspace boundaries
  */
 export class SessionPathResolver {
-  private sessionDB: SessionDB;
+  private sessionDB: SessionProviderInterface;
 
   constructor() {
-    this.sessionDB = new SessionDB();
+    this.sessionDB = createSessionProvider();
   }
 
   /**

@@ -4,7 +4,11 @@ import type { ExecException } from "node:child_process";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { normalizeRepoName } from "./repo-utils";
-import { SessionDB, createSessionProvider, type SessionRecord } from "./session";
+import {
+  createSessionProvider,
+  type SessionRecord,
+  type SessionProviderInterface,
+} from "./session";
 import { TaskService, TASK_STATUS } from "./tasks";
 import { MinskyError } from "../errors/index";
 import { log } from "../utils/logger";
@@ -276,13 +280,13 @@ export interface MergePrResult {
 
 export class GitService implements GitServiceInterface {
   private readonly baseDir: string;
-  private sessionDb: SessionDB;
+  private sessionDb: SessionProviderInterface;
 
   constructor(baseDir?: string) {
     this.baseDir =
       baseDir ||
       join(process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"), "minsky");
-    this.sessionDb = createSessionProvider({ dbPath: process.cwd() }) as SessionDB;
+    this.sessionDb = createSessionProvider({ dbPath: process.cwd() });
   }
 
   // Add public method to get session record

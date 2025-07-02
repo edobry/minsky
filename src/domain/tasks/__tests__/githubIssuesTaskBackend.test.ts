@@ -59,7 +59,7 @@ describe("GitHubIssuesTaskBackend", () => {
         },
       ]);
 
-      const _tasks = backend.parseTasks(issuesJson);
+      const tasks = backend.parseTasks(issuesJson);
 
       expect(tasks.length).toBe(1);
       expect(tasks[0]?.id).toBe("#001");
@@ -108,7 +108,7 @@ This is a test task description.
 - Requirement 2
 `;
 
-      const _spec = backend.parseTaskSpec(specContent);
+      const spec = backend.parseTaskSpec(specContent);
 
       expect(spec._title).toBe("Test Task");
       expect(spec.description).toBe("This is a test task description.");

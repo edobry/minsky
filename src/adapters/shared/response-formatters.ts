@@ -145,7 +145,7 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
    * @returns JSON object with error details
    */
   formatJson(_error: Error, _context: CommandExecutionContext): object {
-    const _result: Record<string, unknown> = {
+    const result = {
       success: false,
       error: error.message,
     };

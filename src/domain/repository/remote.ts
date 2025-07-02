@@ -2,7 +2,7 @@ import { join } from "path";
 import { mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { SessionDB } from "../session.js";
+import { createSessionProvider, type SessionProviderInterface } from "../session.js";
 import { normalizeRepositoryURI } from "../repository-uri.js";
 import type {
   RepositoryBackend,
@@ -33,7 +33,7 @@ export class RemoteGitBackend implements RepositoryBackend {
   private readonly repoUrl: string;
   private readonly repoName: string;
   private readonly defaultBranch?: string;
-  private sessionDb: SessionDB;
+  private sessionDb: SessionProviderInterface;
 
   /**
    * Create a new RemoteGitBackend instance
@@ -52,7 +52,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     }
 
     this.repoName = normalizeRepositoryURI(this.repoUrl);
-    this.sessionDb = new SessionDB();
+    this.sessionDb = createSessionProvider();
   }
 
   /**
@@ -302,15 +302,15 @@ Repository: ${this.repoUrl}
       }
 
       // For each session with this repository, push changes
-      for (const _session of currentSessions) {
-        const _workdir = this.getSessionWorkdir(session._session);
+      for (const session of currentSessions) {
+        const workdir = this.getSessionWorkdir(session._session);
 
         try {
           // Determine current branch
           const { stdout: branchOutput } = await execAsync(
             `git -C ${workdir} rev-parse --abbrev-ref HEAD`
           );
-          const _branch = branchOutput.trim();
+          const branch = branchOutput.trim();
 
           // Push to remote
           await execAsync(`git -C ${workdir} push origin ${branch}`);
@@ -380,15 +380,15 @@ Repository: ${this.repoUrl}
       }
 
       // For each session with this repository, pull changes
-      for (const _session of currentSessions) {
-        const _workdir = this.getSessionWorkdir(session._session);
+      for (const session of currentSessions) {
+        const workdir = this.getSessionWorkdir(session._session);
 
         try {
           // Determine current branch
           const { stdout: branchOutput } = await execAsync(
             `git -C ${workdir} rev-parse --abbrev-ref HEAD`
           );
-          const _branch = branchOutput.trim();
+          const branch = branchOutput.trim();
 
           // Pull from remote
           await execAsync(`git -C ${workdir} pull origin ${branch}`);

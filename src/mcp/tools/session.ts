@@ -69,7 +69,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     ) => {
       try {
         // Build the command
-        let _command = "minsky session start";
+        let command = "minsky session start";
         if (args.name) {
           command += ` --name ${args.name}`;
         }
@@ -118,7 +118,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     ) => {
       try {
         // Build the command
-        let _command = "minsky session commit";
+        let command = "minsky session commit";
         if (args.message) {
           command += ` -m "${args.message}"`;
         }
@@ -162,7 +162,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     ) => {
       try {
         // Build the command
-        let _command = "minsky session push";
+        let command = "minsky session push";
         if (args.session) {
           command += ` --session ${args.session}`;
         }

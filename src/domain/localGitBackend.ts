@@ -24,7 +24,6 @@ import {
   RepositoryError,
 } from "../utils/repository-utils.js";
 import { normalizeRepoName } from "./repo-utils.js";
-import { SessionDB } from "./session.js";
 import { log } from "../utils/logger";
 
 const execAsync = promisify(exec);
@@ -35,7 +34,6 @@ const execAsync = promisify(exec);
 export class LocalGitBackend implements RepositoryBackend {
   private readonly config: RepositoryConfig;
   private readonly baseDir: string;
-  private readonly sessionDb: SessionDB;
   private localPath: string = "";
   private cache: RepositoryMetadataCache;
 
@@ -52,7 +50,6 @@ export class LocalGitBackend implements RepositoryBackend {
     const _xdgStateHome =
       process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(_xdgStateHome, "minsky", "sessions");
-    this.sessionDb = new SessionDB();
     this.cache = RepositoryMetadataCache.getInstance();
   }
 
