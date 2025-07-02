@@ -15,7 +15,6 @@ export interface SessionRecord {
   createdAt: string;
   taskId: string;
   branch: string;
-  repoPath?: string;
 }
 
 /**
@@ -121,10 +120,7 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
     throw new Error("Session record is required");
   }
 
-  if (record.repoPath) {
-    return record.repoPath;
-  }
-
+  // Use simplified session-ID-based path structure: /sessions/{sessionId}/
   return join(state.baseDir, "sessions", record.session);
 }
 

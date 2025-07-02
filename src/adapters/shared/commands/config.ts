@@ -35,6 +35,11 @@ const configListParams: CommandParameterMap = {
     description: "Output in JSON format",
     required: false,
   },
+  sources: {
+    schema: z.boolean().default(false),
+    description: "Show configuration sources and precedence",
+    required: false,
+  },
 };
 
 /**
@@ -54,6 +59,11 @@ const configShowParams: CommandParameterMap = {
   json: {
     schema: z.boolean().default(false),
     description: "Output in JSON format",
+    required: false,
+  },
+  sources: {
+    schema: z.boolean().default(false),
+    description: "Show configuration sources and precedence",
     required: false,
   },
 };
@@ -88,6 +98,7 @@ const configListRegistration = {
           parsed: source.parsed,
         })),
         resolved,
+        showSources: params.sources || false,
       };
     } catch (error) {
       log.error("Failed to load configuration", {
@@ -97,6 +108,7 @@ const configListRegistration = {
         success: false,
         json: params.json || false,
         error: error instanceof Error ? error.message : String(error),
+        showSources: params.sources || false,
       };
     }
   },
@@ -126,6 +138,14 @@ const configShowRegistration = {
         success: true,
         json: params.json || false,
         configuration: resolved,
+        showSources: params.sources || false,
+        ...(params.sources && {
+          sources: config.util.getConfigSources().map((source) => ({
+            name: source.name,
+            original: source.original,
+            parsed: source.parsed,
+          })),
+        }),
       };
     } catch (error) {
       log.error("Failed to load configuration", {
@@ -135,6 +155,7 @@ const configShowRegistration = {
         success: false,
         json: params.json || false,
         error: error instanceof Error ? error.message : String(error),
+        showSources: params.sources || false,
       };
     }
   },
