@@ -8,7 +8,7 @@ import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
-import { configurationService } from "../configuration";
+import config from "config";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants.js";
 
 // Dynamic import for GitHub backend to avoid hard dependency
@@ -105,7 +105,7 @@ export class TaskService {
    * @param options Options for filtering tasks
    * @returns Promise resolving to array of tasks
    */
-  async listTasks(_options?: TaskListOptions): Promise<TaskData[]> {
+  async listTasks(options?: TaskListOptions): Promise<TaskData[]> {
     // Get raw data
     const result = await this.currentBackend.getTasksData();
     if (!result.success || !result.content) {
@@ -113,14 +113,14 @@ export class TaskService {
     }
 
     // Parse data using pure function
-    let _tasks = this.currentBackend.parseTasks(result.content);
+    let tasks = this.currentBackend.parseTasks(result.content);
 
     // Apply filters if provided
-    if (_options?.status) {
-      _tasks = _tasks.filter((task) => task.status === _options.status);
+    if (options?.status) {
+      tasks = tasks.filter((task) => task.status === options.status);
     }
 
-    return _tasks;
+    return tasks;
   }
 
   /**
@@ -292,21 +292,21 @@ export class TaskService {
 
     // Get current tasks and add the new one
     const tasksResult = await this.currentBackend.getTasksData();
-    let _tasks: TaskData[] = [];
+    let tasks: TaskData[] = [];
     if (tasksResult.success && tasksResult.content) {
-      _tasks = this.currentBackend.parseTasks(tasksResult.content);
+      tasks = this.currentBackend.parseTasks(tasksResult.content);
     }
 
     // Add or replace the task
-    const existingIndex = _tasks.findIndex((t) => t.id === newTask.id);
+    const existingIndex = tasks.findIndex((t) => t.id === newTask.id);
     if (existingIndex >= 0) {
-      _tasks[existingIndex] = newTask;
+      tasks[existingIndex] = newTask;
     } else {
-      _tasks.push(newTask);
+      tasks.push(newTask);
     }
 
     // Format and save the updated tasks
-    const updatedContent = this.currentBackend.formatTasks(_tasks);
+    const updatedContent = this.currentBackend.formatTasks(tasks);
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
       throw new Error(`Failed to save tasks _data: ${saveResult.error?.message}`);
@@ -596,16 +596,13 @@ export async function createConfiguredTaskService(
   }
 
   try {
-    // Load configuration using the configuration service
-    const configResult = await configurationService.loadConfiguration(workspacePath);
-
-    // Use the resolved backend from configuration
-    const resolvedBackend = configResult.resolved.backend || "json-file"; // fallback to json-file
+    // Use node-config directly to get the resolved backend
+    const resolvedBackend = (config.get("backend") as string) || "json-file"; // fallback to json-file
 
     log.debug("Resolved backend from configuration", {
       workspacePath,
       backend: resolvedBackend,
-      configSource: configResult.resolved.backend ? "configuration" : "default",
+      configSource: config.get("backend") ? "configuration" : "default",
     });
 
     return createTaskService({

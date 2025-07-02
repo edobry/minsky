@@ -24,7 +24,6 @@ export function createConfigShowCommand(): Command {
           backend: config.get("backend"),
           backendConfig: config.get("backendConfig"),
           credentials: config.get("credentials"),
-          detectionRules: config.get("detectionRules"),
           sessiondb: config.get("sessiondb"),
           ai: config.has("ai") ? config.get("ai") : undefined,
         };
@@ -87,12 +86,5 @@ function displayResolvedConfiguration(resolved: any) {
     }
   }
 
-  if (resolved.detectionRules && resolved.detectionRules.length > 0) {
-    // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-    process.stdout.write("\nDetection Rules:\n");
-    resolved.detectionRules.forEach((rule: any, index: number) => {
-      // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-      process.stdout.write(`  ${index + 1}. ${rule.condition} → ${rule.backend}\n`);
-    });
-  }
+  // Backend detection is now handled directly in code (no configuration needed)
 }
