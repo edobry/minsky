@@ -1,6 +1,7 @@
 import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { join } from "path";
+import { getMinskyStateDir, getSessionDbPath } from "../utils/paths.js";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
@@ -118,9 +119,8 @@ export class SessionDB implements SessionProviderInterface {
   private readonly baseDir: string; // Add baseDir property
 
   constructor(dbPath?: string) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.dbPath = dbPath || join(xdgStateHome, "minsky", "session-db.json");
-    this.baseDir = join(xdgStateHome, "minsky"); // Use base minsky directory
+    this.dbPath = dbPath || getSessionDbPath();
+    this.baseDir = getMinskyStateDir();
   }
 
   private async ensureDbDir(): Promise<void> {
