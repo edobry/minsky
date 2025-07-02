@@ -146,11 +146,11 @@ interface AnalysisReport {
 async function findTestFiles(dir: string): Promise<string[]> {
   const files: string[] = [];
 
-  async function scan(__currentDir: string) {
-    const entries = await readdir(_currentDir, { withFileTypes: true });
+  async function scan(currentDir: string) {
+    const entries = await readdir(currentDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      const path = join(_currentDir, entry.name);
+      const path = join(currentDir, entry.name);
 
       if (entry.isDirectory()) {
         await scan(path);
@@ -172,7 +172,7 @@ function extractImports(content: string): string[] {
   const imports: string[] = [];
   let match: RegExpExecArray | null;
 
-  while ((match = importRegex.exec(_content)) !== null) {
+  while ((match = importRegex.exec(content)) !== null) {
     const importPath = match[1];
     if (importPath) {
       imports.push(importPath);
@@ -204,7 +204,7 @@ function extractMockDependencies(content: string): string[] {
  * Analyze a single test file
  */
 async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
-  const content = await readFile(_path, "utf-COMMIT_HASH_SHORT_LENGTH");
+  const content = await readFile(_path, "utf-8");
   const relativePath = relative(_baseDir, path);
   const counts = {
     mockPatterns: {} as Record<string, number>,

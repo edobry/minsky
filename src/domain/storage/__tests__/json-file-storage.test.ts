@@ -1,6 +1,6 @@
 const DEFAULT_DISPLAY_LENGTH = 100;
 const SIZE_6 = 6;
-const TEST_ANSWER = TEST_ANSWER;
+const TEST_ANSWER = 42;
 const TEST_ARRAY_SIZE = 3;
 const TEST_VALUE = 123;
 
@@ -81,7 +81,7 @@ describe("JsonFileStorage Core Tests", () => {
       if (existsSync(testDirPath)) {
         rmSync(testDirPath, { recursive: true, force: true });
       }
-    } catch {
+    } catch (error) {
       // Log but don't fail tests on cleanup errors
       log.cliWarn(`Cleanup warning for ${testDirPath}:`, error);
     }

@@ -72,7 +72,7 @@ class AnyMatcher extends AsymmetricMatcherBase {
     this.expectedType = expectedType;
   }
 
-  asymmetricMatch(_other: unknown): boolean {
+  asymmetricMatch(other: unknown): boolean {
     if (other === null || other === undefined) {
       return false;
     }
@@ -129,12 +129,12 @@ class AnyMatcher extends AsymmetricMatcherBase {
 class StringContainingMatcher extends AsymmetricMatcherBase {
   private readonly expectedSubstring: string;
 
-  constructor(_expectedSubstring: string) {
+  constructor(expectedSubstring: string) {
     super("StringContaining");
     this.expectedSubstring = expectedSubstring;
   }
 
-  asymmetricMatch(_other: unknown): boolean {
+  asymmetricMatch(other: unknown): boolean {
     if (typeof other !== "string") {
       return false;
     }
