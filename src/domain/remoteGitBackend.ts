@@ -23,7 +23,7 @@ import {
   RepositoryError,
 } from "../utils/repository-utils.js";
 import { normalizeRepoName } from "./repo-utils.js";
-import { SessionDB } from "./session.js";
+import { createSessionProvider } from "./session.js";
 import { log } from "../utils/logger";
 import { getMinskyStateDir } from "../utils/paths.js";
 const execAsync = promisify(exec);
@@ -34,7 +34,7 @@ const execAsync = promisify(exec);
 export class RemoteGitBackend implements RepositoryBackend {
   protected config: RemoteGitConfig;
   private readonly baseDir: string;
-  private readonly sessionDb: SessionDB;
+  private readonly sessionDb: any;
   private localPath: string = "";
   private cache: RepositoryMetadataCache;
 
@@ -56,7 +56,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     } as RemoteGitConfig;
 
     this.baseDir = getMinskyStateDir();
-    this.sessionDb = new SessionDB();
+    this.sessionDb = createSessionProvider();
     this.cache = RepositoryMetadataCache.getInstance();
   }
 

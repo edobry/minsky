@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import { join } from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { SessionDB, createSessionProvider } from "./session";
+import { createSessionProvider, type SessionProviderInterface } from "./session";
 import { log } from "../utils/logger";
 import { createHash } from "crypto";
 import { readFileSync, existsSync } from "fs";
@@ -65,7 +65,7 @@ export function isSessionWorkspace(workspacePath: string): boolean {
 export async function getSessionFromWorkspace(
   workspacePath: string,
   execAsyncFn: typeof execAsync = execAsync,
-  sessionDbOverride?: { getSession: SessionDB["getSession"] }
+  sessionDbOverride?: SessionProviderInterface
 ): Promise<{
   session: string;
   upstreamRepository: string;
@@ -93,7 +93,7 @@ export async function getSessionFromWorkspace(
       return null;
     }
 
-    const db = sessionDbOverride || new SessionDB();
+    const db = sessionDbOverride || createSessionProvider();
     const sessionRecord = await db.getSession(sessionName);
 
     if (!sessionRecord || !sessionRecord.repoUrl) {

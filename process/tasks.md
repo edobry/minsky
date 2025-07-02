@@ -408,7 +408,7 @@
 
 - [+] Remove redundant repoPath field from session records [#218](process/tasks/218-remove-redundant-repopath-field-from-session-records.md)
 
-- [-] Add specific linting rules for underscore prefixes in variable declarations [#219](process/tasks/219-add-specific-linting-rules-for-underscore-prefixes-in-variable-declarations.md)
+- [x] Add specific linting rules for underscore prefixes in variable declarations [#219](process/tasks/219-add-specific-linting-rules-for-underscore-prefixes-in-variable-declarations.md)
 
 - [ ] Improve Test Isolation and Reliability [#220](process/tasks/220-improve-test-isolation-and-reliability.md)
 
