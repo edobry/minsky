@@ -25,8 +25,8 @@ export function normalizeTaskId(userInput: string): string | null {
     normalizedInput = normalizedInput.substring(1);
   }
 
-  // Check if the result is a valid number (integer)
-  if (!/^[0-9]+$/.test(normalizedInput) || normalizedInput.length === 0) {
+  // Check if the result is valid (alphanumeric)
+  if (!/^[a-zA-Z0-9_]+$/.test(normalizedInput) || normalizedInput.length === 0) {
     return null;
   }
 

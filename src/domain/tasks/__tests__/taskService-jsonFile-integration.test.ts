@@ -197,18 +197,11 @@ describe("TaskService JsonFile Integration (v2)", () => {
       const task = await taskService.getTask("#999");
       expect(task).toBe(null);
 
-      const _status = await taskService.getTaskStatus("#999");
-      expect(_status).toBe(null);
+      const status = await taskService.getTaskStatus("#999");
+      expect(status).toBe(null);
 
-      // Should not throw when setting status on non-existent task
-      try {
-        await taskService.setTaskStatus("#999", "DONE");
-        // Should reach here without throwing
-        expect(true).toBe(true);
-      } catch {
-        // Should not throw for non-existent task
-        expect(false).toBe(true);
-      }
+      // Should throw when setting status on non-existent task
+      await expect(taskService.setTaskStatus("#999", "DONE")).rejects.toThrow("not found");
     });
 
     test("should validate task status values", async () => {
