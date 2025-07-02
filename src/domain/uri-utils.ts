@@ -143,14 +143,8 @@ export function normalizeRepositoryUri(
   else if (normalizedUri.startsWith("/") || normalizedUri.match(/^[A-Z]:\\/i)) {
     format = UriFormat.PATH;
     isLocal = true;
-    
-    // Cross-platform basename extraction (handle both / and \ separators)
-    const pathSeparators = /[/\\]/;
-    const pathParts = normalizedUri.split(pathSeparators);
-    const repoBasename = pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2];
-    
     // For local repos, use local-<basename> as the name (filesystem-safe)
-    normalizedName = `local-${repoBasename}`;
+    normalizedName = `local-${basename(normalizedUri)}`;
 
     // Validate that the path exists if requested
     if (validateLocalExists && !existsSync(normalizedUri)) {

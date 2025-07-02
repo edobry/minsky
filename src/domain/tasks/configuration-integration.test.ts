@@ -1,6 +1,6 @@
 /**
  * Test for configuration integration with task service
- * 
+ *
  * This test verifies that the configuration system properly integrates
  * with task service creation and backend resolution.
  */
@@ -16,12 +16,12 @@ describe("Configuration Integration", () => {
     // Create a temporary directory for testing
     const tempDir = join(tmpdir(), `config-test-${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
-    
+
     try {
       // Create a .minsky directory and config file
       const minskyhDir = join(tempDir, ".minsky");
       await fs.mkdir(minskyhDir, { recursive: true });
-      
+
       const configContent = `
 version: 1
 backends:
@@ -32,21 +32,20 @@ repository:
     - condition: "always"
       backend: "json-file"
 `;
-      
+
       await fs.writeFile(join(minskyhDir, "config.yaml"), configContent);
-      
+
       // Test that the service is created successfully
       const taskService = await createConfiguredTaskService({
-        _workspacePath: tempDir
+        workspacePath: tempDir,
       });
-      
+
       expect(taskService).toBeDefined();
       expect(taskService.getWorkspacePath()).toBe(tempDir);
-      
+
       // Test that tasks can be listed (even if empty)
       const _tasks = await taskService.listTasks();
       expect(Array.isArray(_tasks)).toBe(true);
-      
     } finally {
       // Cleanup
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -56,32 +55,31 @@ repository:
   test("createConfiguredTaskService should fall back to default when configuration fails", async () => {
     // Use a non-existent directory to trigger fallback
     const nonExistentDir = join(tmpdir(), `non-existent-${Date.now()}`);
-    
+
     // Should not throw an error, but use fallback
     const taskService = await createConfiguredTaskService({
-      _workspacePath: nonExistentDir
+      workspacePath: nonExistentDir,
     });
-    
+
     expect(taskService).toBeDefined();
   });
 
   test("createConfiguredTaskService should respect explicit backend parameter", async () => {
     const tempDir = join(tmpdir(), `config-test-explicit-${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
-    
+
     try {
       // Create a task service with explicit backend
       const taskService = await createConfiguredTaskService({
-        _workspacePath: tempDir,
-        backend: "markdown" // Explicit backend should override configuration
+        workspacePath: tempDir,
+        backend: "markdown", // Explicit backend should override configuration
       });
-      
+
       expect(taskService).toBeDefined();
       expect(taskService.getWorkspacePath()).toBe(tempDir);
-      
     } finally {
       // Cleanup
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
-}); 
+});

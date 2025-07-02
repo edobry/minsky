@@ -17,7 +17,7 @@ import {
 setupTestMocks();
 
 describe("TaskService JsonFile Integration (v2)", () => {
-  let _workspacePath: string;
+  let workspacePath: string;
   let taskService: TaskService;
   let dbPath: string;
   let mockFS: ReturnType<typeof createMockFileSystem>;

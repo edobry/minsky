@@ -181,7 +181,115 @@ User -> Minsky CLI -> Agent Loop -> AI Provider -> Tool Registry -> Execution
    - API key management
    - Audit logging
 
+## Library and Framework Investigation
+
+Before implementing a custom agent loop from scratch, we should investigate existing libraries and frameworks that could provide the required functionality:
+
+### AI Agent Frameworks to Evaluate
+
+1. **Claude-Code SDK**
+
+   - Investigate Anthropic's claude-code SDK for agent loop capabilities
+   - Evaluate its tool calling interface and extensibility
+   - Assess integration complexity and licensing
+
+2. **OpenHands / OpenCode**
+
+   - Research comparable approaches used by OpenHands (formerly OpenDevin)
+   - Examine OpenCode's agent architecture and tool system
+   - Evaluate reusability of their agent loop components
+
+3. **LangChain**
+
+   - Comprehensive framework for building LLM applications
+   - Provides agents, tools, and chain abstractions
+   - Has existing integrations with multiple AI providers
+   - Consider overhead and complexity vs. benefits
+
+4. **LlamaIndex**
+
+   - Data framework for LLM applications
+   - Offers agent capabilities and tool abstractions
+   - Good for context-aware applications
+   - Evaluate for our specific use case
+
+5. **AutoGPT/AutoGen Frameworks**
+
+   - Microsoft's AutoGen for multi-agent conversations
+   - AutoGPT's approach to autonomous agents
+   - Assess architectural patterns that could be adopted
+
+6. **Semantic Kernel**
+
+   - Microsoft's SDK for AI integration
+   - Provides planning and orchestration capabilities
+   - Cross-platform with good extensibility
+
+7. **Other Notable Options**
+   - **Haystack**: NLP framework with agent capabilities
+   - **Rasa**: Conversational AI framework
+   - **BabyAGI**: Lightweight autonomous agent
+   - **AgentGPT**: Browser-based autonomous agent
+
+### Evaluation Criteria
+
+When evaluating these libraries, consider:
+
+1. **Feature Completeness**
+
+   - Tool calling interface
+   - Context management
+   - State persistence
+   - Multi-step planning
+
+2. **Integration Effort**
+
+   - Compatibility with existing Minsky architecture
+   - Learning curve and documentation quality
+   - Community support and maintenance
+
+3. **Performance and Overhead**
+
+   - Runtime performance impact
+   - Memory footprint
+   - Startup time
+
+4. **Flexibility and Extensibility**
+
+   - Custom tool implementation
+   - Provider abstraction
+   - Plugin architecture
+
+5. **Licensing and Dependencies**
+   - License compatibility
+   - Dependency requirements
+   - Long-term sustainability
+
+### Investigation Deliverables
+
+1. **Comparison Matrix**: Create a detailed comparison of evaluated frameworks
+2. **Proof of Concepts**: Build minimal examples with top candidates
+3. **Integration Analysis**: Document how each option would integrate with Minsky
+4. **Recommendation**: Select the best approach (use existing library vs. build custom)
+
+### Decision Framework
+
+The investigation should answer:
+
+- Can we use an existing library as-is?
+- Should we wrap/extend an existing library?
+- Do we need a fully custom implementation?
+- Can we adopt architectural patterns without the full framework?
+
 ## Implementation Plan
+
+### Phase 0: Library Investigation and Decision
+
+1. Evaluate existing agent frameworks per the investigation criteria
+2. Build proof-of-concepts with top 2-3 candidates
+3. Document findings and integration approaches
+4. Make build vs. buy vs. extend decision
+5. Create architectural design based on chosen approach
 
 ### Phase 1: Core Infrastructure
 
