@@ -368,7 +368,7 @@
 
 - [ ] Fix GitHub Token Validation for Non-GitHub Commands [#192](process/tasks/192-fix-github-token-validation-for-non-github-commands.md)
 
-- [+] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md)
+- [x] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md)
 
 - [x] Replace Direct process.exit() Calls with Custom exit() Utility [#194](process/tasks/194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
 
@@ -406,13 +406,13 @@
 
 - [x] Execute session migration to simplified path structure [#217](process/tasks/217-execute-session-migration-to-simplified-path-structure.md)
 
-- [x] Remove redundant repoPath field from session records [#218](process/tasks/218-remove-redundant-repopath-field-from-session-records.md)
+- [+] Remove redundant repoPath field from session records [#218](process/tasks/218-remove-redundant-repopath-field-from-session-records.md)
 
 - [x] Add specific linting rules for underscore prefixes in variable declarations [#219](process/tasks/219-add-specific-linting-rules-for-underscore-prefixes-in-variable-declarations.md)
 
 - [ ] Improve Test Isolation and Reliability [#220](process/tasks/220-improve-test-isolation-and-reliability.md)
 
-- [+] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
+- [ ] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
 
 - [ ] Enhanced Session PR Workflow [#222](process/tasks/222-enhanced-session-pr-workflow.md)
 
