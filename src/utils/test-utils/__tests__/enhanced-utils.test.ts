@@ -48,7 +48,7 @@ describe("Enhanced Test Utilities", () => {
       const result = mockGreet("World");
 
       // Verify result
-      expect(_result).toBe("Hello, World!");
+      expect(result).toBe("Hello, World!");
 
       // Verify call tracking
       expect(mockGreet).toHaveBeenCalledWith("World");
@@ -107,7 +107,7 @@ describe("Enhanced Test Utilities", () => {
       expect(config.environment).toBe("production");
 
       // Mock the property
-      mockReadonlyProperty(_config, "environment", "test");
+      mockReadonlyProperty(config, "environment", "test");
 
       // Verify mocked value
       expect(config.environment).toBe("test");

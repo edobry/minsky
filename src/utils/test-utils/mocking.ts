@@ -507,7 +507,7 @@ export function mockReadonlyProperty<T extends object, K extends keyof T>(
   mockValue: any
 ): void {
   // Use Object.defineProperty to override the property
-  Object.defineProperty(_obj, propName, {
+  Object.defineProperty(obj, propName, {
     configurable: true,
     get: () => mockValue,
   });
@@ -542,7 +542,7 @@ export function createSpyOn<T extends object, M extends keyof T>(
 
   // Create a mock function that calls the original
   const mockFn = mock((..._args: unknown[]) => {
-    return (original as Function).apply(_obj, _args);
+    return (original as Function).apply(obj, _args);
   });
 
   // Replace the original method with our mock
