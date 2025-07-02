@@ -693,11 +693,15 @@ export async function updateSessionFromParams(
         }
       }
 
+      // Fix for origin/origin/main bug: Pass base branch name without origin/ prefix
+      // ConflictDetectionService expects plain branch names and adds origin/ internally
+      const normalizedBaseBranch = branchToMerge;
+
       // Use smart session update for enhanced conflict handling
       const updateResult = await ConflictDetectionService.smartSessionUpdate(
         workdir, 
         currentBranch, 
-        remoteBranchToMerge,
+        normalizedBaseBranch,
         {
           skipIfAlreadyMerged,
           autoResolveConflicts: autoResolveDeleteConflicts
@@ -997,6 +1001,10 @@ Need help? Run 'git status' to see what files have changed.
           name: sessionName,
           repo: params.repo,
           json: false,
+          force: false,
+          noStash: false, 
+          noPush: false,
+          dryRun: false,
           skipConflictCheck: params.skipConflictCheck,
           autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
           skipIfAlreadyMerged: true, // Skip update if changes already merged
