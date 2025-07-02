@@ -105,7 +105,7 @@ export class TaskService {
    * @param options Options for filtering tasks
    * @returns Promise resolving to array of tasks
    */
-  async listTasks(_options?: TaskListOptions): Promise<TaskData[]> {
+  async listTasks(options?: TaskListOptions): Promise<TaskData[]> {
     // Get raw data
     const result = await this.currentBackend.getTasksData();
     if (!result.success || !result.content) {
@@ -113,14 +113,14 @@ export class TaskService {
     }
 
     // Parse data using pure function
-    let _tasks = this.currentBackend.parseTasks(result.content);
+    let tasks = this.currentBackend.parseTasks(result.content);
 
     // Apply filters if provided
-    if (_options?.status) {
-      _tasks = _tasks.filter((task) => task.status === _options.status);
+    if (options?.status) {
+      tasks = tasks.filter((task) => task.status === options.status);
     }
 
-    return _tasks;
+    return tasks;
   }
 
   /**
