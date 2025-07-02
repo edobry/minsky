@@ -23,7 +23,8 @@ import {
   withMockedDeps,
 } from "../dependencies.js";
 import {
-  createcreateSessionData,
+  createTaskData,
+  createSessionData,
   createRepositoryData,
   createTaskDataArray,
   createRandomId,
@@ -62,10 +63,10 @@ describe("Enhanced Test Utilities", () => {
       mockFn.mockImplementation((n) => n * 2);
 
       // Use the mock
-      const _result = mockFn(TEST_ARRAY_SIZE);
+      const result = mockFn(TEST_ARRAY_SIZE);
 
       // Verify
-      expect(_result).toBe(10);
+      expect(result).toBe(6);
     });
   });
 
