@@ -13,7 +13,7 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
-import { configurationService } from "../../../domain/configuration";
+import config from "config";
 import { log } from "../../../utils/logger";
 
 /**
@@ -68,20 +68,28 @@ const configListRegistration = {
   description: "Show all configuration from all sources",
   parameters: configListParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    const workspacePath = params.workspace || process.cwd();
-    
     try {
-      // Load configuration with full details
-      const configResult = await configurationService.loadConfiguration(workspacePath);
+      // Use node-config directly to get configuration
+      const sources = config.util.getConfigSources();
+      const resolved = {
+        backend: config.get("backend"),
+        backendConfig: config.get("backendConfig"),
+        credentials: config.get("credentials"),
+        sessiondb: config.get("sessiondb"),
+        ai: config.has("ai") ? config.get("ai") : undefined,
+      };
       
       return {
         success: true,
-        sources: configResult.sources,
-        resolved: configResult.resolved,
+        sources: sources.map(source => ({
+          name: source.name,
+          original: source.original,
+          parsed: source.parsed
+        })),
+        resolved,
       };
     } catch (error) {
       log.error("Failed to load configuration", { 
-        workspacePath, 
         error: error instanceof Error ? error.message : String(error) 
       });
       return {
@@ -102,19 +110,22 @@ const configShowRegistration = {
   description: "Show the final resolved configuration",
   parameters: configShowParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    const workspacePath = params.workspace || process.cwd();
-    
     try {
-      // Load configuration
-      const configResult = await configurationService.loadConfiguration(workspacePath);
+      // Use node-config directly to get resolved configuration
+      const resolved = {
+        backend: config.get("backend"),
+        backendConfig: config.get("backendConfig"),
+        credentials: config.get("credentials"),
+        sessiondb: config.get("sessiondb"),
+        ai: config.has("ai") ? config.get("ai") : undefined,
+      };
       
       return {
         success: true,
-        configuration: configResult.resolved,
+        configuration: resolved,
       };
     } catch (error) {
       log.error("Failed to load configuration", { 
-        workspacePath, 
         error: error instanceof Error ? error.message : String(error) 
       });
       return {
