@@ -125,11 +125,13 @@ describe("ConflictDetectionService", () => {
   describe("predictConflicts", () => {
     it("should return no conflicts when already merged", async () => {
       // Setup: Complete call sequence for already-merged detection
-      // The sequence is: analyzeBranchDivergence calls execAsync 3 times, then checkSessionChangesInBase calls execAsync 1 time (early return)
+      // Session has commits ahead but trees are identical (changes already merged)
       mockExecAsync
         .mockResolvedValueOnce({ stdout: "0\t1", stderr: "" }) // 1. rev-list --left-right --count
         .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }); // 3. checkSessionChangesInBase: rev-list (empty = already merged)
+        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // 3. checkSessionChangesInBase: rev-list (session commits)
+        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
+        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }); // 5. base tree (same = already merged)
 
       const result = await ConflictDetectionService.predictConflicts(
         testRepoPath, sessionBranch, baseBranch
@@ -332,7 +334,9 @@ describe("ConflictDetectionService", () => {
       mockExecAsync
         .mockResolvedValueOnce({ stdout: "0\t1", stderr: "" }) // 1. rev-list --left-right --count
         .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }); // 3. checkSessionChangesInBase: rev-list (empty = already merged)
+        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // 3. checkSessionChangesInBase: rev-list (session commits)
+        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
+        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }); // 5. base tree (same = already merged)
 
       const result = await ConflictDetectionService.smartSessionUpdate(
         testRepoPath, sessionBranch, baseBranch, { skipIfAlreadyMerged: true }
@@ -349,7 +353,7 @@ describe("ConflictDetectionService", () => {
       mockExecAsync
         .mockResolvedValueOnce({ stdout: "2\t0", stderr: "" }) // 1. behind=2, ahead=0
         .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
-        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // 3. session commits (not empty)
+        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 3. no session commits (behind only)
         .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
         .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // 5. base tree (different)
         // fast-forward update calls:
