@@ -78,22 +78,24 @@ const configListRegistration = {
         sessiondb: config.get("sessiondb"),
         ai: config.has("ai") ? config.get("ai") : undefined,
       };
-      
+
       return {
         success: true,
-        sources: sources.map(source => ({
+        json: params.json || false,
+        sources: sources.map((source) => ({
           name: source.name,
           original: source.original,
-          parsed: source.parsed
+          parsed: source.parsed,
         })),
         resolved,
       };
     } catch (error) {
-      log.error("Failed to load configuration", { 
-        error: error instanceof Error ? error.message : String(error) 
+      log.error("Failed to load configuration", {
+        error: error instanceof Error ? error.message : String(error),
       });
       return {
         success: false,
+        json: params.json || false,
         error: error instanceof Error ? error.message : String(error),
       };
     }
@@ -119,17 +121,19 @@ const configShowRegistration = {
         sessiondb: config.get("sessiondb"),
         ai: config.has("ai") ? config.get("ai") : undefined,
       };
-      
+
       return {
         success: true,
+        json: params.json || false,
         configuration: resolved,
       };
     } catch (error) {
-      log.error("Failed to load configuration", { 
-        error: error instanceof Error ? error.message : String(error) 
+      log.error("Failed to load configuration", {
+        error: error instanceof Error ? error.message : String(error),
       });
       return {
         success: false,
+        json: params.json || false,
         error: error instanceof Error ? error.message : String(error),
       };
     }
@@ -142,4 +146,4 @@ const configShowRegistration = {
 export function registerConfigCommands() {
   sharedCommandRegistry.registerCommand(configListRegistration);
   sharedCommandRegistry.registerCommand(configShowRegistration);
-} 
+}
