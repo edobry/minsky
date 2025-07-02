@@ -17,8 +17,8 @@ const TEST_VALUE = 123;
 
 // Mock normalizeTaskId from domain to avoid external dependencies
 mock.module("../../../../domain/tasks", () => ({
-  normalizeTaskId: mock((taskId: unknown) => {
-    if (!taskId) return null;
+  normalizeTaskId: mock((taskId: string | undefined | null) => {
+    if (!taskId || typeof taskId !== "string") return null;
     // Mock implementation that adds # prefix if not present (like the real function)
     if (taskId.startsWith("#")) {
       return taskId;
@@ -30,10 +30,10 @@ mock.module("../../../../domain/tasks", () => ({
 describe("Shared CLI Options", () => {
   describe("Option Application Functions", () => {
     it("should add repository options to a command", () => {
-      const _command = new Command();
-      const spy = spyOn(_command, "option");
+      const command = new Command();
+      const spy = spyOn(command, "option");
 
-      addRepoOptions(_command);
+      addRepoOptions(command);
 
       // Verify the correct options were added
       expect(spy.mock.calls.length).toBe(3);
@@ -49,10 +49,10 @@ describe("Shared CLI Options", () => {
     });
 
     it("should add output format options to a command", () => {
-      const _command = new Command();
-      const spy = spyOn(_command, "option");
+      const command = new Command();
+      const spy = spyOn(command, "option");
 
-      addOutputOptions(_command);
+      addOutputOptions(command);
 
       // Verify the correct options were added
       expect(spy.mock.calls.length).toBe(2);
@@ -61,24 +61,24 @@ describe("Shared CLI Options", () => {
     });
 
     it("should add task identification options to a command", () => {
-      const _command = new Command();
-      const spy = spyOn(_command, "option");
+      const command = new Command();
+      const spy = spyOn(command, "option");
 
-      addTaskOptions(_command);
+      addTaskOptions(command);
 
       // Verify the correct options were added
       expect(spy.mock.calls.length).toBe(1);
       expect(spy.mock.calls[0]).toEqual([
         "--task <taskId>",
-        "ID of the task (with or without # _prefix)",
+        "ID of the task (with or without # prefix)",
       ]);
     });
 
     it("should add backend options to a command", () => {
-      const _command = new Command();
-      const spy = spyOn(_command, "option");
+      const command = new Command();
+      const spy = spyOn(command, "option");
 
-      addBackendOptions(_command);
+      addBackendOptions(command);
 
       // Verify the correct options were added
       expect(spy.mock.calls.length).toBe(1);
@@ -94,10 +94,10 @@ describe("Shared CLI Options", () => {
         "upstream-repo": "test-upstream",
       };
 
-      const normalized = normalizeRepoOptions(_options);
+      const normalized = normalizeRepoOptions(options);
 
       expect(normalized).toEqual({
-        _session: "test-session",
+        session: "test-session",
         repo: "test-repo",
         workspace: "test-upstream",
       });
@@ -109,7 +109,7 @@ describe("Shared CLI Options", () => {
         debug: true,
       };
 
-      const normalized = normalizeOutputOptions(_options);
+      const normalized = normalizeOutputOptions(options);
 
       expect(normalized).toEqual({
         json: true,
@@ -122,7 +122,7 @@ describe("Shared CLI Options", () => {
         task: "#TEST_VALUE",
       };
 
-      const normalized = normalizeTaskOptions(_options);
+      const normalized = normalizeTaskOptions(options);
 
       expect(normalized).toEqual({
         task: "#TEST_VALUE",
@@ -130,7 +130,7 @@ describe("Shared CLI Options", () => {
     });
 
     it("should normalize task params", () => {
-      const _options = {
+      const options = {
         session: "test-session",
         repo: "test-repo",
         "upstream-repo": "test-upstream",
@@ -139,10 +139,10 @@ describe("Shared CLI Options", () => {
         backend: "markdown",
       };
 
-      const normalized = normalizeTaskParams(_options);
+      const normalized = normalizeTaskParams(options);
 
       expect(normalized).toEqual({
-        _session: "test-session",
+        session: "test-session",
         repo: "test-repo",
         workspace: "test-upstream",
         json: true,
@@ -152,7 +152,7 @@ describe("Shared CLI Options", () => {
     });
 
     it("should normalize session params", () => {
-      const _options = {
+      const options = {
         session: "test-session",
         repo: "test-repo",
         "upstream-repo": "test-upstream",
@@ -161,10 +161,10 @@ describe("Shared CLI Options", () => {
         task: "#TEST_VALUE",
       };
 
-      const normalized = normalizeSessionParams(_options);
+      const normalized = normalizeSessionParams(options);
 
       expect(normalized).toEqual({
-        _session: "test-session",
+        session: "test-session",
         repo: "test-repo",
         workspace: "test-upstream",
         json: true,
