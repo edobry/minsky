@@ -1,4 +1,4 @@
 [sessiondb]
 backend = "sqlite"
 dbPath = "~/.local/state/minsky/sessions.db"
-baseDir = "~/.local/state/minsky/git"
+baseDir = "~/.local/state/minsky"

@@ -97,7 +97,7 @@ describe("Enhanced Test Utilities", () => {
   describe("mockReadonlyProperty", () => {
     test("should mock readonly properties", () => {
       // Object with readonly property via getter
-      const _config = {
+      const config = {
         get environment() {
           return "production";
         },
@@ -154,7 +154,7 @@ describe("Enhanced Test Utilities", () => {
       const originalDeps = createTestDeps();
 
       // Override sessionDB.getSession just for this test
-      const _result = withMockedDeps(
+      const result = withMockedDeps(
         originalDeps,
         {
           sessionDB: {
@@ -170,7 +170,7 @@ describe("Enhanced Test Utilities", () => {
           },
         },
         async (mockDeps) => {
-          const _session = await mockDeps.sessionDB.getSession("any");
+          const session = await mockDeps.sessionDB.getSession("any");
           return session?.session;
         }
       );
@@ -206,7 +206,7 @@ describe("Enhanced Test Utilities", () => {
     });
 
     test("should create an array of task data", () => {
-      const _tasks = createTaskDataArray(3, { _status: "IN-PROGRESS" });
+      const tasks = createTaskDataArray(3, { _status: "IN-PROGRESS" });
 
       // Verify we get the right number of tasks
       expect(tasks.length).toBe(3);
@@ -218,7 +218,7 @@ describe("Enhanced Test Utilities", () => {
     });
 
     test("should create session data", () => {
-      const _session = createSessionData({
+      const session = createSessionData({
         taskId: "TEST_VALUE",
       });
 
@@ -235,7 +235,7 @@ describe("Enhanced Test Utilities", () => {
       const originalDeps = createTestDeps();
 
       // 2. Use withMockedDeps to override specific behaviors for this test
-      const _result = await withMockedDeps(
+      const result = await withMockedDeps(
         originalDeps,
         {
           taskService: {

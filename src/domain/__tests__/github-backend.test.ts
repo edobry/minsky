@@ -110,7 +110,7 @@ describe("GitHub Repository Backend", () => {
 
   test("constructor creates repository backend with correct settings", () => {
     // We can check the exposed config settings
-    const _config = githubBackend.getConfig();
+    const config = githubBackend.getConfig();
 
     expect(config.type).toBe("github");
     expect(config.repoUrl).toBe("https://github.com/github/test-repo.git");
@@ -138,7 +138,7 @@ describe("GitHub Repository Backend", () => {
 
   test("getConfig returns correct configuration", () => {
     // Act
-    const _config = githubBackend.getConfig();
+    const config = githubBackend.getConfig();
 
     // Assert
     expect(config.type).toBe("github");

@@ -90,7 +90,7 @@ export function handleCliError(error: unknown): never {
     // Log cause chain if available
     if (normalizedError instanceof MinskyError && normalizedError.cause) {
       log.cliError("\nCaused by:");
-      const _cause = normalizedError.cause;
+      const cause = normalizedError.cause;
       if (cause instanceof Error) {
         log.cliError(cause.stack || cause.message);
       } else {
