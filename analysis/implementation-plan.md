@@ -22,6 +22,10 @@
 - [ ] Implement task auto-creation from description
 - [ ] Use task ID as session name when using `--description` (like existing `--task` behavior)
 - [ ] Make task association mandatory - require either `--task` or `--description`
+- [ ] Create migration script for existing taskless sessions:
+  - [ ] Examine each taskless session for unmerged work
+  - [ ] Output warnings for sessions with unmerged changes (manual inspection required)
+  - [ ] Auto-delete sessions with no unmerged work
 - [ ] Remove all code that handles taskless sessions
 
 ## Key Functions to Implement
