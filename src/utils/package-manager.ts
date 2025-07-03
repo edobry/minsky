@@ -5,6 +5,7 @@ import { join } from "path";
 import { existsSync } from "fs";
 import { execSync } from "child_process";
 import { log } from "./logger";
+import { getErrorMessage } from "../errors/index";
 
 /**
  * Supported package manager types
@@ -104,7 +105,7 @@ export async function installDependencies(
 
     return { success: true, output };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = getErrorMessage(error);
 
     if (!options.quiet) {
       log.error(`Failed to install dependencies: ${errorMessage}`);

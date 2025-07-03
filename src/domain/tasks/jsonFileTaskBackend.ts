@@ -18,6 +18,7 @@ import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
+import { getErrorMessage } from "../../errors/index";
 
 // Define TaskState interface
 interface TaskState {
@@ -303,7 +304,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         } catch (error) {
           // Spec file might not exist, log but don't fail the operation
           log.debug(`Spec file could not be deleted: ${existingTask.specPath}`, {
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
           });
         }
       }
@@ -311,7 +312,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       return deleted;
     } catch (error) {
       log.error(`Failed to delete task ${normalizedId}`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return false;
     }
@@ -350,7 +351,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       return await this.storage.getEntities();
     } catch (error) {
       log.error("Failed to get all tasks from database", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return [];
     }
@@ -368,7 +369,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     } catch (error) {
       log.error("Failed to get task by ID from database", {
         id,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return null;
     }
@@ -386,7 +387,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     } catch (error) {
       log.error("Failed to create task in database", {
         task,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       throw error;
     }
@@ -406,7 +407,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       log.error("Failed to update task in database", {
         id,
         updates,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       throw error;
     }
@@ -424,7 +425,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     } catch (error) {
       log.error("Failed to delete task from database", {
         id,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       throw error;
     }

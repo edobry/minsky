@@ -12,6 +12,7 @@ export * from "./RepositoryBackend";
 import type { RepositoryStatus } from "../repository.js";
 
 import { DEFAULT_TIMEOUT_MS } from "../../utils/constants";
+import { getErrorMessage } from "../errors/index";
 // Re-export RepositoryStatus
 export type { RepositoryStatus };
 
@@ -228,7 +229,7 @@ export async function createRepositoryBackend(
       } catch (error) {
         throw new Error(
           `Failed to validate local repository _path: ${
-            error instanceof Error ? error.message : String(error)
+            getErrorMessage(error)
           }`
         );
       }
