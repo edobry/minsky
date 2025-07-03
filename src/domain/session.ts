@@ -178,7 +178,7 @@ export async function startSessionFromParams(
   }
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, description, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
+  const { name, repo, task, description, force, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
     params;
 
   // Create dependencies with defaults
@@ -242,6 +242,15 @@ export async function startSessionFromParams(
       taskId = createdTask.id;
       if (!quiet) {
         log.cli(`Created task ${taskId}: ${taskSpec.title}`);
+      }
+    }
+
+    // Phase 2: Warn when bypassing task association with --force
+    if (!taskId && !description && force) {
+      if (!quiet) {
+        log.cli("⚠️  Session created without task association");
+        log.cli("💡 Consider using --description for better tracking");
+        log.cli("   Example: minsky session start --description \"Fix login bug\"");
       }
     }
 

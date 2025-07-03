@@ -67,6 +67,7 @@ export const sessionStartParamsSchema = z
     repo: repoPathSchema.optional().describe("Repository to start the session in"),
     task: taskIdSchema.optional().describe("Task ID to associate with the session"),
     description: z.string().min(1).optional().describe("Description for auto-created task"),
+    force: z.boolean().optional().describe("Force session creation without task association"),
     branch: z.string().optional().describe("Branch name to create"),
     quiet: flagSchema("Suppress output except for the session directory path"),
     noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task"),
@@ -79,11 +80,15 @@ export const sessionStartParamsSchema = z
   .merge(commonCommandOptionsSchema)
   .refine(
     (data) => {
-      // Either name or task or description must be provided for Phase 1
+      // Phase 2: Task association is required unless forced
+      if (!data.task && !data.description && !data.force) {
+        return false;
+      }
+      // Either name or task or description must be provided
       return data.name || data.task || data.description;
     },
     {
-      message: "Either session name, task ID, or description must be provided",
+      message: "Task association is required. Please provide --task <id> or --description <text>, or use --force to override",
     }
   );
 

@@ -590,7 +590,7 @@ export class CliCommandBridge {
     log.cli(`   Base Branch: ${baseBranch}`);
 
     if (body && typeof body === "string" && body.trim()) {
-      const truncatedBody = body.length > 100 ? body.substring(0, 100) + "..." : body;
+      const truncatedBody = body.length > 100 ? `${body.substring(0, 100)}...` : body;
       log.cli(`   Body: ${truncatedBody}`);
     }
     log.cli("");
@@ -606,7 +606,7 @@ export class CliCommandBridge {
     // Commands Section
     log.cli("📋 Useful Commands:");
     log.cli(`   • View PR branch: git checkout ${prBranch}`);
-    log.cli(`   • Approve and merge: minsky session approve`);
+    log.cli("   • Approve and merge: minsky session approve");
     log.cli(`   • Switch back to main: git checkout ${baseBranch}`);
     log.cli("");
 
