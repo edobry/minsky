@@ -304,7 +304,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         } catch (error) {
           // Spec file might not exist, log but don't fail the operation
           log.debug(`Spec file could not be deleted: ${existingTask.specPath}`, {
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
           });
         }
       }
@@ -312,7 +312,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       return deleted;
     } catch (error) {
       log.error(`Failed to delete task ${normalizedId}`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return false;
     }
