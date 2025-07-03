@@ -296,31 +296,22 @@ export async function migrateTasklessSessionsCommand(options: MigrateOptions) {
 }
 ```
 
-#### 2.3 Backward Compatibility
-```typescript
-// Provide escape hatch for edge cases
-interface SessionStartOptions {
-  // ... existing options
-  force?: boolean;  // Allow taskless with explicit flag
-}
-
-// In validation
-if (!hasTaskAssociation && !options.force) {
-  throw new Error('Task association required. Use --force to override.');
-}
-```
+#### 2.3 Simplified Requirements
+- Task association is always required
+- No escape hatches or backward compatibility needed
+- Clean validation: either --task or --description must be provided
 
 ### Phase 3: Full Integration (Weeks 9-12)
 
-#### 3.1 Remove Taskless Support
-- Remove `force` option and related code
+#### 3.1 Complete Implementation
+- Task association requirement fully enforced
 - Update all documentation and examples
 - Clean up migration utilities
 
-#### 3.2 Finalize Implementation
-- Remove all escape hatches and backward compatibility code
+#### 3.2 Finalize Implementation  
 - Ensure 100% session-task association compliance
 - Clean up any remaining legacy code paths
+- Complete testing and validation
 
 ### Risk Mitigation
 
