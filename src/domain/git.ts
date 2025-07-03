@@ -1624,9 +1624,10 @@ Session requested: "${options.session}"
       // Fix for origin/origin/main bug: Don't prepend origin/ if baseBranch already has it
       const remoteBaseBranch = baseBranch.startsWith("origin/") ? baseBranch : `origin/${baseBranch}`;
       
-      // Create PR branch FROM base branch (Task #025 specification)
-      await execAsync(`git -C ${workdir} switch -C ${prBranch} ${remoteBaseBranch}`);
-      log.debug(`Created PR branch ${prBranch} from ${remoteBaseBranch}`);
+      // Create PR branch FROM base branch WITHOUT checking it out (Task #025 specification)
+      // Use git branch instead of git switch to avoid checking out the PR branch
+      await execAsync(`git -C ${workdir} branch ${prBranch} ${remoteBaseBranch}`);
+      log.debug(`Created PR branch ${prBranch} from ${remoteBaseBranch} without checking it out`);
     } catch (err) {
       throw new MinskyError(
         `Failed to create PR branch: ${err instanceof Error ? err.message : String(err)}`
@@ -1648,6 +1649,8 @@ Session requested: "${options.session}"
       log.debug("Created commit message file for prepared merge commit");
 
       // Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
+      // First checkout the PR branch temporarily to perform the merge
+      await execAsync(`git -C ${workdir} switch ${prBranch}`);
       await execAsync(`git -C ${workdir} merge --no-ff ${sourceBranch} -F ${commitMsgFile}`);
       log.debug(`Created prepared merge commit by merging ${sourceBranch} into ${prBranch}`);
 
@@ -1658,7 +1661,9 @@ Session requested: "${options.session}"
       try {
         await execAsync(`git -C ${workdir} merge --abort`);
         await execAsync(`rm -f ${commitMsgFile}`);
-        log.debug("Aborted merge and cleaned up after conflict");
+        // CRITICAL: Switch back to session branch on error
+        await execAsync(`git -C ${workdir} switch ${sourceBranch}`);
+        log.debug("Aborted merge, cleaned up, and switched back to session branch after conflict");
       } catch (cleanupErr) {
         log.warn("Failed to clean up after merge error", { cleanupErr });
       }
@@ -1681,15 +1686,19 @@ Session requested: "${options.session}"
       force: true,
     });
 
-    // Switch back to the original source branch after creating PR branch
+    // CRITICAL: Always switch back to the original session branch after creating PR branch
+    // This ensures session pr command never leaves user on the PR branch
     try {
       await execAsync(`git -C ${workdir} switch ${sourceBranch}`);
-      log.debug(`Switched back to original branch ${sourceBranch} after creating PR branch`);
+      log.debug(`✅ Switched back to session branch ${sourceBranch} after creating PR branch`);
     } catch (err) {
-      log.warn(
-        `Failed to switch back to original branch ${sourceBranch}: ${err instanceof Error ? err.message : String(err)}`
+      log.error(
+        `❌ CRITICAL: Failed to switch back to session branch ${sourceBranch}: ${err instanceof Error ? err.message : String(err)}`
       );
-      // Don't throw error here - PR creation was successful, this is just cleanup
+      // This is actually a critical error - we should not leave the user on PR branch
+      throw new MinskyError(
+        `Failed to switch back to session branch after PR creation. You may be left on PR branch ${prBranch}. Please manually run: git switch ${sourceBranch}`
+      );
     }
 
     return {
