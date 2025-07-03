@@ -243,10 +243,6 @@ export class SessionDbHealthMonitor {
 
       status.warnings?.push(`JSON health check warning: ${getErrorMessage(error)}`);
 
-      status.warnings?.push(
-        `JSON health check warning: ${error instanceof Error ? error.message : String(error)}`
-      );
-
     }
   }
 
@@ -288,10 +284,6 @@ export class SessionDbHealthMonitor {
     } catch (error) {
 
       status.warnings?.push(`SQLite health check warning: ${getErrorMessage(error)}`);
-
-      status.warnings?.push(
-        `SQLite health check warning: ${error instanceof Error ? error.message : String(error)}`
-      );
 
     }
   }
