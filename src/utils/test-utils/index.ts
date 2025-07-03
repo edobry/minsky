@@ -89,12 +89,18 @@ export const compat = {
   createCompatMock: (implementation?: (...args: any[]) => any) => {
     const mockFn = createMock(implementation);
     
+    // Store the original implementation for "once" functionality
+    let originalImplementation = implementation;
+    
     // Create a wrapper function that behaves like the mock but has our methods
     const compatMock = ((...args: any[]) => mockFn(...args)) as any;
     
     // Copy mock properties and bind methods to original mock
     compatMock.mock = mockFn.mock;
-    compatMock.mockImplementation = mockFn.mockImplementation.bind(mockFn);
+    compatMock.mockImplementation = (newImpl: (...args: any[]) => any) => {
+      originalImplementation = newImpl;
+      return mockFn.mockImplementation(newImpl);
+    };
     compatMock.mockReturnValue = mockFn.mockReturnValue.bind(mockFn);
     compatMock.mockResolvedValue = mockFn.mockResolvedValue.bind(mockFn);
     compatMock.mockRejectedValue = mockFn.mockRejectedValue.bind(mockFn);
@@ -109,13 +115,25 @@ export const compat = {
     compatMock.mockReset = () => {
       mockFn.mock.calls.length = 0;
       mockFn.mock.results.length = 0;
+      originalImplementation = undefined;
       mockFn.mockImplementation(() => undefined);
       return compatMock;
     };
     
     compatMock.mockImplementationOnce = (fn: (...args: any[]) => any) => {
-      // Simple implementation - just set the implementation once
-      mockFn.mockImplementation(fn);
+      let used = false;
+      
+      // Create a wrapper that uses the once function, then reverts
+      const onceWrapper = (...args: any[]) => {
+        if (!used) {
+          used = true;
+          return fn(...args);
+        }
+        // Revert to original behavior after first use
+        return originalImplementation ? originalImplementation(...args) : undefined;
+      };
+      
+      mockFn.mockImplementation(onceWrapper);
       return compatMock;
     };
     
