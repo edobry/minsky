@@ -434,33 +434,37 @@ export class CliCommandBridge {
         }
       } else if (typeof result === "object" && result !== null) {
         // Special handling for session get command results
-        if (commandDef.id === "session.get" && result.session) {
-          this.formatSessionDetails(result.session);
-        } else if (commandDef.id === "session.dir" && result.directory) {
+        if (commandDef.id === "session.get" && "session" in result) {
+          this.formatSessionDetails(result.session as Record<string, unknown>);
+        } else if (commandDef.id === "session.dir" && "directory" in result) {
           log.cli(`${result.directory}`);
-        } else if (commandDef.id === "session.list" && result.sessions) {
+        } else if (commandDef.id === "session.list" && "sessions" in result) {
           // Handle session list results
-          if (Array.isArray(result.sessions) && result.sessions.length > 0) {
-            result.sessions.forEach((_session: unknown) => {
-              this.formatSessionSummary(_session);
+          const sessions = result.sessions as unknown[];
+          if (Array.isArray(sessions) && sessions.length > 0) {
+            sessions.forEach((_session: unknown) => {
+              this.formatSessionSummary(_session as Record<string, unknown>);
             });
           } else {
             log.cli("No sessions found.");
           }
-        } else if (commandDef.id === "rules.list" && result.rules) {
+        } else if (commandDef.id === "session.pr" && "prBranch" in result) {
+          // Handle session pr results - format them nicely
+          this.formatSessionPrDetails(result);
+        } else if (commandDef.id === "rules.list" && "rules" in result) {
           // Handle rules list results
           if (Array.isArray(result.rules)) {
             if (result.rules.length > 0) {
               result.rules.forEach((rule: unknown) => {
-                this.formatRuleSummary(rule);
+                this.formatRuleSummary(rule as Record<string, unknown>);
               });
             } else {
               log.cli("No rules found.");
             }
           }
-        } else if (commandDef.id === "rules.get" && result.rule) {
+        } else if (commandDef.id === "rules.get" && "rule" in result) {
           // Handle rules get results
-          this.formatRuleDetails(result.rule);
+          this.formatRuleDetails(result.rule as Record<string, unknown>);
         } else if (commandDef.id === "tasks.status.get") {
           // Handle tasks status get results with friendly formatting
           const resultObj = result as Record<string, unknown>;
@@ -562,6 +566,54 @@ export class CliCommandBridge {
     const repoName = session.repoName ? ` - ${session.repoName}` : "";
 
     log.cli(`${sessionName}${taskId}${repoName}`);
+  }
+
+  /**
+   * Format session pr details for human-readable output
+   */
+  private formatSessionPrDetails(result: Record<string, unknown>): void {
+    if (!result) return;
+
+    const prBranch = result.prBranch || "unknown";
+    const baseBranch = result.baseBranch || "main";
+    const title = result.title || "Untitled PR";
+    const body = result.body || "";
+
+    // Header
+    log.cli("✅ PR branch created successfully!");
+    log.cli("");
+
+    // PR Details Section
+    log.cli("📝 PR Details:");
+    log.cli(`   Title: ${title}`);
+    log.cli(`   PR Branch: ${prBranch}`);
+    log.cli(`   Base Branch: ${baseBranch}`);
+
+    if (body && typeof body === "string" && body.trim()) {
+      const truncatedBody = body.length > 100 ? body.substring(0, 100) + "..." : body;
+      log.cli(`   Body: ${truncatedBody}`);
+    }
+    log.cli("");
+
+    // Next Steps Section
+    log.cli("🚀 Next Steps:");
+    log.cli("   1. Review the PR branch in your repository");
+    log.cli("   2. Create a pull request in your Git hosting platform (GitHub, GitLab, etc.)");
+    log.cli("   3. Request reviews from team members");
+    log.cli("   4. Merge the PR when approved");
+    log.cli("");
+
+    // Commands Section
+    log.cli("📋 Useful Commands:");
+    log.cli(`   • View PR branch: git checkout ${prBranch}`);
+    log.cli(`   • Approve and merge: minsky session approve`);
+    log.cli(`   • Switch back to main: git checkout ${baseBranch}`);
+    log.cli("");
+
+    // Status message
+    if (result.taskUpdated) {
+      log.cli("✅ Task status updated to IN-REVIEW");
+    }
   }
 
   /**
