@@ -79,12 +79,14 @@ export async function listTasksFromParams(
     let tasks = await taskService.listTasks();
 
     // Filter by status if provided
-    if (validParams.status) {
-      tasks = tasks.filter((task: any) => task.status === validParams.status);
+    if (validParams.filter) {
+      tasks = tasks.filter((task: any) => task.status === validParams.filter);
     } else {
-      // Unless "all" is provided, filter out DONE tasks
+      // Unless "all" is provided, filter out DONE and CLOSED tasks
       if (!validParams.all) {
-        tasks = tasks.filter((task: any) => task.status !== TASK_STATUS.DONE);
+        tasks = tasks.filter((task: any) => 
+          task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
+        );
       }
     }
 
