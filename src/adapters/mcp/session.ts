@@ -24,6 +24,7 @@ import {
   deleteSessionFromParams,
   getSessionDirFromParams,
   updateSessionFromParams,
+  createSessionProvider,
 } from "../../domain/index.js";
 
 /**
@@ -106,11 +107,33 @@ Need help? Run: minsky sessions --help
     z.object({
       name: z.string().optional().describe("Name for the new session"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
+      description: z.string().optional().describe("Description for auto-created task"),
       repo: z.string().optional().describe(REPO_DESCRIPTION),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       quiet: z.boolean().optional().describe(SESSION_QUIET_DESCRIPTION).default(true),
     }),
     async (args): Promise<Record<string, unknown>> => {
+      // Validate that either task or description is provided
+      if (!args.task && !args.description) {
+        throw new Error(`
+🚫 Task Association Required
+
+To start a session, you must provide either:
+
+🎯 Associate with existing task:
+   --task "123"
+
+📝 Create new task automatically:
+   --description "Brief description of the work"
+
+Examples:
+   minsky session start --task "123"
+   minsky session start --description "Fix login issue" --name "my-session"
+
+💡 Task association is required for proper tracking and project management.
+`);
+      }
+
       // Always set quiet to true as required by project rules
       const params = {
         ...args,
@@ -121,11 +144,16 @@ Need help? Run: minsky sessions --help
 
       const session = await startSessionFromParams(params);
 
+      // Get the repo path using the session provider
+      const sessionProvider = createSessionProvider();
+      const sessionRecord = await sessionProvider.getSession(session.session);
+      const repoPath = sessionRecord ? await sessionProvider.getRepoPath(sessionRecord) : undefined;
+
       // Format response for MCP
       return {
         success: true,
         session: session.session,
-        directory: session.repoPath,
+        directory: repoPath,
         taskId: session.taskId,
         repoName: session.repoName,
       };
@@ -292,6 +320,10 @@ Example commands:
         noStash: args.noStash || false,
         noPush: args.noPush || false,
         force: args.force || false,
+        skipConflictCheck: false,
+        autoResolveDeleteConflicts: false,
+        dryRun: false,
+        skipIfAlreadyMerged: false,
       };
 
       const updatedSession = await updateSessionFromParams(params);
@@ -302,7 +334,6 @@ Example commands:
         session: updatedSession.session,
         branch: updatedSession.branch,
         taskId: updatedSession.taskId,
-        repoPath: updatedSession.repoPath,
         message: `Session ${updatedSession.session} updated successfully.`,
       };
     }
