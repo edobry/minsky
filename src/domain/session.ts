@@ -770,7 +770,7 @@ export async function updateSessionFromParams(
           log.debug("Stashed changes restored");
         } catch (error) {
           log.warn("Failed to restore stashed changes", {
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
             workdir,
           });
           // Don't fail the entire operation if stash pop fails
@@ -795,7 +795,7 @@ export async function updateSessionFromParams(
           log.debug("Restored stashed changes after error");
         } catch (stashError) {
           log.warn("Failed to restore stashed changes after error", {
-            stashError: stashError instanceof Error ? stashError.message : String(stashError),
+            stashError: getErrorMessage(stashError),
           });
         }
       }

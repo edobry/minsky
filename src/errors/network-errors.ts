@@ -61,7 +61,7 @@ export class NetworkPermissionError extends NetworkError {
    */
   getSuggestions(): string[] {
     return [
-      "Use a port number above BYTES_PER_KB: minsky mcp start --sse --port DEFAULT_DEV_PORT",
+      `Use a port number above ${BYTES_PER_KB}: minsky mcp start --sse --port ${DEFAULT_DEV_PORT}`,
       "Run the command with elevated permissions (not recommended)",
     ];
   }
@@ -92,7 +92,7 @@ export function createNetworkError(
   case "EACCES":
     return new NetworkPermissionError(port, host, originalError);
   default:
-    return new NetworkError(originalError.message, errorCode, port, host, originalError);
+    return new NetworkError(`Network error: ${originalError.message}`, errorCode, port, host, originalError);
   }
 }
 

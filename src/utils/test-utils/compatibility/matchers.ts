@@ -115,11 +115,11 @@ class AnyMatcher extends AsymmetricMatcherBase {
   }
 
   toString(): string {
-    return `Any<${this.expectedType.name || this.expectedType}>`;
+    return `Any<${(this.expectedType as any)?.name || this.expectedType}>`;
   }
 
   toJSON(): string {
-    return `Any<${this.expectedType.name || this.expectedType}>`;
+    return `Any<${(this.expectedType as any)?.name || this.expectedType}>`;
   }
 }
 
@@ -157,12 +157,12 @@ class StringContainingMatcher extends AsymmetricMatcherBase {
 class StringMatchingMatcher extends AsymmetricMatcherBase {
   private readonly expectedPattern: RegExp;
 
-  constructor(_expectedPattern: RegExp | string) {
+  constructor(expectedPattern: RegExp | string) {
     super("StringMatching");
     this.expectedPattern = new RegExp(expectedPattern);
   }
 
-  asymmetricMatch(_other: unknown): boolean {
+  asymmetricMatch(other: unknown): boolean {
     if (typeof other !== "string") {
       return false;
     }
@@ -185,12 +185,12 @@ class StringMatchingMatcher extends AsymmetricMatcherBase {
 class ObjectContainingMatcher extends AsymmetricMatcherBase {
   private readonly expectedObject: Record<string, unknown>;
 
-  constructor(_expectedObject: Record<string, unknown>) {
+  constructor(expectedObject: Record<string, unknown>) {
     super("ObjectContaining");
     this.expectedObject = expectedObject;
   }
 
-  asymmetricMatch(_other: unknown): boolean {
+  asymmetricMatch(other: unknown): boolean {
     if (typeof other !== "object" || other === null) {
       return false;
     }
@@ -210,7 +210,7 @@ class ObjectContainingMatcher extends AsymmetricMatcherBase {
         if (!expectedValue.asymmetricMatch(actualValue)) {
           return false;
         }
-      } else if (!this.valuesAreEqual(_expectedValue, actualValue)) {
+      } else if (!this.valuesAreEqual(expectedValue, actualValue)) {
         return false;
       }
     }
@@ -221,7 +221,7 @@ class ObjectContainingMatcher extends AsymmetricMatcherBase {
   /**
    * Checks if two values are equal, handling object and array comparison
    */
-  private valuesAreEqual(_expected: unknown, actual: any): boolean {
+  private valuesAreEqual(expected: unknown, actual: any): boolean {
     // If types don't match, they're not equal
     if (typeof expected !== typeof actual) {
       return false;
@@ -298,12 +298,12 @@ class ObjectContainingMatcher extends AsymmetricMatcherBase {
 class ArrayContainingMatcher extends AsymmetricMatcherBase {
   private readonly expectedItems: unknown[];
 
-  constructor(_expectedItems: unknown[]) {
+  constructor(expectedItems: unknown[]) {
     super("ArrayContaining");
     this.expectedItems = expectedItems;
   }
 
-  asymmetricMatch(_other: unknown): boolean {
+  asymmetricMatch(other: unknown): boolean {
     if (!Array.isArray(other)) {
       return false;
     }
@@ -346,7 +346,7 @@ export const asymmetricMatchers = {
    *
    * @param constructor The constructor to match instances of
    */
-  any(_constructor: unknown): AsymmetricMatcher {
+  any(constructor: unknown): AsymmetricMatcher {
     return new AnyMatcher(constructor);
   },
 
@@ -355,7 +355,7 @@ export const asymmetricMatchers = {
    *
    * @param substring The substring to search for
    */
-  stringContaining(_substring: string): AsymmetricMatcher {
+  stringContaining(substring: string): AsymmetricMatcher {
     return new StringContainingMatcher(substring);
   },
 
@@ -364,7 +364,7 @@ export const asymmetricMatchers = {
    *
    * @param pattern The regexp pattern to match
    */
-  stringMatching(_pattern: RegExp | string): AsymmetricMatcher {
+  stringMatching(pattern: RegExp | string): AsymmetricMatcher {
     return new StringMatchingMatcher(pattern);
   },
 
@@ -373,7 +373,7 @@ export const asymmetricMatchers = {
    *
    * @param obj The object with properties to match
    */
-  objectContaining(_obj: Record<string, unknown>): AsymmetricMatcher {
+  objectContaining(obj: Record<string, unknown>): AsymmetricMatcher {
     return new ObjectContainingMatcher(obj);
   },
 
@@ -382,7 +382,7 @@ export const asymmetricMatchers = {
    *
    * @param items The items that should exist in the array
    */
-  arrayContaining(_items: unknown[]): AsymmetricMatcher {
+  arrayContaining(items: unknown[]): AsymmetricMatcher {
     return new ArrayContainingMatcher(items);
   },
 };
@@ -395,8 +395,8 @@ export const asymmetricMatchers = {
 export function registerAsymmetricMatchers(expectObj: unknown): void {
   // Add each matcher to the expect object
   for (const [key, value] of Object.entries(asymmetricMatchers)) {
-    if (!(key in expectObj)) {
-      expectObj[key] = value;
+    if (!(key in (expectObj as any))) {
+      (expectObj as any)[key] = value;
     }
   }
 }
@@ -405,7 +405,7 @@ export function registerAsymmetricMatchers(expectObj: unknown): void {
  * Check if an object is an asymmetric matcher
  */
 export function isAsymmetricMatcher(obj: unknown): obj is AsymmetricMatcher {
-  return obj !== null && typeof obj === "object" && typeof obj.asymmetricMatch === "function";
+  return obj !== null && typeof obj === "object" && typeof (obj as any).asymmetricMatch === "function";
 }
 
 // Export a function to extend the global expect with asymmetric matchers
@@ -433,14 +433,14 @@ export function setupAsymmetricMatchers(): void {
         }
 
         // Fall back to the original equality check
-        return originalEqualsFn(_a, b);
+        return originalEqualsFn(a, b);
       };
     } else {
       // If no equals method was found, just log a warning
-      log.warn("Could not find expect.equals method to override for matcher support.");
+      console.warn("Could not find expect.equals method to override for matcher support.");
     }
   } catch (error) {
     // Fail gracefully if bun:test is not available
-    log.warn("Failed to set up asymmetric matchers:", error);
+    console.warn("Failed to set up asymmetric matchers:", error);
   }
 }

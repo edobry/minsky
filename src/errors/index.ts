@@ -132,7 +132,6 @@ export {
   createInvalidSessionMessage,
   createGitErrorMessage,
   createConfigErrorMessage,
-  getErrorMessage,
   createErrorContext,
   SessionErrorType,
   type CommandSuggestion,
