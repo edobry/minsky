@@ -27,6 +27,7 @@ import {
 } from "./workspace.js";
 import * as WorkspaceUtils from "./workspace.js";
 import { SessionDbAdapter } from "./session/session-db-adapter.js";
+import { createTaskFromDescription } from "./templates/session-templates.js";
 
 export interface SessionRecord {
   session: string;
@@ -177,7 +178,7 @@ export async function startSessionFromParams(
   }
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
+  const { name, repo, task, description, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
     params;
 
   // Create dependencies with defaults
@@ -230,6 +231,19 @@ export async function startSessionFromParams(
     // Determine the session name using task ID if provided
     let sessionName = name;
     let taskId: string | undefined = task;
+
+    // Auto-create task if description is provided but no task ID
+    if (description && !taskId) {
+      const taskSpec = createTaskFromDescription(description);
+      const createdTask = await deps.taskService.createTaskFromTitleAndDescription(
+        taskSpec.title,
+        taskSpec.description
+      );
+      taskId = createdTask.id;
+      if (!quiet) {
+        log.cli(`Created task ${taskId}: ${taskSpec.title}`);
+      }
+    }
 
     if (taskId && !sessionName) {
       // Normalize the task ID format using Zod validation
