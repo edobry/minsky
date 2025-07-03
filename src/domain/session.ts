@@ -514,6 +514,8 @@ export async function getSessionDirFromParams(
   return repoPath;
 }
 
+
+
 /**
  * Interface-agnostic function for updating a session
  */
@@ -661,8 +663,8 @@ export async function updateSessionFromParams(
       await deps.gitService.pullLatest(workdir, remote || "origin");
       log.debug("Latest changes pulled");
 
-      // Determine target branch for merge
-      const branchToMerge = branch || "main";
+      // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
+      const branchToMerge = branch || await deps.gitService.fetchDefaultBranch(workdir);
       const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
       
       // Enhanced conflict detection and smart merge handling
@@ -693,11 +695,15 @@ export async function updateSessionFromParams(
         }
       }
 
+      // Fix for origin/origin/main bug: Pass base branch name without origin/ prefix
+      // ConflictDetectionService expects plain branch names and adds origin/ internally
+      const normalizedBaseBranch = branchToMerge;
+
       // Use smart session update for enhanced conflict handling
       const updateResult = await ConflictDetectionService.smartSessionUpdate(
         workdir, 
         currentBranch, 
-        remoteBranchToMerge,
+        normalizedBaseBranch,
         {
           skipIfAlreadyMerged,
           autoResolveConflicts: autoResolveDeleteConflicts
@@ -997,6 +1003,10 @@ Need help? Run 'git status' to see what files have changed.
           name: sessionName,
           repo: params.repo,
           json: false,
+          force: false,
+          noStash: false, 
+          noPush: false,
+          dryRun: false,
           skipConflictCheck: params.skipConflictCheck,
           autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
           skipIfAlreadyMerged: true, // Skip update if changes already merged
