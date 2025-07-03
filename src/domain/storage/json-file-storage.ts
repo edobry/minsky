@@ -14,6 +14,7 @@ import type {
   DatabaseQueryOptions,
 } from "./database-storage";
 import type { DatabaseStorage } from "./database-storage";
+import { getErrorMessage } from "../../errors/index";
 /**
  * Configuration options for JsonFileStorage
  */
@@ -391,7 +392,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       return true;
     } catch (error) {
       log.error(
-        `Error initializing storage: ${error instanceof Error ? error.message : String(error)}`
+        `Error initializing storage: ${getErrorMessage(error)}`
       );
       return false;
     }

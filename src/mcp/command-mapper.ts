@@ -2,6 +2,7 @@ import { FastMCP } from "fastmcp";
 import { z } from "zod";
 import { log } from "../utils/logger.js";
 import type { ProjectContext } from "../types/project.js";
+import { getErrorMessage } from "../errors/index";
 
 /**
  * The CommandMapper class provides utilities for mapping Minsky CLI commands
@@ -133,7 +134,7 @@ export class CommandMapper {
           // Otherwise, return it as a JSON string for structured data
           return JSON.stringify(result, null, 2);
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage = getErrorMessage(error);
           log.error("Error executing MCP command", {
             command: normalizedName,
             error: errorMessage,
@@ -197,7 +198,7 @@ export class CommandMapper {
               // Otherwise, return it as a JSON string for structured data
               return JSON.stringify(result, null, 2);
             } catch (error) {
-              const errorMessage = error instanceof Error ? error.message : String(error);
+              const errorMessage = getErrorMessage(error);
               log.error("Error executing MCP command via underscore alias", {
                 command: underscoreName,
                 originalName: normalizedName,

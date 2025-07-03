@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from "child_process";
 import { log } from "../utils/logger.js";
+import { getErrorMessage } from "../errors/index";
 
 /**
  * Configuration options for the MCP Inspector
@@ -161,7 +162,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
   } catch (error) {
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
 

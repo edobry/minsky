@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -102,12 +103,12 @@ const configListRegistration = {
       };
     } catch (error) {
       log.error("Failed to load configuration", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return {
         success: false,
         json: params.json || false,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         showSources: params.sources || false,
       };
     }
@@ -149,12 +150,12 @@ const configShowRegistration = {
       };
     } catch (error) {
       log.error("Failed to load configuration", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return {
         success: false,
         json: params.json || false,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         showSources: params.sources || false,
       };
     }

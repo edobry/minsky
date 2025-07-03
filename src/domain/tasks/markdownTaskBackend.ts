@@ -5,6 +5,7 @@
 
 import { join } from "path";
 import { log } from "../../utils/logger.js";
+import { getErrorMessage } from "../../errors/index.js";
 // @ts-ignore - matter is a third-party library
 import matter from "gray-matter";
 
@@ -169,14 +170,14 @@ export class MarkdownTaskBackend implements TaskBackend {
           }
         } catch (error) {
           // Log but don't fail the operation if spec file deletion fails
-          log.debug(`Could not delete spec file for task ${id}: ${error instanceof Error ? error.message : String(error)}`);
+          log.debug(`Could not delete spec file for task ${id}: ${getErrorMessage(error)}`);
         }
       }
 
       return true;
     } catch (error) {
       log.error(`Failed to delete task ${id}:`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return false;
     }
@@ -209,7 +210,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       return files.filter((file) => file.startsWith(`${taskId}-`));
     } catch (error) {
       log.error(`Failed to find task spec file for task #${taskId}`, {
-        error: error instanceof Error ? error : String(error),
+        error: getErrorMessage(error),
       });
       return [];
     }

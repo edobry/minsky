@@ -2,7 +2,14 @@ import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { join } from "path";
 import { getMinskyStateDir, getSessionDbPath } from "../utils/paths.js";
-import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
+import { 
+  MinskyError, 
+  ResourceNotFoundError, 
+  ValidationError,
+  getErrorMessage,
+  createCommandFailureMessage,
+  createErrorContext
+} from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
   SessionListParams,
@@ -300,7 +307,7 @@ export async function startSessionFromParams(
         rmSync(sessionDir, { recursive: true, force: true });
       } catch (error) {
         throw new MinskyError(
-          `Failed to clean up existing session directory: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to clean up existing session directory: ${getErrorMessage(error)}`
         );
       }
     }
@@ -346,9 +353,9 @@ export async function startSessionFromParams(
         } catch (cleanupError) {
           log.error("Failed to cleanup session record after git error", {
             sessionName,
-            gitError: gitError instanceof Error ? gitError.message : String(gitError),
+            gitError: getErrorMessage(gitError),
             cleanupError:
-              cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+              getErrorMessage(cleanupError),
           });
         }
       }
@@ -360,9 +367,9 @@ export async function startSessionFromParams(
         } catch (cleanupError) {
           log.error("Failed to cleanup session directory after git error", {
             sessionDir,
-            gitError: gitError instanceof Error ? gitError.message : String(gitError),
+            gitError: getErrorMessage(gitError),
             cleanupError:
-              cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+              getErrorMessage(cleanupError),
           });
         }
       }
@@ -387,7 +394,7 @@ Error: ${error}`);
         if (!quiet) {
           log.cliWarn(
             `Warning: Dependency installation failed. You may need to run install manually.
-Error: ${installError instanceof Error ? installError.message : String(installError)}`
+Error: ${getErrorMessage(installError)}`
           );
         }
       }
@@ -404,7 +411,7 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
       } catch (error) {
         // Log the error but don't fail the session creation
         log.cliWarn(
-          `Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Warning: Failed to update status for task ${taskId}: ${getErrorMessage(error)}`
         );
       }
     }
@@ -425,7 +432,7 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
       throw error;
     } else {
       throw new MinskyError(
-        `Failed to start session: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to start session: ${getErrorMessage(error)}`,
         error
       );
     }
@@ -769,7 +776,7 @@ export async function updateSessionFromParams(
           log.debug("Stashed changes restored");
         } catch (error) {
           log.warn("Failed to restore stashed changes", {
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
             workdir,
           });
           // Don't fail the entire operation if stash pop fails
@@ -794,7 +801,7 @@ export async function updateSessionFromParams(
           log.debug("Restored stashed changes after error");
         } catch (stashError) {
           log.warn("Failed to restore stashed changes after error", {
-            stashError: stashError instanceof Error ? stashError.message : String(stashError),
+            stashError: getErrorMessage(stashError),
           });
         }
       }
@@ -802,10 +809,17 @@ export async function updateSessionFromParams(
     }
   } catch (error) {
     log.error("Session update failed", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       name: sessionName,
     });
-    throw error;
+    if (error instanceof MinskyError) {
+      throw error;
+    } else {
+      throw new MinskyError(
+        `Failed to update session: ${getErrorMessage(error)}`,
+        error
+      );
+    }
   }
 }
 
@@ -934,7 +948,7 @@ Need help? Run 'git status' to see what files have changed.
           throw error;
         }
 
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
           throw new ValidationError(`Body file not found: ${params.bodyPath}`);
         } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
@@ -1013,7 +1027,7 @@ Need help? Run 'git status' to see what files have changed.
         });
         log.cli("✅ Session updated successfully");
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         
         // Enhanced error handling for common conflict scenarios
         if (errorMessage.includes("already in base") || errorMessage.includes("already merged")) {
@@ -1053,7 +1067,7 @@ Need help? Run 'git status' to see what files have changed.
           log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
         } catch (error) {
           log.warn(
-            `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to update task status: ${getErrorMessage(error)}`
           );
         }
       }
@@ -1065,7 +1079,7 @@ Need help? Run 'git status' to see what files have changed.
       session: params.session,
       task: params.task,
       bodyPath: params.bodyPath,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -1236,7 +1250,7 @@ export async function approveSessionFromParams(
         log.cli(`Updated task ${taskId} status to DONE`);
       } catch (error) {
         // BUG FIX: Use proper logging instead of console.error and make error visible
-        const errorMsg = `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`;
+        const errorMsg = `Failed to update task status: ${getErrorMessage(error)}`;
         log.error(errorMsg, { taskId, error });
         log.cli(`Warning: ${errorMsg}`);
         // Still don't fail the whole operation, but now errors are visible
@@ -1249,7 +1263,7 @@ export async function approveSessionFromParams(
       throw error;
     } else {
       throw new MinskyError(
-        `Failed to approve session: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to approve session: ${getErrorMessage(error)}`
       );
     }
   }
@@ -1374,7 +1388,7 @@ export async function sessionReviewFromParams(
     } catch (error) {
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from repo path", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         repoPath: params.repo,
       });
     }
@@ -1391,7 +1405,7 @@ export async function sessionReviewFromParams(
     } catch (error) {
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from current directory", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         currentDir: process.cwd(),
       });
     }
@@ -1449,7 +1463,7 @@ export async function sessionReviewFromParams(
       }
     } catch (error) {
       log.debug("Error getting task specification", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         taskId,
       });
     }
@@ -1495,7 +1509,7 @@ export async function sessionReviewFromParams(
     }
   } catch (error) {
     log.debug("Error getting PR description", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       prBranch: prBranchToUse,
     });
   }
@@ -1532,7 +1546,7 @@ export async function sessionReviewFromParams(
     result.diff = diffOutput;
   } catch (error) {
     log.debug("Error getting diff information", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       baseBranch,
       prBranch: prBranchToUse,
     });

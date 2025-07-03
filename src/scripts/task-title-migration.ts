@@ -13,6 +13,7 @@
 import { join, resolve } from "path";
 import { readdir, readFile, writeFile, mkdir, copyFile } from "fs/promises";
 import { existsSync } from "fs";
+import { getErrorMessage } from "../errors/index";
 import { exit } from "../utils/process.js";
 
 interface MigrationOptions {
@@ -123,7 +124,7 @@ export class TaskTitleMigration {
       }
 
     } catch (error) {
-      result.errors.push(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
+      result.errors.push(`Migration failed: ${getErrorMessage(error)}`);
       result.success = false;
     }
 
@@ -187,7 +188,7 @@ export class TaskTitleMigration {
       result.wasModified = true;
 
     } catch (error) {
-      result.error = error instanceof Error ? error.message : String(error);
+      result.error = getErrorMessage(error);
     }
 
     return result;
@@ -247,7 +248,7 @@ export class TaskTitleMigration {
         }
       }
     } catch (error) {
-      throw new Error(`Failed to read tasks directory: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to read tasks directory: ${getErrorMessage(error)}`);
     }
 
     return taskFiles.sort();
@@ -314,7 +315,7 @@ export class TaskTitleMigration {
           errors.push(`${filePath}: Still has old title format: ${titleLine}`);
         }
       } catch (error) {
-        errors.push(`${filePath}: Failed to validate - ${error instanceof Error ? error.message : String(error)}`);
+        errors.push(`${filePath}: Failed to validate - ${getErrorMessage(error)}`);
       }
     }
 

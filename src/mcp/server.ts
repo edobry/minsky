@@ -2,6 +2,7 @@ import { FastMCP } from "fastmcp";
 import { log } from "../utils/logger.js";
 import type { ProjectContext } from "../types/project.js";
 import { createProjectContextFromCwd } from "../types/project.js";
+import { getErrorMessage } from "../errors/index";
 
 /**
  * Configuration options for the Minsky MCP server
@@ -103,7 +104,7 @@ export class MinskyMCPServer {
       log.warn(
         "Failed to create project context from current directory, tools requiring repository context may not work",
         {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
         }
       );
       // Create a minimal context with an empty path, tools will need to handle this
@@ -224,13 +225,13 @@ export class MinskyMCPServer {
         });
       } catch (e) {
         log.debug("Could not log MCP server methods", {
-          error: e instanceof Error ? e.message : String(e),
+          error: getErrorMessage(e),
         });
       }
     } catch (error) {
       // Log error with full details (for structured logging/debugging)
       log.error("Failed to start Minsky MCP Server", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         stack: error instanceof Error ? error.stack : undefined,
         transport: this.options.transportType,
       });
