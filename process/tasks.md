@@ -382,7 +382,7 @@
 
 - [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
 
-- [ ] Improve Session PR Command Output and Body Generation [#203](process/tasks/203-improve-session-pr-command-output-and-body-generation.md)
+- [-] Improve Session PR Command Output and Body Generation [#203](process/tasks/203-improve-session-pr-command-output-and-body-generation.md)
 
 - [x] Add CLOSED task status for irrelevant tasks [#207](process/tasks/207-add-closed-task-status-for-irrelevant-tasks.md)
 
