@@ -84,6 +84,11 @@ const sessionStartCommandParams: CommandParameterMap = {
     description: "Task ID to associate with the session",
     required: false,
   },
+  description: {
+    schema: z.string().min(1),
+    description: "Description for auto-created task",
+    required: false,
+  },
   branch: {
     schema: z.string(),
     description: "Branch name to create (defaults to session name)",
@@ -444,15 +449,16 @@ export function registerSessionCommands(): void {
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.start command", { params, context });
 
-      // Validate that either name or task is provided
-      if (!params.name && !params.task) {
-        throw new Error("Either session name or task ID must be provided");
+      // Validate that either name, task, or description is provided
+      if (!params.name && !params.task && !params.description) {
+        throw new Error("Either session name, task ID, or description must be provided");
       }
 
       try {
         const session = await startSessionFromParams({
           name: params.name,
           task: params.task,
+          description: params.description,
           branch: params.branch,
           repo: params.repo,
           session: params.session,

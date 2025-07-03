@@ -301,6 +301,10 @@ export function setupCommonCommandCustomizations(program?: Command): void {
             alias: "t",
             description: "Task ID to associate with the session",
           },
+          description: {
+            alias: "d",
+            description: "Description for auto-created task",
+          },
         },
       },
       "session.get": {
