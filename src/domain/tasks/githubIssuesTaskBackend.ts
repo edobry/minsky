@@ -8,6 +8,7 @@
 import { Octokit } from "@octokit/rest";
 import { join } from "path";
 import { execSync } from "child_process";
+import { getErrorMessage } from "../../errors/index";
 import type {
   TaskData,
   TaskState,
@@ -98,7 +99,7 @@ function extractGitHubRepoFromRemote(
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     });
     return null;
   }
@@ -147,7 +148,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       await createGitHubLabels(this.octokit, this.owner, this.repo, this.statusLabels);
     } catch (error) {
       log.warn("Failed to ensure GitHub labels exist", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
     }
   }
@@ -185,7 +186,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       log.error("Failed to fetch GitHub issues", {
         owner: this.owner,
         repo: this.repo,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
 
       return {
@@ -259,7 +260,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     } catch (error) {
       log.error("Failed to get task spec data from GitHub", {
         specPath,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
 
       return {
@@ -277,7 +278,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
       return issues.map((issue: any) => this.convertIssueToTaskData(issue));
     } catch (error) {
       log.error("Failed to parse GitHub issues data", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return [];
     }
@@ -364,7 +365,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
       return { success: true };
     } catch (error) {
       log.error("Failed to save tasks data to GitHub", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
 
       return {
@@ -384,7 +385,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     } catch (error) {
       log.error("Failed to save task spec data", {
         specPath,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
 
       return {
@@ -497,7 +498,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     } catch (error) {
       log.error("Failed to sync task to GitHub", {
         taskId: taskData.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       throw error;
     }

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { createSessionProvider, type SessionProviderInterface } from "../../domain/session.js";
 import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { log } from "../../utils/logger.js";
+import { getErrorMessage } from "../../errors/index";
 
 /**
  * Session path resolver class for enforcing workspace boundaries
@@ -123,7 +124,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           ),
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file read failed", {
           session: args.session,
           path: args.path,
@@ -185,7 +186,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           bytesWritten: Buffer.byteLength(args.content, "utf8"),
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file write failed", {
           session: args.session,
           path: args.path,
@@ -263,7 +264,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           totalEntries: files.length + directories.length,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session directory list failed", {
           session: args.session,
           path: args.path,
@@ -331,7 +332,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           size,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file exists check failed", {
           session: args.session,
           path: args.path,
@@ -388,7 +389,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           deleted: true,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file delete failed", {
           session: args.session,
           path: args.path,
@@ -443,7 +444,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           recursive: args.recursive,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session directory create failed", {
           session: args.session,
           path: args.path,

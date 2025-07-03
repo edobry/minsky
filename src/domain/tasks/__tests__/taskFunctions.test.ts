@@ -60,7 +60,7 @@ describe("Task Functions", () => {
 - [+] In progress task [#003](#)`;
 
       const tasks = parseTasksFromMarkdown(markdown);
-      expect(_tasks).toHaveLength(3);
+      expect(tasks).toHaveLength(3);
 
       expect(tasks[0].id).toBe("#001");
       expect(tasks[0]._title).toBe("First task");
@@ -87,7 +87,7 @@ Code block with task-like content:
 - [x] Second real task [#003](#)`;
 
       const tasks = parseTasksFromMarkdown(markdown);
-      expect(_tasks).toHaveLength(2);
+      expect(tasks).toHaveLength(2);
       expect(tasks[0].id).toBe("#001");
       expect(tasks[1].id).toBe("#003");
     });

@@ -9,6 +9,7 @@ import { normalizeRepoName } from "../repository-uri";
 import type { SessionDbState } from "./session-db";
 import { initializeSessionDbState } from "./session-db";
 import { log } from "../../utils/logger";
+import { getErrorMessage } from "../../errors/index";
 
 /**
  * Options for the SessionDB file operations
@@ -39,9 +40,7 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
       baseDir,
     };
   } catch (error) {
-    log.error(
-      `Error reading session database: ${error instanceof Error ? error.message : String(error)}`
-    );
+    log.error(`Error reading session database: ${getErrorMessage(error)}`);
     return initializeSessionDbState({ baseDir });
   }
 }
@@ -66,9 +65,7 @@ export function writeSessionDbFile(
     writeFileSync(dbPath, JSON.stringify(state.sessions, null, 2));
     return true;
   } catch (error) {
-    log.error(
-      `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
-    );
+    log.error(`Error writing session database: ${getErrorMessage(error)}`);
     return false;
   }
 }
@@ -84,9 +81,7 @@ export function ensureDbDir(dbPath: string): boolean {
     }
     return true;
   } catch (error) {
-    log.error(
-      `Error creating database directory: ${error instanceof Error ? error.message : String(error)}`
-    );
+    log.error(`Error creating database directory: ${getErrorMessage(error)}`);
     return false;
   }
 }

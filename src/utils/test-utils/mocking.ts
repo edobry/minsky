@@ -491,12 +491,12 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
  *
  * @example
  * // Mock a readonly property
- * const _config = {
+ * const config = {
  *   get environment() { return "production"; }
  * };
  *
  * // Mock the property
- * mockReadonlyProperty(__config, "environment", "test");
+ * mockReadonlyProperty(config, "environment", "test");
  *
  * // Now accessing the property returns the mock value
  * expect(config.environment).toBe("test");
@@ -526,7 +526,7 @@ export function mockReadonlyProperty<T extends object, K extends keyof T>(
  * @example
  * // Spy on a method
  * const user = { getName: () => "John" };
- * const spy = createSpyOn(_user, "getName");
+ * const spy = createSpyOn(user, "getName");
  * user.getName(); // Original method is called
  * expect(spy).toHaveBeenCalled();
  */
@@ -541,8 +541,8 @@ export function createSpyOn<T extends object, M extends keyof T>(
   }
 
   // Create a mock function that calls the original
-  const mockFn = mock((..._args: unknown[]) => {
-    return (original as Function).apply(obj, _args);
+  const mockFn = mock((...args: unknown[]) => {
+    return (original as Function).apply(obj, args);
   });
 
   // Replace the original method with our mock
