@@ -228,7 +228,7 @@ describe("Enhanced Test Utilities", () => {
       });
 
       // Verify session properties
-      expect(session._session).toBe("task#TEST_VALUE");
+      expect(session.session).toBe("task#TEST_VALUE");
       expect(session.taskId).toBe("TEST_VALUE");
       expect(session.repoPath).toContain("/mock/repo/");
     });

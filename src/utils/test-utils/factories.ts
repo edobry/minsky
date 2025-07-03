@@ -69,7 +69,6 @@ export function createSessionData(
 
   return {
     session,
-    _session: session, // Add _session for compatibility with some tests
     taskId,
     repoName: overrides.repoName || "test/repo",
     repoUrl: overrides.repoUrl || "https://github.com/test/repo.git",
