@@ -59,8 +59,12 @@ The key requirement is **structured documentation and collaboration space**, not
 ### Recommended Solution
 
 ```bash
-# New enhanced session start command
-minsky session start --description "Fix authentication bug in login flow" my-auth-fix
+# New session start with auto-created task (no session name needed)
+minsky session start --description "Fix authentication bug in login flow"
+# Creates task and uses task ID as session name (like --task behavior)
+
+# Existing explicit task association unchanged
+minsky session start --task 123
 ```
 
 **Benefits:**
@@ -68,83 +72,37 @@ minsky session start --description "Fix authentication bug in login flow" my-aut
 - ✅ **Solves documentation requirement** - every session gets structured task space
 - ✅ **Reduces friction** - single command creates session + task
 - ✅ **Enables collaboration** - team members can see session purpose and progress
-- ✅ **Preserves flexibility** - tasks can be lightweight and evolve
-- ✅ **Gradual adoption** - can be introduced without breaking changes
+- ✅ **Mandatory association** - no more taskless sessions, simpler codebase
 
 ### Implementation Plan
 
-#### Phase 1: Foundation (Weeks 1-2)
+#### Core Implementation
 
-- [ ] Add `--description`, `--template`, `--cluster` parameters to session start
-- [ ] Create task template system (`bugfix`, `feature`, `exploration`, `maintenance`)
-- [ ] Implement lightweight task auto-creation functions
-- [ ] Add title generation from descriptions
-
-#### Phase 2: Optional Auto-Creation (Weeks 3-4)
-
-- [ ] Enable `--description` auto-creation with feature flag
-- [ ] Add warning messages for taskless sessions
-- [ ] Implement basic clustering for related work
-- [ ] User testing and feedback collection
-
-#### Phase 3: Encouraged Adoption (Weeks 5-6)
-
-- [ ] Make warnings more prominent
-- [ ] Add interactive prompts for missing task association
-- [ ] Implement advanced templates and clustering
-- [ ] Update documentation and examples
-
-#### Phase 4: Default Behavior (Weeks 7-8)
-
-- [ ] Require explicit `--no-task` flag for taskless sessions
-- [ ] Add comprehensive error messages with suggestions
-- [ ] Implement task list filtering (auto-generated vs manual)
-- [ ] Performance optimizations
-
-#### Phase 5: Full Integration (Weeks 9-10)
-
-- [ ] Remove taskless session support entirely
-- [ ] Advanced clustering and AI integration features
-- [ ] Final cleanup and optimization
-- [ ] Complete documentation update
+- [ ] Add `--description` parameter to session start command
+- [ ] Implement auto-creation of tasks from description
+- [ ] Use task ID as session name when using `--description` (like existing `--task` behavior)
+- [ ] Make task association mandatory - require either `--task` or `--description`
+- [ ] Remove all code that handles taskless sessions
 
 ### Technical Implementation
 
 #### Core Files to Modify
 
-- `src/schemas/session.ts` - Add new parameters
+- `src/schemas/session.ts` - Add `description` parameter, make task association required
 - `src/adapters/shared/commands/session.ts` - Update command parameters
-- `src/domain/session.ts` - Implement auto-creation logic
-- `src/domain/tasks.ts` - Add auto-generation metadata fields
-
-#### New Files to Create
-
-- `src/domain/tasks/templates.ts` - Task templates and title generation
-- `src/domain/tasks/lightweightTaskCreation.ts` - Auto-creation logic
+- `src/domain/session.ts` - Implement auto-creation logic, remove taskless session support
+- `src/domain/tasks.ts` - Add auto-creation function
 
 #### Key Functions
 
 ```typescript
-async function createLightweightTask(params: {
-  description: string;
-  template?: string;
-  cluster?: string;
-  sessionName: string;
-}): Promise<Task>;
-
-function generateTitle(description: string, template?: string): string;
+async function createTaskFromDescription(description: string): Promise<Task>;
+async function startSessionFromParams(params: {
+  task?: string;
+  description?: string;
+  // other existing params
+}): Promise<Session>;
 ```
-
-### Risk Mitigation
-
-#### Potential Downsides Addressed
-
-1. **Command Complexity** → Smart defaults and templates
-2. **Auto-Generated Task Quality** → Template system and validation
-3. **Task Explosion** → Clustering and separate views
-4. **Breaking Changes** → Gradual migration with warnings
-5. **Performance Impact** → Async task creation
-6. **Storage Overhead** → Lightweight templates and archival
 
 ### Alternative Approaches Considered
 
@@ -164,12 +122,11 @@ function generateTitle(description: string, template?: string): string;
 
 ### Implementation Phase
 
-- [ ] Successful implementation of auto-creation workflow
-- [ ] 95% session-task association rate achieved
-- [ ] 60% reduction in task creation time
-- [ ] Positive user feedback on workflow improvement
-- [ ] Maintained system performance and reliability
+- [ ] Successful implementation of `--description` auto-creation
+- [ ] 100% session-task association (mandatory requirement)
+- [ ] Removal of all taskless session code
+- [ ] Simplified session start command
 
 ## Conclusion
 
-**Strong recommendation for the `--description` auto-creation approach** as it elegantly solves the core documentation and collaboration requirements while minimizing friction through thoughtful design and gradual adoption strategy.
+**Strong recommendation for the `--description` auto-creation approach** with mandatory task association. This solves the core documentation and collaboration requirements while simplifying the codebase by removing all taskless session support.
