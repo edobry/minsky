@@ -462,7 +462,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
   const base = { ...implementations } as any;
 
   // Create a proxy that will handle method calls
-  return new Proxy(_base, {
+  return new Proxy(base, {
     get: (target, prop: string | symbol) => {
       // If the property exists on the target, return it
       if (prop in target) {
