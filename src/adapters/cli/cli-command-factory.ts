@@ -305,9 +305,6 @@ export function setupCommonCommandCustomizations(program?: Command): void {
             alias: "d",
             description: "Description for auto-created task",
           },
-          force: {
-            description: "Force session creation without task association",
-          },
         },
       },
       "session.get": {
