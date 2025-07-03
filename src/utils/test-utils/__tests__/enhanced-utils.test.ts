@@ -23,7 +23,8 @@ import {
   withMockedDeps,
 } from "../dependencies.js";
 import {
-  createcreateSessionData,
+  createTaskData,
+  createSessionData,
   createRepositoryData,
   createTaskDataArray,
   createRandomId,
@@ -48,7 +49,7 @@ describe("Enhanced Test Utilities", () => {
       const result = mockGreet("World");
 
       // Verify result
-      expect(_result).toBe("Hello, World!");
+      expect(result).toBe("Hello, World!");
 
       // Verify call tracking
       expect(mockGreet).toHaveBeenCalledWith("World");
@@ -62,10 +63,10 @@ describe("Enhanced Test Utilities", () => {
       mockFn.mockImplementation((n) => n * 2);
 
       // Use the mock
-      const _result = mockFn(TEST_ARRAY_SIZE);
+      const result = mockFn(TEST_ARRAY_SIZE);
 
       // Verify
-      expect(_result).toBe(10);
+      expect(result).toBe(6);
     });
   });
 
@@ -107,7 +108,7 @@ describe("Enhanced Test Utilities", () => {
       expect(config.environment).toBe("production");
 
       // Mock the property
-      mockReadonlyProperty(_config, "environment", "test");
+      mockReadonlyProperty(config, "environment", "test");
 
       // Verify mocked value
       expect(config.environment).toBe("test");
@@ -130,11 +131,13 @@ describe("Enhanced Test Utilities", () => {
         sessionDB: {
           getSession: createMock(() =>
             Promise.resolve({
-              _session: "custom-session",
+              session: "custom-session",
               repoName: "test/repo",
+              repoUrl: "https://github.com/test/repo.git",
               taskId: "TEST_VALUE",
               repoPath: "/custom/path",
               createdAt: "2023-01-01",
+              branch: "main",
             })
           ),
         },
@@ -143,7 +146,7 @@ describe("Enhanced Test Utilities", () => {
       // Test the overridden method
       return deps.sessionDB.getSession("any").then((_session) => {
         expect(_session).toBeDefined();
-        expect(session?._session).toBe("custom-session");
+        expect(_session?.session).toBe("custom-session");
       });
     });
   });
@@ -160,11 +163,13 @@ describe("Enhanced Test Utilities", () => {
           sessionDB: {
             getSession: createMock(() =>
               Promise.resolve({
-                _session: "temp-session",
+                session: "temp-session",
                 repoName: "temp/repo",
+                repoUrl: "https://github.com/temp/repo.git",
                 taskId: "999",
                 repoPath: "/temp/path",
                 createdAt: "2023-01-01",
+                branch: "main",
               })
             ),
           },
@@ -188,32 +193,32 @@ describe("Enhanced Test Utilities", () => {
 
       // Verify task has all required properties
       expect(task.id).toMatch(/^#\d{3}$/);
-      expect(task._title).toBeDefined();
-      expect(task._status).toBeDefined();
+      expect(task.title).toBeDefined();
+      expect(task.status).toBeDefined();
     });
 
     test("should create task data with overrides", () => {
       const task = createTaskData({
         id: "#042",
-        _title: "Special Test Task",
-        _status: "IN-PROGRESS",
+        title: "Special Test Task",
+        status: "IN-PROGRESS",
       });
 
       // Verify overrides are applied
       expect(task.id).toBe("#042");
-      expect(task._title).toBe("Special Test Task");
-      expect(task._status).toBe("IN-PROGRESS");
+      expect(task.title).toBe("Special Test Task");
+      expect(task.status).toBe("IN-PROGRESS");
     });
 
     test("should create an array of task data", () => {
-      const tasks = createTaskDataArray(3, { _status: "IN-PROGRESS" });
+      const tasks = createTaskDataArray(3, { status: "IN-PROGRESS" });
 
       // Verify we get the right number of tasks
       expect(tasks.length).toBe(3);
 
       // Verify all tasks have the status we specified
       tasks.forEach((task) => {
-        expect(task._status).toBe("IN-PROGRESS");
+        expect(task.status).toBe("IN-PROGRESS");
       });
     });
 
@@ -223,7 +228,7 @@ describe("Enhanced Test Utilities", () => {
       });
 
       // Verify session properties
-      expect(session._session).toBe("task#TEST_VALUE");
+      expect(session.session).toBe("task#TEST_VALUE");
       expect(session.taskId).toBe("TEST_VALUE");
       expect(session.repoPath).toContain("/mock/repo/");
     });
@@ -242,7 +247,7 @@ describe("Enhanced Test Utilities", () => {
             getTask: async (id: unknown) => {
               // Return different tasks based on ID
               if (id === "#TEST_VALUE") {
-                return createTaskData({ id: "#TEST_VALUE", _title: "Important Task" });
+                return createTaskData({ id: "#TEST_VALUE", title: "Important Task" });
               }
               return null;
             },
@@ -250,7 +255,7 @@ describe("Enhanced Test Utilities", () => {
           sessionDB: {
             getSession: async (name: unknown) => {
               if (name === "task#TEST_VALUE") {
-                return createSessionData({ taskId: "TEST_VALUE", _session: name });
+                return createSessionData({ taskId: "TEST_VALUE", session: name });
               }
               return null;
             },
@@ -259,18 +264,18 @@ describe("Enhanced Test Utilities", () => {
         async (deps) => {
           // 3. Execute code under test with mocked dependencies
           const task = await deps.taskService.getTask("#TEST_VALUE");
-          const _session = task
+          const session = task
             ? await deps.sessionDB.getSession(`task#${task.id.replace("#", "")}`)
             : null;
 
-          return { task, _session };
+          return { task, session };
         }
       );
 
       // 4. Verify results
       expect(result.task).toBeDefined();
-      expect(result.task?._title).toBe("Important Task");
-      expect(result._session).toBeDefined();
+      expect(result.task?.title).toBe("Important Task");
+      expect(result.session).toBeDefined();
       expect(result.session?.taskId).toBe("TEST_VALUE");
     });
   });
