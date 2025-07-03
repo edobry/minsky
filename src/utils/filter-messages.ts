@@ -13,7 +13,7 @@ import type { TaskStatus } from "../domain/tasks/taskConstants.js";
  * @returns A message string
  */
 export function getStatusFilterMessage(status: TaskStatus): string {
-  return `Showing tasks with status: ${status}`;
+  return `Showing tasks with status '${status}'`;
 }
 
 /**
@@ -21,7 +21,7 @@ export function getStatusFilterMessage(status: TaskStatus): string {
  * @returns A message string
  */
 export function getActiveTasksMessage(): string {
-  return "Showing active tasks (use --all to include completed tasks)";
+  return "Showing active tasks (use --all to include completed _tasks)";
 }
 
 /**
