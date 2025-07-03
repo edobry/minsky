@@ -206,9 +206,6 @@ Usage: minsky session start [options] [name]
 Options:
   --task <id>           Associate with existing task
   --description <text>  Create new task with description
-  --template <name>     Use predefined template (bugfix, feature, exploration)
-  --purpose <text>      Lightweight purpose description
-  --notes <text>        Initial session notes
   --repo <path>         Repository path
 
 Examples:
@@ -217,12 +214,6 @@ Examples:
 
   # Auto-create task from description
   minsky session start --description "Fix login timeout issue" fix-login
-
-  # Use template for structured task creation
-  minsky session start --template bugfix --description "Login fails on mobile" mobile-login-fix
-
-  # Lightweight exploration
-  minsky session start --purpose "investigate auth performance" auth-perf
 `;
 ```
 
@@ -259,20 +250,18 @@ describe('Session Auto-Creation', () => {
 
 #### 2.1 CLI Behavior Changes
 ```typescript
-// Update session start to require one of: --task, --description, --purpose
+// Update session start to require one of: --task, --description
 async validateSessionStartOptions(options: SessionStartOptions): Promise<void> {
-  if (!options.task && !options.description && !options.purpose) {
+  if (!options.task && !options.description) {
     throw new Error(`
 Session requires task association for proper tracking.
 Please provide one of:
   --task <id>           Associate with existing task
   --description <text>  Create new task automatically
-  --purpose <text>      Lightweight exploration purpose
 
 Examples:
   minsky session start --task 123
   minsky session start --description "Fix login issue" my-session
-  minsky session start --purpose "investigate performance" perf-test
 `);
   }
 }
@@ -328,26 +317,10 @@ if (!hasTaskAssociation && !options.force) {
 - Update all documentation and examples
 - Clean up migration utilities
 
-#### 3.2 Advanced Features
-```typescript
-// Task clustering for related sessions
-interface TaskCluster {
-  id: string;
-  name: string;
-  description: string;
-  parentTaskId?: string;
-  childTasks: string[];
-}
-
-// AI integration for task suggestions
-interface AITaskSuggestion {
-  title: string;
-  description: string;
-  confidence: number;
-  reasoning: string;
-  suggestedTags: string[];
-}
-```
+#### 3.2 Finalize Implementation
+- Remove all escape hatches and backward compatibility code
+- Ensure 100% session-task association compliance
+- Clean up any remaining legacy code paths
 
 ### Risk Mitigation
 

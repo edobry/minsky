@@ -89,6 +89,12 @@ const sessionStartCommandParams: CommandParameterMap = {
     description: "Description for auto-created task",
     required: false,
   },
+  force: {
+    schema: z.boolean(),
+    description: "Force session creation without task association",
+    required: false,
+    defaultValue: false,
+  },
   branch: {
     schema: z.string(),
     description: "Branch name to create (defaults to session name)",
@@ -449,9 +455,17 @@ export function registerSessionCommands(): void {
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.start command", { params, context });
 
-      // Validate that either name, task, or description is provided
-      if (!params.name && !params.task && !params.description) {
-        throw new Error("Either session name, task ID, or description must be provided");
+      // Phase 2: Validate that task association is provided unless forced
+      if (!params.task && !params.description && !params.force) {
+        throw new Error(`Task association is required for proper tracking.
+Please provide one of:
+  --task <id>           Associate with existing task
+  --description <text>  Create new task automatically
+  --force               Force creation without task association
+
+Examples:
+  minsky session start --task 123
+  minsky session start --description "Fix login issue" my-session`);
       }
 
       try {
@@ -459,6 +473,7 @@ export function registerSessionCommands(): void {
           name: params.name,
           task: params.task,
           description: params.description,
+          force: params.force,
           branch: params.branch,
           repo: params.repo,
           session: params.session,
