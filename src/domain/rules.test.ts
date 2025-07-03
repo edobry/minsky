@@ -5,6 +5,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { log } from "../utils/logger.js";
+import { getErrorMessage } from "../errors";
 // Removed unused constant COMMIT_HASH_SHORT_LENGTH
 
 describe("RuleService", () => {
@@ -18,7 +19,7 @@ describe("RuleService", () => {
   async function createTestRule(
     id: string,
     content: string,
-    meta: unknown = {},
+    meta: Record<string, any> = {},
     format: RuleFormat = "cursor"
   ): Promise<string> {
     const dir = format === "cursor" ? cursorRulesDir : genericRulesDir;
@@ -42,9 +43,9 @@ describe("RuleService", () => {
     // Clean up test directories
     try {
       await fs.rm(testDir, { recursive: true, force: true });
-    } catch {
+    } catch (error) {
       log.error("Failed to clean up test directory", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         testDir,
       });
     }

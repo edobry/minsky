@@ -549,7 +549,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       return true;
     } catch (error) {
       log.error(`Failed to delete task ${id}:`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return false;
     }

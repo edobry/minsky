@@ -41,7 +41,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       } catch (error) {
         // Fallback to defaults when config is not available (e.g., running from outside project directory)
         log.debug("Configuration not available, using default session storage settings", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
         });
         sessionDbConfig = null;
       }
