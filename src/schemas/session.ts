@@ -66,6 +66,7 @@ export const sessionStartParamsSchema = z
     name: sessionNameSchema.optional().describe("Name for the new session"),
     repo: repoPathSchema.optional().describe("Repository to start the session in"),
     task: taskIdSchema.optional().describe("Task ID to associate with the session"),
+    description: z.string().min(1).optional().describe("Description for auto-created task"),
     branch: z.string().optional().describe("Branch name to create"),
     quiet: flagSchema("Suppress output except for the session directory path"),
     noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task"),
@@ -75,7 +76,16 @@ export const sessionStartParamsSchema = z
       .optional()
       .describe("Override the detected package manager"),
   })
-  .merge(commonCommandOptionsSchema);
+  .merge(commonCommandOptionsSchema)
+  .refine(
+    (data) => {
+      // Either name or task or description must be provided for Phase 1
+      return data.name || data.task || data.description;
+    },
+    {
+      message: "Either session name, task ID, or description must be provided",
+    }
+  );
 
 /**
  * Type for session start parameters
