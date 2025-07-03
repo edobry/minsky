@@ -1,71 +1,39 @@
-# Implementation Plan: Session-Task Auto-Creation
+# Implementation Plan: Mandatory Task-Session Association
 
 ## Core Changes Required
 
-### 1. Enhanced Session Start Command
+### 1. Session Start Command
 
 **Files to modify:**
 
-- `src/schemas/session.ts` - Add new parameters to schema
+- `src/schemas/session.ts` - Add `description` parameter, make task association required
 - `src/adapters/shared/commands/session.ts` - Update command parameters
-- `src/adapters/cli/cli-command-factory.ts` - Add CLI customizations
-- `src/domain/session.ts` - Implement auto-creation logic
+- `src/domain/session.ts` - Implement auto-creation logic, remove taskless session support
 
-### 2. Task Template System
-
-**New files to create:**
-
-- `src/domain/tasks/templates.ts` - Task templates and title generation
-- `src/domain/tasks/lightweightTaskCreation.ts` - Auto-creation logic
-
-### 3. Enhanced Task Model
+### 2. Task Auto-Creation
 
 **Files to modify:**
 
-- `src/domain/tasks.ts` - Add metadata fields for auto-generated tasks
-- `src/domain/tasks/taskService.ts` - Add metadata handling
+- `src/domain/tasks.ts` - Add task creation from description function
 
-## Implementation Timeline
+## Implementation Steps
 
-### Week 1-2: Foundation
-
-- [ ] Add new parameters to session start schema
-- [ ] Create task template system
-- [ ] Implement basic auto-creation logic
-
-### Week 3-4: Integration
-
-- [ ] Update CLI customizations
-- [ ] Add warning messages for taskless sessions
-- [ ] Implement clustering features
-
-### Week 5-6: Rollout
-
-- [ ] User testing and feedback collection
-- [ ] Documentation updates
-- [ ] Performance optimization
+- [ ] Add `description` parameter to session start command
+- [ ] Implement task auto-creation from description
+- [ ] Use task ID as session name when using `--description` (like existing `--task` behavior)
+- [ ] Make task association mandatory - require either `--task` or `--description`
+- [ ] Remove all code that handles taskless sessions
 
 ## Key Functions to Implement
 
 ```typescript
 // Auto-create task from description
-async function createLightweightTask(params: {
-  description: string;
-  template?: string;
-  cluster?: string;
-  sessionName: string;
-}): Promise<Task>;
+async function createTaskFromDescription(description: string): Promise<Task>;
 
-// Generate appropriate title from description
-function generateTitle(description: string, template?: string): string;
-
-// Enhanced session start with auto-creation
-async function startSessionFromParams(params: EnhancedSessionStartParams): Promise<Session>;
+// Updated session start with mandatory task association
+async function startSessionFromParams(params: {
+  task?: string;
+  description?: string;
+  // other existing params
+}): Promise<Session>;
 ```
-
-## Risk Mitigation
-
-- **Breaking Changes**: Gradual migration with warnings
-- **Performance**: Async task creation
-- **User Experience**: Smart defaults and templates
-- **Task Quality**: Template system and validation
