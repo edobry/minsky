@@ -115,3 +115,27 @@ export {
   isNetworkError,
   formatNetworkErrorMessage,
 };
+
+// Import and re-export message templates
+export {
+  ErrorEmojis,
+  formatCommandSuggestions,
+  formatContextInfo,
+  buildErrorMessage,
+  createResourceNotFoundMessage,
+  createMissingInfoMessage,
+  createValidationErrorMessage,
+  createCommandFailureMessage,
+  createSessionErrorMessage,
+  createSessionNotFoundMessage,
+  createSessionExistsMessage,
+  createInvalidSessionMessage,
+  createGitErrorMessage,
+  createConfigErrorMessage,
+  createErrorContext,
+  SessionErrorType,
+  type CommandSuggestion,
+  type ContextInfo,
+  type ErrorTemplate,
+  type ErrorMessageSection
+} from "./message-templates";

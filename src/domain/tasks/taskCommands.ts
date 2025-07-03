@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils.js";
 import { resolveMainWorkspacePath } from "../workspace.js";
+import { getErrorMessage } from "../../errors/index";
 import {
   createTaskService as createTaskServiceImpl,
   createConfiguredTaskService,
@@ -524,7 +525,7 @@ export async function createTaskFromTitleAndDescription(
           throw error;
         }
 
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
           throw new ValidationError(`Description file not found: ${validParams.descriptionPath}`);
         } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {

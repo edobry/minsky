@@ -4,6 +4,7 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { execAsync } from "../../utils/exec";
 import { log } from "../../utils/logger";
+import { getErrorMessage } from "../../errors/index";
 
 /**
  * Configuration options for SpecialWorkspaceManager
@@ -94,7 +95,7 @@ export class SpecialWorkspaceManager {
         });
       } catch (error) {
         log.error("Failed to update workspace, attempting repair", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           workspacePath: this.workspacePath,
         });
 
@@ -137,7 +138,7 @@ export class SpecialWorkspaceManager {
         });
       } catch (error) {
         log.error("Failed to commit and push changes", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           message,
           workspacePath: this.workspacePath,
         });
@@ -159,7 +160,7 @@ export class SpecialWorkspaceManager {
         });
       } catch (error) {
         log.error("Failed to rollback changes", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           workspacePath: this.workspacePath,
         });
         throw error;
@@ -188,7 +189,7 @@ export class SpecialWorkspaceManager {
         log.debug("Successfully repaired special workspace");
       } catch (error) {
         log.error("Failed to repair workspace", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           workspacePath: this.workspacePath,
         });
         throw error;
@@ -262,13 +263,13 @@ export class SpecialWorkspaceManager {
       }
 
       log.error("Failed to create optimized workspace", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         repoUrl: this.repoUrl,
         workspacePath: this.workspacePath,
       });
 
       throw new Error(
-        `Failed to create special workspace: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to create special workspace: ${getErrorMessage(error)}`
       );
     }
   }
@@ -357,7 +358,7 @@ export class SpecialWorkspaceManager {
       }
     } catch (error) {
       log.warn("Failed to release lock", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         lockPath: this.lockPath,
       });
     }

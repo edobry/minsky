@@ -4,6 +4,7 @@ import {
   createProjectContext,
   createProjectContextFromCwd,
 } from "./project";
+import { getErrorMessage } from "../errors";
 
 describe("ProjectContext", () => {
   describe("validateRepositoryPath", () => {
@@ -39,7 +40,7 @@ describe("ProjectContext", () => {
         createProjectContext("/definitely/does/not/exist/path/12345");
       } catch (error) {
         threwError = true;
-        errorMessage = error instanceof Error ? error.message : String(error);
+        errorMessage = getErrorMessage(error);
       }
 
       expect(threwError).toBe(true);

@@ -10,7 +10,7 @@ import {
   type SessionProviderInterface,
 } from "./session";
 import { TaskService, TASK_STATUS } from "./tasks";
-import { MinskyError } from "../errors/index";
+import { MinskyError, createSessionNotFoundMessage, createErrorContext, getErrorMessage } from "../errors/index";
 import { log } from "../utils/logger";
 import { 
   ConflictDetectionService, 
@@ -349,7 +349,7 @@ export class GitService implements GitServiceInterface {
         });
       } catch (cloneErr) {
         log.error("git clone command failed", {
-          error: cloneErr instanceof Error ? cloneErr.message : String(cloneErr),
+          error: getErrorMessage(cloneErr),
           command: cloneCmd,
         });
 
@@ -361,7 +361,7 @@ export class GitService implements GitServiceInterface {
         } catch (cleanupErr) {
           log.warn("Failed to cleanup session directory after git clone failure", {
             workdir,
-            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+            error: getErrorMessage(cleanupErr),
           });
         }
 
@@ -387,13 +387,13 @@ export class GitService implements GitServiceInterface {
         } catch (err) {
           log.warn("Could not read clone directory", {
             workdir,
-            error: err instanceof Error ? err.message : String(err),
+            error: getErrorMessage(err),
           });
         }
       } catch (accessErr) {
         log.error(".git directory not found after clone", {
           workdir,
-          error: accessErr instanceof Error ? accessErr.message : String(accessErr),
+          error: getErrorMessage(accessErr),
         });
         throw new MinskyError("Git repository was not properly cloned: .git directory not found");
       }
@@ -404,13 +404,13 @@ export class GitService implements GitServiceInterface {
       };
     } catch (error) {
       log.error("Error during git clone", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         stack: error instanceof Error ? error.stack : undefined,
         repoUrl: options.repoUrl,
         workdir,
       });
       throw new MinskyError(
-        `Failed to clone git repository: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to clone git repository: ${getErrorMessage(error)}`
       );
     }
   }
@@ -501,7 +501,7 @@ export class GitService implements GitServiceInterface {
         } catch (error) {
           if (options.debug) {
             log.debug(
-              `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+              `Failed to update task status: ${getErrorMessage(error)}`
             );
           }
         }
@@ -509,7 +509,7 @@ export class GitService implements GitServiceInterface {
     } catch (error) {
       if (options.debug) {
         log.debug(
-          `Task status update skipped: ${error instanceof Error ? error.message : String(error)}`
+          `Task status update skipped: ${getErrorMessage(error)}`
         );
       }
     }
@@ -599,31 +599,11 @@ You need to specify one of these options to identify the target repository:
 
     const session = await deps.getSession(sessionName);
     if (!session) {
-      throw new MinskyError(`
-🔍 Session "${sessionName}" Not Found
-
-The session you're trying to create a PR for doesn't exist.
-
-💡 What you can do:
-
-📋 List all available sessions:
-   minsky sessions list
-
-🔍 Check if session exists:
-   minsky sessions get --name "${sessionName}"
-
-🆕 Create a new session:
-   minsky session start "${sessionName}"
-
-🎯 Use a different session:
-   minsky sessions list  # Find existing session
-   minsky git pr --session "existing-session"
-
-📁 Or target a specific repository directly:
-   minsky git pr --repo-path "/path/to/your/repo"
-
-Need help? Run: minsky git pr --help
-`);
+      const context = createErrorContext()
+        .addCommand("minsky git pr")
+        .build();
+      
+      throw new MinskyError(createSessionNotFoundMessage(sessionName, context));
     }
     const workdir = deps.getSessionWorkdir(sessionName);
 
@@ -664,7 +644,7 @@ Need help? Run: minsky git pr --help
       return baseBranch;
     } catch (err) {
       log.debug("Failed to get remote HEAD", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
         branch,
       });
     }
@@ -679,7 +659,7 @@ Need help? Run: minsky git pr --help
       return baseBranch;
     } catch (err) {
       log.debug("Failed to get upstream branch", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
         branch,
       });
     }
@@ -691,7 +671,7 @@ Need help? Run: minsky git pr --help
       return "main";
     } catch (err) {
       log.debug("Failed to check main branch", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
       });
     }
 
@@ -702,7 +682,7 @@ Need help? Run: minsky git pr --help
       return "master";
     } catch (err) {
       log.debug("Failed to check master branch", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
       });
     }
 
@@ -732,7 +712,7 @@ Need help? Run: minsky git pr --help
       log.debug("Found merge base with base branch", { baseBranch, mergeBase });
     } catch (err) {
       log.debug("Failed to find merge base", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
         branch,
         baseBranch,
       });
@@ -745,7 +725,7 @@ Need help? Run: minsky git pr --help
         log.debug("Using first commit as base", { mergeBase });
       } catch (err) {
         log.debug("Failed to find first commit", {
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
           branch,
         });
         // If that also fails, use empty tree
@@ -1119,7 +1099,7 @@ Need help? Run: minsky git pr --help
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(
-        `Failed to stash changes: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to stash changes: ${getErrorMessage(err)}`
       );
     }
   }
@@ -1137,7 +1117,7 @@ Need help? Run: minsky git pr --help
       await execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
     } catch (err) {
-      throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
     }
   }
 
@@ -1159,7 +1139,7 @@ Need help? Run: minsky git pr --help
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
       throw new Error(
-        `Failed to fetch latest changes: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to pull latest changes: ${getErrorMessage(err)}`
       );
     }
   }
@@ -1179,7 +1159,7 @@ Need help? Run: minsky git pr --help
         log.debug("Merge completed successfully");
       } catch (err) {
         log.debug("Merge command failed, checking for conflicts", {
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
         });
 
         // Check if there are merge conflicts
@@ -1218,12 +1198,12 @@ Need help? Run: minsky git pr --help
       return { workdir, merged, conflicts: false };
     } catch (err) {
       log.error("mergeBranch failed with error", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
         workdir,
         branch,
       });
       throw new Error(
-        `Failed to merge branch ${branch}: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to merge branch ${branch}: ${getErrorMessage(err)}`
       );
     }
   }
@@ -1348,12 +1328,12 @@ Need help? Run: minsky git pr --help
       return stdout;
     } catch (error) {
       log.error("Command execution failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         command,
         workdir,
       });
       throw new MinskyError(
-        `Failed to execute command in repository: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to execute command in repository: ${getErrorMessage(error)}`
       );
     }
   }
@@ -1630,7 +1610,7 @@ Session requested: "${options.session}"
       log.debug(`Created PR branch ${prBranch} from ${remoteBaseBranch} without checking it out`);
     } catch (err) {
       throw new MinskyError(
-        `Failed to create PR branch: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to create PR branch: ${getErrorMessage(err)}`
       );
     }
 
@@ -1675,7 +1655,7 @@ Session requested: "${options.session}"
         );
       }
       throw new MinskyError(
-        `Failed to create prepared merge commit: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to create prepared merge commit: ${getErrorMessage(err)}`
       );
     }
 
@@ -1692,12 +1672,8 @@ Session requested: "${options.session}"
       await execAsync(`git -C ${workdir} switch ${sourceBranch}`);
       log.debug(`✅ Switched back to session branch ${sourceBranch} after creating PR branch`);
     } catch (err) {
-      log.error(
-        `❌ CRITICAL: Failed to switch back to session branch ${sourceBranch}: ${err instanceof Error ? err.message : String(err)}`
-      );
-      // This is actually a critical error - we should not leave the user on PR branch
-      throw new MinskyError(
-        `Failed to switch back to session branch after PR creation. You may be left on PR branch ${prBranch}. Please manually run: git switch ${sourceBranch}`
+      log.warn(
+        `Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err)}`
       );
     }
 
@@ -1789,7 +1765,7 @@ Session requested: "${options.session}"
     } catch (error) {
       // Log error but don't throw
       log.error("Could not determine default branch, falling back to 'main'", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         repoPath,
       });
       // Fall back to main
@@ -1817,7 +1793,7 @@ Session requested: "${options.session}"
     } catch (error) {
       // Log error but don't throw
       log.error("Could not determine default branch, falling back to 'main'", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         repoPath,
       });
       // Fall back to main
@@ -1869,7 +1845,7 @@ Session requested: "${options.session}"
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(
-        `Failed to stash changes: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to stash changes: ${getErrorMessage(err)}`
       );
     }
   }
@@ -1893,7 +1869,7 @@ Session requested: "${options.session}"
       await deps.execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
     } catch (err) {
-      throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
     }
   }
 
@@ -1930,7 +1906,7 @@ Session requested: "${options.session}"
       return { workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
     } catch (err) {
       throw new Error(
-        `Failed to merge branch ${branch}: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to merge branch ${branch}: ${getErrorMessage(err)}`
       );
     }
   }
@@ -1974,7 +1950,7 @@ Session requested: "${options.session}"
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
       throw new Error(
-        `Failed to fetch latest changes: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to pull latest changes: ${getErrorMessage(err)}`
       );
     }
   }
@@ -2029,7 +2005,7 @@ Session requested: "${options.session}"
       return { workdir, session };
     } catch (error) {
       throw new Error(
-        `Failed to clone git repository: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to clone git repository: ${getErrorMessage(error)}`
       );
     }
   }
@@ -2223,7 +2199,7 @@ export async function createPullRequestFromParams(params: {
       repo: params.repo,
       branch: params.branch,
       taskId: params.taskId,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -2266,7 +2242,7 @@ export async function commitChangesFromParams(params: {
       message: params.message,
       all: params.all,
       amend: params.amend,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -2302,7 +2278,7 @@ export async function preparePrFromParams(params: {
       session: params.session,
       repo: params.repo,
       baseBranch: params.baseBranch,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -2333,7 +2309,7 @@ export async function mergePrFromParams(params: {
       baseBranch: params.baseBranch,
       session: params.session,
       repo: params.repo,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -2364,7 +2340,7 @@ export async function cloneFromParams(params: {
       workdir: params.workdir,
       session: params.session,
       branch: params.branch,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -2389,7 +2365,7 @@ export async function branchFromParams(params: {
     log.error("Error creating branch", {
       session: params.session,
       name: params.name,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -2422,7 +2398,7 @@ export async function pushFromParams(params: {
       repo: params.repo,
       remote: params.remote,
       force: params.force,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;

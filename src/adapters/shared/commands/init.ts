@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getErrorMessage } from "../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -123,7 +124,7 @@ export function registerInitCommands() {
         log.error("Error initializing project", { error });
         throw error instanceof ValidationError
           ? error
-          : new ValidationError(error instanceof Error ? error.message : String(error));
+          : new ValidationError(getErrorMessage(error));
       }
     },
   });
