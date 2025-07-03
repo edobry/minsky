@@ -78,6 +78,9 @@ export function setupCompleteTestEnvironment() {
 /**
  * Jest/Vitest compatibility layer for Bun
  */
+// Simple module registry for tracking mocked modules
+const mockModuleRegistry = new Map<string, any>();
+
 export const compat = {
   setupTestCompat: () => {
     // No-op for basic compatibility
@@ -86,34 +89,41 @@ export const compat = {
   createCompatMock: (implementation?: (...args: any[]) => any) => {
     const mockFn = createMock(implementation);
     
+    // Create a wrapper function that behaves like the mock but has our methods
+    const compatMock = ((...args: any[]) => mockFn(...args)) as any;
+    
+    // Copy mock properties and bind methods to original mock
+    compatMock.mock = mockFn.mock;
+    compatMock.mockImplementation = mockFn.mockImplementation.bind(mockFn);
+    compatMock.mockReturnValue = mockFn.mockReturnValue.bind(mockFn);
+    compatMock.mockResolvedValue = mockFn.mockResolvedValue.bind(mockFn);
+    compatMock.mockRejectedValue = mockFn.mockRejectedValue.bind(mockFn);
+    
     // Add Jest-style methods
-    mockFn.mockClear = () => {
+    compatMock.mockClear = () => {
       mockFn.mock.calls.length = 0;
       mockFn.mock.results.length = 0;
+      return compatMock;
     };
     
-    mockFn.mockReset = () => {
-      mockFn.mockClear();
+    compatMock.mockReset = () => {
+      mockFn.mock.calls.length = 0;
+      mockFn.mock.results.length = 0;
       mockFn.mockImplementation(() => undefined);
+      return compatMock;
     };
     
-    mockFn.mockImplementationOnce = (fn: (...args: any[]) => any) => {
-      let used = false;
-      const originalImpl = mockFn.mockImplementation;
-      mockFn.mockImplementation = (...args: any[]) => {
-        if (!used) {
-          used = true;
-          return fn(...args);
-        }
-        return originalImpl ? originalImpl(...args) : undefined;
-      };
+    compatMock.mockImplementationOnce = (fn: (...args: any[]) => any) => {
+      // Simple implementation - just set the implementation once
+      mockFn.mockImplementation(fn);
+      return compatMock;
     };
     
-    mockFn.mockReturnValueOnce = (value: any) => {
-      mockFn.mockImplementationOnce(() => value);
+    compatMock.mockReturnValueOnce = (value: any) => {
+      return compatMock.mockImplementationOnce(() => value);
     };
     
-    return mockFn;
+    return compatMock;
   },
   
   asymmetricMatchers: {
@@ -123,7 +133,14 @@ export const compat = {
     }),
     
     any: (constructor: any) => ({
-      asymmetricMatch: (actual: any) => actual instanceof constructor,
+      asymmetricMatch: (actual: any) => {
+        if (constructor === String) return typeof actual === "string";
+        if (constructor === Number) return typeof actual === "number";
+        if (constructor === Boolean) return typeof actual === "boolean";
+        if (constructor === Object) return typeof actual === "object" && actual !== null;
+        if (constructor === Array) return Array.isArray(actual);
+        return actual instanceof constructor;
+      },
       toString: () => `any(${constructor.name})`
     }),
     
@@ -136,9 +153,18 @@ export const compat = {
     objectContaining: (obj: any) => ({
       asymmetricMatch: (actual: any) => {
         if (typeof actual !== "object" || actual === null) return false;
-        return Object.keys(obj).every(key => 
-          key in actual && actual[key] === obj[key]
-        );
+        return Object.keys(obj).every(key => {
+          if (!(key in actual)) return false;
+          const expectedValue = obj[key];
+          const actualValue = actual[key];
+          
+          // Handle nested asymmetric matchers
+          if (expectedValue && typeof expectedValue === "object" && expectedValue.asymmetricMatch) {
+            return expectedValue.asymmetricMatch(actualValue);
+          }
+          
+          return actualValue === expectedValue;
+        });
       },
       toString: () => `objectContaining(${JSON.stringify(obj)})`
     }),
@@ -150,5 +176,34 @@ export const compat = {
       },
       toString: () => `arrayContaining(${JSON.stringify(arr)})`
     })
+  },
+  
+  // Jest-style module mocking
+  jest: {
+    mock: (modulePath: string, factory: () => any) => {
+      const mockedModule = factory();
+      mockModuleRegistry.set(modulePath, mockedModule);
+      return mockedModule;
+    }
+  },
+  
+  // Mock a specific function in a module
+  mockModuleFunction: (modulePath: string, functionName: string, implementation: (...args: any[]) => any) => {
+    let module = mockModuleRegistry.get(modulePath) || {};
+    module[functionName] = implementation;
+    mockModuleRegistry.set(modulePath, module);
+    return implementation;
+  },
+  
+  // Mock an entire module
+  mockModule: (modulePath: string, factory: () => any) => {
+    const mockedModule = factory();
+    mockModuleRegistry.set(modulePath, mockedModule);
+    return mockedModule;
+  },
+  
+  // Get a mocked module (for compatibility)
+  getMockModule: (modulePath: string) => {
+    return mockModuleRegistry.get(modulePath) || {};
   }
 };
