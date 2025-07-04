@@ -1,6 +1,6 @@
 /**
  * Conflict Detection Service
- * 
+ *
  * Provides proactive conflict detection and analysis for git operations,
  * helping prevent merge conflicts before they occur during session PR creation.
  */
@@ -45,7 +45,7 @@ export enum ConflictType {
   DELETE_MODIFY = "delete_modify",
   RENAME_CONFLICT = "rename_conflict",
   MODE_CONFLICT = "mode_conflict",
-  ALREADY_MERGED = "already_merged"
+  ALREADY_MERGED = "already_merged",
 }
 
 export enum ConflictSeverity {
@@ -53,7 +53,7 @@ export enum ConflictSeverity {
   AUTO_RESOLVABLE = "auto_resolvable",
   MANUAL_SIMPLE = "manual_simple",
   MANUAL_COMPLEX = "manual_complex",
-  BLOCKING = "blocking"
+  BLOCKING = "blocking",
 }
 
 export enum FileConflictStatus {
@@ -63,7 +63,7 @@ export enum FileConflictStatus {
   DELETED_BY_THEM = "deleted_by_them",
   ADDED_BY_US = "added_by_us",
   ADDED_BY_THEM = "added_by_them",
-  RENAMED = "renamed"
+  RENAMED = "renamed",
 }
 
 export interface ResolutionStrategy {
@@ -172,7 +172,7 @@ export class ConflictDetectionService {
     try {
       // First, analyze branch divergence
       const divergence = await this.analyzeBranchDivergence(repoPath, sourceBranch, targetBranch);
-      
+
       // If already merged, no conflicts
       if (divergence.sessionChangesInBase) {
         return {
@@ -180,20 +180,23 @@ export class ConflictDetectionService {
           conflictType: ConflictType.ALREADY_MERGED,
           severity: ConflictSeverity.NONE,
           affectedFiles: [],
-          resolutionStrategies: [{
-            type: "automatic",
-            description: "Session changes already in base branch",
-            commands: ["# No action needed - changes already merged"],
-            riskLevel: "low"
-          }],
-          userGuidance: "Your session changes have already been merged into the base branch. You can skip the update or create a PR without conflicts.",
-          recoveryCommands: ["minsky session pr --no-update"]
+          resolutionStrategies: [
+            {
+              type: "automatic",
+              description: "Session changes already in base branch",
+              commands: ["# No action needed - changes already merged"],
+              riskLevel: "low",
+            },
+          ],
+          userGuidance:
+            "Your session changes have already been merged into the base branch. You can skip the update or create a PR without conflicts.",
+          recoveryCommands: ["minsky session pr --no-update"],
         };
       }
 
       // Simulate merge to detect conflicts
       const conflictFiles = await this.simulateMerge(repoPath, sourceBranch, targetBranch);
-      
+
       if (conflictFiles.length === 0) {
         return {
           hasConflicts: false,
@@ -202,7 +205,7 @@ export class ConflictDetectionService {
           affectedFiles: [],
           resolutionStrategies: [],
           userGuidance: "No conflicts detected. Safe to proceed with merge.",
-          recoveryCommands: []
+          recoveryCommands: [],
         };
       }
 
@@ -219,11 +222,15 @@ export class ConflictDetectionService {
         affectedFiles: conflictFiles,
         resolutionStrategies,
         userGuidance,
-        recoveryCommands
+        recoveryCommands,
       };
-
     } catch (error) {
-      log.error("Error predicting merge conflicts", { error, repoPath, sourceBranch, targetBranch });
+      log.error("Error predicting merge conflicts", {
+        error,
+        repoPath,
+        sourceBranch,
+        targetBranch,
+      });
       throw error;
     }
   }
@@ -252,7 +259,9 @@ export class ConflictDetectionService {
 
       // Check if session changes are already in base
       const sessionChangesInBase = await this.checkSessionChangesInBase(
-        repoPath, sessionBranch, baseBranch
+        repoPath,
+        sessionBranch,
+        baseBranch
       );
 
       // Determine divergence type
@@ -281,11 +290,15 @@ export class ConflictDetectionService {
         lastCommonCommit: commonCommit.trim(),
         sessionChangesInBase,
         divergenceType,
-        recommendedAction
+        recommendedAction,
       };
-
     } catch (error) {
-      log.error("Error analyzing branch divergence", { error, repoPath, sessionBranch, baseBranch });
+      log.error("Error analyzing branch divergence", {
+        error,
+        repoPath,
+        sessionBranch,
+        baseBranch,
+      });
       throw error;
     }
   }
@@ -303,7 +316,12 @@ export class ConflictDetectionService {
       dryRun?: boolean;
     }
   ): Promise<EnhancedMergeResult> {
-    log.debug("Enhanced merge with conflict prevention", { repoPath, sourceBranch, targetBranch, options });
+    log.debug("Enhanced merge with conflict prevention", {
+      repoPath,
+      sourceBranch,
+      targetBranch,
+      options,
+    });
 
     try {
       let prediction: ConflictPrediction | undefined;
@@ -311,21 +329,23 @@ export class ConflictDetectionService {
       // Step 1: Predict conflicts unless skipped
       if (!options?.skipConflictCheck) {
         prediction = await this.predictMergeConflicts(repoPath, sourceBranch, targetBranch);
-        
+
         if (prediction.hasConflicts && options?.dryRun) {
           return {
             workdir: repoPath,
             merged: false,
             conflicts: true,
             conflictDetails: prediction.userGuidance,
-            prediction
+            prediction,
           };
         }
 
         // Auto-resolve delete conflicts if requested
-        if (prediction.hasConflicts && 
-            prediction.conflictType === ConflictType.DELETE_MODIFY &&
-            options?.autoResolveDeleteConflicts) {
+        if (
+          prediction.hasConflicts &&
+          prediction.conflictType === ConflictType.DELETE_MODIFY &&
+          options?.autoResolveDeleteConflicts
+        ) {
           await this.autoResolveDeleteConflicts(repoPath, prediction.affectedFiles);
         }
       }
@@ -333,35 +353,35 @@ export class ConflictDetectionService {
       // Step 2: Perform actual merge if not dry run
       if (!options?.dryRun) {
         const { stdout: beforeHash } = await execAsync(`git -C ${repoPath} rev-parse HEAD`);
-        
+
         try {
           await execAsync(`git -C ${repoPath} merge ${sourceBranch}`);
-          
+
           const { stdout: afterHash } = await execAsync(`git -C ${repoPath} rev-parse HEAD`);
           const merged = beforeHash.trim() !== afterHash.trim();
-          
+
           return {
             workdir: repoPath,
             merged,
             conflicts: false,
-            prediction
+            prediction,
           };
-          
         } catch (mergeError) {
           // Check for conflicts
           const { stdout: status } = await execAsync(`git -C ${repoPath} status --porcelain`);
-          const hasConflicts = status.includes("UU") || status.includes("AA") || status.includes("DD");
-          
+          const hasConflicts =
+            status.includes("UU") || status.includes("AA") || status.includes("DD");
+
           if (hasConflicts) {
             return {
               workdir: repoPath,
               merged: false,
               conflicts: true,
               conflictDetails: prediction?.userGuidance || "Merge conflicts detected",
-              prediction
+              prediction,
             };
           }
-          
+
           throw mergeError;
         }
       }
@@ -372,9 +392,8 @@ export class ConflictDetectionService {
         merged: false,
         conflicts: prediction?.hasConflicts || false,
         conflictDetails: prediction?.userGuidance,
-        prediction
+        prediction,
       };
-
     } catch (error) {
       log.error("Error in enhanced merge", { error, repoPath, sourceBranch, targetBranch });
       throw error;
@@ -406,7 +425,7 @@ export class ConflictDetectionService {
           updated: false,
           skipped: true,
           reason: "Session changes already in base branch",
-          divergenceAnalysis: divergence
+          divergenceAnalysis: divergence,
         };
       }
 
@@ -417,7 +436,7 @@ export class ConflictDetectionService {
           updated: false,
           skipped: true,
           reason: "No update needed - session is current or ahead",
-          divergenceAnalysis: divergence
+          divergenceAnalysis: divergence,
         };
       }
 
@@ -426,19 +445,19 @@ export class ConflictDetectionService {
         // Simple fast-forward
         await execAsync(`git -C ${repoPath} fetch origin ${baseBranch}`);
         await execAsync(`git -C ${repoPath} merge --ff-only origin/${baseBranch}`);
-        
+
         return {
           workdir: repoPath,
           updated: true,
           skipped: false,
           reason: "Fast-forward update completed",
-          divergenceAnalysis: divergence
+          divergenceAnalysis: divergence,
         };
       } else {
         // Complex merge needed
         const mergeResult = await this.mergeWithConflictPrevention(
-          repoPath, 
-          `origin/${baseBranch}`, 
+          repoPath,
+          `origin/${baseBranch}`,
           sessionBranch,
           { autoResolveDeleteConflicts: options?.autoResolveConflicts }
         );
@@ -447,12 +466,13 @@ export class ConflictDetectionService {
           workdir: repoPath,
           updated: mergeResult.merged,
           skipped: false,
-          reason: mergeResult.conflicts ? "Update failed due to conflicts" : "Merge update completed",
+          reason: mergeResult.conflicts
+            ? "Update failed due to conflicts"
+            : "Merge update completed",
           conflictDetails: mergeResult.conflictDetails,
-          divergenceAnalysis: divergence
+          divergenceAnalysis: divergence,
         };
       }
-
     } catch (error) {
       log.error("Error in smart session update", { error, repoPath, sessionBranch, baseBranch });
       throw error;
@@ -472,29 +492,27 @@ export class ConflictDetectionService {
     try {
       // Create a temporary branch for simulation
       const tempBranch = `conflict-simulation-${Date.now()}`;
-      
+
       try {
         // Create temp branch from target
         await execAsync(`git -C ${repoPath} checkout -b ${tempBranch} ${targetBranch}`);
-        
+
         // Attempt merge
         try {
           await execAsync(`git -C ${repoPath} merge --no-commit --no-ff ${sourceBranch}`);
-          
+
           // If merge succeeds, reset and return no conflicts
           await execAsync(`git -C ${repoPath} reset --hard HEAD`);
           return [];
-          
         } catch (mergeError) {
           // Merge failed, analyze conflicts
           const conflictFiles = await this.analyzeConflictFiles(repoPath);
-          
+
           // Abort the merge
           await execAsync(`git -C ${repoPath} merge --abort`);
-          
+
           return conflictFiles;
         }
-        
       } finally {
         // Clean up temporary branch
         try {
@@ -504,7 +522,6 @@ export class ConflictDetectionService {
           log.warn("Failed to clean up temporary branch", { tempBranch, cleanupError });
         }
       }
-      
     } catch (error) {
       log.error("Error simulating merge", { error, repoPath, sourceBranch, targetBranch });
       throw error;
@@ -517,17 +534,20 @@ export class ConflictDetectionService {
   private async analyzeConflictFiles(repoPath: string): Promise<ConflictFile[]> {
     try {
       const { stdout: statusOutput } = await execAsync(`git -C ${repoPath} status --porcelain`);
-      
+
       const conflictFiles: ConflictFile[] = [];
-      const lines = statusOutput.trim().split("\n").filter(line => line.trim());
-      
+      const lines = statusOutput
+        .trim()
+        .split("\n")
+        .filter((line) => line.trim());
+
       for (const line of lines) {
         const status = line.substring(0, 2);
         const filePath = line.substring(3);
-        
+
         let fileStatus: FileConflictStatus;
         let deletionInfo: DeletionInfo | undefined;
-        
+
         switch (status) {
         case "UU":
           fileStatus = FileConflictStatus.MODIFIED_BOTH;
@@ -549,21 +569,21 @@ export class ConflictDetectionService {
         default:
           continue; // Skip non-conflict files
         }
-        
-        const conflictRegions = fileStatus === FileConflictStatus.MODIFIED_BOTH 
-          ? await this.analyzeConflictRegions(repoPath, filePath)
-          : undefined;
-        
+
+        const conflictRegions =
+          fileStatus === FileConflictStatus.MODIFIED_BOTH
+            ? await this.analyzeConflictRegions(repoPath, filePath)
+            : undefined;
+
         conflictFiles.push({
           path: filePath,
           status: fileStatus,
           conflictRegions,
-          deletionInfo
+          deletionInfo,
         });
       }
-      
+
       return conflictFiles;
-      
     } catch (error) {
       log.error("Error analyzing conflict files", { error, repoPath });
       throw error;
@@ -574,8 +594,8 @@ export class ConflictDetectionService {
    * Analyzes deletion conflicts to provide context and resolution options
    */
   private async analyzeDeletion(
-    repoPath: string, 
-    filePath: string, 
+    repoPath: string,
+    filePath: string,
     deletedBy: "us" | "them"
   ): Promise<DeletionInfo> {
     try {
@@ -583,21 +603,20 @@ export class ConflictDetectionService {
       const { stdout: lastCommit } = await execAsync(
         `git -C ${repoPath} log -n 1 --format=%H -- ${filePath}`
       );
-      
+
       return {
         deletedInBranch: deletedBy === "us" ? "session" : "main",
         modifiedInBranch: deletedBy === "us" ? "main" : "session",
         lastCommitHash: lastCommit.trim(),
-        canAutoResolve: true // Deletions are generally auto-resolvable
+        canAutoResolve: true, // Deletions are generally auto-resolvable
       };
-      
     } catch (error) {
       log.warn("Could not analyze deletion", { error, filePath });
       return {
         deletedInBranch: deletedBy === "us" ? "session" : "main",
         modifiedInBranch: deletedBy === "us" ? "main" : "session",
         lastCommitHash: "unknown",
-        canAutoResolve: false
+        canAutoResolve: false,
       };
     }
   }
@@ -605,34 +624,36 @@ export class ConflictDetectionService {
   /**
    * Analyzes conflict regions within a file
    */
-  private async analyzeConflictRegions(repoPath: string, filePath: string): Promise<ConflictRegion[]> {
+  private async analyzeConflictRegions(
+    repoPath: string,
+    filePath: string
+  ): Promise<ConflictRegion[]> {
     try {
       const { stdout: fileContent } = await execAsync(`cat "${repoPath}/${filePath}"`);
       const lines = fileContent.split("\n");
-      
+
       const regions: ConflictRegion[] = [];
       let inConflict = false;
       let startLine = 0;
-      
+
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        
-        if (line.startsWith("<<<<<<<")) {
+
+        if (line?.startsWith("<<<<<<<")) {
           inConflict = true;
           startLine = i + 1;
-        } else if (line.startsWith(">>>>>>>") && inConflict) {
+        } else if (line?.startsWith(">>>>>>>") && inConflict) {
           regions.push({
             startLine,
             endLine: i + 1,
             type: "content",
-            description: `Content conflict in lines ${startLine}-${i + 1}`
+            description: `Content conflict in lines ${startLine}-${i + 1}`,
           });
           inConflict = false;
         }
       }
-      
+
       return regions;
-      
     } catch (error) {
       log.warn("Could not analyze conflict regions", { error, filePath });
       return [];
@@ -652,22 +673,21 @@ export class ConflictDetectionService {
       const { stdout: sessionCommits } = await execAsync(
         `git -C ${repoPath} rev-list ${baseBranch}..${sessionBranch}`
       );
-      
+
       if (!sessionCommits.trim()) {
         return true; // No session commits not in base
       }
-      
+
       // Check if the content changes are already in base by comparing trees
       const { stdout: sessionTree } = await execAsync(
         `git -C ${repoPath} rev-parse ${sessionBranch}^{tree}`
       );
-      
+
       const { stdout: baseTree } = await execAsync(
         `git -C ${repoPath} rev-parse ${baseBranch}^{tree}`
       );
-      
+
       return sessionTree.trim() === baseTree.trim();
-      
     } catch (error) {
       log.warn("Could not check session changes in base", { error });
       return false;
@@ -682,9 +702,11 @@ export class ConflictDetectionService {
     conflictFiles: ConflictFile[]
   ): Promise<void> {
     try {
-      const deleteConflicts = conflictFiles.filter(f => 
-        f.deletionInfo?.canAutoResolve &&
-        (f.status === FileConflictStatus.DELETED_BY_US || f.status === FileConflictStatus.DELETED_BY_THEM)
+      const deleteConflicts = conflictFiles.filter(
+        (f) =>
+          f.deletionInfo?.canAutoResolve &&
+          (f.status === FileConflictStatus.DELETED_BY_US ||
+            f.status === FileConflictStatus.DELETED_BY_THEM)
       );
 
       for (const file of deleteConflicts) {
@@ -698,7 +720,6 @@ export class ConflictDetectionService {
         await execAsync(`git -C ${repoPath} commit -m "resolve conflicts: accept file deletions"`);
         log.debug("Committed auto-resolved delete conflicts", { count: deleteConflicts.length });
       }
-
     } catch (error) {
       log.error("Error auto-resolving delete conflicts", { error });
       throw error;
@@ -708,23 +729,27 @@ export class ConflictDetectionService {
   /**
    * Analyzes the overall conflict severity
    */
-  private analyzeConflictSeverity(conflictFiles: ConflictFile[]): { 
-    conflictType: ConflictType; 
-    severity: ConflictSeverity; 
+  private analyzeConflictSeverity(conflictFiles: ConflictFile[]): {
+    conflictType: ConflictType;
+    severity: ConflictSeverity;
   } {
     if (conflictFiles.length === 0) {
       return { conflictType: ConflictType.NONE, severity: ConflictSeverity.NONE };
     }
 
-    const hasContentConflicts = conflictFiles.some(f => f.status === FileConflictStatus.MODIFIED_BOTH);
-    const hasDeleteConflicts = conflictFiles.some(f => 
-      f.status === FileConflictStatus.DELETED_BY_US || f.status === FileConflictStatus.DELETED_BY_THEM
+    const hasContentConflicts = conflictFiles.some(
+      (f) => f.status === FileConflictStatus.MODIFIED_BOTH
     );
-    const hasRenameConflicts = conflictFiles.some(f => f.status === FileConflictStatus.RENAMED);
-    
+    const hasDeleteConflicts = conflictFiles.some(
+      (f) =>
+        f.status === FileConflictStatus.DELETED_BY_US ||
+        f.status === FileConflictStatus.DELETED_BY_THEM
+    );
+    const hasRenameConflicts = conflictFiles.some((f) => f.status === FileConflictStatus.RENAMED);
+
     let conflictType: ConflictType;
     let severity: ConflictSeverity;
-    
+
     if (hasRenameConflicts) {
       conflictType = ConflictType.RENAME_CONFLICT;
       severity = ConflictSeverity.MANUAL_COMPLEX;
@@ -735,19 +760,25 @@ export class ConflictDetectionService {
       conflictType = ConflictType.DELETE_MODIFY;
       // Check if all deletions are auto-resolvable
       const allAutoResolvable = conflictFiles
-        .filter(f => f.deletionInfo)
-        .every(f => f.deletionInfo?.canAutoResolve);
-      severity = allAutoResolvable ? ConflictSeverity.AUTO_RESOLVABLE : ConflictSeverity.MANUAL_SIMPLE;
+        .filter((f) => f.deletionInfo)
+        .every((f) => f.deletionInfo?.canAutoResolve);
+      severity = allAutoResolvable
+        ? ConflictSeverity.AUTO_RESOLVABLE
+        : ConflictSeverity.MANUAL_SIMPLE;
     } else if (hasContentConflicts) {
       conflictType = ConflictType.CONTENT_CONFLICT;
       // Analyze content conflict complexity
-      const totalRegions = conflictFiles.reduce((sum, f) => sum + (f.conflictRegions?.length || 0), 0);
-      severity = totalRegions <= 3 ? ConflictSeverity.MANUAL_SIMPLE : ConflictSeverity.MANUAL_COMPLEX;
+      const totalRegions = conflictFiles.reduce(
+        (sum, f) => sum + (f.conflictRegions?.length || 0),
+        0
+      );
+      severity =
+        totalRegions <= 3 ? ConflictSeverity.MANUAL_SIMPLE : ConflictSeverity.MANUAL_COMPLEX;
     } else {
       conflictType = ConflictType.CONTENT_CONFLICT;
       severity = ConflictSeverity.MANUAL_SIMPLE;
     }
-    
+
     return { conflictType, severity };
   }
 
@@ -755,31 +786,29 @@ export class ConflictDetectionService {
    * Generates resolution strategies based on conflict analysis
    */
   private generateResolutionStrategies(
-    conflictFiles: ConflictFile[], 
+    conflictFiles: ConflictFile[],
     conflictType: ConflictType
   ): ResolutionStrategy[] {
     const strategies: ResolutionStrategy[] = [];
-    
+
     if (conflictType === ConflictType.DELETE_MODIFY) {
       const allAutoResolvable = conflictFiles
-        .filter(f => f.deletionInfo)
-        .every(f => f.deletionInfo?.canAutoResolve);
-        
+        .filter((f) => f.deletionInfo)
+        .every((f) => f.deletionInfo?.canAutoResolve);
+
       if (allAutoResolvable) {
         strategies.push({
           type: "automatic",
           description: "Accept deletions (recommended for removed files)",
           commands: [
-            ...conflictFiles
-              .filter(f => f.deletionInfo)
-              .map(f => `git rm ${f.path}`),
-            "git commit -m \"resolve conflicts: accept file deletions\""
+            ...conflictFiles.filter((f) => f.deletionInfo).map((f) => `git rm ${f.path}`),
+            "git commit -m \"resolve conflicts: accept file deletions\"",
           ],
-          riskLevel: "low"
+          riskLevel: "low",
         });
       }
     }
-    
+
     // Always provide manual resolution option
     strategies.push({
       type: "manual",
@@ -788,11 +817,11 @@ export class ConflictDetectionService {
         "git status",
         "# Edit conflicted files to resolve <<<<<<< ======= >>>>>>> markers",
         "git add .",
-        "git commit -m \"resolve merge conflicts\""
+        "git commit -m \"resolve merge conflicts\"",
       ],
-      riskLevel: "medium"
+      riskLevel: "medium",
     });
-    
+
     return strategies;
   }
 
@@ -806,12 +835,12 @@ export class ConflictDetectionService {
   ): string {
     switch (conflictType) {
     case ConflictType.DELETE_MODIFY: {
-      const deletedFiles = conflictFiles.filter(f => f.deletionInfo).map(f => f.path);
+      const deletedFiles = conflictFiles.filter((f) => f.deletionInfo).map((f) => f.path);
       return `
 🗑️  Deleted file conflicts detected
 
 Files deleted in main branch but modified in your session:
-${deletedFiles.map(f => `  • ${f}`).join("\n")}
+${deletedFiles.map((f) => `  • ${f}`).join("\n")}
 
 These conflicts are typically auto-resolvable by accepting the deletion.
 The files were removed for a reason (likely part of refactoring or cleanup).
@@ -826,12 +855,24 @@ Recommended action: Accept the deletions and remove your changes to these files.
 ${conflictFiles.length} file(s) have conflicting changes between your session and main branch.
 These require manual resolution by editing the files and choosing which changes to keep.
 
+📋 Next Steps:
+1. Run: git status                    (see which files are conflicted)
+2. Edit the conflicted files          (look for <<<<<<< markers)
+3. Run: git add <file>               (mark conflicts as resolved)
+4. Run: git commit                    (complete the merge)
+5. Run: minsky session pr [options]   (retry PR creation)
+
+🔧 Quick Check:
+• Run 'git status' now to see the conflicted files
+• Edit files and remove conflict markers
+• Choose which changes to keep between <<<<<<< and >>>>>>>
+
 Look for conflict markers:
   <<<<<<< HEAD (your changes)
   =======
   >>>>>>> main (main branch changes)
         `.trim();
-        
+
     case ConflictType.ALREADY_MERGED:
       return `
 ✅ Changes already merged
@@ -839,7 +880,7 @@ Look for conflict markers:
 Your session changes appear to already be present in the main branch.
 You can skip the update step and proceed directly to PR creation.
         `.trim();
-        
+
     default:
       return `
 ⚠️  Merge conflicts detected
@@ -858,25 +899,25 @@ Review the affected files and choose appropriate resolution strategy.
     conflictType: ConflictType
   ): string[] {
     const commands: string[] = [];
-    
+
     if (conflictType === ConflictType.DELETE_MODIFY) {
       commands.push("# Accept file deletions (recommended)");
       conflictFiles
-        .filter(f => f.deletionInfo)
-        .forEach(f => commands.push(`git rm "${f.path}"`));
+        .filter((f) => f.deletionInfo)
+        .forEach((f) => commands.push(`git rm "${f.path}"`));
       commands.push("git commit -m \"resolve conflicts: accept file deletions\"");
     } else {
       commands.push("# Check conflict status");
       commands.push("git status");
       commands.push("");
       commands.push("# Edit each conflicted file to resolve <<<<<<< ======= >>>>>>> markers");
-      conflictFiles.forEach(f => commands.push(`# Edit: ${f.path}`));
+      conflictFiles.forEach((f) => commands.push(`# Edit: ${f.path}`));
       commands.push("");
       commands.push("# After editing, add resolved files");
       commands.push("git add .");
       commands.push("git commit -m \"resolve merge conflicts\"");
     }
-    
+
     return commands;
   }
-} 
+}
