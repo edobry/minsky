@@ -326,11 +326,11 @@
 
 - [x] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
-- [ ] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
+- [+] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
 - [!] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
 
-- [+] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
+- [x] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
 
 - [ ] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
 
@@ -366,9 +366,7 @@
 
 - [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#195](process/tasks/195-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
-- [ ] Analyze and Modularize Overly Long Files [#199](process/tasks/199-analyze-and-modularize-overly-long-files.md)
-
-- [ ] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
+- [+] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
 
 - [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
 
@@ -423,3 +421,5 @@
 - [ ] Setup semantic-release with conventional commits for automated GitHub releases and binary builds [#233](process/tasks/233-setup-semantic-release-with-conventional-commits-for-automated-github-releases-and-binary-builds.md)
 
 - [ ] Implement Dagger CI Pipeline with Hybrid Development Workflow [#234](process/tasks/234-implement-dagger-ci-pipeline-with-hybrid-development-workflow.md)
+
+- [ ] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
