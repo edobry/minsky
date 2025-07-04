@@ -98,7 +98,7 @@ export class SessionPathResolver {
    * @param absolutePath Absolute path to convert
    * @returns Relative path within session, or null if outside boundaries
    */
-  absoluteToRelative(sessionDir: string, absolutePath: string): string | null {
+  absoluteToRelative(sessionDir: string, absolutePath: string): string | undefined {
     try {
       const normalizedSessionDir = resolve(sessionDir);
       const normalizedAbsolutePath = resolve(absolutePath);

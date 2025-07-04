@@ -253,7 +253,7 @@ export interface PrResult {
   markdown: string;
   statusUpdateResult?: {
     taskId: string;
-    previousStatus: string | null;
+    previousStatus: string | undefined;
     newStatus: string;
   };
 }

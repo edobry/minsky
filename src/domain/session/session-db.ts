@@ -127,7 +127,7 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
 /**
  * Get the working directory for a session
  */
-export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | null {
+export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | undefined {
   const session = getSessionFn(state, sessionName);
   if (!session) {
     return null as any;

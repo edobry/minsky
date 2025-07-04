@@ -62,7 +62,7 @@ export interface TaskServiceInterface {
   /**
    * Get the status of a task
    */
-  getTaskStatus(id: string): Promise<string | null>;
+  getTaskStatus(id: string): Promise<string | undefined>;
 
   /**
    * Set the status of a task
@@ -115,7 +115,7 @@ export interface TaskBackend {
   name: string;
   listTasks(options?: TaskListOptions): Promise<Task[]>;
   getTask(id: string): Promise<Task | null>;
-  getTaskStatus(id: string): Promise<string | null>;
+  getTaskStatus(id: string): Promise<string | undefined>;
   setTaskStatus(id: string, status: string): Promise<void>;
   getWorkspacePath(): string;
   createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
@@ -178,7 +178,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     return null as any;
   }
 
-  async getTaskStatus(id: string): Promise<string | null> {
+  async getTaskStatus(id: string): Promise<string | undefined> {
     const task = await this.getTask(id);
     return task ? (task as any).status : null as any;
   }
@@ -321,7 +321,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     let title: string;
     let hasTaskId = false;
-    let existingId: string | null = null;
+    let existingId: string | undefined = undefined;
 
     if (titleWithIdMatch && titleWithIdMatch[2]) {
       // Old format: "# Task #XXX: Title"
@@ -580,7 +580,7 @@ export class GitHubTaskBackend implements TaskBackend {
     return null as any;
   }
 
-  async getTaskStatus(id: string): Promise<string | null> {
+  async getTaskStatus(id: string): Promise<string | undefined> {
     log.debug("GitHub task backend not fully implemented", { method: "getTaskStatus", id });
     return null as any;
   }
@@ -645,7 +645,7 @@ export class TaskService {
     return (this.currentBackend as any).getTask(id);
   }
 
-  async getTaskStatus(id: string): Promise<string | null> {
+  async getTaskStatus(id: string): Promise<string | undefined> {
     return (this.currentBackend as any).getTaskStatus(id);
   }
 

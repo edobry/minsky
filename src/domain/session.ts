@@ -1279,7 +1279,7 @@ export async function approveSessionFromParams(
       getBackendForTask?: (taskId: string) => Promise<any>;
     };
     workspaceUtils?: any;
-    getCurrentSession?: (repoPath: string) => Promise<string | null>;
+    getCurrentSession?: (repoPath: string) => Promise<string | undefined>;
   }
 ): Promise<{
   session: string;
