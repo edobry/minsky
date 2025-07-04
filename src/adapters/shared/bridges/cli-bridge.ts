@@ -306,7 +306,7 @@ export class CliCommandBridge {
         if (childCommand) {
           // Update the child command name to just the child part
           (childCommand as any).name(childName);
-          (parentCommand as any).addCommand(childCommand!);
+          (parentCommand as any).addCommand(childCommand);
         }
       } else {
         // More complex nesting - handle it recursively or warn
