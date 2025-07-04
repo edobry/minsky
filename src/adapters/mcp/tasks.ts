@@ -57,7 +57,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
 
       // Return task array and cast to Record<string, unknown> to satisfy TypeScript
       const tasks = await listTasksFromParams(params);
-      return { tasks } as Record<string, unknown>;
+      return { tasks } as Record<string, any>;
     }
   );
 
@@ -85,7 +85,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
 
       // Return task as part of an object to satisfy TypeScript
       const task = await getTaskFromParams(params);
-      return { task } as Record<string, unknown>;
+      return { task } as Record<string, any>;
     }
   );
 
@@ -224,7 +224,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         message: result.success 
           ? `Task ${result.taskId} deleted successfully`
           : `Failed to delete task ${result.taskId}`,
-      };
+      } as any;
     }
   );
 }

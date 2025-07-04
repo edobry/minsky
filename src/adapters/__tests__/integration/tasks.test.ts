@@ -102,11 +102,11 @@ describe("Tasks Domain Methods", () => {
       mockGetTaskFromParams.mockResolvedValue(mockTasks[0]);
 
       // Act
-      const _result = await mockGetTaskFromParams(params);
+      const result = await mockGetTaskFromParams(params);
 
       // Assert
       expect(mockGetTaskFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(mockTasks[0]);
+      expect(result).toEqual(mockTasks[0]);
     });
   });
 
@@ -155,11 +155,11 @@ describe("Tasks Domain Methods", () => {
       mockListTasksFromParams.mockResolvedValue(mockTasks);
 
       // Act
-      const _result = await mockListTasksFromParams(params);
+      const result = await mockListTasksFromParams(params);
 
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(mockTasks);
+      expect(result).toEqual(mockTasks);
     });
   });
 
@@ -170,11 +170,11 @@ describe("Tasks Domain Methods", () => {
       mockGetTaskStatusFromParams.mockResolvedValue(TASK_STATUS.IN_PROGRESS);
 
       // Act
-      const _result = await mockGetTaskStatusFromParams(params);
+      const result = await mockGetTaskStatusFromParams(params);
 
       // Assert
       expect(mockGetTaskStatusFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toBe(TASK_STATUS.IN_PROGRESS);
+      expect(result).toBe(TASK_STATUS.IN_PROGRESS);
     });
 
     test("throws error when task not found", async () => {
@@ -199,11 +199,11 @@ describe("Tasks Domain Methods", () => {
       mockGetTaskStatusFromParams.mockResolvedValue(TASK_STATUS.DONE);
 
       // Act
-      const _result = await mockGetTaskStatusFromParams(params);
+      const result = await mockGetTaskStatusFromParams(params);
 
       // Assert
       expect(mockGetTaskStatusFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toBe(TASK_STATUS.DONE);
+      expect(result).toBe(TASK_STATUS.DONE);
     });
   });
 

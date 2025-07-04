@@ -69,14 +69,14 @@ describe("GitHubIssuesTaskBackend", () => {
     });
 
     test("should handle invalid JSON gracefully", () => {
-      const _tasks = backend.parseTasks("invalid json");
-      expect(_tasks).toEqual([]);
+      const tasks = backend.parseTasks("invalid json");
+      expect(tasks).toEqual([]);
     });
   });
 
   describe("formatTasks", () => {
     test("should format TaskData objects for GitHub API", () => {
-      const _tasks = [
+      const tasks = [
         {
           id: "#001",
           title: "Test Task",
@@ -86,7 +86,7 @@ describe("GitHubIssuesTaskBackend", () => {
         },
       ];
 
-      const _result = backend.formatTasks(_tasks);
+      const _result = backend.formatTasks(tasks);
       const formattedTasks = JSON.parse(_result);
 
       expect(formattedTasks.length).toBe(1);
@@ -118,7 +118,7 @@ This is a test task description.
 
   describe("formatTaskSpec", () => {
     test("should format task specification data", () => {
-      const _spec = {
+      const spec = {
         title: "Test Task",
         description: "Test description",
         metadata: {
@@ -131,7 +131,7 @@ This is a test task description.
         },
       };
 
-      const _result = backend.formatTaskSpec(_spec);
+      const _result = backend.formatTaskSpec(spec);
 
       expect(_result).toContain("# Task #001: Test Task");
       expect(_result).toContain("## Description\nTest description");

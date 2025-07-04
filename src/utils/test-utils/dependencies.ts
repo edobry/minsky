@@ -60,8 +60,8 @@ export interface GitDependencies {
     _command: string,
     _options?: Record<string, unknown>
   ) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (_name: unknown) => Promise<SessionData | null>;
-  getSessionWorkdir: (_repoName: unknown) => string;
+  getSession: (name: unknown) => Promise<SessionData | null>;
+  getSessionWorkdir: (repoName: unknown) => string;
   [key: string]: unknown;
 }
 
@@ -88,15 +88,15 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
   // Create default git service mock using createPartialMock
   const gitService = createPartialMock<GitServiceInterface>({
     // Use specific implementation signatures that match the interface
-    clone: () => Promise.resolve({ _workdir: "/mock/workdir", _session: "test-session" }),
-    branch: () => Promise.resolve({ _workdir: "/mock/workdir", _branch: "test-_branch" }),
+    clone: () => Promise.resolve({ workdir: "/mock/workdir", session: "test-session" }),
+    branch: () => Promise.resolve({ workdir: "/mock/workdir", branch: "test-branch" }),
     execInRepository: () => Promise.resolve("mock output"),
     getSessionWorkdir: () => "/mock/session/workdir",
-    stashChanges: () => Promise.resolve(),
-    pullLatest: () => Promise.resolve(),
-    mergeBranch: () => Promise.resolve({ conflicts: false }),
-    push: () => Promise.resolve(),
-    popStash: () => Promise.resolve(),
+    stashChanges: () => Promise.resolve({ workdir: "/mock/workdir", stashed: true }),
+    pullLatest: () => Promise.resolve({ workdir: "/mock/workdir", updated: true }),
+    mergeBranch: () => Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false }),
+    push: () => Promise.resolve({ workdir: "/mock/workdir", pushed: true }),
+    popStash: () => Promise.resolve({ workdir: "/mock/workdir", stashed: false }),
     getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
     ...(overrides.gitService || {}),
   });
@@ -106,13 +106,13 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
     getTask: () => Promise.resolve(null),
     setTaskStatus: () => Promise.resolve(),
     getTaskStatus: () => Promise.resolve(null),
-    getBackendForTask: (__taskId: unknown) => Promise.resolve("markdown"),
+    getBackendForTask: (taskId: unknown) => Promise.resolve("markdown"),
     listTasks: () => Promise.resolve([]),
     createTask: () =>
       Promise.resolve({
-        _id: "#test",
-        _title: "Test Task",
-        _status: "TODO",
+        id: "#test",
+        title: "Test Task",
+        status: "TODO",
       }),
     ...(overrides.taskService || {}),
   });
@@ -120,7 +120,7 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
   // Create default workspace utils mock using createPartialMock
   const workspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
     isWorkspace: () => Promise.resolve(true),
-    isSessionWorkspace: () => Promise.resolve(false),
+    isSessionWorkspace: () => false,
     getCurrentSession: () => Promise.resolve(null),
     getSessionFromWorkspace: () => Promise.resolve(null),
     resolveWorkspacePath: () => Promise.resolve("/mock/workspace/path"),
@@ -147,13 +147,13 @@ export function createTaskTestDeps(overrides: Partial<TaskDependencies> = {}): T
     getTask: () => Promise.resolve(null),
     setTaskStatus: () => Promise.resolve(),
     getTaskStatus: () => Promise.resolve(null),
-    getBackendForTask: (__taskId: unknown) => Promise.resolve("markdown"),
+    getBackendForTask: (taskId: unknown) => Promise.resolve("markdown"),
     listTasks: () => Promise.resolve([]),
     createTask: () =>
       Promise.resolve({
-        _id: "#test",
-        _title: "Test Task",
-        _status: "TODO",
+        id: "#test",
+        title: "Test Task",
+        status: "TODO",
       }),
     ...(overrides.taskService || {}),
   });
@@ -175,7 +175,7 @@ export function createTaskTestDeps(overrides: Partial<TaskDependencies> = {}): T
  * @returns A complete set of session-specific dependencies for testing
  */
 export function createSessionTestDeps(
-  _overrides: Partial<SessionDependencies> = {}
+  overrides: Partial<SessionDependencies> = {}
 ): SessionDependencies {
   const sessionDB = createPartialMock<SessionProviderInterface>({
     listSessions: () => Promise.resolve([]),
@@ -190,15 +190,15 @@ export function createSessionTestDeps(
   });
 
   const gitService = createPartialMock<GitServiceInterface>({
-    clone: () => Promise.resolve({ _workdir: "/mock/workdir", _session: "test-session" }),
-    branch: () => Promise.resolve({ _workdir: "/mock/workdir", _branch: "test-_branch" }),
+    clone: () => Promise.resolve({ workdir: "/mock/workdir", session: "test-session" }),
+    branch: () => Promise.resolve({ workdir: "/mock/workdir", branch: "test-_branch" }),
     execInRepository: () => Promise.resolve("mock output"),
     getSessionWorkdir: () => "/mock/session/workdir",
-    stashChanges: () => Promise.resolve(),
-    pullLatest: () => Promise.resolve(),
-    mergeBranch: () => Promise.resolve({ conflicts: false }),
-    push: () => Promise.resolve(),
-    popStash: () => Promise.resolve(),
+    stashChanges: () => Promise.resolve({ workdir: "/mock/workdir", stashed: true }),
+    pullLatest: () => Promise.resolve({ workdir: "/mock/workdir", updated: true }),
+    mergeBranch: () => Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false }),
+    push: () => Promise.resolve({ workdir: "/mock/workdir", pushed: true }),
+    popStash: () => Promise.resolve({ workdir: "/mock/workdir", stashed: false }),
     getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
     ...(overrides.gitService || {}),
   });
@@ -217,15 +217,15 @@ export function createSessionTestDeps(
  */
 export function createGitTestDeps(overrides: Partial<GitDependencies> = {}): GitDependencies {
   const gitService = createPartialMock<GitServiceInterface>({
-    clone: () => Promise.resolve({ _workdir: "/mock/workdir", _session: "test-session" }),
-    branch: () => Promise.resolve({ _workdir: "/mock/workdir", _branch: "test-_branch" }),
+    clone: () => Promise.resolve({ workdir: "/mock/workdir", session: "test-session" }),
+    branch: () => Promise.resolve({ workdir: "/mock/workdir", branch: "test-_branch" }),
     execInRepository: () => Promise.resolve("mock output"),
     getSessionWorkdir: () => "/mock/session/workdir",
-    stashChanges: () => Promise.resolve(),
-    pullLatest: () => Promise.resolve(),
-    mergeBranch: () => Promise.resolve({ conflicts: false }),
-    push: () => Promise.resolve(),
-    popStash: () => Promise.resolve(),
+    stashChanges: () => Promise.resolve({ workdir: "/mock/workdir", stashed: true }),
+    pullLatest: () => Promise.resolve({ workdir: "/mock/workdir", updated: true }),
+    mergeBranch: () => Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false }),
+    push: () => Promise.resolve({ workdir: "/mock/workdir", pushed: true }),
+    popStash: () => Promise.resolve({ workdir: "/mock/workdir", stashed: false }),
     getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
     ...(overrides.gitService || {}),
   });
@@ -235,7 +235,7 @@ export function createGitTestDeps(overrides: Partial<GitDependencies> = {}): Git
     Promise.resolve({
       name: "test-session",
       repoName: "test-repo",
-      _taskId: "TEST_VALUE",
+      taskId: "TEST_VALUE",
     });
   const getSessionWorkdir = () => "/mock/session/workdir";
 
@@ -254,24 +254,24 @@ export function createGitTestDeps(overrides: Partial<GitDependencies> = {}): Git
  * @returns A complete mock repository backend
  */
 export function createMockRepositoryBackend(
-  _overrides: Partial<RepositoryBackend> = {}
+  overrides: Partial<RepositoryBackend> = {}
 ): RepositoryBackend {
   // Use createPartialMock to handle the interface requirements
   return createPartialMock<RepositoryBackend>({
     clone: () =>
       Promise.resolve({
-        _workdir: "/mock/workdir",
-        _session: "test-session",
+        workdir: "/mock/workdir",
+        session: "test-session",
       }),
     branch: () =>
       Promise.resolve({
-        _workdir: "/mock/workdir",
-        _branch: "test-_branch",
+        workdir: "/mock/workdir",
+        branch: "test-_branch",
       }),
     getStatus: () =>
       Promise.resolve({
         clean: true,
-        _branch: "test-_branch",
+        branch: "test-_branch",
       }),
     getPath: () => "/mock/repo/path",
     validate: () =>
@@ -347,7 +347,7 @@ export function createDeepTestDeps(partialDeps: Partial<DomainDependencies>): Do
   const baseDeps = createTestDeps();
 
   // Apply deep overrides
-  return deepMergeDeps(_baseDeps, partialDeps);
+  return deepMergeDeps(baseDeps, partialDeps);
 }
 
 /**
@@ -392,7 +392,7 @@ function deepMergeDeps<T extends Record<string, unknown>>(target: T, source: Par
  * @returns A partial set of domain dependencies for testing
  */
 export function createPartialTestDeps(
-  _overrides: Partial<DomainDependencies> = {}
+  overrides: Partial<DomainDependencies> = {}
 ): Partial<DomainDependencies> {
   return overrides;
 }

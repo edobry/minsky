@@ -29,7 +29,7 @@ export class NodeConfigAdapter implements ConfigurationService {
       credentials: config.get("credentials"),
       detectionRules: config.get("detectionRules"),
       sessiondb: config.get("sessiondb"),
-      ai: config.has("ai") ? config.get("ai") : undefined,
+      ai: config.has("ai") ? config.get("ai") : undefined as any,
     };
 
     // Create mock sources for backward compatibility
@@ -37,8 +37,8 @@ export class NodeConfigAdapter implements ConfigurationService {
     const sources: ConfigurationSources = {
       cliFlags: {},
       environment: this.getEnvironmentOverrides(),
-      globalUser: null, // Will be handled by node-config's local.yaml
-      repository: null, // TODO: Handle .minsky/config.yaml separately
+      globalUser: null as any, // Will be handled by node-config's local.yaml
+      repository: null as any, // TODO: Handle .minsky/config.yaml separately
       defaults: this.getDefaultConfig(),
     };
 
@@ -52,7 +52,7 @@ export class NodeConfigAdapter implements ConfigurationService {
    * Validate repository configuration
    * TODO: Implement using node-config's validation features
    */
-  validateRepositoryConfig(_config: RepositoryConfig): ValidationResult {
+  validateRepositoryConfig(config: RepositoryConfig): ValidationResult {
     return {
       valid: true,
       errors: [],
@@ -64,7 +64,7 @@ export class NodeConfigAdapter implements ConfigurationService {
    * Validate global user configuration
    * TODO: Implement using node-config's validation features
    */
-  validateGlobalUserConfig(_config: GlobalUserConfig): ValidationResult {
+  validateGlobalUserConfig(config: GlobalUserConfig): ValidationResult {
     return {
       valid: true,
       errors: [],
@@ -81,7 +81,7 @@ export class NodeConfigAdapter implements ConfigurationService {
     // These will be handled by custom-environment-variables.yaml in node-config
     // but we maintain this for compatibility during migration
     if (process.env.MINSKY_BACKEND) {
-      overrides.backend = process.env.MINSKY_BACKEND;
+      overrides.backend = process.env.MINSKY_BACKEND as any;
     }
 
     return overrides;
@@ -102,9 +102,9 @@ export class NodeConfigAdapter implements ConfigurationService {
       ],
       sessiondb: {
         backend: "json",
-        baseDir: undefined,
-        dbPath: undefined,
-        connectionString: undefined,
+        baseDir: undefined as any,
+        dbPath: undefined as any,
+        connectionString: undefined as any,
       },
     };
   }

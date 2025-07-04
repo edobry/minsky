@@ -16,8 +16,8 @@ export class TestGitService extends GitService {
    * @param commandPattern - String to match in the command
    * @param response - Mock response to return
    */
-  registerMockResponse(_commandPattern: string, response: { stdout: string; stderr: string }): void {
-    this.mockResponses.set(_commandPattern, response);
+  registerMockResponse(commandPattern: string, response: { stdout: string; stderr: string }): void {
+    this.mockResponses.set(commandPattern, response);
   }
 
   /**
@@ -47,7 +47,7 @@ export class TestGitService extends GitService {
   /**
    * Override execInRepository to use our mock execAsync
    */
-  async execInRepository(__workdir: string, _command: string): Promise<string> {
+  async execInRepository(__workdir: string, command: string): Promise<string> {
     const result = await this.execAsync(`git -C ${workdir} ${command}`);
     return result.stdout.trim();
   }

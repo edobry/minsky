@@ -58,7 +58,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error reading session database: ${err.message}`);
+      log.error(`Error reading session database: ${(err as any).message}`);
       return {
         success: false,
         error: err,
@@ -75,7 +75,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error writing session database: ${err.message}`);
+      log.error(`Error writing session database: ${(err as any).message}`);
       return {
         success: false,
         error: err,
@@ -83,13 +83,13 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
     }
   }
 
-  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
+  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
     const result = await this.readState();
     if (!result.success || !result.data) {
-      return null;
+      return null as any;
     }
 
-    return result.data.sessions.find((session) => session.session === id) || null;
+    return result.data.sessions.find((session) => session.session === id) || null as any;
   }
 
   async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
@@ -144,12 +144,12 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
   async updateEntity(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null> {
     const result = await this.readState();
     if (!result.success || !result.data) {
-      return null;
+      return null as any;
     }
 
     const sessionIndex = result.data.sessions.findIndex((s) => s.session === id);
     if (sessionIndex === -1) {
-      return null;
+      return null as any;
     }
 
     // Create safe updates by explicitly building the update object without session

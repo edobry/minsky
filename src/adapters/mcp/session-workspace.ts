@@ -99,7 +99,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -155,7 +155,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -220,7 +220,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         .default(false)
         .describe("Include hidden files (starting with .)"),
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -289,7 +289,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to check within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -357,7 +357,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file to delete within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -419,7 +419,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 

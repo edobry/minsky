@@ -18,7 +18,7 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
       const stats = await fs.stat(contentPath);
       if (stats.isFile()) {
         // If it's a file, read its contents
-        const content = await fs.readFile(_contentPath, "utf-8");
+        const content = await fs.readFile(contentPath, "utf-8");
         return content.toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
@@ -43,7 +43,7 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
  */
 export function parseGlobs(globsStr?: string): string[] | undefined {
   if (!globsStr || globsStr.trim() === "") {
-    return undefined;
+    return undefined as any;
   }
 
   // Try to parse as JSON array first
@@ -52,7 +52,7 @@ export function parseGlobs(globsStr?: string): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (_error) {
+  } catch (error) {
     // If JSON parsing fails, fall back to comma-separated string
   }
 

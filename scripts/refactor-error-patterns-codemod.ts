@@ -217,7 +217,7 @@ class ErrorPatternCodemod {
     }
 
     // Also check for patterns that might be spread across lines
-    const normalizedContent = content.replace(/\s+/g, " ");
+    const normalizedContent = (content).toString().replace(/\s+/g, " ");
     for (const pattern of testPatterns) {
       if (pattern.test(normalizedContent)) {
         return true;
@@ -275,7 +275,7 @@ class ErrorPatternCodemod {
     const relativePath = this.calculateErrorsImportPath(filePath);
     
     // Find the best place to add the import
-    const lines = content.split("\n");
+    const lines = (content).toString().split("\n");
     let insertIndex = 0;
     let hasOtherImports = false;
 
