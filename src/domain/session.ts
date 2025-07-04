@@ -229,7 +229,7 @@ export async function startSessionFromParams(
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         throw new MinskyError(
-          `--repo is required (not in a git repo and no --repo provided): ${error.message}`
+          `--repo is required (not in a git repo and no --repo provided): ${error?.message}`
         );
       }
     }
@@ -287,7 +287,7 @@ export async function startSessionFromParams(
     if (repoName.startsWith("local/")) {
       // Replace slashes with dashes in the path segments after "local/"
       const parts = repoName.split("/");
-      if (parts.length > 1) {
+      if (parts?.length > 1) {
         // Keep "local" as is, but normalize the rest
         normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
       }
@@ -493,7 +493,7 @@ export async function getSessionDirFromParams(
 
   let sessionName: string;
 
-  if (params.task && !params.name) {
+  if (params.task && !params?.name) {
     // Find session by task ID
     const normalizedTaskId = taskIdSchema.parse(params.task);
     const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
@@ -503,8 +503,8 @@ export async function getSessionDirFromParams(
     }
 
     sessionName = session.session;
-  } else if (params.name) {
-    sessionName = params.name;
+  } else if (params?.name) {
+    sessionName = params?.name;
   } else {
     throw new ResourceNotFoundError("You must provide either a session name or task ID");
   }
@@ -634,7 +634,7 @@ export async function updateSessionFromParams(
         } catch (repairError) {
           log.warn("Failed to self-repair orphaned session", {
             sessionName,
-            error: repairError instanceof Error ? repairError.message : String(repairError),
+            error: repairError instanceof Error ? repairError?.message : String(repairError),
           });
         }
       }
@@ -836,9 +836,9 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
   try {
     // Import schema here to avoid circular dependency issues
     const { sessionPrParamsSchema } = await import("../schemas/session.js");
-    sessionPrParamsSchema.parse(params);
+    sessionPrParamsSchema.parse(params as any);
   } catch (error) {
-    if (error instanceof Error && error.name === "ZodError") {
+    if (error instanceof Error && error?.name === "ZodError") {
       // Extract the validation error message
       const zodError = error as any;
       const message = zodError.errors?.[0]?.message || "Invalid parameters";
@@ -879,24 +879,24 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
       let statusInfo = "";
       try {
         const status = await gitService.getStatus(currentDir);
-        const changes = [];
+        const changes: string[] = [];
 
         if (status.modified.length > 0) {
           changes.push(`📝 Modified files (${status.modified.length}):`);
-          status.modified.forEach((file) => changes.push(`   ${file}`));
+          status.modified.forEach((file: any) => changes.push(`   ${file}`));
         }
 
         if (status.untracked.length > 0) {
           changes.push(`📄 New files (${status.untracked.length}):`);
-          status.untracked.forEach((file) => changes.push(`   ${file}`));
+          status.untracked.forEach((file: any) => changes.push(`   ${file}`));
         }
 
         if (status.deleted.length > 0) {
           changes.push(`🗑️  Deleted files (${status.deleted.length}):`);
-          status.deleted.forEach((file) => changes.push(`   ${file}`));
+          status.deleted.forEach((file: any) => changes.push(`   ${file}`));
         }
 
-        statusInfo = changes.length > 0 ? changes.join("\n") : "No detailed changes available";
+        statusInfo = changes?.length > 0 ? changes.join("\n") : "No detailed changes available";
       } catch (statusError) {
         statusInfo = "Unable to get detailed status.";
       }
@@ -940,7 +940,7 @@ Need help? Run 'git status' to see what files have changed.
         }
 
         log.debug(`Read PR body from file: ${filePath}`, {
-          fileSize: bodyContent.length,
+          fileSize: bodyContent?.length,
           bodyPath: params.bodyPath,
         });
       } catch (error) {
@@ -982,7 +982,7 @@ Need help? Run 'git status' to see what files have changed.
         // Extract session name from path - assuming standard path format
         const pathParts = currentDir.split("/");
         const sessionsIndex = pathParts.indexOf("sessions");
-        if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
+        if (sessionsIndex >= 0 && sessionsIndex < pathParts?.length - 1) {
           sessionName = pathParts[sessionsIndex + 1];
         }
       } catch (error) {
@@ -1052,7 +1052,7 @@ Need help? Run 'git status' to see what files have changed.
       body: bodyContent,
       baseBranch: params.baseBranch,
       debug: params.debug,
-    });
+    }) as any;
 
     // Update task status to IN-REVIEW if associated with a task
     if (!params.noStatusUpdate) {
@@ -1080,7 +1080,7 @@ Need help? Run 'git status' to see what files have changed.
       task: params.task,
       bodyPath: params.bodyPath,
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: error instanceof Error ? error?.stack : undefined,
     });
     throw error;
   }

@@ -223,7 +223,7 @@ export class RemoteGitBackend implements RepositoryBackend {
           "--exit-code",
           this.config.url,
           `refs/heads/${this.config._branch}`,
-        ]);
+        ]) as any;
         if (!output) {
           issues.push(`Branch '${this.config._branch}' not found in remote repository`);
         }
@@ -232,7 +232,7 @@ export class RemoteGitBackend implements RepositoryBackend {
       }
     }
 
-    return { valid: issues.length === 0, issues: issues.length > 0 ? issues : undefined };
+    return { valid: issues?.length === 0, issues: issues?.length > 0 ? issues : undefined };
   }
 
   /**
