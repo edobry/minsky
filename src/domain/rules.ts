@@ -211,7 +211,7 @@ export class RuleService {
           let extractedContent = content;
           const frontmatterEndIndex = (content).toString().indexOf("---", 3);
           if (content.startsWith("---") && frontmatterEndIndex > 0) {
-            extractedContent = (content.substring(frontmatterEndIndex + 3)).toString().trim();
+            extractedContent = ((content).toString().substring(frontmatterEndIndex + 3)).toString().trim();
           }
 
           // Return a basic rule object with just the content, missing the metadata from frontmatter
@@ -319,7 +319,7 @@ export class RuleService {
           let extractedContent = content;
           const frontmatterEndIndex = (content).toString().indexOf("---", 3);
           if (content.startsWith("---") && frontmatterEndIndex > 0) {
-            extractedContent = (content.substring(frontmatterEndIndex + 3)).toString().trim();
+            extractedContent = ((content).toString().substring(frontmatterEndIndex + 3)).toString().trim();
           }
 
           return {
