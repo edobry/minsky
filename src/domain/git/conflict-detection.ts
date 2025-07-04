@@ -250,7 +250,9 @@ export class ConflictDetectionService {
       const { stdout: aheadBehind } = await execAsync(
         `git -C ${repoPath} rev-list --left-right --count ${baseBranch}...${sessionBranch}`
       );
-      const [behind, ahead] = aheadBehind.trim().split("\t").map(Number);
+      const [behindStr, aheadStr] = aheadBehind.trim().split("\t");
+      const behind = Number(behindStr) || 0;
+      const ahead = Number(aheadStr) || 0;
 
       // Get last common commit
       const { stdout: commonCommit } = await execAsync(
@@ -415,8 +417,9 @@ export class ConflictDetectionService {
     log.debug("Smart session update", { repoPath, sessionBranch, baseBranch, options });
 
     try {
-      // Analyze branch divergence
-      const divergence = await this.analyzeBranchDivergence(repoPath, sessionBranch, baseBranch);
+      // Analyze branch divergence against origin/baseBranch (remote tracking branch)
+      const remoteBranch = `origin/${baseBranch}`;
+      const divergence = await this.analyzeBranchDivergence(repoPath, sessionBranch, remoteBranch);
 
       // Check if we should skip update
       if (options?.skipIfAlreadyMerged && divergence.sessionChangesInBase) {
@@ -442,9 +445,9 @@ export class ConflictDetectionService {
 
       // Perform update based on divergence analysis
       if (divergence.recommendedAction === "fast_forward") {
-        // Simple fast-forward
+        // Simple fast-forward - merge from the remote branch we analyzed against
         await execAsync(`git -C ${repoPath} fetch origin ${baseBranch}`);
-        await execAsync(`git -C ${repoPath} merge --ff-only origin/${baseBranch}`);
+        await execAsync(`git -C ${repoPath} merge --ff-only ${remoteBranch}`);
 
         return {
           workdir: repoPath,
@@ -454,10 +457,10 @@ export class ConflictDetectionService {
           divergenceAnalysis: divergence,
         };
       } else {
-        // Complex merge needed
+        // Complex merge needed - merge from the remote branch we analyzed against
         const mergeResult = await this.mergeWithConflictPrevention(
           repoPath,
-          `origin/${baseBranch}`,
+          remoteBranch,
           sessionBranch,
           { autoResolveDeleteConflicts: options?.autoResolveConflicts }
         );
