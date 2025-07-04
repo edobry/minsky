@@ -397,7 +397,7 @@ export function formatTaskStateToMarkdown(state: TaskStatus): string {
  * @param content Markdown content
  * @returns Task state object
  */
-export function parseMarkdownToTaskState(content: string): TaskStatus {
+export function parseMarkdownToTaskState(content: string): TaskData[] {
   // Fixed return type - should return TaskData[] not TaskStatus
   return parseTasksFromMarkdown(content);
 }

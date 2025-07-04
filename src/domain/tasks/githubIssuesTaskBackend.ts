@@ -21,6 +21,7 @@ import type {
 } from "../../types/tasks/taskData.js";
 import type { TaskBackend } from "./taskBackend";
 import { log } from "../../utils/logger";
+import { TASK_STATUS } from "./taskConstants.js";
 
 /**
  * Configuration for GitHubIssuesTaskBackend
@@ -469,7 +470,7 @@ ${((issue.labels as any).map((label) => `- ${typeof label === "string" ? label :
     }
 
     // Fallback based on issue state
-    return (issue as any).state === "closed" ? "DONE" : "TODO";
+    return (issue as any).state === "closed" ? TASK_STATUS.DONE : TASK_STATUS.TODO;
   }
 
   private getLabelsForTaskStatus(status: string): string[] {
