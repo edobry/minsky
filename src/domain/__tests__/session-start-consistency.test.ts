@@ -36,6 +36,7 @@ describe("Session Start Consistency Tests", () => {
     mockGitService = {
       clone: createMock(),
       branch: createMock(),
+      branchWithoutSession: createMock(),
     };
 
     mockTaskService = {
@@ -59,6 +60,7 @@ describe("Session Start Consistency Tests", () => {
 
     mockGitService.clone.mockResolvedValue({ workdir: "/test/sessions/task160" });
     mockGitService.branch.mockResolvedValue({ branch: "task160" });
+    mockGitService.branchWithoutSession.mockResolvedValue({ branch: "task160", workdir: "/test/sessions/task160" });
 
     mockTaskService.getTask.mockResolvedValue({ id: "160", title: "Test Task" });
     mockTaskService.getTaskStatus.mockResolvedValue("TODO");
@@ -90,12 +92,12 @@ describe("Session Start Consistency Tests", () => {
 
       // Assert - verify call order by checking that git operations were called first
       expect(mockGitService.clone).toHaveBeenCalled();
-      expect(mockGitService.branch).toHaveBeenCalled();
+      expect(mockGitService.branchWithoutSession).toHaveBeenCalled();
       expect(mockSessionDB.addSession).toHaveBeenCalled();
 
       // Verify all operations completed
       expect(mockGitService.clone).toHaveBeenCalledTimes(1);
-      expect(mockGitService.branch).toHaveBeenCalledTimes(1);
+      expect(mockGitService.branchWithoutSession).toHaveBeenCalledTimes(1);
       expect(mockSessionDB.addSession).toHaveBeenCalledTimes(1);
     });
 
@@ -160,7 +162,7 @@ describe("Session Start Consistency Tests", () => {
     it("should not add session to database when git branch creation fails", async () => {
       // Arrange
       const branchError = new Error("failed to create branch");
-      mockGitService.branch.mockRejectedValue(branchError);
+      mockGitService.branchWithoutSession.mockRejectedValue(branchError);
 
       const params = {
         task: "160",
