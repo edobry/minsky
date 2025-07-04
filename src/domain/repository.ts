@@ -240,7 +240,7 @@ export type RepositoryBackendConfig = RepositoryConfig;
 export async function createRepositoryBackend(
   config: RepositoryConfig
 ): Promise<RepositoryBackend> {
-  switch (config.type) {
+  switch ((config as any).type) {
   case RepositoryBackendType.LOCAL: {
     const { LocalGitBackend } = await import("./localGitBackend.js");
     return new LocalGitBackend(config);
@@ -424,7 +424,7 @@ export async function createRepositoryBackend(
     };
   }
   default: {
-    throw new Error(`Unsupported repository backend type: ${config.type}`);
+    throw new Error(`Unsupported repository backend type: ${(config as any).type}`);
   }
   }
 }
@@ -559,7 +559,7 @@ export async function resolveRepoPath(options: {
     }
   } catch (error) {
     throw new MinskyError(
-      `Failed to resolve repository _path: ${getErrorMessage(error)}`
+      `Failed to resolve repository _path: ${getErrorMessage(error as any)}`
     );
   }
 }

@@ -526,7 +526,7 @@ export async function createTaskFromTitleAndDescription(
           throw error;
         }
 
-        const errorMessage = getErrorMessage(error);
+        const errorMessage = getErrorMessage(error as any);
         if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
           throw new ValidationError(`Description file not found: ${validParams.descriptionPath}`);
         } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
