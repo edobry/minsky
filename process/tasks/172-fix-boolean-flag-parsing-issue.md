@@ -1,6 +1,6 @@
 # Fix Boolean Flag Parsing Issue
 
-> **⚠️ MERGED**: This task has been merged into [Task #177: Fix Shared Command Registry Architecture to Eliminate Interface Duplication](177-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md) as both issues stem from the same architectural failure.
+> **⚠️ MERGED**: This task has been merged into [Task #201: Eliminate MCP Command Duplication by Implementing Proper Bridge Integration](201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md) as the boolean flag parsing issue is a symptom of broader architectural problems in the shared command registry system.
 
 ## Problem
 

@@ -1,4 +1,4 @@
-# Task 171: Analyze and Modularize Overly Long Files
+# Analyze and Modularize Overly Long Files
 
 ## Overview
 

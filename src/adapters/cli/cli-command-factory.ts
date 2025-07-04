@@ -299,7 +299,11 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           },
           task: {
             alias: "t",
-            description: "Task ID to associate with the session",
+            description: "Task ID to associate with the session (required if --description not provided)",
+          },
+          description: {
+            alias: "d",
+            description: "Description for auto-created task (required if --task not provided)",
           },
         },
       },
@@ -367,7 +371,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         useFirstRequiredParamAsArgument: false,
         parameters: {
           title: {
-            description: "Title for the PR (required)",
+            description: "Title for the PR (optional for existing PRs)",
           },
           body: {
             description: "Body text for the PR",

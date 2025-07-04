@@ -5,6 +5,7 @@ This directory contains comprehensive documentation for the Minsky development w
 ## Getting Started
 
 - [**Main README**](../README.md) - Overview, installation, and basic usage
+- [**Bun Optimization Setup**](./bun-optimization-setup.md) - **Recommended**: Configure disk space optimization (60-90% savings)
 - [**Example Guide**](./EXAMPLE_GUIDE.md) - Comprehensive examples and workflows
 - [**Migration Guides**](./MIGRATION_GUIDES.md) - Migration guides for different versions and backends
 
@@ -36,6 +37,7 @@ This directory contains comprehensive documentation for the Minsky development w
 
 ### Configuration
 
+- [**Bun Optimization Setup**](./bun-optimization-setup.md) - Disk space optimization configuration (recommended)
 - [**Repository Configuration**](./repository-configuration.md) - Repository backend configuration
 
 ## Architecture & Development

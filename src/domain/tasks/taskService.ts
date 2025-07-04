@@ -85,7 +85,6 @@ export class TaskService {
           this.backends.push(githubBackend);
         }
       } catch (error) {
-        console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
         // Silently ignore GitHub backend if not available
         log.debug("GitHub backend not available", { error: String(error) });
       }
@@ -482,7 +481,6 @@ export class TaskService {
         ...config,
       });
     } catch (error) {
-      console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
       // Return null if GitHub modules are not available
       return null as any;
     }
@@ -612,7 +610,6 @@ export async function createConfiguredTaskService(
       backend: resolvedBackend,
     });
   } catch (error) {
-    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     // If configuration resolution fails, fall back to default backend
     log.warn("Failed to resolve configuration, using default backend", {
       workspacePath,

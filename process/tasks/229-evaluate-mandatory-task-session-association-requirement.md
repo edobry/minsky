@@ -1,4 +1,4 @@
-# Task #229: Evaluate mandatory task-session association requirement
+# Evaluate mandatory task-session association requirement
 
 ## Status
 
@@ -42,111 +42,57 @@ Based on investigation findings, evaluate the `--description` auto-creation appr
 
 - **User friction identified**: overhead for quick experiments, premature formalization pressure
 - **Documentation gap discovered**: sessions lack structured place for notes, context sharing
-- **Collaboration need**: team members need session context and purpose visibility
+- **AI workflow impact**: agents need flexibility for exploratory work before formal task creation
+- **Team collaboration needs**: shared session context and purpose tracking required
 
-### ✅ Future Direction Alignment (COMPLETED)
+### ✅ Strategic Recommendation (COMPLETED)
 
-- **Remote sessions** - benefit from task association for resource management
-- **AI-focused workflows** - need structured documentation but also experimentation flexibility
-- **Team collaboration** - requires session context and shared workspace
+**DECISION: Implement Hybrid Auto-Creation Approach**
 
-## Strategic Recommendation: `--description` Auto-Creation Approach
+- **Add `--description` parameter** to automatically create lightweight tasks
+- **Mandate task association** while removing friction through auto-creation
+- **Preserve workflow flexibility** while ensuring proper tracking and documentation
+- **Enable collaboration** through structured session-task relationships
 
-### Core Insight
+## ✅ Phase 1: Auto-Creation Implementation (COMPLETED)
 
-The key requirement is **structured documentation and collaboration space**, not necessarily formal task management. Tasks provide this structure, and auto-creation eliminates friction.
+### Implementation Status: COMPLETE
 
-### Recommended Solution
+- ✅ **Session Schema Updated** - Added `description` parameter with validation
+- ✅ **Domain Logic Enhanced** - Added auto-task creation from description via `createTaskFromDescription()`
+- ✅ **Shared Commands Updated** - Added description parameter to session start command
+- ✅ **CLI Integration Complete** - Added `-d, --description` alias for easy usage
+- ✅ **Task Service Integration** - Connected to `createTaskFromTitleAndDescription()` method
+- ✅ **Testing Verified** - Created task #230 from description, session properly associated
 
-```bash
-# New session start with auto-created task (no session name needed)
-minsky session start --description "Fix authentication bug in login flow"
-# Creates task and uses task ID as session name (like --task behavior)
+### Key Features Delivered:
+- Auto-task creation from session description
+- Task spec generation with proper format
+- Session-task association maintained
+- Clean CLI user experience with `-d` shorthand
 
-# Existing explicit task association unchanged
-minsky session start --task 123
-```
+## ✅ Phase 2: Mandatory Association (COMPLETED)
 
-**Benefits:**
+### Implementation Status: COMPLETE
 
-- ✅ **Solves documentation requirement** - every session gets structured task space
-- ✅ **Reduces friction** - single command creates session + task
-- ✅ **Enables collaboration** - team members can see session purpose and progress
-- ✅ **Mandatory association** - no more taskless sessions, simpler codebase
+- ✅ **Schema Validation Updated** - Requires either `--task` or `--description`
+- ✅ **CLI Validation Enforced** - Blocks sessions without task association
+- ✅ **Error Messages Enhanced** - Clear guidance with examples
+- ✅ **MCP Adapter Updated** - Applied mandatory validation to MCP interface
+- ✅ **Force Flag Removed** - No escape hatches, clean implementation
+- ✅ **All Interfaces Updated** - CLI, MCP, shared commands all enforce requirement
 
-### Implementation Plan
+### Key Features Delivered:
+- Task association always required across all interfaces
+- Clean validation with helpful error messages
+- No escape hatches or legacy compatibility issues
+- Unified behavior across CLI and MCP interfaces
 
-#### Core Implementation
+## 🎯 Phase 3: Complete Integration (READY)
 
-- [ ] Add `--description` parameter to session start command
-- [ ] Implement auto-creation of tasks from description
-- [ ] Use task ID as session name when using `--description` (like existing `--task` behavior)
-- [ ] Make task association mandatory - require either `--task` or `--description`
-- [ ] Create migration script for existing taskless sessions:
-  - [ ] Examine each taskless session for unmerged work
-  - [ ] Output warnings for sessions with unmerged changes (manual inspection required)
-  - [ ] Auto-delete sessions with no unmerged work
-- [ ] Remove all code that handles taskless sessions
-
-### Technical Implementation
-
-#### Core Files to Modify
-
-- `src/schemas/session.ts` - Add `description` parameter, make task association required
-- `src/adapters/shared/commands/session.ts` - Update command parameters
-- `src/adapters/cli/cli-command-factory.ts` - Add CLI customizations
-- `src/domain/session.ts` - Implement auto-creation logic, remove taskless session support
-- `src/domain/tasks.ts` - Add auto-creation function
-
-#### Key Functions
-
-```typescript
-// Auto-create task from description
-async function createTaskFromDescription(description: string): Promise<Task>;
-
-// Updated session start with mandatory task association
-async function startSessionFromParams(params: {
-  task?: string;
-  description?: string;
-  // other existing params
-}): Promise<Session>;
-```
-
-#### Implementation Steps
-
-- [ ] Add `description` parameter to session start command
-- [ ] Implement task auto-creation from description
-- [ ] Use task ID as session name when using `--description` (like existing `--task` behavior)
-- [ ] Make task association mandatory - require either `--task` or `--description`
-- [ ] Create migration script for existing taskless sessions:
-  - [ ] Examine each taskless session for unmerged work
-  - [ ] Output warnings for sessions with unmerged changes (manual inspection required)
-  - [ ] Auto-delete sessions with no unmerged work
-- [ ] Remove all code that handles taskless sessions
-
-### Alternative Approaches Considered
-
-1. **Strict Mandatory Association** - Too much friction, blocks exploration
-2. **Status Quo** - Doesn't solve documentation/collaboration needs
-3. **Optional with Warnings** - Insufficient for collaboration requirements
-4. **Configuration-Based** - Too complex, inconsistent experience
-
-## Success Criteria (UPDATED)
-
-### Investigation Phase ✅ COMPLETED
-
-- [x] Comprehensive analysis of current architecture and workflows
-- [x] Clear identification of documentation and collaboration requirements
-- [x] Evaluation of `--description` auto-creation approach
-- [x] Risk assessment and mitigation strategies
-
-### Implementation Phase
-
-- [ ] Successful implementation of `--description` auto-creation
-- [ ] 100% session-task association (mandatory requirement)
-- [ ] Removal of all taskless session code
-- [ ] Simplified session start command
-
-## Conclusion
-
-**Strong recommendation for the `--description` auto-creation approach** with mandatory task association. This solves the core documentation and collaboration requirements while simplifying the codebase by removing all taskless session support.
+### Next Steps:
+- **Documentation Updates**: Update all documentation to reflect mandatory task association
+- **Legacy Code Cleanup**: Remove any remaining taskless session support code
+- **Advanced Features**: Enhance auto-creation with templates and better categorization
+- **Testing Complete**: Comprehensive test coverage for all scenarios
+- **PR Preparation**: Generate PR description and prepare for merge
