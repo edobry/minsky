@@ -411,7 +411,7 @@ export function registerSessionCommands(): void {
     description: "Get details of a specific session",
     parameters: sessionGetCommandParams,
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing session.get command", { params, context });
+      log.debug("Executing session.get command"!, { params, context });
 
       try {
         const session = await getSessionFromParams({
@@ -449,7 +449,7 @@ export function registerSessionCommands(): void {
     description: "Start a new session",
     parameters: sessionStartCommandParams,
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing session.start command", { params, context });
+      log.debug("Executing session.start command"!, { params, context });
 
       // Phase 2: Validate that task association is provided
       if (!(params as any).task && !(params as any).description) {
@@ -664,7 +664,7 @@ Examples:
       } catch (error) {
         // Instead of just logging and rethrowing, provide user-friendly error messages
         const errorMessage = getErrorMessage(error as any);
-        
+          
         // Handle specific error types with friendly messages
         if ((errorMessage as any).includes("CONFLICT") || (errorMessage as any).includes("conflict")) {
           throw new MinskyError(

@@ -67,7 +67,7 @@ class CliCommandFactory {
    */
   customizeCommand(commandId: ValidCommandId, options: CliCommandOptions): void {
     this.ensureInitialized();
-    (cliBridge as any).registerCommandCustomization(commandId, options as any);
+    (cliBridge as any).registerCommandCustomization(commandId!, options as any);
   }
 
   /**
@@ -139,7 +139,7 @@ const cliFactory = new CliCommandFactory();
  * @deprecated Use cliFactory.customizeCommand() instead
  */
 export function customizeCommand(commandId: string, options: CliCommandOptions): void {
-  cliFactory.customizeCommand(commandId, options as any);
+  cliFactory.customizeCommand(commandId!, options as any);
 }
 
 /**

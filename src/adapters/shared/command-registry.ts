@@ -167,7 +167,7 @@ export class SharedCommandRegistry implements CommandRegistry {
       throw new MinskyError(`Command with ID '${(commandDef as any).id}' is already registered`);
     }
 
-    this.commands.set((commandDef as any).id, commandDef as any as SharedCommand);
+    this.commands.set((commandDef as any).id!, commandDef as any as SharedCommand);
   }
 
   /**

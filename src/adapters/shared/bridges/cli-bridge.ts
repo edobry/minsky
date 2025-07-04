@@ -90,7 +90,7 @@ export class CliCommandBridge {
    * Register command customization options
    */
   registerCommandCustomization(commandId: string, options: CliCommandOptions): void {
-    this.customizations.set(commandId, options as any);
+    this.customizations.set(commandId!, options as any);
   }
 
   /**
@@ -129,8 +129,7 @@ export class CliCommandBridge {
     // Warn about direct usage in development (but not when called via factory)
     if ((process.env as any).NODE_ENV !== "production" && !(context as any).viaFactory) {
       log.warn(
-        `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
-      );
+        `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`);
     }
 
     const commandDef = (sharedCommandRegistry as any).getCommand(commandId);
@@ -159,11 +158,11 @@ export class CliCommandBridge {
 
     // Create parameter mappings
     log.systemDebug("About to create parameter mappings");
-    const mappings = this.createCommandParameterMappings(commandDef, options as any);
+    const mappings = this.createCommandParameterMappings(commandDef!, options as any);
     log.systemDebug(`Parameter mappings created: ${(mappings as any).length}`);
 
     // Add arguments to the command
-    addArgumentsFromMappings(command, mappings);
+    addArgumentsFromMappings(command!, mappings);
 
     // Add options to the command
     (createOptionsFromMappings(mappings) as any).forEach((option) => {
@@ -180,8 +179,8 @@ export class CliCommandBridge {
       try {
         // Create combined parameters from options and arguments
         const rawParameters = this.extractRawParameters(
-          (commandDef as any).parameters,
-          (commandInstance as any).opts(),
+          (commandDef as any).parameters!,
+          (commandInstance as any).opts()!,
           positionalArgs,
           mappings
         );
@@ -198,7 +197,7 @@ export class CliCommandBridge {
         };
 
         // Normalize parameters
-        const normalizedParams = normalizeCliParameters((commandDef as any).parameters, rawParameters);
+        const normalizedParams = normalizeCliParameters((commandDef as any).parameters!, rawParameters);
 
         // Execute the command with parameters and context
         const result = await (commandDef as any).execute(normalizedParams, context as any);
@@ -258,8 +257,7 @@ export class CliCommandBridge {
     // Create the base category command
     const categoryName = (customOptions as any).name || (category as any).toLowerCase();
     const categoryCommand = (new Command(categoryName) as any).description(
-      (customOptions as any).description || `${category} commands`
-    );
+      (customOptions as any).description || `${category} commands`);
 
     // Add aliases if specified
     if ((customOptions.aliases as any).length) {
@@ -273,7 +271,7 @@ export class CliCommandBridge {
     commands.forEach((commandDef) => {
       const commandOptions = customOptions.commandOptions?.[(commandDef as any).id];
       if (commandOptions) {
-        this.registerCommandCustomization((commandDef as any).id, commandOptions);
+        this.registerCommandCustomization((commandDef as any).id!, commandOptions);
       }
 
       // Parse command name for nested structure (e.g., "status get" -> ["status", "get"])
@@ -281,7 +279,7 @@ export class CliCommandBridge {
 
       if ((nameParts as any).length === 1) {
         // Simple command - add directly to category
-        const subcommand = this.generateCommand((commandDef as any).id, context as any);
+        const subcommand = this.generateCommand((commandDef as any).id!, context as any);
         if (subcommand) {
           (categoryCommand as any).addCommand(subcommand);
         }
@@ -304,7 +302,7 @@ export class CliCommandBridge {
         }
 
         // Create the child command with the correct name
-        const childCommand = this.generateCommand((commandDef as any).id, context as any);
+        const childCommand = this.generateCommand((commandDef as any).id!, context as any);
         if (childCommand) {
           // Update the child command name to just the child part
           (childCommand as any).name(childName);
@@ -313,7 +311,7 @@ export class CliCommandBridge {
       } else {
         // More complex nesting - handle it recursively or warn
         log.warn(`Complex command nesting not yet supported: ${(commandDef as any).name}`);
-        const subcommand = this.generateCommand((commandDef as any).id, context as any);
+        const subcommand = this.generateCommand((commandDef as any).id!, context as any);
         if (subcommand) {
           (categoryCommand as any).addCommand(subcommand);
         }
@@ -359,7 +357,7 @@ export class CliCommandBridge {
     commandDef: SharedCommand,
     options: CliCommandOptions
   ): ParameterMapping[] {
-    const mappings = createParameterMappings((commandDef as any).parameters || {}, (options as any).parameters || {});
+    const mappings = createParameterMappings((commandDef as any).parameters || {}!, (options as any).parameters || {});
 
     // If automatic argument generation is enabled
     if ((options as any).useFirstRequiredParamAsArgument && !(options as any).forceOptions) {
@@ -499,7 +497,7 @@ export class CliCommandBridge {
 
           // If there's only one meaningful property and it's a simple message, show just the value
           if ((meaningfulEntries as any).length === 1) {
-            const [key, value] = meaningfulEntries[0]!;
+            const [key, value] = meaningfulEntries[0];
             if (key === "message" && (typeof value === "string" || typeof value === "number")) {
               log.cli(String(value as any));
             } else if (typeof value !== "object" || value === null) {

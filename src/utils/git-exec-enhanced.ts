@@ -189,7 +189,7 @@ export async function gitFetchWithTimeout(
   const command = branch ? `fetch ${remote} ${branch}` : `fetch ${remote}`;
   return execGitWithTimeout(
     "fetch",
-    command,
+    command!,
     {
       ...options,
       context: [
@@ -209,7 +209,7 @@ export async function gitPushWithTimeout(
   const command = branch ? `push ${remote} ${branch}` : `push ${remote}`;
   return execGitWithTimeout(
     "push",
-    command,
+    command!,
     {
       ...options,
       context: [
@@ -229,7 +229,7 @@ export async function gitPullWithTimeout(
   const command = branch ? `pull ${remote} ${branch}` : `pull ${remote}`;
   return execGitWithTimeout(
     "pull",
-    command,
+    command!,
     {
       ...options,
       context: [

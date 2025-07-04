@@ -1319,7 +1319,7 @@ You need to specify one of these options to identify the target repository:
    */
   public async execInRepository(workdir: string, command: string): Promise<string> {
     try {
-      const { stdout } = await execAsync(command, { cwd: workdir });
+      const { stdout } = await execAsync(command!, { cwd: workdir });
       return stdout;
     } catch (error) {
       log.error("Command execution failed", {

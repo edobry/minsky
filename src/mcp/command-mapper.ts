@@ -132,7 +132,7 @@ export class CommandMapper {
             return result;
           }
           // Otherwise, return it as a JSON string for structured data
-          return JSON.stringify(result as any, null, 2);
+          return JSON.stringify(result as any, undefined, 2);
         } catch (error) {
           const errorMessage = getErrorMessage(error as any);
           log.error("Error executing MCP command", {
@@ -196,7 +196,7 @@ export class CommandMapper {
                 return result;
               }
               // Otherwise, return it as a JSON string for structured data
-              return JSON.stringify(result as any, null, 2);
+              return JSON.stringify(result as any, undefined, 2);
             } catch (error) {
               const errorMessage = getErrorMessage(error as any);
               log.error("Error executing MCP command via underscore alias", {

@@ -39,7 +39,7 @@ export interface ResponseFormatter<T = any> {
  * @returns JSON formatted string
  */
 export function formatAsJson(data: any): string {
-  return JSON.stringify(data as any, null, 2);
+  return JSON.stringify(data as any, undefined, 2);
 }
 
 /**

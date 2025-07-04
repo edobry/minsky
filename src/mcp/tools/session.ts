@@ -47,8 +47,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           `Failed to get session ${(args as any).session}: ${getErrorMessage(error as any)}`
         );
       }
-    }
-  );
+    });
 
   // Session start tool
   (commandMapper as any).addSessionCommand(
@@ -61,12 +60,12 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     }),
     async (
       args: z.infer<
-        z.ZodObject<{
-          name: z.ZodOptional<z.ZodString>;
-          task: z.ZodOptional<z.ZodString>;
-          quiet: z.ZodOptional<z.ZodBoolean>;
-        }>
-      >
+            z.ZodObject<{
+              name: z.ZodOptional<z.ZodString>;
+              task: z.ZodOptional<z.ZodString>;
+              quiet: z.ZodOptional<z.ZodBoolean>;
+            }>
+          >
     ) => {
       try {
         // Build the command
@@ -95,8 +94,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           `Failed to start _session: ${getErrorMessage(error as any)}`
         );
       }
-    }
-  );
+    });
 
   // Session commit tool
   (commandMapper as any).addSessionCommand(
@@ -111,11 +109,11 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     }),
     async (
       args: z.infer<
-        z.ZodObject<{
-          message: z.ZodOptional<z.ZodString>;
-          session: z.ZodOptional<z.ZodString>;
-        }>
-      >
+            z.ZodObject<{
+              message: z.ZodOptional<z.ZodString>;
+              session: z.ZodOptional<z.ZodString>;
+            }>
+          >
     ) => {
       try {
         // Build the command
@@ -141,8 +139,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           `Failed to commit changes: ${getErrorMessage(error as any)}`
         );
       }
-    }
-  );
+    });
 
   // Session push tool
   (commandMapper as any).addSessionCommand(
@@ -156,10 +153,10 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     }),
     async (
       args: z.infer<
-        z.ZodObject<{
-          _session: z.ZodOptional<z.ZodString>;
-        }>
-      >
+            z.ZodObject<{
+              _session: z.ZodOptional<z.ZodString>;
+            }>
+          >
     ) => {
       try {
         // Build the command
@@ -182,6 +179,5 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           `Failed to push changes: ${getErrorMessage(error as any)}`
         );
       }
-    }
-  );
+    });
 }

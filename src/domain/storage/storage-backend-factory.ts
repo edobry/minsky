@@ -115,7 +115,7 @@ export function createStorageBackend(
 
   switch ((storageConfig as any).backend) {
   case "json": {
-    const dbPath = (storageConfig.json as any).filePath || (getDefaultStorageConfig().json! as any).filePath!;
+    const dbPath = (storageConfig.json as any).filePath || (getDefaultStorageConfig().json! as any).filePath;
     const xdgStateHome = (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
     const baseDir = join(xdgStateHome, "minsky");
     return new JsonFileStorage(dbPath, baseDir);
@@ -183,7 +183,7 @@ export class StorageBackendFactory {
       (this.backends as any).set(key, backend);
     }
 
-    return (this.backends as any).get(key)!;
+    return (this.backends as any).get(key);
   }
 
   /**

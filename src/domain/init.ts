@@ -402,7 +402,7 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
           },
         },
       },
-      null,
+      undefined,
       2
     );
   }
@@ -418,7 +418,7 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
           },
         },
       },
-      null,
+      undefined,
       2
     );
   }
@@ -434,7 +434,7 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
           },
         },
       },
-      null,
+      undefined,
       2
     );
   }
@@ -449,7 +449,7 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
         },
       },
     },
-    null,
+    undefined,
     2
   );
 }

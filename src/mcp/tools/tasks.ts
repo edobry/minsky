@@ -21,12 +21,12 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     }),
     async (
       args: z.infer<
-        z.ZodObject<{
-          filter: z.ZodOptional<z.ZodString>;
-          limit: z.ZodOptional<z.ZodNumber>;
-          format: z.ZodOptional<z.ZodEnum<["detailed", "simple"]>>;
-        }>
-      >
+            z.ZodObject<{
+              filter: z.ZodOptional<z.ZodString>;
+              limit: z.ZodOptional<z.ZodNumber>;
+              format: z.ZodOptional<z.ZodEnum<["detailed", "simple"]>>;
+            }>
+          >
     ) => {
       try {
         // Build the command with appropriate options
@@ -54,8 +54,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           `Failed to list tasks: ${getErrorMessage(error as any)}`
         );
       }
-    }
-  );
+    });
 
   // Task get tool
   (commandMapper as any).addTaskCommand(
@@ -82,8 +81,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           `Failed to get task ${(args as any).taskId}: ${getErrorMessage(error as any)}`
         );
       }
-    }
-  );
+    });
 
   // Task status get tool
   (commandMapper as any).addTaskCommand(
@@ -113,8 +111,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           `Failed to get task status for ${(args as any).taskId}: ${getErrorMessage(error as any)}`
         );
       }
-    }
-  );
+    });
 
   // Task status set tool
   (commandMapper as any).addTaskCommand(
@@ -148,8 +145,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           `Failed to set task status for ${(args as any).taskId}: ${getErrorMessage(error as any)}`
         );
       }
-    }
-  );
+    });
 
   // Task create tool
   (commandMapper as any).addTaskCommand(
@@ -176,6 +172,5 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           `Failed to create task: ${getErrorMessage(error as any)}`
         );
       }
-    }
-  );
+    });
 }

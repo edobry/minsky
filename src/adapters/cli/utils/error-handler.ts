@@ -48,7 +48,7 @@ export function handleCliError(error: any): never {
     // Show validation details in debug mode
     if (isDebugMode() && (error as any).errors) {
       log.cliError("\nValidation details:");
-      log.cliError(JSON.stringify((error as any).errors, null, 2));
+      log.cliError(JSON.stringify((error as any).errors, undefined, 2));
     }
   } else if (error instanceof ResourceNotFoundError) {
     log.cliError(`Not found: ${(normalizedError as any).message}`);
@@ -136,7 +136,7 @@ export function outputResult<T>(
       log.agent({ message: "Command result", result } as any);
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
-      log.cli(JSON.stringify(result as any, null, 2));
+      log.cli(JSON.stringify(result as any, undefined, 2));
     }
   } else if ((options as any).formatter) {
     (options as any).formatter(result as any);

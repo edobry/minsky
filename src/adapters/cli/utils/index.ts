@@ -49,7 +49,7 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
   try {
     if ((options as any).json) {
       // JSON output
-      log.cli(JSON.stringify(result as any, null, 2));
+      log.cli(JSON.stringify(result as any, undefined, 2));
     } else if ((options as any).formatter) {
       // Custom formatter
       (options as any).formatter(result as any);
@@ -63,11 +63,11 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
             if (typeof item === "string") {
               log.cli(item as any);
             } else {
-              log.cli(JSON.stringify(item as any, null, 2));
+              log.cli(JSON.stringify(item as any, undefined, 2));
             }
           });
         } else {
-          log.cli(JSON.stringify(result as any, null, 2));
+          log.cli(JSON.stringify(result as any, undefined, 2));
         }
       } else {
         log.cli(String(result as any));
