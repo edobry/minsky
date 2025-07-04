@@ -34,7 +34,7 @@ export function createSpecCommand(): Command {
 
   command.action(
     async (
-      _taskId: string,
+      taskId: string,
       options: {
         section?: string;
         session?: string;
@@ -46,10 +46,10 @@ export function createSpecCommand(): Command {
     ) => {
       try {
         // Normalize the task ID before passing to domain
-        const normalizedTaskId = normalizeTaskId(_taskId);
+        const normalizedTaskId = normalizeTaskId(taskId);
         if (!normalizedTaskId) {
           throw new ValidationError(
-            `Invalid task ID: '${_taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+            `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
           );
         }
 

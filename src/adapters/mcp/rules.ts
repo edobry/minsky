@@ -88,7 +88,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.list",
     description: "List all rules in the workspace",
-    _parameters: z.object({
+    parameters: z.object({
       format: ruleFormatParam,
       tag: optionalString("Filter by tag"),
       debug: debugParam,
@@ -122,8 +122,8 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.get",
     description: "Get a specific rule by ID",
-    _parameters: z.object({
-      _id: requiredString("Rule ID"),
+    parameters: z.object({
+      id: requiredString("Rule ID"),
       format: ruleFormatParam,
       debug: debugParam,
     }),
@@ -156,8 +156,8 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.create",
     description: "Create a new rule",
-    _parameters: z.object({
-      _id: requiredString("ID of the rule to create"),
+    parameters: z.object({
+      id: requiredString("ID of the rule to create"),
       content: ruleContentParam,
       description: ruleDescriptionParam,
       name: ruleNameParam,
