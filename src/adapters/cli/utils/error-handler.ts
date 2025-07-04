@@ -34,7 +34,7 @@ export const isDebugMode = (): boolean =>
  *
  * @param error Any error caught during command execution
  */
-export function handleCliError(error: unknown): never {
+export function handleCliError(error: any): never {
   const normalizedError = ensureError(error);
 
   // In human mode, use programLogger for all user-facing errors
@@ -47,7 +47,8 @@ export function handleCliError(error: unknown): never {
 
     // Show validation details in debug mode
     if (isDebugMode() && error.errors) {
-      log.cliError("\nValidation details:", error.errors);
+      log.cliError("\nValidation details:");
+      log.cliError(JSON.stringify(error.errors, null, 2));
     }
   } else if (error instanceof ResourceNotFoundError) {
     log.cliError(`Not found: ${normalizedError.message}`);
@@ -71,8 +72,8 @@ export function handleCliError(error: unknown): never {
     }
   } else if (error instanceof GitOperationError) {
     log.cliError(`Git operation failed: ${normalizedError.message}`);
-    if (error._command) {
-      log.cliError(`Command: ${error._command}`);
+    if (error.command) {
+      log.cliError(`Command: ${error.command}`);
     }
   } else if (error instanceof MinskyError) {
     log.cliError(`Error: ${normalizedError.message}`);
@@ -94,7 +95,7 @@ export function handleCliError(error: unknown): never {
       if (cause instanceof Error) {
         log.cliError(cause.stack || cause.message);
       } else {
-        log.cliError(String(_cause));
+        log.cliError(String(cause));
       }
     }
   }
@@ -104,7 +105,7 @@ export function handleCliError(error: unknown): never {
   if (isStructuredMode()) {
     if (error instanceof MinskyError) {
       // For Minsky errors, we can log with additional context
-      log.error("CLI operation failed", error);
+      log.error("CLI operation failed", error as any);
     } else {
       // For other errors, log with basic information
       log.error("CLI operation failed", {
@@ -125,21 +126,21 @@ export function handleCliError(error: unknown): never {
  */
 export function outputResult<T>(
   result: T,
-  options: { json?: boolean; formatter?: (_result: unknown) => void }
+  options: { json?: boolean; formatter?: (result: any) => void }
 ): void {
   if (options.json) {
     // For JSON output, use agent logger to ensure it goes to stdout
     // This ensures machine-readable output is separated from human-readable messages
     if (isStructuredMode()) {
       // In structured mode, log to agent logger
-      log.agent("Command result", { _result });
+      log.agent({ message: "Command result", result });
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
-      log.cli(JSON.stringify(__result, null, 2));
+      log.cli(JSON.stringify(result, null, 2));
     }
   } else if (options.formatter) {
-    options.formatter(_result);
+    options.formatter(result);
   } else {
-    log.cli(String(_result));
+    log.cli(String(result));
   }
 }

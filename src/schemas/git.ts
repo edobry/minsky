@@ -49,7 +49,7 @@ export type GitBranchParams = z.infer<typeof gitBranchParamsSchema>;
  */
 export const gitCommonOptionsSchema = z.object({
   ...commonRepoSchema.shape,
-  _branch: z.string().optional().describe("Branch name"),
+  branch: z.string().optional().describe("Branch name"),
   remote: z.string().optional().describe("Remote name"),
 });
 

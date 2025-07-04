@@ -59,7 +59,7 @@ describe("GitService", () => {
     });
 
     // Mock execInRepository to avoid actual git commands
-    spyOn(GitService.prototype, "execInRepository").mockImplementation(async (_workdir, command) => {
+    spyOn(GitService.prototype, "execInRepository").mockImplementation(async (workdir, command) => {
       if (command === "rev-parse --abbrev-ref HEAD") {
         return "main";
       }
@@ -112,7 +112,7 @@ describe("GitService", () => {
   test("execInRepository should propagate errors", async () => {
     // Override the mock implementation to simulate an error
     const execInRepoMock = spyOn(GitService.prototype, "execInRepository");
-    execInRepoMock.mockImplementation(async (_workdir, _command) => {
+    execInRepoMock.mockImplementation(async (workdir, command) => {
       throw new Error("Command execution failed");
     });
 
@@ -164,7 +164,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
         getSession: createMock(() =>
           Promise.resolve({
-            _session: "test-session",
+            session: "test-session",
             repoName: "test-repo",
             repoUrl: "https://github.com/user/repo.git",
           })
@@ -400,13 +400,13 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
       };
 
-      const _result = await gitService.commitWithDependencies(
+      const result = await gitService.commitWithDependencies(
         "Test commit message",
         "/test/repo",
         mockDeps
       );
 
-      expect(_result).toBe("abc123");
+      expect(result).toBe("abc123");
       expectToHaveBeenCalled(mockDeps.execAsync);
     });
 
@@ -425,8 +425,8 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           })) as any,
         };
 
-        const _result = await gitService.commitWithDependencies("Test", "/test/repo", mockDeps);
-        expect(_result).toBe(testCase.expected);
+        const result = await gitService.commitWithDependencies("Test", "/test/repo", mockDeps);
+        expect(result).toBe(testCase.expected);
       }
     });
 
@@ -452,13 +452,13 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
       };
 
-      const _result = await gitService.commitWithDependencies(
+      const result = await gitService.commitWithDependencies(
         "Amended message",
         "/test/repo",
         mockDeps,
         true
       );
-      expect(_result).toBe("def456");
+      expect(result).toBe("def456");
     });
 
     test("should handle stash operations with state management", async () => {

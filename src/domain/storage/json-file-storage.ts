@@ -109,7 +109,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const dataStr = typeof data === "string" ? data : String(data);
 
       // Validate JSON before parsing to prevent stack overflow
-      if (!dataStr.trim()) {
+      if (!(dataStr).toString().trim()) {
         // Handle empty file
         const state = this.initializeState();
         return { success: true, data: state };
@@ -194,10 +194,10 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to the entity or null if not found
    */
-  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<T | null> {
+  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<T | null> {
     const result = await this.readState();
     if (!result.success || !result.data) {
-      return null;
+      return null as any;
     }
 
     const state = result.data;
@@ -212,7 +212,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to array of entities
    */
-  async getEntities(_options?: DatabaseQueryOptions): Promise<T[]> {
+  async getEntities(options?: DatabaseQueryOptions): Promise<T[]> {
     const result = await this.readState();
     if (!result.success || !result.data) {
       return [];
@@ -221,13 +221,13 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
     const state = result.data;
     const entities = this.getEntitiesFromState(state);
 
-    if (!_options) {
+    if (!options) {
       return entities;
     }
 
     // Filter entities based on query options
     return entities.filter((entity) => {
-      for (const [key, value] of Object.entries(_options)) {
+      for (const [key, value] of Object.entries(options)) {
         if ((entity as any)[key] !== value) {
           return false;
         }
@@ -296,7 +296,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       // Find entity index
       const index = entities.findIndex((e) => (e as any)[this.idField] === id);
       if (index === -1) {
-        return null;
+        return null as any;
       }
 
       // Update entity

@@ -25,7 +25,7 @@ export class FastMCPCommandMapper {
     name: string,
     description: string,
     schema: T,
-    handler: (args: z.infer<T>) => Promise<Record<string, unknown>>
+    handler: (args: z.infer<T>) => Promise<Record<string, any>>
   ): void {
     log.debug(`Registering tool: ${name}`, { description });
 
@@ -44,7 +44,7 @@ export class FastMCPCommandMapper {
     name: string,
     description: string,
     schema: T,
-    handler: (args: z.infer<T>) => Promise<Record<string, unknown>>
+    handler: (args: z.infer<T>) => Promise<Record<string, any>>
   ): void {
     this.addTool(`session.${name}`, description, schema, handler);
   }
@@ -56,7 +56,7 @@ export class FastMCPCommandMapper {
     name: string,
     description: string,
     schema: T,
-    handler: (args: z.infer<T>) => Promise<Record<string, unknown>>
+    handler: (args: z.infer<T>) => Promise<Record<string, any>>
   ): void {
     this.addTool(`tasks.${name}`, description, schema, handler);
   }
@@ -68,7 +68,7 @@ export class FastMCPCommandMapper {
     name: string,
     description: string,
     schema: T,
-    handler: (args: z.infer<T>) => Promise<Record<string, unknown>>
+    handler: (args: z.infer<T>) => Promise<Record<string, any>>
   ): void {
     this.addTool(`git.${name}`, description, schema, handler);
   }

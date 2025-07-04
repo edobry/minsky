@@ -178,7 +178,7 @@ export class SessionWorkspaceService {
     const workspace = await this.getSessionWorkspace(sessionId);
     const validatedPath = relativePath
       ? this.pathResolver.getRelativePathFromSession(workspace.workspaceDir, relativePath)
-      : undefined;
+      : undefined as any;
 
     log.debug("Listing directory in session workspace", {
       sessionId,

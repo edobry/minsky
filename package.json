@@ -21,7 +21,6 @@
     "@eslint/js": "9.29.0",
     "@modelcontextprotocol/inspector": "^0.14.3",
     "@types/bun": "^1.2.11",
-    "@types/commander": "2.12.5",
     "@types/config": "^3.3.5",
     "@types/jest": "^29.5.14",
     "@types/js-yaml": "^4.0.9",
@@ -39,8 +38,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.0.0",
     "prettier": "^3.5.3",
-    "sury": "^10.0.4"
-  },
+    "ts-morph": "^26.0.0"  },
   "peerDependencies": {
     "typescript": "^5.0.0"
   },

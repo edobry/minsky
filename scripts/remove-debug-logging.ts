@@ -5,7 +5,7 @@ import { join } from "path";
 
 function removeDebugLogging(filePath: string): boolean {
   const content = readFileSync(filePath, "utf8") as string;
-  const lines = content.split("\n");
+  const lines = (content).toString().split("\n");
   let modified = false;
 
   const filteredLines = lines.filter((line) => {

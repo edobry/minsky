@@ -18,7 +18,7 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
   if (!content) return tasks;
 
   // Split into lines and track code block state
-  const lines = content.split("\n");
+  const lines = (content).toString().split("\n");
   let inCodeBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
@@ -69,10 +69,10 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
  * @param tasks Array of task data objects
  * @returns Formatted markdown content
  */
-export function formatTasksToMarkdown(__tasks: TaskData[]): string {
-  if (!__tasks || __tasks.length === 0) return "";
+export function formatTasksToMarkdown(tasks: TaskData[]): string {
+  if (!tasks || tasks.length === 0) return "";
 
-  return __tasks
+  return tasks
     .map((task) => {
       const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
       const specPath = task.specPath || "#";
@@ -91,7 +91,7 @@ export function formatTasksToMarkdown(__tasks: TaskData[]): string {
  * @returns Found task or null
  */
 export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
-  if (!tasks || !id) return null;
+  if (!tasks || !id) return null as any;
 
   // First try exact match
   const exactMatch = tasks.find((task) => task.id === id);
@@ -102,10 +102,10 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
   // If no exact match, try numeric comparison
   // This handles case where ID is provided without leading zeros
   const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return null;
+  if (!normalizedId) return null as any;
 
   const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
-  if (isNaN(numericId)) return null;
+  if (isNaN(numericId)) return null as any;
 
   const numericMatch = tasks.find((task) => {
     const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
@@ -121,7 +121,7 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
  * @returns Normalized task ID or null if invalid
  */
 export function normalizeTaskId(id: string): string | null {
-  if (!id) return null;
+  if (!id) return null as any;
 
   // If already in #XXX format, validate and return
   if (/^#[a-zA-Z0-9_]+$/.test(id)) {
@@ -139,7 +139,7 @@ export function normalizeTaskId(id: string): string | null {
     return `#${match[1]}`;
   }
 
-  return null;
+  return null as any;
 }
 
 /**
@@ -147,10 +147,10 @@ export function normalizeTaskId(id: string): string | null {
  * @param tasks Array of task data objects
  * @returns Next available task ID
  */
-export function getNextTaskId(__tasks: TaskData[]): string {
-  if (!__tasks || __tasks.length === 0) return "#001";
+export function getNextTaskId(tasks: TaskData[]): string {
+  if (!tasks || tasks.length === 0) return "#001";
 
-  const maxId = __tasks.reduce((max, task) => {
+  const maxId = tasks.reduce((max, task) => {
     const id = parseInt(task.id.replace(/^#/, ""), 10);
     return !isNaN(id) && id > max ? id : max;
   }, 0);
@@ -290,7 +290,7 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
     return { title: "", description: "" };
   }
 
-  const lines = content.split("\n");
+  const lines = (content).toString().split("\n");
 
   // Extract title from the first heading
   const titleLine = lines.find((line) => line.startsWith("# "));

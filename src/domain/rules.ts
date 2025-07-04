@@ -12,16 +12,16 @@ import * as jsYaml from "js-yaml";
 const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
 
 // Create a custom stringify function that doesn't add unnecessary quotes
-function customMatterStringify(__content: string, _data: any): string {
+function customMatterStringify(content: string, data: any): string {
   // Use js-yaml's dump function directly with options to control quoting behavior
-  const yamlStr = jsYaml.dump(_data, {
+  const yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
     quotingType: "\"", // Use double quotes when necessary
     forceQuotes: false, // Don't force quotes on all strings
   });
 
-  return `---\n${yamlStr}---\n${__content}`;
+  return `---\n${yamlStr}---\n${content}`;
 }
 
 export interface Rule {
@@ -43,7 +43,7 @@ export interface RuleMeta {
   globs?: string[];
   alwaysApply?: boolean;
   tags?: string[];
-  [key: string]: unknown; // Allow for additional custom fields
+  [key: string]: any; // Allow for additional custom fields
 }
 
 export type RuleFormat = "cursor" | "generic";
@@ -120,7 +120,7 @@ export class RuleService {
             log.error("Error processing rule file", {
               file,
               originalError: getErrorMessage(error),
-              stack: error instanceof Error ? error.stack : undefined,
+              stack: error instanceof Error ? error.stack as any : undefined as any,
             });
           }
         }
@@ -130,7 +130,7 @@ export class RuleService {
           log.error("Error reading rules directory", {
             format,
             originalError: getErrorMessage(error),
-            stack: error instanceof Error ? error.stack : undefined,
+            stack: error instanceof Error ? error.stack as any : undefined as any,
           });
         }
       }
@@ -147,7 +147,7 @@ export class RuleService {
     const bareId = id.replace(/\.mdc$/, "");
 
     if (options.debug) {
-      log.debug("Getting rule", { _id: bareId, requestedFormat: options.format });
+      log.debug("Getting rule", { id: bareId, requestedFormat: options.format });
     }
 
     // If a specific format is requested, try that first
@@ -179,7 +179,7 @@ export class RuleService {
           if (options.debug) {
             log.debug("Successfully parsed frontmatter", {
               filePath,
-              dataKeys: Object.keys(data),
+              dataKeys: Object.keys(data) as any,
               contentLength: ruleContent.length,
             });
           }
@@ -194,7 +194,7 @@ export class RuleService {
             content: ruleContent.trim(),
             format: requestedFormat,
             path: filePath,
-          };
+          } as any;
         } catch (error) {
           // FIXED: Gracefully handle errors in frontmatter parsing
           // This allows rules with invalid YAML frontmatter to still be loaded and used
@@ -202,16 +202,16 @@ export class RuleService {
             log.error("Error parsing frontmatter", {
               filePath,
               error: getErrorMessage(error),
-              content: content.substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
+              content: (content).toString().substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
 
           // If there's an issue with the frontmatter, try to handle it gracefully
           // Just extract content after the second '---' or use the whole content if no frontmatter markers
           let extractedContent = content;
-          const frontmatterEndIndex = content.indexOf("---", 3);
+          const frontmatterEndIndex = (content).toString().indexOf("---", 3);
           if (content.startsWith("---") && frontmatterEndIndex > 0) {
-            extractedContent = content.substring(frontmatterEndIndex + 3).trim();
+            extractedContent = ((content).toString().substring(frontmatterEndIndex + 3)).toString().trim();
           }
 
           // Return a basic rule object with just the content, missing the metadata from frontmatter
@@ -267,7 +267,7 @@ export class RuleService {
           if (options.debug) {
             log.debug("Successfully parsed frontmatter in alternative format", {
               filePath,
-              dataKeys: Object.keys(data),
+              dataKeys: Object.keys(data) as any,
               contentLength: ruleContent.length,
             });
           }
@@ -290,7 +290,7 @@ export class RuleService {
               format: originalFormat, // Return actual format, not requested format
               path: filePath,
               formatNote: `Rule found in '${originalFormat}' format but '${requestedFormat}' was requested. Format conversion is not supported yet.`,
-            };
+            } as any;
           }
 
           // Otherwise just return the rule as found
@@ -304,22 +304,22 @@ export class RuleService {
             content: ruleContent.trim(),
             format,
             path: filePath,
-          };
+          } as any;
         } catch (error) {
           // FIXED: Gracefully handle errors in frontmatter parsing for alternative formats
           if (options.debug) {
             log.error("Error parsing frontmatter in alternative format", {
               filePath,
               error: getErrorMessage(error),
-              content: content.substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
+              content: (content).toString().substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
 
           // Same frontmatter error handling as above for consistency
           let extractedContent = content;
-          const frontmatterEndIndex = content.indexOf("---", 3);
+          const frontmatterEndIndex = (content).toString().indexOf("---", 3);
           if (content.startsWith("---") && frontmatterEndIndex > 0) {
-            extractedContent = content.substring(frontmatterEndIndex + 3).trim();
+            extractedContent = ((content).toString().substring(frontmatterEndIndex + 3)).toString().trim();
           }
 
           return {
@@ -483,7 +483,7 @@ export class RuleService {
     // Filter by search term
     return rules.filter((rule) => {
       // Search in content
-      if (rule.content.toLowerCase().includes(searchTerm)) {
+      if ((rule.content.toLowerCase()).toString().includes(searchTerm)) {
         return true;
       }
 

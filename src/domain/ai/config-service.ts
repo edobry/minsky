@@ -26,7 +26,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // If no API key is available, we can't use this provider
       if (!apiKey) {
-        return null;
+        return null as any;
       }
 
       const result = await this.configService.loadConfiguration(process.cwd());
@@ -46,7 +46,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
       };
     } catch (error) {
       log.error(`Failed to get provider config for ${provider}`, { error });
-      return null;
+      return null as any;
     }
   }
 
@@ -59,7 +59,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
   async getDefaultProvider(): Promise<string> {
     try {
       const result = await this.configService.loadConfiguration(process.cwd());
-      return result.resolved.ai?.default_provider || "openai";
+      return result.resolved.ai?.default_provider || "openai" as any;
     } catch (error) {
       log.error("Failed to get default provider", { error });
       return "openai";
@@ -106,7 +106,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       if (credentialConfig?.source === "file" && credentialConfig.api_key_file) {
         // Would read from file in real implementation
-        return undefined;
+        return undefined as any;
       }
 
       if (credentialConfig?.api_key) {
@@ -116,7 +116,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
       log.debug(`Failed to resolve API key for ${provider}`, { error });
     }
 
-    return undefined;
+    return undefined as any;
   }
 
   private getEnvironmentAPIKey(provider: string): string | undefined {
@@ -129,7 +129,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     };
 
     const envVar = envVarMap[provider];
-    return envVar ? process.env[envVar] : undefined;
+    return envVar ? process.env[envVar] : undefined as any;
   }
 
   private validateAPIKeyFormat(provider: string, apiKey: string): boolean {

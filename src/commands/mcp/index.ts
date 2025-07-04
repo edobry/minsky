@@ -160,9 +160,9 @@ export function createMCPCommand(): Command {
               port: inspectorPort,
               openBrowser: true,
               mcpTransportType: transportType,
-              mcpPort: transportType !== "stdio" ? port : undefined,
-              mcpHost: transportType !== "stdio" ? options.host : undefined,
-            });
+              mcpPort: transportType !== "stdio" ? port : undefined as any,
+              mcpHost: transportType !== "stdio" ? options.host : undefined as any,
+            }) as any;
 
             if (inspectorResult.success) {
               log.cli(`MCP Inspector started on port ${inspectorPort}`);
@@ -197,7 +197,7 @@ export function createMCPCommand(): Command {
           host: options.host,
           withInspector: options.withInspector || false,
           error: getErrorMessage(error),
-          stack: error instanceof Error ? error.stack : undefined,
+          stack: error instanceof Error ? error.stack as any : undefined as any,
         });
 
         // Handle network errors in a user-friendly way
