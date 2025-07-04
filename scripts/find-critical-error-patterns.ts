@@ -38,7 +38,7 @@ function analyzeFile(filePath: string): ErrorPattern[] {
 
   try {
     const content = readFileSync(filePath, "utf8") as string;
-    const lines = content.split("\n");
+    const lines = (content).toString().split("\n");
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];

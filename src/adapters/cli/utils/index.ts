@@ -56,26 +56,26 @@ export function outputResult(result: unknown, options: OutputOptions = {}): void
     } else {
       // Default output based on result type
       if (typeof result === "string") {
-        log.cli(_result);
+        log.cli(result);
       } else if (typeof result === "object" && result !== null) {
-        if (Array.isArray(_result)) {
+        if (Array.isArray(result)) {
           result.forEach((item) => {
             if (typeof item === "string") {
               log.cli(item);
             } else {
-              log.cli(JSON.stringify(_item, null, 2));
+              log.cli(JSON.stringify(item, null, 2));
             }
           });
         } else {
-          log.cli(JSON.stringify(__result, null, 2));
+          log.cli(JSON.stringify(result, null, 2));
         }
       } else {
-        log.cli(String(_result));
+        log.cli(String(result));
       }
     }
   } catch (error) {
     log.cliError("Failed to format output:", error);
-    log.cli(String(_result));
+    log.cli(String(result));
   }
 }
 

@@ -103,7 +103,7 @@ export function createUniqueTestDir(prefix: string): string {
 /**
  * Creates a standard minsky test environment with proper directory structure.
  * Using hardcoded paths for tests to avoid filesystem issues.
- * @param _baseDir The base test directory (ignored)
+ * @param baseDir The base test directory (ignored)
  * @returns Object containing paths to the various test directories
  */
 export function setupMinskyTestEnv(baseDir: string): MinskyTestEnv {

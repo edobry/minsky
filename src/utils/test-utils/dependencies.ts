@@ -106,7 +106,7 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
     getTask: () => Promise.resolve(null),
     setTaskStatus: () => Promise.resolve(),
     getTaskStatus: () => Promise.resolve(null),
-    getBackendForTask: (_taskId: unknown) => Promise.resolve("markdown"),
+    getBackendForTask: (taskId: unknown) => Promise.resolve("markdown"),
     listTasks: () => Promise.resolve([]),
     createTask: () =>
       Promise.resolve({
@@ -147,7 +147,7 @@ export function createTaskTestDeps(overrides: Partial<TaskDependencies> = {}): T
     getTask: () => Promise.resolve(null),
     setTaskStatus: () => Promise.resolve(),
     getTaskStatus: () => Promise.resolve(null),
-    getBackendForTask: (_taskId: unknown) => Promise.resolve("markdown"),
+    getBackendForTask: (taskId: unknown) => Promise.resolve("markdown"),
     listTasks: () => Promise.resolve([]),
     createTask: () =>
       Promise.resolve({
@@ -347,7 +347,7 @@ export function createDeepTestDeps(partialDeps: Partial<DomainDependencies>): Do
   const baseDeps = createTestDeps();
 
   // Apply deep overrides
-  return deepMergeDeps(_baseDeps, partialDeps);
+  return deepMergeDeps(baseDeps, partialDeps);
 }
 
 /**

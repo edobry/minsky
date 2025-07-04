@@ -77,7 +77,7 @@ export class DefaultCredentialManager implements CredentialManager {
       if (existsSync(tokenFile)) {
         try {
           const content = readFileSync(tokenFile, { encoding: "utf8" });
-          return typeof content === "string" ? content.trim() : content.toString().trim();
+          return typeof content === "string" ? (content).toString().trim() : content.toString().trim();
         } catch (error) {
           // Silently ignore file read errors
         }

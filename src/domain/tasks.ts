@@ -196,7 +196,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     const content = await fs.readFile(this.filePath, "utf-8");
     const newStatusChar = TASK_STATUS_CHECKBOX[status];
-    const lines = content.split("\n");
+    const lines = (content).toString().split("\n");
     let inCodeBlock = false;
     const updatedLines = lines.map((line) => {
       if (line.trim().startsWith("```")) {
@@ -242,7 +242,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       const content = await fs.readFile(this.filePath, "utf-8");
       // Split into lines and track code block state
-      const lines = content.split("\n");
+      const lines = (content).toString().split("\n");
       const tasks: Task[] = [];
       let inCodeBlock = false;
       for (let i = 0; i < lines.length; i++) {
@@ -509,7 +509,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       // Remove task from tasks.md
       const content = await fs.readFile(this.filePath, "utf-8");
-      const lines = content.split("\n");
+      const lines = (content).toString().split("\n");
       let inCodeBlock = false;
       let removed = false;
 

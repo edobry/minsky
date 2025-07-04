@@ -79,7 +79,11 @@ class VariableNamingFixer {
       
       // Check if variable has underscore prefix but is used without it
       if (name.startsWith('_') && name.length > 1) {
-        const nameWithoutUnderscore = name.substring(1);
+        // Handle multiple underscores: __result -> result, _result -> result
+        let nameWithoutUnderscore = name;
+        while (nameWithoutUnderscore.startsWith('_')) {
+          nameWithoutUnderscore = nameWithoutUnderscore.substring(1);
+        }
         
         // Check if the variable without underscore is used in the file
         const usages = this.findVariableUsages(sourceFile, nameWithoutUnderscore);

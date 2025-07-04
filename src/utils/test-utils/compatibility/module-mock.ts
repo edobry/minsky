@@ -199,7 +199,7 @@ export function createJestMock() {
     factory?: () => any,
     options?: MockModuleOptions
   ): void {
-    mockModule(modulePath, factory, _options);
+    mockModule(modulePath, factory, options);
   };
 }
 

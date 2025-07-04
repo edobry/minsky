@@ -37,7 +37,7 @@ function createMockBackend(): TaskBackend {
     // Mock pure operations
     parseTasks: mock((content: unknown) => {
       // Simple parsing for testing
-      if (content.includes("#001")) {
+      if ((content).toString().includes("#001")) {
         return [
           { id: "#001", title: "Task 1", status: "TODO" },
           { id: "#002", title: "Task 2", status: "IN-PROGRESS" },
@@ -105,13 +105,13 @@ describe("TaskService", () => {
 
       expect(mockBackend.getTasksData).toHaveBeenCalled();
       expect(mockBackend.parseTasks).toHaveBeenCalled();
-      expect(_tasks).toHaveLength(2);
+      expect(tasks).toHaveLength(2);
       expect(tasks[0].id).toBe("#001");
-      expect(tasks[1]._status).toBe("IN-PROGRESS");
+      expect(tasks[1].status).toBe("IN-PROGRESS");
     });
 
     test("should filter tasks by status if provided", async () => {
-      const tasks = await taskService.listTasks({ _status: "TODO" });
+      const tasks = await taskService.listTasks({ status: "TODO" });
 
       expect(tasks.length).toBe(1);
       expect(tasks[0].id).toBe("#001");
@@ -183,7 +183,7 @@ describe("TaskService", () => {
       // Verify tasks passed to formatTasks had the updated status
       const updatedTasks = formatTasksSpy.mock.calls[0][0];
       const updatedTask = updatedTasks.find((t: unknown) => t.id === "#001");
-      expect(updatedTask?._status).toBe("DONE");
+      expect(updatedTask?.status).toBe("DONE");
     });
 
     test("should throw error for invalid status", async () => {
@@ -214,7 +214,7 @@ describe("TaskService", () => {
 
       expect(task.id).toBe("#TEST_VALUE");
       expect(task._title).toBe("Test Task");
-      expect(task._status).toBe("TODO");
+      expect(task.status).toBe("TODO");
     });
 
     test("should throw error if spec file read fails", async () => {

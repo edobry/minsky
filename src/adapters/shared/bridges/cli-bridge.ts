@@ -544,7 +544,7 @@ export class CliCommandBridge {
 
     // Display session information in a user-friendly format
     if (session.session) log.cli(`Session: ${session.session}`);
-    if (session._taskId) log.cli(`Task ID: ${session._taskId}`);
+    if (session.taskId) log.cli(`Task ID: ${session.taskId}`);
     if (session.repoName) log.cli(`Repository: ${session.repoName}`);
     if (session.repoPath) log.cli(`Session Path: ${session.repoPath}`);
     if (session._branch) log.cli(`Branch: ${session._branch}`);

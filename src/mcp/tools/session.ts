@@ -81,7 +81,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         command += " --quiet";
 
         // Execute the command
-        const output = execSync(_command).toString();
+        const output = execSync(command).toString();
 
         // Return success response
         return {
@@ -128,7 +128,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         }
 
         // Execute the command
-        const output = execSync(_command).toString();
+        const output = execSync(command).toString();
 
         // Return success response
         return {
@@ -169,7 +169,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         }
 
         // Execute the command
-        const output = execSync(_command).toString();
+        const output = execSync(command).toString();
 
         // Return success response
         return {

@@ -43,7 +43,7 @@ describe("CommandMapper", () => {
       execute: async () => "test result",
     };
 
-    commandMapper.addCommand(_command);
+    commandMapper.addCommand(command);
 
     expect(mockServer.addTool.mock.calls.length).toBe(1);
     const firstCall = mockServer.addTool.mock.calls[0];

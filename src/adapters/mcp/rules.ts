@@ -111,7 +111,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       });
 
       // Transform the rules to exclude content
-      const transformedRules = rules.map(({ _content, ...rest }) => rest);
+      const transformedRules = rules.map(({ content, ...rest }) => rest);
 
       // Return formatted result as a record
       return { rules: transformedRules };
@@ -180,8 +180,8 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Get content from file if it exists, otherwise use as-is
-      const content = isString(args._content)
-        ? await readContentFromFileIfExists(args._content)
+      const content = isString(args.content)
+        ? await readContentFromFileIfExists(args.content)
         : "# New Rule Content\n\nAdd your rule content here.";
 
       // Parse globs (handling both string and array types)
@@ -251,8 +251,8 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
 
       // Process content if provided
       let content: string | undefined;
-      if (isString(args._content)) {
-        content = await readContentFromFileIfExists(args._content);
+      if (isString(args.content)) {
+        content = await readContentFromFileIfExists(args.content);
       }
 
       // Parse globs (handling both string and array types)

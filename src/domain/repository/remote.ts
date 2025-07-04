@@ -206,7 +206,7 @@ Repository: ${this.repoUrl}
         behind,
         dirty,
         remotes,
-        _workdir: workdir,
+        workdir: workdir,
         defaultBranch: this.defaultBranch,
         clean: !dirty,
         changes: [],
@@ -303,7 +303,7 @@ Repository: ${this.repoUrl}
 
       // For each session with this repository, push changes
       for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir(session._session);
+        const workdir = this.getSessionWorkdir(session.session);
 
         try {
           // Determine current branch
@@ -381,7 +381,7 @@ Repository: ${this.repoUrl}
 
       // For each session with this repository, pull changes
       for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir(session._session);
+        const workdir = this.getSessionWorkdir(session.session);
 
         try {
           // Determine current branch

@@ -146,7 +146,7 @@ export class TaskTitleMigration {
     try {
       // Read the file
       const content = await readFile(filePath, "utf-8");
-      const lines = content.split("\n");
+      const lines = (content).toString().split("\n");
 
       // Find the title line
       const titleLineIndex = lines.findIndex(line => line.startsWith("# "));
@@ -302,7 +302,7 @@ export class TaskTitleMigration {
     for (const filePath of taskFiles) {
       try {
         const content = await readFile(filePath, "utf-8");
-        const lines = content.split("\n");
+        const lines = (content).toString().split("\n");
         const titleLine = lines.find(line => line.startsWith("# "));
 
         if (!titleLine) {
