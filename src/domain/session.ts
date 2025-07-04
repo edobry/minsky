@@ -210,9 +210,28 @@ export async function startSessionFromParams(
     const currentDir = process.env.PWD || process.cwd();
     const isInSession = await deps.workspaceUtils.isSessionWorkspace(currentDir);
     if (isInSession) {
-      throw new MinskyError(
-        "Cannot create a new session while inside a session workspace. Please return to the main workspace first."
-      );
+      throw new MinskyError(`🚫 Cannot Start Session from Within Another Session
+
+You're currently inside a session workspace, but sessions can only be created from the main workspace.
+
+📍 Current location: ${currentDir}
+
+🔄 How to exit this session workspace:
+
+1️⃣ Navigate to your main workspace:
+   cd /path/to/your/main/project
+
+2️⃣ Or use the session directory command to find your way:
+   minsky session dir
+
+3️⃣ Then try creating your session again:
+   minsky session start --task <id> [session-name]
+   minsky session start --description "<description>" [session-name]
+
+💡 Why this restriction exists:
+Sessions are isolated workspaces for specific tasks. Creating nested sessions would cause conflicts and confusion.
+
+Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
     // Determine repo URL or path first
