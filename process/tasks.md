@@ -260,7 +260,7 @@
 
 - [x] Task: Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-task-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
 
-- [+] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
+- [x] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
 
 - [ ] Task: Implement Todoist Backend Integration [#137](process/tasks/137-task-implement-todoist-backend-integration.md)
 
@@ -324,7 +324,7 @@
 
 - [x] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
-- [+] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
+- [x] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
 - [ ] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
@@ -351,8 +351,6 @@
 - [x] Improve Error Handling for MCP Server Port Conflicts [#184](process/tasks/184-improve-error-handling-for-mcp-server-port-conflicts.md)
 
 - [ ] Restore Full Test Suite for `init` Command [#185](process/tasks/185-restore-full-test-suite-for-init-command.md)
-
-- [+] Fix ESLint Warnings and Errors [#186](process/tasks/186-fix-eslint-warnings-and-errors.md)
 
 - [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#187](process/tasks/187-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
 
@@ -423,5 +421,3 @@
 - [x] Implement session PR refresh functionality [#231](process/tasks/231-implement-session-pr-refresh-functionality.md)
 
 - [ ] Improve session PR conflict resolution workflow with auto-resolution and better UX [#232](process/tasks/232-improve-session-pr-conflict-resolution-workflow-with-auto-resolution-and-better-ux.md)
-
-- [+] Test auto-task creation migration [#233](process/tasks/233-test-auto-task-creation-migration.md)
