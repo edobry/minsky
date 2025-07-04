@@ -34,9 +34,7 @@ import {
 } from "./workspace.js";
 import * as WorkspaceUtils from "./workspace.js";
 import { SessionDbAdapter } from "./session/session-db-adapter.js";
-import { 
-  createSessionPrBranchErrorMessage 
-} from "../errors/enhanced-error-templates.js";
+import { createTaskFromDescription } from "./templates/session-templates.js";
 
 export interface SessionRecord {
   session: string;
@@ -187,7 +185,7 @@ export async function startSessionFromParams(
   }
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
+  const { name, repo, task, description, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
     params;
 
   // Create dependencies with defaults
@@ -219,9 +217,28 @@ export async function startSessionFromParams(
     const currentDir = process.env.PWD || process.cwd();
     const isInSession = await deps.workspaceUtils.isSessionWorkspace(currentDir);
     if (isInSession) {
-      throw new MinskyError(
-        "Cannot create a new session while inside a session workspace. Please return to the main workspace first."
-      );
+      throw new MinskyError(`🚫 Cannot Start Session from Within Another Session
+
+You're currently inside a session workspace, but sessions can only be created from the main workspace.
+
+📍 Current location: ${currentDir}
+
+🔄 How to exit this session workspace:
+
+1️⃣ Navigate to your main workspace:
+   cd /path/to/your/main/project
+
+2️⃣ Or use the session directory command to find your way:
+   minsky session dir
+
+3️⃣ Then try creating your session again:
+   minsky session start --task <id> [session-name]
+   minsky session start --description "<description>" [session-name]
+
+💡 Why this restriction exists:
+Sessions are isolated workspaces for specific tasks. Creating nested sessions would cause conflicts and confusion.
+
+Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
     // Determine repo URL or path first
@@ -241,6 +258,21 @@ export async function startSessionFromParams(
     let sessionName = name;
     let taskId: string | undefined = task;
 
+    // Auto-create task if description is provided but no task ID
+    if (description && !taskId) {
+      const taskSpec = createTaskFromDescription(description);
+      const createdTask = await deps.taskService.createTaskFromTitleAndDescription(
+        taskSpec.title,
+        taskSpec.description
+      );
+      taskId = createdTask.id;
+      if (!quiet) {
+        log.cli(`Created task ${taskId}: ${taskSpec.title}`);
+      }
+    }
+
+
+
     if (taskId && !sessionName) {
       // Normalize the task ID format using Zod validation
       const normalizedTaskId = taskIdSchema.parse(taskId);
@@ -257,7 +289,7 @@ export async function startSessionFromParams(
     }
 
     if (!sessionName) {
-      throw new ValidationError("Either session name or task ID must be provided");
+      throw new ValidationError("Session name could not be determined from task ID");
     }
 
     // Check if session already exists
@@ -866,16 +898,9 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
 
     // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* branch)
     if (currentBranch.startsWith("pr/")) {
-      // Enhanced error message with helpful suggestions
-      const errorMessage = createSessionPrBranchErrorMessage(
-        currentBranch,
-        undefined, // sessionName not available at this point
-        [
-          { label: "Current directory", value: currentDir },
-          { label: "Current branch", value: currentBranch }
-        ]
+      throw new MinskyError(
+        `Cannot run session pr from PR branch '${currentBranch}'. Switch to your session branch first.`
       );
-      throw new MinskyError(errorMessage);
     }
 
     // STEP 3: Verify we're in a session directory (no branch format restriction)

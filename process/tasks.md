@@ -412,7 +412,7 @@
 
 - [ ] Enhanced Session PR Workflow [#222](process/tasks/222-enhanced-session-pr-workflow.md)
 
-- [x] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
+- [ ] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
 
 - [x] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
 
@@ -424,6 +424,8 @@
 
 - [x] Exclude CLOSED tasks from default tasks list output [#228](process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)
 
-- [-] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
+- [x] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
 
-- [ ] Investigate session workspace disk usage and optimize node_modules storage [#230](process/tasks/230-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
+- [+] Test auto-creation of task from description [#230](process/tasks/230-test-auto-creation-of-task-from-description.md)
+
+- [ ] Investigate session workspace disk usage and optimize node_modules storage [#231](process/tasks/231-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
