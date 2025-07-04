@@ -11,7 +11,7 @@ import { log } from "../utils/logger";
 import { normalizeTaskId } from "./tasks/utils";
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
-import { ResourceNotFoundError } from "../errors/index.js";
+import { ResourceNotFoundError, getErrorMessage } from "../errors/index.js";
 const matter = require("gray-matter");
 // Import constants and utilities for use within this file
 import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./tasks/taskConstants.js";
@@ -427,7 +427,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
     } catch (error: any) {
       throw new Error(
-        `Failed to rename or update spec file: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to rename or update spec file: ${getErrorMessage(error)}`
       );
     }
 
@@ -492,12 +492,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       log.debug("Updated task metadata", { id, specFilePath, metadata });
     } catch (error: any) {
       log.error("Failed to update task metadata", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         id,
         specFilePath,
       });
       throw new Error(
-        `Failed to update task metadata: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to update task metadata: ${getErrorMessage(error)}`
       );
     }
   }
@@ -554,7 +554,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       return true;
     } catch (error) {
       log.error(`Failed to delete task ${id}:`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return false;
     }

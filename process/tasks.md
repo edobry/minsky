@@ -320,11 +320,11 @@
 
 - [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#165](process/tasks/165-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
-- [ ] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
+- [+] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
 
 - [x] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
 
-- [ ] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
+- [x] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
 - [+] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
@@ -382,7 +382,7 @@
 
 - [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
 
-- [ ] Improve Session PR Command Output and Body Generation [#203](process/tasks/203-improve-session-pr-command-output-and-body-generation.md)
+- [x] Improve Session PR Command Output and Body Generation [#203](process/tasks/203-improve-session-pr-command-output-and-body-generation.md)
 
 - [x] Add CLOSED task status for irrelevant tasks [#207](process/tasks/207-add-closed-task-status-for-irrelevant-tasks.md)
 
@@ -406,7 +406,7 @@
 
 - [x] Add specific linting rules for underscore prefixes in variable declarations [#219](process/tasks/219-add-specific-linting-rules-for-underscore-prefixes-in-variable-declarations.md)
 
-- [+] Improve Test Isolation and Reliability [#220](process/tasks/220-improve-test-isolation-and-reliability.md)
+- [x] Improve Test Isolation and Reliability [#220](process/tasks/220-improve-test-isolation-and-reliability.md)
 
 - [x] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
 
@@ -422,8 +422,10 @@
 
 - [ ] Extend conflict detection to comprehensive git workflow protection [#227](process/tasks/227-extend-conflict-detection-to-comprehensive-git-workflow-protection.md)
 
-- [+] Exclude CLOSED tasks from default tasks list output [#228](process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)
+- [x] Exclude CLOSED tasks from default tasks list output [#228](process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)
 
-- [-] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
+- [x] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
 
 - [+] Test auto-creation of task from description [#230](process/tasks/230-test-auto-creation-of-task-from-description.md)
+
+- [ ] Investigate session workspace disk usage and optimize node_modules storage [#231](process/tasks/231-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)

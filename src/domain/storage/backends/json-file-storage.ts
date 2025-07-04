@@ -21,6 +21,7 @@ import {
 } from "../../session/session-db-io";
 import { initializeSessionDbState } from "../../session/session-db";
 import { log } from "../../../utils/logger";
+import { getErrorMessage } from "../../../errors/index";
 
 /**
  * JSON File Storage implementation for session records
@@ -227,7 +228,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return true;
     } catch (error) {
       log.error(
-        `Error initializing JSON file storage: ${error instanceof Error ? error.message : String(error)}`
+        `Error initializing JSON file storage: ${getErrorMessage(error)}`
       );
       return false;
     }

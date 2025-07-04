@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils.js";
 import { resolveMainWorkspacePath } from "../workspace.js";
+import { getErrorMessage } from "../../errors/index";
 import {
   createTaskService as createTaskServiceImpl,
   createConfiguredTaskService,
@@ -79,12 +80,14 @@ export async function listTasksFromParams(
     let tasks = await taskService.listTasks();
 
     // Filter by status if provided
-    if (validParams.status) {
-      tasks = tasks.filter((task: any) => task.status === validParams.status);
+    if (validParams.filter) {
+      tasks = tasks.filter((task: any) => task.status === validParams.filter);
     } else {
-      // Unless "all" is provided, filter out DONE tasks
+      // Unless "all" is provided, filter out DONE and CLOSED tasks
       if (!validParams.all) {
-        tasks = tasks.filter((task: any) => task.status !== TASK_STATUS.DONE);
+        tasks = tasks.filter((task: any) => 
+          task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
+        );
       }
     }
 
@@ -522,7 +525,7 @@ export async function createTaskFromTitleAndDescription(
           throw error;
         }
 
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
           throw new ValidationError(`Description file not found: ${validParams.descriptionPath}`);
         } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
