@@ -183,6 +183,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
             await pathResolver.getSessionWorkspacePath(args.session),
             resolvedPath
           ),
+          // @ts-expect-error - Bun supports Buffer.byteLength at runtime, types incomplete
           bytesWritten: Buffer.byteLength(args.content, "utf8"),
         };
       } catch (error) {
