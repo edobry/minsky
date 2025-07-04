@@ -616,11 +616,11 @@ export class ConflictDetectionService {
       
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        
-        if (line.startsWith("<<<<<<<")) {
+
+        if (line?.startsWith("<<<<<<<")) {
           inConflict = true;
           startLine = i + 1;
-        } else if (line.startsWith(">>>>>>>") && inConflict) {
+        } else if (line?.startsWith(">>>>>>>") && inConflict) {
           regions.push({
             startLine,
             endLine: i + 1,
@@ -825,6 +825,18 @@ Recommended action: Accept the deletions and remove your changes to these files.
 
 ${conflictFiles.length} file(s) have conflicting changes between your session and main branch.
 These require manual resolution by editing the files and choosing which changes to keep.
+
+📋 Next Steps:
+1. Run: git status                    (see which files are conflicted)
+2. Edit the conflicted files          (look for <<<<<<< markers)
+3. Run: git add <file>               (mark conflicts as resolved)
+4. Run: git commit                    (complete the merge)
+5. Run: minsky session pr [options]   (retry PR creation)
+
+🔧 Quick Check:
+• Run 'git status' now to see the conflicted files
+• Edit files and remove conflict markers
+• Choose which changes to keep between <<<<<<< and >>>>>>>
 
 Look for conflict markers:
   <<<<<<< HEAD (your changes)
