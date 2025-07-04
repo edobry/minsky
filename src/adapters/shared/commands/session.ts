@@ -76,17 +76,17 @@ const sessionGetCommandParams: CommandParameterMap = {
 const sessionStartCommandParams: CommandParameterMap = {
   name: {
     schema: z.string().min(1),
-    description: "Name for the new session",
+    description: "Name for the new session (optional, alternative to --task)",
     required: false,
   },
   task: {
     schema: z.string(),
-    description: "Task ID to associate with the session",
+    description: "Task ID to associate with the session (required if --description not provided)",
     required: false,
   },
   description: {
     schema: z.string().min(1),
-    description: "Description for auto-created task",
+    description: "Description for auto-created task (required if --task not provided)",
     required: false,
   },
   branch: {
