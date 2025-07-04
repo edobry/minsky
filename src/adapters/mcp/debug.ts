@@ -15,7 +15,7 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "debug.listMethods",
     description: "List all registered MCP methods for debugging",
-    _parameters: z.object({}).strict(),
+    parameters: z.object({}).strict(),
     execute: async () => {
       // Get the list of all registered method names from the CommandMapper
       const methodNames = commandMapper.getRegisteredMethodNames();
@@ -65,7 +65,7 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "debug.systemInfo",
     description: "Get system information about the MCP server",
-    _parameters: z.object({}).strict(),
+    parameters: z.object({}).strict(),
     execute: async () => {
       // Get basic system info for diagnostics
       // @ts-expect-error - Bun supports process.version at runtime, types incomplete
