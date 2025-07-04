@@ -12,15 +12,15 @@ jobs:
     strategy:
       matrix:
         include:
-          - target: bun-linux-x64
+          - target: linux
             output: minsky-linux-x64
-          - target: bun-linux-arm64
+          - target: linux-arm64
             output: minsky-linux-arm64
-          - target: bun-darwin-x64
+          - target: macos
             output: minsky-macos-x64
-          - target: bun-darwin-arm64
+          - target: macos-arm64
             output: minsky-macos-arm64
-          - target: bun-windows-x64
+          - target: windows
             output: minsky-windows-x64.exe
 
     steps:
@@ -30,6 +30,9 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Install Just
+        uses: extractions/setup-just@v2
+
       - name: Install dependencies
         run: bun install
 
@@ -37,7 +40,7 @@ jobs:
         run: bun test
 
       - name: Build binary
-        run: bun build --compile --target=${{ matrix.target }} --outfile=${{ matrix.output }} ./src/cli.ts
+        run: just build-${{ matrix.target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
