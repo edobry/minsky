@@ -292,7 +292,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
 
   parseTaskSpec(content: string): TaskSpecData {
     // Parse markdown content to extract task specification
-    const lines = content.split("\n");
+    const lines = (content).toString().split("\n");
     let title = "";
     let description = "";
     let metadata: Record<string, any> = {};

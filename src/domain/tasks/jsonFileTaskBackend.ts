@@ -172,7 +172,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   parseTaskSpec(content: string): TaskSpecData {
     // Basic parsing of task spec content
-    const lines = content.split("\n");
+    const lines = (content).toString().split("\n");
     let title = "";
     let description = "";
     let id = "";
@@ -457,7 +457,7 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   private parseMarkdownTasks(content: string): TaskData[] {
     const tasks: TaskData[] = [];
-    const lines = content.split("\n");
+    const lines = (content).toString().split("\n");
 
     for (const line of lines) {
       const trimmed = line.trim();

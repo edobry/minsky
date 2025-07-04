@@ -204,8 +204,8 @@ export async function listFiles(dirPath: string): Promise<string[] | null> {
  * @param workspacePath Workspace path
  * @returns Path to the tasks file
  */
-export function getTasksFilePath(_workspacePath: string): string {
-  return join(_workspacePath, "process", "tasks.md");
+export function getTasksFilePath(workspacePath: string): string {
+  return join(workspacePath, "process", "tasks.md");
 }
 
 /**
@@ -213,8 +213,8 @@ export function getTasksFilePath(_workspacePath: string): string {
  * @param workspacePath Workspace path
  * @returns Path to the task specs directory
  */
-export function getTaskSpecsDirectoryPath(_workspacePath: string): string {
-  return join(_workspacePath, "process", "tasks");
+export function getTaskSpecsDirectoryPath(workspacePath: string): string {
+  return join(workspacePath, "process", "tasks");
 }
 
 /**

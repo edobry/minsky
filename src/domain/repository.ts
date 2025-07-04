@@ -165,7 +165,7 @@ export interface RepositoryBackend {
    * @param session Session identifier
    * @returns CloneResult with working directory information
    */
-  clone(_session: string): Promise<CloneResult>;
+  clone(session: string): Promise<CloneResult>;
 
   /**
    * Get the status of the repository.
@@ -207,7 +207,7 @@ export interface RepositoryBackend {
    * @param name Branch name to create
    * @returns BranchResult with working directory and branch information
    */
-  branch(_session: string, name: string): Promise<BranchResult>;
+  branch(session: string, name: string): Promise<BranchResult>;
 
   /**
    * Checkout an existing branch.

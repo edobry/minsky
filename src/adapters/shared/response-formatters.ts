@@ -29,7 +29,7 @@ export interface ResponseFormatter<T = unknown> {
    * @param context Command execution context
    * @returns Formatted response
    */
-  format(_data: T, context: CommandExecutionContext): string | object;
+  format(data: T, context: CommandExecutionContext): string | object;
 }
 
 /**
@@ -38,8 +38,8 @@ export interface ResponseFormatter<T = unknown> {
  * @param data Response data
  * @returns JSON formatted string
  */
-export function formatAsJson(_data: unknown): string {
-  return JSON.stringify(_data, null, 2);
+export function formatAsJson(data: unknown): string {
+  return JSON.stringify(data, null, 2);
 }
 
 /**
@@ -73,7 +73,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @param context Command execution context
    * @returns Text formatted string
    */
-  abstract formatText(_data: T, context: CommandExecutionContext): string;
+  abstract formatText(data: T, context: CommandExecutionContext): string;
 
   /**
    * Format the response as JSON
@@ -339,7 +339,7 @@ export function createListFormatter<T>(
   itemFormatter?: (item: unknown) => string,
   title?: string
 ): ListFormatter<T> {
-  return new ListFormatter<T>(itemFormatter, _title);
+  return new ListFormatter<T>(itemFormatter, title);
 }
 
 /**
@@ -355,5 +355,5 @@ export function createTableFormatter<T extends Record<string, unknown>>(
   headers: Record<keyof T, string>,
   title?: string
 ): TableFormatter<T> {
-  return new TableFormatter<T>(columns, headers, _title);
+  return new TableFormatter<T>(columns, headers, title);
 }

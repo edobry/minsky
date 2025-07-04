@@ -190,7 +190,7 @@ function extractMockDependencies(content: string): string[] {
   const dependencies: string[] = [];
   let match: RegExpExecArray | null;
 
-  while ((match = mockRegex.exec(_content)) !== null) {
+  while ((match = mockRegex.exec(content)) !== null) {
     const dependency = match[1];
     if (dependency) {
       dependencies.push(dependency);
@@ -204,8 +204,8 @@ function extractMockDependencies(content: string): string[] {
  * Analyze a single test file
  */
 async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
-  const content = await readFile(_path, "utf-8");
-  const relativePath = relative(_baseDir, path);
+  const content = await readFile(path, "utf-8");
+  const relativePath = relative(baseDir, path);
   const counts = {
     mockPatterns: {} as Record<string, number>,
     frameworkFeatures: {} as Record<string, number>,
@@ -223,8 +223,8 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
   }
 
   // Extract imports and mock dependencies
-  const imports = extractImports(_content);
-  const mockDependencies = extractMockDependencies(_content);
+  const imports = extractImports(content);
+  const mockDependencies = extractMockDependencies(content);
 
   // Calculate metrics for classification
   const totalMocks = Object.values(counts.mockPatterns).reduce((sum, count) => sum + count, 0);
@@ -570,7 +570,7 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
     md.push(`- \`${file.relativePath}\``);
   }
 
-  await writeFile(_outputPath, md.join("\n"));
+  await writeFile(outputPath, md.join("\n"));
 }
 
 /**
@@ -583,7 +583,7 @@ async function main() {
     log.cli(`Analyzing tests in: ${config.targetDir}`);
 
     // Find all test files
-    const targetDir = resolve(_baseDir, config.targetDir);
+    const targetDir = resolve(baseDir, config.targetDir);
     const testFiles = await findTestFiles(targetDir);
     log.cli(`Found ${testFiles.length} test files`);
 
@@ -591,7 +591,7 @@ async function main() {
     const analyses: TestFileAnalysis[] = [];
     for (const [index, file] of testFiles.entries()) {
       process.stdout.write(
-        `Analyzing file ${index + 1}/${testFiles.length}: ${relative(_baseDir, file)}\r`
+        `Analyzing file ${index + 1}/${testFiles.length}: ${relative(baseDir, file)}\r`
       );
       const analysis = await analyzeTestFile(file);
       analyses.push(analysis);

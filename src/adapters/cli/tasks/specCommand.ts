@@ -89,7 +89,7 @@ export function createSpecCommand(): Command {
                   ? startIndex + match[0].length + nextSectionMatch.index
                   : data.content.length;
 
-                const sectionContent = data.content.slice(startIndex, endIndex).trim();
+                const sectionContent = (data.content.slice(startIndex, endIndex)).toString().trim();
                 log.cli(`\n${sectionContent}`);
               } else {
                 log.cli(`\nSection "${data.section}" not found in specification.`);

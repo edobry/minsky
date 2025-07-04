@@ -70,7 +70,7 @@ export class RemoteGitBackend implements RepositoryBackend {
   protected async execGit(args: string[], cwd?: string): Promise<string> {
     const cmd = `git ${args.join(" ")}`;
     try {
-      const { stdout, stderr } = await execAsync(_cmd, { cwd: cwd || this.localPath });
+      const { stdout, stderr } = await execAsync(cmd, { cwd: cwd || this.localPath });
       if (stderr) {
         log.debug("Git _command produced stderr", {
           _command: cmd,
@@ -153,7 +153,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     const cacheKey = generateRepoKey(this.localPath, "status");
 
     return this.cache.get(
-      _cacheKey,
+      cacheKey,
       async () => {
         try {
           const statusOutput = await this.execGit(["status", "--porcelain"]);
@@ -320,7 +320,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    *
    * @param branch Branch name to checkout
    */
-  async checkout(_branch: string): Promise<void> {
+  async checkout(branch: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }

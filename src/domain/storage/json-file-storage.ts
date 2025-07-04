@@ -109,7 +109,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const dataStr = typeof data === "string" ? data : String(data);
 
       // Validate JSON before parsing to prevent stack overflow
-      if (!dataStr.trim()) {
+      if (!(dataStr).toString().trim()) {
         // Handle empty file
         const state = this.initializeState();
         return { success: true, data: state };

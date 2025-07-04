@@ -429,7 +429,7 @@ export async function getTaskSpecContentFromParams(
     // If a specific section is requested, extract it
     let sectionContent = content;
     if (validParams.section) {
-      const lines = content.split("\n");
+      const lines = (content).toString().split("\n");
       const sectionStart = lines.findIndex((line) =>
         line.toLowerCase().startsWith(`## ${validParams.section!.toLowerCase()}`)
       );

@@ -237,7 +237,7 @@ export class CliErrorHandler implements ErrorHandler {
     // Use structured logging in structured mode
     if (isStructuredMode()) {
       // Format error for structured logging
-      const formattedError = SharedErrorHandler.formatError(_error, debug);
+      const formattedError = SharedErrorHandler.formatError(error, debug);
       log.error("CLI operation failed", formattedError);
     }
 
