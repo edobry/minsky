@@ -127,7 +127,7 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
    * @returns Formatted error message
    */
   formatText(error: Error, context: CommandExecutionContext): string {
-    let output = `${chalk.red("✗")} Error: ${error.message}`;
+    let output = `${chalk.red("✗")} Error: ${(error as any).message}`;
 
     // Add stack trace in debug mode
     if (context.debug && error.stack) {

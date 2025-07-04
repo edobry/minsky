@@ -95,7 +95,7 @@ export function handleCliError(error: unknown, options: { debug?: boolean } = {}
     }
   } else {
     // Simple error in regular mode
-    log.cliError(`Error: ${err.message}`);
+    log.cliError(`Error: ${(err as any).message}`);
   }
 
   // Set appropriate exit code based on error type

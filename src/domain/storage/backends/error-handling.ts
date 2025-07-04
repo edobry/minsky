@@ -143,7 +143,7 @@ export class StorageErrorClassifier {
 
     // Generic error fallback
     return {
-      message: `Unclassified storage error: ${error.message}`,
+      message: `Unclassified storage error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [
@@ -240,7 +240,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `JSON backend error: ${error.message}`,
+      message: `JSON backend error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -330,7 +330,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `SQLite backend error: ${error.message}`,
+      message: `SQLite backend error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -453,7 +453,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `PostgreSQL backend error: ${error.message}`,
+      message: `PostgreSQL backend error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],

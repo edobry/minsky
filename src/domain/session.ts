@@ -229,7 +229,7 @@ export async function startSessionFromParams(
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         throw new MinskyError(
-          `--repo is required (not in a git repo and no --repo provided): ${error?.message}`
+          `--repo is required (not in a git repo and no --repo provided): ${(error as any).message}`
         );
       }
     }

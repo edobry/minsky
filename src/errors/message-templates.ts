@@ -62,7 +62,7 @@ export interface ContextInfo {
  */
 export function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
-    return error.message;
+    return (error as any).message;
   }
   return String(error);
 }
