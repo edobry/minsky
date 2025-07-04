@@ -328,7 +328,7 @@
 
 - [ ] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
-- [ ] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
+- [!] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
 
 - [ ] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
 
@@ -420,4 +420,10 @@
 
 - [ ] Investigate session workspace disk usage and optimize node_modules storage [#230](process/tasks/230-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
 
+<<<<<<< HEAD
 - [-] Implement session PR refresh functionality [#231](process/tasks/231-implement-session-pr-refresh-functionality.md)
+=======
+- [+] Implement session PR refresh functionality [#231](process/tasks/231-implement-session-pr-refresh-functionality.md)
+
+- [ ] Improve session PR conflict resolution workflow with auto-resolution and better UX [#232](process/tasks/232-improve-session-pr-conflict-resolution-workflow-with-auto-resolution-and-better-ux.md)
+>>>>>>> origin/main
