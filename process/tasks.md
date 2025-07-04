@@ -16,7 +16,7 @@
 
 - [x] Add `git commit` Command to Stage and Commit Changes [#009](process/tasks/009-add-git-commit-command-to-stage-and-commit-changes.md)
 
-- [x] Enhance `git pr` Command to Create GitHub PRs and Update Task Status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
+- [x] Enhance `git pr` Command to Create GitHub PRs and Update Task Status [#010](process/tasks/010-enhance-git-pr-command.md)
 
 - [x] Fix `git pr` Command and Add Proper Tests [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 
@@ -236,8 +236,6 @@
 
 - [x] Improve Error Handling for MCP Server Port Conflicts [#122](process/tasks/122-improve-error-handling-for-mcp-server-port-conflicts.md)
 
-- [x] Enhance `tasks get` Command to Support Multiple Task IDs [#123](process/tasks/123-enhance-tasks-get-command-to-support-multiple-task-ids.md)
-
 - [x] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
 - [x] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
@@ -374,8 +372,6 @@
 
 - [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#195](process/tasks/195-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
-- [ ] Task 170: Investigate Session Database Architecture Issues [#198](process/tasks/198-task-170-investigate-session-database-architecture-issues.md)
-
 - [ ] Task 171: Analyze and Modularize Overly Long Files [#199](process/tasks/199-task-171-analyze-and-modularize-overly-long-files.md)
 
 - [ ] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
@@ -426,6 +422,4 @@
 
 - [x] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
 
-- [+] Test auto-creation of task from description [#230](process/tasks/230-test-auto-creation-of-task-from-description.md)
-
-- [ ] Investigate session workspace disk usage and optimize node_modules storage [#231](process/tasks/231-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
+- [ ] Investigate session workspace disk usage and optimize node_modules storage [#230](process/tasks/230-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
