@@ -19,6 +19,9 @@ import {
   cloneFromParams,
   branchFromParams,
   createPullRequestFromParams,
+  mergeFromParams,
+  checkoutFromParams,
+  rebaseFromParams,
 } from "../../../domain/git";
 import { log } from "../../../utils/logger";
 import {
@@ -337,12 +340,6 @@ const rebaseCommandParams: CommandParameterMap = {
     description: "Choose conflict resolution strategy",
     required: false,
   },
-  interactive: {
-    schema: z.boolean(),
-    description: "Start an interactive rebase",
-    required: false,
-    defaultValue: false,
-  },
 };
 
 /**
@@ -486,14 +483,19 @@ export function registerGitCommands(): void {
     execute: async (params, context) => {
       log.debug("Executing git.merge command", { params });
 
-      // TODO: Implement mergeFromParams function in domain layer
-      // For now, return a placeholder
-      return {
-        success: true,
+      const result = await mergeFromParams({
+        sourceBranch: params.branch,
+        session: params.session,
+        repo: params.repo,
         preview: params.preview,
         autoResolve: params.autoResolve,
         conflictStrategy: params.conflictStrategy,
-        message: `Would merge ${params.branch} with options: preview=${params.preview}, autoResolve=${params.autoResolve}`,
+      });
+
+      return {
+        success: result.merged,
+        workdir: result.workdir,
+        message: result.conflicts ? result.conflictDetails || "Merge completed with conflicts" : "Merge completed successfully",
       };
     },
   });
@@ -508,13 +510,19 @@ export function registerGitCommands(): void {
     execute: async (params, context) => {
       log.debug("Executing git.checkout command", { params });
 
-      // TODO: Implement checkoutFromParams function in domain layer
-      // For now, return a placeholder
-      return {
-        success: true,
+      const result = await checkoutFromParams({
+        branch: params.branch,
+        session: params.session,
+        repo: params.repo,
         preview: params.preview,
-        autoStash: params.autoStash,
-        message: `Would checkout ${params.branch} with options: preview=${params.preview}, autoStash=${params.autoStash}`,
+        autoResolve: params.autoStash, // Map autoStash to autoResolve for conflict handling
+        conflictStrategy: params.conflictStrategy,
+      });
+
+      return {
+        success: result.switched,
+        workdir: result.workdir,
+        message: result.conflicts ? result.conflictDetails || "Checkout completed with warnings" : "Checkout completed successfully",
       };
     },
   });
@@ -529,15 +537,19 @@ export function registerGitCommands(): void {
     execute: async (params, context) => {
       log.debug("Executing git.rebase command", { params });
 
-      // TODO: Implement rebaseFromParams function in domain layer
-      // For now, return a placeholder
-      return {
-        success: true,
+      const result = await rebaseFromParams({
+        baseBranch: params.baseBranch,
+        session: params.session,
+        repo: params.repo,
         preview: params.preview,
         autoResolve: params.autoResolve,
         conflictStrategy: params.conflictStrategy,
-        interactive: params.interactive,
-        message: `Would rebase onto ${params.baseBranch} with options: preview=${params.preview}, autoResolve=${params.autoResolve}`,
+      });
+
+      return {
+        success: result.rebased,
+        workdir: result.workdir,
+        message: result.conflicts ? result.conflictDetails || "Rebase completed with conflicts" : "Rebase completed successfully",
       };
     },
   });
