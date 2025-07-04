@@ -117,7 +117,7 @@ export class ConfigurationLoader {
       return parseYaml(contentStr) as GlobalUserConfig;
     } catch (error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-      console.error(`Failed to load global user config from ${configPath}:`, error);
+      console.error(`Failed to load global user config from ${configPath}:`, error as any);
       return null;
     }
   }

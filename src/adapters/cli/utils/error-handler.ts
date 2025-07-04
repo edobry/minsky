@@ -105,7 +105,7 @@ export function handleCliError(error: unknown): never {
   if (isStructuredMode()) {
     if (error instanceof MinskyError) {
       // For Minsky errors, we can log with additional context
-      log.error("CLI operation failed", error);
+      log.error("CLI operation failed", error as any);
     } else {
       // For other errors, log with basic information
       log.error("CLI operation failed", {

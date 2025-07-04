@@ -58,7 +58,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error reading session database: ${err.message}`);
+      log.error(`Error reading session database: ${(err as any).message}`);
       return {
         success: false,
         error: err,
@@ -75,7 +75,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error writing session database: ${err.message}`);
+      log.error(`Error writing session database: ${(err as any).message}`);
       return {
         success: false,
         error: err,

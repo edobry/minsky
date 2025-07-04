@@ -160,7 +160,7 @@ export class SessionPathResolver {
         validatedPaths.push(validatedPath);
       } catch (error) {
         if (error instanceof InvalidPathError) {
-          errors.push(`${userPath}: ${error.message}`);
+          errors.push(`${userPath}: ${(error as any).message}`);
         } else {
           errors.push(`${userPath}: Unexpected error during validation`);
         }

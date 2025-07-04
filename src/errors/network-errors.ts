@@ -126,7 +126,7 @@ export function isNetworkError(error: unknown): boolean {
  * @returns A formatted error message
  */
 export function formatNetworkErrorMessage(error: NetworkError, debug: boolean = false): string {
-  let message = `Error: ${error.message}\n`;
+  let message = `Error: ${(error as any).message}\n`;
 
   // Add suggestions if available
   if (error instanceof PortInUseError || error instanceof NetworkPermissionError) {
