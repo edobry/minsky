@@ -520,7 +520,7 @@ export async function resolveRepository(
 
     return {
       uri: normalized.uri,
-      name: normalized.name,
+      name: normalized?.name,
       isLocal: normalized.isLocal,
       path,
       backendType,

@@ -60,12 +60,12 @@ export async function listTasksFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+    createTaskService: async (options) => await createConfiguredTaskService(options as any),
   }
 ): Promise<any[]> {
   try {
     // Validate params with Zod schema
-    const validParams = taskListParamsSchema.parse(params);
+    const validParams = taskListParamsSchema.parse(params as any);
 
     // Get the main workspace path (always resolves to main workspace, not session)
     const workspacePath = await deps.resolveMainWorkspacePath();
@@ -116,7 +116,7 @@ export async function getTaskFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+    createTaskService: async (options) => await createConfiguredTaskService(options as any),
   }
 ): Promise<any> {
   try {
@@ -183,7 +183,7 @@ export async function getTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+    createTaskService: async (options) => await createConfiguredTaskService(options as any),
   }
 ): Promise<string> {
   try {
@@ -253,7 +253,7 @@ export async function setTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+    createTaskService: async (options) => await createConfiguredTaskService(options as any),
   }
 ): Promise<void> {
   try {
@@ -329,7 +329,7 @@ export async function createTaskFromParams(
 ): Promise<any> {
   try {
     // Validate params with Zod schema
-    const validParams = taskCreateParamsSchema.parse(params);
+    const validParams = taskCreateParamsSchema.parse(params as any);
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -381,7 +381,7 @@ export async function getTaskSpecContentFromParams(
 ): Promise<{ task: unknown; specPath: string; content: string; section?: string }> {
   try {
     // Validate params with Zod schema
-    const validParams = taskSpecContentParamsSchema.parse(params);
+    const validParams = taskSpecContentParamsSchema.parse(params as any);
 
     // Normalize task ID
     const taskIdString = Array.isArray(validParams.taskId) ? validParams.taskId[0] : validParams.taskId;
@@ -442,8 +442,8 @@ export async function getTaskSpecContentFromParams(
       }
 
       // Find the next section or end of file
-      let sectionEnd = lines.length;
-      for (let i = sectionStart + 1; i < lines.length; i++) {
+      let sectionEnd = lines?.length;
+      for (let i = sectionStart + 1; i < lines?.length; i++) {
         if (lines[i].startsWith("## ")) {
           sectionEnd = i;
           break;
@@ -493,7 +493,7 @@ export async function createTaskFromTitleAndDescription(
 ): Promise<any> {
   try {
     // Validate params with Zod schema
-    const validParams = taskCreateFromTitleAndDescriptionParamsSchema.parse(params);
+    const validParams = taskCreateFromTitleAndDescriptionParamsSchema.parse(params as any);
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -579,7 +579,7 @@ export async function deleteTaskFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+    createTaskService: async (options) => await createConfiguredTaskService(options as any),
   }
 ): Promise<{ success: boolean; taskId: string; task?: any }> {
   try {

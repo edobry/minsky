@@ -221,7 +221,7 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
       // @ts-expect-error Buffer type compatibility with string methods
       const matches = content.match(pattern) || [];
       const categoryKey = category as keyof typeof counts;
-      counts[categoryKey][name] = matches.length;
+      counts[categoryKey][name] = matches?.length;
     }
   }
 
@@ -251,7 +251,7 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
   const isIntegration =
     relativePath.includes("integration") ||
     relativePath.includes("e2e") ||
-    mockDependencies.length > 3;
+    mockDependencies?.length > 3;
 
   // Classify the test file
   const classification = {
@@ -294,7 +294,7 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
   return {
     path,
     relativePath,
-    size: content.length,
+    size: content?.length,
     counts,
     imports,
     mockDependencies,
@@ -407,7 +407,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
 
   return {
     timestamp: new Date().toISOString(),
-    testFilesCount: testFiles.length,
+    testFilesCount: testFiles?.length,
     testFiles,
     totals,
     categoryCounts,
@@ -502,14 +502,14 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
 
   // Failing patterns
   for (const { pattern, files } of report.failingPatterns) {
-    md.push(`### ${pattern} (${files.length} files)`);
+    md.push(`### ${pattern} (${files?.length} files)`);
     md.push("");
     for (const file of files.slice(0, 10)) {
       // Show up to 10 files per pattern
       md.push(`- \`${file}\``);
     }
-    if (files.length > 10) {
-      md.push(`- ... and ${files.length - 10} more files`);
+    if (files?.length > 10) {
+      md.push(`- ... and ${files?.length - 10} more files`);
     }
     md.push("");
   }
@@ -524,7 +524,7 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
     );
 
     md.push(
-      `### ${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)} (${filesWithDifficulty.length} files)`
+      `### ${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)} (${filesWithDifficulty?.length} files)`
     );
     md.push("");
 
@@ -534,8 +534,8 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
         `- \`${file.relativePath}\` - ${file.classification.mockingComplexity} mocking, ${file.classification.testType} test`
       );
     }
-    if (filesWithDifficulty.length > SIZE_15) {
-      md.push(`- ... and ${filesWithDifficulty.length - SIZE_15} more files`);
+    if (filesWithDifficulty?.length > SIZE_15) {
+      md.push(`- ... and ${filesWithDifficulty?.length - SIZE_15} more files`);
     }
     md.push("");
   }
@@ -588,13 +588,13 @@ async function main() {
     // Find all test files
     const targetDir = resolve(baseDir, config.targetDir);
     const testFiles = await findTestFiles(targetDir);
-    log.cli(`Found ${testFiles.length} test files`);
+    log.cli(`Found ${testFiles?.length} test files`);
 
     // Analyze each test file
     const analyses: TestFileAnalysis[] = [];
     for (const [index, file] of testFiles.entries()) {
       process.stdout.write(
-        `Analyzing file ${index + 1}/${testFiles.length}: ${relative(baseDir, file)}\r`
+        `Analyzing file ${index + 1}/${testFiles?.length}: ${relative(baseDir, file)}\r`
       );
       const analysis = await analyzeTestFile(file);
       analyses.push(analysis);
