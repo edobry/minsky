@@ -416,7 +416,7 @@
 
 - [x] Exclude CLOSED tasks from default tasks list output [#228](process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)
 
-- [x] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
+- [-] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
 
 - [ ] Investigate session workspace disk usage and optimize node_modules storage [#230](process/tasks/230-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
 
