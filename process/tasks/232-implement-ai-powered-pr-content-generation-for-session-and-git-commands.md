@@ -1,13 +1,5 @@
 # Implement AI-Powered PR Content Generation for Session and Git Commands
 
-## Status
-
-BACKLOG
-
-## Priority
-
-MEDIUM
-
 ## Description
 
 Add AI-powered automatic generation of PR titles and descriptions using the AI provider system, integrating with existing git prepare-pr methods and session pr workflow. This task focuses on implementing intelligent content generation while leveraging existing PR preparation infrastructure.
