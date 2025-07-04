@@ -129,6 +129,15 @@ _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/20
 
 ### Fixed
 
+- **Session PR Commit Message Bug Fix**
+  - Fixed critical bug where session PR branches would use incorrect commit messages from unrelated tasks
+  - Issue: PR branches were getting commit messages from arbitrary previous commits (e.g., task #166 messages appearing in task #229 PRs)
+  - Root cause: Git merge process was not reliably using the specified commit message file (-F flag)
+  - Solution: Replaced `-F commitMsgFile` with direct `-m "message"` approach with proper quote escaping
+  - Added commit message verification to detect and log when git applies wrong messages
+  - Enhanced error handling and debugging capabilities for merge commit creation
+  - Verified fix works correctly with proper task-specific PR titles in commit messages
+
 - **Task #167: Fix Task Creation CLI Bug - "status is not defined" Error**
 
   - Fixed critical "status is not defined" error that was preventing the `minsky tasks create` command from working
@@ -609,6 +618,7 @@ _See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specs
   - Fixed `filterTasks` function to correctly handle task IDs with numeric equivalence (e.g., "2" vs "#002")
   - Updated shared command tests to use Bun-compatible test assertions instead of Jest-style matchers
   - Removed dependency on custom `arrayContaining` and `objectContaining` matchers
+  - Fixed mock implementations in rules and session test files
   - Ensured consistent testing patterns across the codebase
 
 _See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/history/2025-06-26_fix-tests-after-merge.md) for debugging session._
