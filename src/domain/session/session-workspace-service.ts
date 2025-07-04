@@ -7,6 +7,7 @@ import {
 } from "../workspace/workspace-backend";
 import { LocalWorkspaceBackend } from "../workspace/local-workspace-backend";
 import { log } from "../../utils/logger";
+import { getErrorMessage } from "../../errors/index";
 
 export interface SessionWorkspaceInfo {
   sessionId: string;
@@ -82,12 +83,12 @@ export class SessionWorkspaceService {
 
       log.error("Failed to get session workspace", {
         sessionId,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
 
       throw new SessionNotFoundError(
         sessionId,
-        `Failed to get session workspace: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to get session workspace: ${getErrorMessage(error)}`
       );
     }
   }
@@ -208,7 +209,7 @@ export class SessionWorkspaceService {
       log.debug("File existence check failed", {
         sessionId,
         relativePath,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return false;
     }
@@ -264,7 +265,7 @@ export class SessionWorkspaceService {
       log.debug("Path validation failed", {
         sessionId,
         relativePath,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return false;
     }

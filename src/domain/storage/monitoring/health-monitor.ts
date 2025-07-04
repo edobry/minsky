@@ -8,6 +8,7 @@
 import { log } from "../../../utils/logger";
 import { StorageBackendFactory } from "../storage-backend-factory";
 import { SessionDbConfig } from "../../configuration/types";
+import { configurationService } from "../../configuration";
 import config from "config";
 import { getErrorMessage } from "../../../errors";
 
@@ -94,7 +95,7 @@ export class SessionDbHealthMonitor {
       };
     } catch (error) {
       log.error("Health check failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         duration: Date.now() - startTime,
       });
 
@@ -105,9 +106,7 @@ export class SessionDbHealthMonitor {
           backend: sessionDbConfig?.backend || "unknown",
           responseTime: Date.now() - startTime,
           timestamp: new Date().toISOString(),
-          errors: [
-            `Health check failed: ${error instanceof Error ? error.message : String(error)}`,
-          ],
+          errors: [`Health check failed: ${getErrorMessage(error)}`],
         },
         performance: {
           averageResponseTime: 0,
@@ -155,11 +154,11 @@ export class SessionDbHealthMonitor {
     } catch (error) {
       status.healthy = false;
       status.responseTime = Date.now() - startTime;
-      status.errors?.push(error instanceof Error ? error.message : String(error));
+      status.errors?.push(getErrorMessage(error));
 
       log.warn("Backend health check failed", {
         backend: config.backend,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         responseTime: status.responseTime,
       });
     }
@@ -241,9 +240,9 @@ export class SessionDbHealthMonitor {
         status.details!.directoryWritable = false;
       }
     } catch (error) {
-      status.warnings?.push(
-        `JSON health check warning: ${error instanceof Error ? error.message : String(error)}`
-      );
+
+      status.warnings?.push(`JSON health check warning: ${getErrorMessage(error)}`);
+
     }
   }
 
@@ -283,9 +282,9 @@ export class SessionDbHealthMonitor {
         db.close();
       }
     } catch (error) {
-      status.warnings?.push(
-        `SQLite health check warning: ${error instanceof Error ? error.message : String(error)}`
-      );
+
+      status.warnings?.push(`SQLite health check warning: ${getErrorMessage(error)}`);
+
     }
   }
 
@@ -403,7 +402,7 @@ export class SessionDbHealthMonitor {
       }
     } catch (error) {
       log.warn("Storage metrics check failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
     }
 

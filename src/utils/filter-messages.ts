@@ -13,7 +13,7 @@ import type { TaskStatus } from "../domain/tasks/taskConstants.js";
  * @returns A message string
  */
 export function getStatusFilterMessage(status: TaskStatus): string {
-  return `Showing tasks with status: ${status}`;
+  return `Showing tasks with status '${status}'`;
 }
 
 /**
@@ -21,7 +21,7 @@ export function getStatusFilterMessage(status: TaskStatus): string {
  * @returns A message string
  */
 export function getActiveTasksMessage(): string {
-  return "Showing active tasks (use --all to include completed tasks)";
+  return "Showing active tasks (use --all to include completed _tasks)";
 }
 
 /**
@@ -33,8 +33,9 @@ export function generateFilterMessages(options: { status?: TaskStatus; all?: boo
   const messages: string[] = [];
 
   // Add status filter message if status is provided
-  if (options.status) {
-    messages.push(getStatusFilterMessage(options.status));
+  const status = options.status;
+  if (status) {
+    messages.push(getStatusFilterMessage(status));
   }
   // Add active tasks message if not showing all tasks and no specific status filter
   else if (!options.all) {

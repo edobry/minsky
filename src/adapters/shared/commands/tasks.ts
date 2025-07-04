@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 import { select, isCancel, cancel } from "@clack/prompts";
+import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,

@@ -7,6 +7,7 @@
 
 import { join } from "path";
 import { log } from "../../utils/logger";
+import { getErrorMessage } from "../../errors/index";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
 import { JsonFileStorage } from "./backends/json-file-storage";
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
@@ -190,7 +191,7 @@ export class StorageBackendFactory {
         }
       } catch (error) {
         log.warn("Error closing storage backend:", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
         });
       }
     }

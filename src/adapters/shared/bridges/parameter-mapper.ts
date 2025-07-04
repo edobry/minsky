@@ -9,6 +9,7 @@ import { Command, Option } from "commander";
 import { z } from "zod";
 import type { CommandParameterDefinition } from "../command-registry";
 import { paramNameToFlag } from "../schema-bridge";
+import { getErrorMessage } from "../../../errors/index";
 
 /**
  * Configuration options for parameter mapping
@@ -271,9 +272,7 @@ export function normalizeCliParameters(
         const parsedValue = paramDef.schema.parse(rawValue);
         result[paramName] = parsedValue;
       } catch (error) {
-        throw new Error(
-          `Invalid value for parameter '${paramName}': ${error instanceof Error ? error.message : String(error)}`
-        );
+        throw new Error(`Invalid value for parameter '${paramName}': ${getErrorMessage(error)}`);
       }
     }
   }
