@@ -112,7 +112,7 @@ export class ConfigurationLoader {
     }
 
     try {
-      const content = readFileSync(configPath, { encoding: "utf8" });
+      const content = readFileSync(configPath, { encoding: "utf8" }).toString();
       const contentStr = typeof content === "string" ? content : (content as any).toString();
       return parseYaml(contentStr) as GlobalUserConfig;
     } catch (error) {
@@ -133,7 +133,7 @@ export class ConfigurationLoader {
     }
 
     try {
-      const content = readFileSync(configPath, { encoding: "utf8" });
+      const content = readFileSync(configPath, { encoding: "utf8" }).toString();
       const contentStr = typeof content === "string" ? content : (content as any).toString();
       return parseYaml(contentStr) as RepositoryConfig;
     } catch (error) {
@@ -180,9 +180,9 @@ export class ConfigurationLoader {
         // Convert repository sessiondb format to SessionDbConfig format
         const repoSessionDb: Partial<SessionDbConfig> = {
           backend: (repository.sessiondb as any).backend,
-          dbPath: (repository?.sessiondb.sqlite as any).path,
+          dbPath: (repository?.sessiondb?.sqlite as any).path,
           baseDir: (repository.sessiondb as any).base_dir,
-          connectionString: (repository?.sessiondb.postgres as any).connection_string,
+          connectionString: (repository?.sessiondb?.postgres as any).connection_string,
         };
         (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, repoSessionDb);
       }
@@ -205,7 +205,7 @@ export class ConfigurationLoader {
     if ((globalUser as any).sessiondb) {
       // Convert global user sessiondb format to SessionDbConfig format
       const globalSessionDb: Partial<SessionDbConfig> = {
-        dbPath: (globalUser?.sessiondb.sqlite as any).path,
+        dbPath: (globalUser?.sessiondb?.sqlite as any).path,
         baseDir: (globalUser.sessiondb as any).base_dir,
       };
       (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, globalSessionDb);

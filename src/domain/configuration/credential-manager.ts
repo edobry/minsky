@@ -68,15 +68,15 @@ export class DefaultCredentialManager implements CredentialManager {
     // 2. Check global config file
     const globalConfig = await this.loadGlobalConfig();
     if ((globalConfig?.github?.credentials as any).token) {
-      return (globalConfig?.github.credentials as any).token;
+      return (globalConfig?.github?.credentials as any).token;
     }
 
     // 3. Check token file if configured
     if ((globalConfig?.github?.credentials as any).token_file) {
-      const tokenFile = this.expandTilde((globalConfig?.github.credentials as any).token_file);
+      const tokenFile = this.expandTilde((globalConfig?.github?.credentials as any).token_file);
       if (existsSync(tokenFile)) {
         try {
-          const content = readFileSync(tokenFile, { encoding: "utf8" });
+          const content = readFileSync(tokenFile, { encoding: "utf8" }).toString();
           return typeof content === "string" ? (((content) as any).toString() as any).trim() : ((content as any).toString() as any).trim();
         } catch (error) {
           // Silently ignore file read errors
@@ -101,14 +101,14 @@ export class DefaultCredentialManager implements CredentialManager {
       (globalConfig.github as any).credentials = { source };
     }
 
-    (globalConfig?.github.credentials as any).source = source;
+    (globalConfig?.github?.credentials as any).source = source;
 
     if (source === "file" && value) {
-      (globalConfig?.github.credentials as any).token = value;
+      (globalConfig?.github?.credentials as any).token = value;
     }
 
     if (source === "prompt" && value) {
-      (globalConfig?.github.credentials as any).token = value;
+      (globalConfig?.github?.credentials as any).token = value;
     }
 
     await this.saveGlobalConfig(globalConfig);
@@ -136,7 +136,7 @@ export class DefaultCredentialManager implements CredentialManager {
     }
 
     try {
-      const content = readFileSync(configPath, { encoding: "utf8" });
+      const content = readFileSync(configPath, { encoding: "utf8" }).toString();
       const contentStr = typeof content === "string" ? content : (content as any).toString();
       return parseYaml(contentStr) as GlobalUserConfig;
     } catch (error) {

@@ -89,7 +89,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return null as any;
     }
 
-    return (result.data.sessions as any).find((session) => (session as any).session === id) || null as any;
+    return (result.data!.sessions as any).find((session) => (session as any).session === id) || null as any;
   }
 
   async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
@@ -147,7 +147,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return null as any;
     }
 
-    const sessionIndex = (result.data.sessions as any).findIndex((s) => (s as any).session === id);
+    const sessionIndex = (result.data!.sessions as any).findIndex((s) => (s as any).session === id);
     if (sessionIndex === -1) {
       return null as any;
     }
@@ -184,7 +184,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return false;
     }
 
-    const sessionIndex = (result.data.sessions as any).findIndex((s) => (s as any).session === id);
+    const sessionIndex = (result.data!.sessions as any).findIndex((s) => (s as any).session === id);
     if (sessionIndex === -1) {
       return false;
     }
