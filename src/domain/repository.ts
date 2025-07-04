@@ -256,14 +256,11 @@ export async function createRepositoryBackend(
     // Create an adapter using GitService that conforms to RepositoryBackend interface
     return {
       clone: async (session: string): Promise<CloneResult> => {
+        const workdir = gitService.getSessionWorkdir(session);
         return await gitService.clone({
           repoUrl: config.url || "",
           session,
-          github: {
-            token: (config as GitHubConfig).token,
-            owner: (config as GitHubConfig).owner,
-            repo: (config as GitHubConfig).repo,
-          },
+          workdir,
         });
       },
 
