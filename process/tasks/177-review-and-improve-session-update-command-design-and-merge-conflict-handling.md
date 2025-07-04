@@ -2,15 +2,15 @@
 
 **Status:** TODO
 **Priority:** MEDIUM
-**Dependencies:** Task #176 (Comprehensive Session Database Architecture Fix), Task #172 (Boolean Flag Parsing)
+**Dependencies:** Task #176 (Comprehensive Session Database Architecture Fix), Task #201 (Eliminate MCP Command Duplication - addresses boolean flag parsing)
 
 ## Problem
 
 During Task #165 implementation, several issues were discovered with the `session update` command design and its integration with `session pr`:
 
-**Note**: This task focuses on **command design** and **merge conflict handling**. The underlying session database architecture issues are addressed in **Task #176**.
+**Note**: This task focuses on **session-specific command design** and **merge conflict handling**. The underlying CLI architecture issues (including boolean flag parsing) are addressed in **Task #201**.
 
-1. **Boolean Flag Parsing Bug**: The `--no-update` flag for `session pr` doesn't work due to Task #172 (boolean flag parsing issue)
+1. **Boolean Flag Parsing Bug**: The `--no-update` flag for `session pr` doesn't work due to architectural issues in the shared command registry (being addressed in Task #201)
 
 2. **Merge Conflict Handling**: The current session update workflow doesn't handle merge conflicts gracefully when session changes conflict with main branch updates
 
@@ -93,7 +93,7 @@ During Task #165 implementation, several issues were discovered with the `sessio
 
 ## Related Tasks
 
-- **Task #172**: Fix Boolean Flag Parsing Issue (boolean flags in CLI) - **DEPENDENCY**
+- **Task #201**: Eliminate MCP Command Duplication by Implementing Proper Bridge Integration (fixes boolean flag parsing) - **DEPENDENCY**
 - **Task #176**: Comprehensive Session Database Architecture Fix - **DEPENDENCY**
 - **Task #165**: Replace Direct process.exit() Calls (where this issue was discovered)
 - **Task #174**: Review Session PR Workflow Architecture (complementary workflow design task)
@@ -108,9 +108,9 @@ This task **depends on** Task #176 being completed first, as it will:
 - Provide stable session detection and management
 - Eliminate root causes of session update failures
 
-### Task #172 Dependency
+### Task #201 Dependency
 
-This task **depends on** Task #172 to ensure the `--no-update` flag works correctly once boolean flag parsing is fixed.
+This task **depends on** Task #201 to ensure the `--no-update` flag works correctly once the shared command registry architecture is fixed.
 
 ### Implementation Strategy
 

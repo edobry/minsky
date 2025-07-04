@@ -14,11 +14,13 @@ This creates a maintenance nightmare and defeats the purpose of the shared comma
 The architecture failures manifest differently across interfaces but stem from the same root cause:
 
 #### MCP Interface Failure
-**Intended Architecture**: Shared command registry → MCP bridge → MCP server  
+
+**Intended Architecture**: Shared command registry → MCP bridge → MCP server
 **Current Implementation**: Manual command duplication in MCP adapters (ignoring bridge)
 
-#### CLI Interface Failure  
-**Intended Architecture**: Shared command registry → CLI bridge → CLI commands  
+#### CLI Interface Failure
+
+**Intended Architecture**: Shared command registry → CLI bridge → CLI commands
 **Current Implementation**: Multiple registration points with manual customizations
 
 **Evidence of MCP Duplication:**
@@ -31,12 +33,12 @@ const tasksCreateParams: CommandParameterMap = {
   // ... more parameters
 };
 
-// ❌ DUPLICATED: MCP adapter (src/adapters/mcp/tasks.ts)  
+// ❌ DUPLICATED: MCP adapter (src/adapters/mcp/tasks.ts)
 z.object({
   title: z.string().optional().describe("Title for the task"),
   description: z.string().optional().describe("Description text"),
   // ... same parameters duplicated again!
-})
+});
 ```
 
 **Evidence of CLI Duplication:**
@@ -48,7 +50,7 @@ export const sessionPrParamsSchema = z.object({
   // ... other parameters
 });
 
-// ❌ DUPLICATED: Shared command layer (src/adapters/shared/commands/session.ts)  
+// ❌ DUPLICATED: Shared command layer (src/adapters/shared/commands/session.ts)
 const sessionPrParams: CommandParameterMap = {
   noUpdate: { schema: z.boolean(), description: "Skip status update", required: false },
   // ... same parameters again
@@ -59,6 +61,7 @@ const sessionPrParams: CommandParameterMap = {
 ```
 
 This creates:
+
 - **Parameter schema duplication** across all interface layers (CLI and MCP)
 - **Validation logic duplication** (required/optional, descriptions)
 - **Execution logic duplication** (manual parameter mapping vs bridge handling)
@@ -70,35 +73,50 @@ This creates:
 ## Architectural Principles
 
 ### Single Source of Truth
+
 Command definitions should exist in exactly one place (shared registry) and be automatically consumed by all interfaces. Any duplication violates this principle.
 
-### Interface Agnostic Design  
+### Interface Agnostic Design
+
 Domain logic should be interface-independent, with bridges handling interface-specific concerns. The shared command registry provides this abstraction.
 
 ### DRY (Don't Repeat Yourself)
+
 No command metadata, parameters, or execution logic should be duplicated across interfaces. The existing MCP bridge already provides this capability.
 
 ### Automatic Consistency
+
 When shared commands change, all interfaces should automatically reflect those changes without manual updates. This is only possible with proper bridge integration.
 
 ## Critical Cases That Must Be Fixed
 
 This task merges and addresses issues from multiple sources:
 
-### From Task #172: Boolean Flag Parsing Issue
+### From Task #172: Boolean Flag Parsing Issue (ABSORBED)
+
 - **Specific Problem**: `--no-update` flag for `session pr` command not working
 - **Root Cause**: Missing CLI factory customization for `session.pr` command
 - **Broader Impact**: All boolean flags across CLI system affected by registration duplication
 - **Required Fix**: Eliminate need for manual CLI factory customizations
+- **Status**: Task #172 has been merged into this task
 
-### From Task #177: MCP Command Duplication  
+### MCP Command Duplication (Original Issue)
+
 - **Specific Problem**: All MCP commands manually duplicated instead of using bridge
 - **Root Cause**: MCP adapters completely ignore existing MCP bridge
 - **Broader Impact**: 80%+ code duplication in MCP adapter files
 - **Required Fix**: Replace manual MCP registration with automatic bridge integration
 
+## Related Tasks
+
+- **Task #172**: Fix Boolean Flag Parsing Issue - **ABSORBED** into this task
+- **Task #177**: Review and Improve Session Update Command Design - **DEPENDENT** on this task for boolean flag fixes
+- **Task #176**: Comprehensive Session Database Architecture Fix - **PARALLEL** implementation (both address CLI architecture issues)
+
 ### Unified Root Cause
+
 Both issues stem from the **shared command registry architecture not working as designed**:
+
 - CLI requires manual customizations (breaking automation)
 - MCP ignores bridges entirely (breaking single source of truth)
 - Both create maintenance overhead and functional bugs
@@ -108,6 +126,7 @@ Both issues stem from the **shared command registry architecture not working as 
 ### Existing MCP Bridge Capabilities
 
 The existing MCP bridge (`src/adapters/shared/bridges/mcp-bridge.ts`) already provides:
+
 - ✅ **Parameter validation** from shared command schemas
 - ✅ **Execution context handling** with MCP-specific context
 - ✅ **Error handling** and response formatting
@@ -117,6 +136,7 @@ The existing MCP bridge (`src/adapters/shared/bridges/mcp-bridge.ts`) already pr
 ### Current MCP Adapter Violations
 
 The current MCP adapters (`src/adapters/mcp/*.ts`) manually duplicate:
+
 - ❌ **Command names and descriptions** (already in shared registry)
 - ❌ **Parameter schemas** (Zod objects duplicated)
 - ❌ **Validation logic** (required/optional rules duplicated)
@@ -125,13 +145,15 @@ The current MCP adapters (`src/adapters/mcp/*.ts`) manually duplicate:
 ### Architectural Inconsistency
 
 **CLI Bridge (Working Correctly):**
+
 ```typescript
 // ✅ CORRECT: CLI uses bridge
 registerAllSharedCommands(); // Register shared commands
-registerAllCommands(cli);    // Bridge generates CLI commands automatically
+registerAllCommands(cli); // Bridge generates CLI commands automatically
 ```
 
 **MCP Implementation (Broken):**
+
 ```typescript
 // ❌ WRONG: MCP ignores bridge, duplicates everything manually
 commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {...});
@@ -156,7 +178,7 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 ### 3. Establish True Single Source of Truth
 
 - **All command definitions** exist only in shared command registry
-- **All parameter schemas** defined once and used by both interfaces  
+- **All parameter schemas** defined once and used by both interfaces
 - **All validation logic** centralized in shared registry
 - **Zero duplication** across CLI factory, MCP adapters, and schema layers
 
@@ -179,15 +201,16 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 ### Phase 1: Create Bridge Integration Layer
 
 1. **Develop automatic registration utilities**:
+
    ```typescript
    // New utility: src/adapters/mcp/bridge-integration.ts
    export function registerSharedCommandsWithMCP(
      commandMapper: CommandMapper,
      categories: CommandCategory[]
    ): void {
-     categories.forEach(category => {
+     categories.forEach((category) => {
        const commands = sharedCommandRegistry.getCommandsByCategory(category);
-       commands.forEach(command => {
+       commands.forEach((command) => {
          registerSharedCommandWithMCP(commandMapper, command);
        });
      });
@@ -196,9 +219,7 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 
 2. **Create schema conversion utilities**:
    ```typescript
-   function convertSharedParametersToMcpSchema(
-     parameters: CommandParameterMap
-   ): z.ZodObject<any> {
+   function convertSharedParametersToMcpSchema(parameters: CommandParameterMap): z.ZodObject<any> {
      // Convert shared parameter definitions to MCP Zod schemas
    }
    ```
@@ -206,8 +227,9 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 ### Phase 2: Replace Manual Command Registration
 
 1. **Remove all manual command definitions** from:
+
    - `src/adapters/mcp/tasks.ts`
-   - `src/adapters/mcp/session.ts` 
+   - `src/adapters/mcp/session.ts`
    - `src/adapters/mcp/git.ts`
    - `src/adapters/mcp/rules.ts`
 
@@ -229,20 +251,23 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 ## Success Criteria
 
 ### Elimination of Duplication
+
 - [ ] **Zero parameter definitions** duplicated across CLI factory, MCP adapters, and schema layers
-- [ ] **Zero validation logic** duplicated across interfaces  
+- [ ] **Zero validation logic** duplicated across interfaces
 - [ ] **Zero execution handlers** manually implemented in MCP adapters
 - [ ] **Zero CLI factory customizations** required for basic parameter handling
 - [ ] **Reduced lines of code** in MCP adapter files (>80% reduction expected)
 - [ ] **Reduced lines of code** in CLI factory customizations (>50% reduction expected)
 
 ### Critical Bug Fixes
+
 - [ ] **`--no-update` flag works correctly** for `session pr` command
 - [ ] **All boolean flags work consistently** across CLI commands without manual registration
 - [ ] **MCP commands work identically** to current implementation but without duplication
 - [ ] **Parameter validation behaves exactly the same** for both CLI and MCP
 
 ### Automatic Consistency
+
 - [ ] **Shared command parameter changes** automatically reflected in both CLI and MCP
 - [ ] **New shared commands** automatically available in both interfaces
 - [ ] **Command description updates** automatically propagated to both CLI and MCP
@@ -250,6 +275,7 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 - [ ] **Boolean flag definitions** automatically work in CLI without manual steps
 
 ### Functional Equivalence
+
 - [ ] **All existing CLI commands** continue to work identically including flags
 - [ ] **All existing MCP commands** continue to work identically
 - [ ] **Parameter validation** behaves exactly the same for both interfaces
@@ -257,6 +283,7 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 - [ ] **Response formats** unchanged for backward compatibility
 
 ### Architectural Integrity
+
 - [ ] **Single source of truth** established for all command definitions
 - [ ] **Interface agnostic design** properly implemented for both CLI and MCP
 - [ ] **DRY principle** enforced across all interfaces and layers
@@ -266,18 +293,21 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 ## Verification
 
 ### Automated Testing
+
 - [ ] **Unit tests** verify automatic command registration
 - [ ] **Integration tests** confirm MCP bridge functionality
 - [ ] **Regression tests** ensure existing MCP behavior preserved
 - [ ] **Schema conversion tests** validate parameter mapping accuracy
 
 ### Manual Verification
+
 - [ ] **MCP inspector** shows identical command definitions
 - [ ] **Parameter validation** works exactly as before
 - [ ] **Error handling** provides same error messages
 - [ ] **Command execution** produces identical results
 
 ### Code Quality Metrics
+
 - [ ] **Lines of code reduction** in MCP adapters (target: >80%)
 - [ ] **Duplication elimination** verified by static analysis
 - [ ] **Dependency analysis** confirms proper bridge usage
@@ -286,48 +316,56 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 ## Implementation Steps
 
 ### Step 1: Analysis and Planning
+
 - [ ] Audit all current MCP command definitions for duplication patterns
 - [ ] Map shared command registry entries to MCP command equivalents
 - [ ] Design schema conversion utilities for parameter mapping
 - [ ] Plan migration strategy to minimize disruption
 
 ### Step 2: Bridge Integration Infrastructure
+
 - [ ] Create `src/adapters/mcp/bridge-integration.ts` with registration utilities
 - [ ] Implement schema conversion functions for shared → MCP parameter mapping
 - [ ] Add automatic command discovery and registration logic
 - [ ] Create integration layer between MCP bridge and CommandMapper
 
 ### Step 3: Replace Tasks Commands
+
 - [ ] Remove manual task command definitions from `src/adapters/mcp/tasks.ts`
 - [ ] Replace with automatic registration from shared command registry
 - [ ] Test all task commands through MCP interface
 - [ ] Verify parameter validation and error handling
 
-### Step 4: Replace Session Commands  
+### Step 4: Replace Session Commands
+
 - [ ] Remove manual session command definitions from `src/adapters/mcp/session.ts`
 - [ ] Replace with automatic registration from shared command registry
 - [ ] Test all session commands through MCP interface
 - [ ] Verify functional equivalence with previous implementation
 
 ### Step 5: Replace Git Commands
+
 - [ ] Remove manual git command definitions from `src/adapters/mcp/git.ts`
 - [ ] Replace with automatic registration from shared command registry
 - [ ] Test all git commands through MCP interface
 - [ ] Verify command behavior matches previous implementation
 
 ### Step 6: Replace Rules Commands
+
 - [ ] Remove manual rules command definitions from `src/adapters/mcp/rules.ts`
 - [ ] Replace with automatic registration from shared command registry
 - [ ] Test all rules commands through MCP interface
 - [ ] Verify parameter handling and response formatting
 
 ### Step 7: Integration and Testing
+
 - [ ] Run comprehensive test suite to verify no regressions
 - [ ] Test MCP interface with real MCP clients
 - [ ] Verify automatic updates when shared commands change
 - [ ] Document the new architecture and usage patterns
 
 ### Step 8: Cleanup and Documentation
+
 - [ ] Remove all unused manual command registration code
 - [ ] Update MCP adapter documentation to reflect new architecture
 - [ ] Add examples of how shared command changes automatically propagate
@@ -336,19 +374,23 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 ## Risk Mitigation
 
 ### Backward Compatibility
+
 - **Risk**: MCP interface changes break existing clients
 - **Mitigation**: Extensive testing with MCP inspector and real clients
 
 ### Schema Conversion Issues
-- **Risk**: Parameter mapping introduces validation bugs  
+
+- **Risk**: Parameter mapping introduces validation bugs
 - **Mitigation**: Comprehensive unit tests for schema conversion utilities
 
 ### Performance Impact
+
 - **Risk**: Bridge layer adds execution overhead
 - **Mitigation**: Performance testing and optimization of bridge integration
 
 ### Migration Complexity
+
 - **Risk**: Large-scale refactoring introduces bugs
 - **Mitigation**: Incremental migration with testing at each step
 
-This task is critical for maintaining architectural integrity and preventing future maintenance overhead. The current duplication violates fundamental software engineering principles and must be eliminated. 
+This task is critical for maintaining architectural integrity and preventing future maintenance overhead. The current duplication violates fundamental software engineering principles and must be eliminated.
