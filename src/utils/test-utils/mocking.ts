@@ -462,7 +462,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
   const base = { ...implementations } as any;
 
   // Create a proxy that will handle method calls
-  return new Proxy(_base, {
+  return new Proxy(base, {
     get: (target, prop: string | symbol) => {
       // If the property exists on the target, return it
       if (prop in target) {
@@ -491,12 +491,12 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
  *
  * @example
  * // Mock a readonly property
- * const _config = {
+ * const config = {
  *   get environment() { return "production"; }
  * };
  *
  * // Mock the property
- * mockReadonlyProperty(__config, "environment", "test");
+ * mockReadonlyProperty(config, "environment", "test");
  *
  * // Now accessing the property returns the mock value
  * expect(config.environment).toBe("test");
@@ -507,7 +507,7 @@ export function mockReadonlyProperty<T extends object, K extends keyof T>(
   mockValue: any
 ): void {
   // Use Object.defineProperty to override the property
-  Object.defineProperty(_obj, propName, {
+  Object.defineProperty(obj, propName, {
     configurable: true,
     get: () => mockValue,
   });
