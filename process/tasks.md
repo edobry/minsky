@@ -356,7 +356,7 @@
 
 - [ ] Import Existing GitHub Issues Under Minsky Management [#188](process/tasks/188-import-existing-github-issues-under-minsky-management.md)
 
-- [ ] Restore Init Command Interactivity [#189](process/tasks/189-restore-init-command-interactivity.md)
+- [-] Restore Init Command Interactivity [#189](process/tasks/189-restore-init-command-interactivity.md)
 
 - [ ] Design Containerized Session Workspace Architecture [#190](process/tasks/190-design-containerized-session-workspace-architecture.md)
 
