@@ -1617,55 +1617,17 @@ Session requested: "${options.session}"
         // Branch doesn't exist, which is fine
       }
 
-      // Create PR branch FROM base branch (Task #025 specification)
-      await execAsync(`git -C ${workdir} switch -C ${prBranch} origin/${baseBranch}`);
-      log.debug(`Created PR branch ${prBranch} from origin/${baseBranch}`);
+      // Create PR branch FROM source branch (fix for session pr conflicts)
+      await execAsync(`git -C ${workdir} switch -C ${prBranch} ${sourceBranch}`);
+      log.debug(`Created PR branch ${prBranch} from ${sourceBranch}`);
     } catch (err) {
       throw new MinskyError(
         `Failed to create PR branch: ${err instanceof Error ? err.message : String(err)}`
       );
     }
 
-    // Create commit message file for merge commit (Task #025)
-    const commitMsgFile = `${workdir}/.pr_title`;
-    try {
-      let commitMessage = options.title || `Merge ${sourceBranch} into ${prBranch}`;
-      if (options.body) {
-        commitMessage += `\n\n${options.body}`;
-      }
-
-      // Write commit message to file for git merge -F
-      // Use fs.writeFile instead of echo to avoid shell parsing issues
-      const fs = await import("fs/promises");
-      await fs.writeFile(commitMsgFile, commitMessage, "utf8");
-      log.debug("Created commit message file for prepared merge commit");
-
-      // Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
-      await execAsync(`git -C ${workdir} merge --no-ff ${sourceBranch} -F ${commitMsgFile}`);
-      log.debug(`Created prepared merge commit by merging ${sourceBranch} into ${prBranch}`);
-
-      // Clean up the commit message file
-      await execAsync(`rm -f ${commitMsgFile}`);
-    } catch (err) {
-      // Clean up on error
-      try {
-        await execAsync(`git -C ${workdir} merge --abort`);
-        await execAsync(`rm -f ${commitMsgFile}`);
-        log.debug("Aborted merge and cleaned up after conflict");
-      } catch (cleanupErr) {
-        log.warn("Failed to clean up after merge error", { cleanupErr });
-      }
-
-      if (err instanceof Error && err.message.includes("CONFLICT")) {
-        throw new MinskyError(
-          "Merge conflicts occurred while creating prepared merge commit. Please resolve conflicts and retry.",
-          { exitCode: 4 }
-        );
-      }
-      throw new MinskyError(
-        `Failed to create prepared merge commit: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
+    // PR branch already contains all changes from source branch, no merge needed
+    log.debug(`PR branch ${prBranch} created successfully from ${sourceBranch}`);
 
     // Push changes to the PR branch
     await this.push({
