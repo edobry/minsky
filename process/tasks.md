@@ -356,7 +356,7 @@
 
 - [ ] Import Existing GitHub Issues Under Minsky Management [#188](process/tasks/188-import-existing-github-issues-under-minsky-management.md)
 
-- [-] Restore Init Command Interactivity [#189](process/tasks/189-restore-init-command-interactivity.md)
+- [x] Restore Init Command Interactivity [#189](process/tasks/189-restore-init-command-interactivity.md)
 
 - [ ] Design Containerized Session Workspace Architecture [#190](process/tasks/190-design-containerized-session-workspace-architecture.md)
 
@@ -422,4 +422,4 @@
 
 - [ ] Improve session PR conflict resolution workflow with auto-resolution and better UX [#232](process/tasks/232-improve-session-pr-conflict-resolution-workflow-with-auto-resolution-and-better-ux.md)
 
-- [ ] Setup semantic-release with conventional commits for automated GitHub releases and binary builds [#233](/Users/edobry/Projects/minsky/process/tasks/233-setup-semantic-release-with-conventional-commits-for-automated-github-releases-and-binary-builds.md)
+- [ ] Setup semantic-release with conventional commits for automated GitHub releases and binary builds [#233](process/tasks/233-setup-semantic-release-with-conventional-commits-for-automated-github-releases-and-binary-builds.md)
