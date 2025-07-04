@@ -347,7 +347,7 @@ export async function createTaskFromParams(
     });
 
     // Create the task
-    const task = await taskService.createTask(validParams.specPath, {
+    const task = await taskService.createTask(validParams.title, {
       force: validParams.force,
     });
 
@@ -384,7 +384,8 @@ export async function getTaskSpecContentFromParams(
     const validParams = taskSpecContentParamsSchema.parse(params);
 
     // Normalize task ID
-    const taskId = normalizeTaskId(validParams.taskId);
+    const taskIdString = Array.isArray(validParams.taskId) ? validParams.taskId[0] : validParams.taskId;
+    const taskId = normalizeTaskId(taskIdString);
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -515,7 +516,7 @@ export async function createTaskFromTitleAndDescription(
       try {
         // Resolve relative paths relative to current working directory
         const filePath = require("path").resolve(validParams.descriptionPath);
-        description = await readFile(filePath, "utf-8");
+        description = (await readFile(filePath, "utf-8")).toString();
 
         if (!description.trim()) {
           throw new ValidationError(`Description file is empty: ${validParams.descriptionPath}`);

@@ -85,6 +85,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       await migrate(this.drizzle, { migrationsFolder: "./src/domain/storage/migrations" });
     } catch (error) {
       // Log but don't throw - migrations may not exist yet
+      // @ts-expect-error - Database error type compatibility issue with logger
       log.debug("Migration attempt failed:", error);
     }
   }
@@ -109,6 +110,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return true;
     } catch (error) {
+      // @ts-expect-error - Database error type compatibility issue with logger
       log.error("Failed to initialize PostgreSQL storage:", error);
       return false;
     }
@@ -175,7 +177,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return result.length > 0 ? fromPostgresSelect(result[0]) : null;
     } catch (error) {
-      log.error("Failed to get session from PostgreSQL:", error);
+      log.error("Failed to get session from PostgreSQL:", error as Error);
       return null;
     }
   }
@@ -188,7 +190,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       const results = await this.drizzle.select().from(postgresSessions);
       return results.map(fromPostgresSelect);
     } catch (error) {
-      log.error("Failed to get sessions from PostgreSQL:", error);
+      log.error("Failed to get sessions from PostgreSQL:", error as Error);
       return [];
     }
   }
@@ -202,7 +204,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       await this.drizzle.insert(postgresSessions).values(insertData);
       return entity;
     } catch (error) {
-      log.error("Failed to create session in PostgreSQL:", error);
+      log.error("Failed to create session in PostgreSQL:", error as Error);
       throw error;
     }
   }
@@ -244,6 +246,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         .delete(postgresSessions)
         .where(eq(postgresSessions.session, id));
 
+      // @ts-expect-error - rowCount property exists in actual Drizzle result but not in type definitions
       return result.rowCount !== null && result.rowCount > 0;
     } catch (error) {
       log.error("Failed to delete session from PostgreSQL:", error);
