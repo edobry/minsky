@@ -329,6 +329,53 @@ describe("ConflictDetectionService", () => {
   });
 
   describe("smartSessionUpdate", () => {
+    it("should compare against origin/baseBranch instead of local baseBranch", async () => {
+      // This test verifies the bug fix for task #231
+      // BUG: smartSessionUpdate was comparing against local 'main' instead of 'origin/main'
+      // causing incorrect divergence analysis when local main was behind origin/main
+      
+      const sessionBranch = "task#231";
+      const baseBranch = "main";
+      
+      // Setup mock responses for all git commands
+      mockExecAsync
+        .mockResolvedValueOnce({ stdout: "1\t2", stderr: "" }) // rev-list --left-right --count origin/main...task#231 
+        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // merge-base origin/main task#231
+        .mockResolvedValueOnce({ stdout: "commit1\ncommit2", stderr: "" }) // checkSessionChangesInBase
+        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // cat-file session tree
+        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // cat-file base tree
+        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // fetch origin main
+        .mockResolvedValueOnce({ stdout: "", stderr: "" }); // merge --ff-only origin/main
+
+      const result = await ConflictDetectionService.smartSessionUpdate(
+        testRepoPath, sessionBranch, baseBranch
+      );
+
+      // Verify the key fix: should call with origin/main instead of just main
+      const allCalls = mockExecAsync.mock.calls.map(call => call[0]);
+      const divergenceCall = allCalls.find(call => 
+        call.includes("rev-list --left-right --count") && 
+        call.includes("origin/main...task#231")
+      );
+      const mergeBaseCall = allCalls.find(call => 
+        call.includes("merge-base") && 
+        call.includes("origin/main task#231")
+      );
+      const mergeCall = allCalls.find(call => 
+        call.includes("merge --ff-only") && 
+        call.includes("origin/main")
+      );
+
+      expect(divergenceCall).toBeDefined();
+      expect(mergeBaseCall).toBeDefined(); 
+      expect(mergeCall).toBeDefined();
+
+      // Verify the update was performed correctly
+      expect(result.updated).toBe(true);
+      expect(result.skipped).toBe(false);
+      expect(result.reason).toContain("update completed");
+    });
+
     it("should skip update when session changes already in base", async () => {
       // Setup: session changes already merged with skipIfAlreadyMerged option
       mockExecAsync
