@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
