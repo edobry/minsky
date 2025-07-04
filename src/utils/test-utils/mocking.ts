@@ -285,7 +285,7 @@ export function createMockExecSync(
   return createMock((command: unknown) => {
     // Find the first matching command pattern
     for (const [pattern, response] of Object.entries(commandResponses)) {
-      if (command.includes(pattern)) {
+      if ((command as string).includes(pattern)) {
         return response;
       }
     }
@@ -361,15 +361,15 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     // Sync methods
     existsSync: createMock((path: unknown) => files.has(path) || directories.has(path)),
     readFileSync: createMock((path: unknown) => {
-      if (!files.has(path)) {
+      if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
-      return files.get(path);
+      return files.get(path as string);
     }),
     writeFileSync: createMock((path: unknown, data: unknown) => {
       files.set(path as string, data as string);
       // Add parent directories
-      const parts = path.split("/");
+      const parts = (path as string).split("/");
       for (let i = 1; i < parts.length; i++) {
         directories.add(parts.slice(0, i).join("/"));
       }
@@ -382,9 +382,9 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     }),
     rmSync: createMock((path: unknown) => {
       // Remove the path and any files/directories under it
-      files.delete(path);
-      directories.delete(path);
-      const pathPrefix = `${path}/`;
+      files.delete(path as string);
+      directories.delete(path as string);
+      const pathPrefix = `${path as string}/`;
       for (const filePath of files.keys()) {
         if (filePath.startsWith(pathPrefix)) {
           files.delete(filePath);
@@ -399,7 +399,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
 
     // Async methods (fs/promises)
     readFile: createMock(async (path: unknown) => {
-      if (!files.has(path)) {
+      if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
       return files.get(path);
@@ -407,16 +407,16 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     writeFile: createMock(async (path: unknown, data: unknown) => {
       files.set(path as string, data as string);
       // Add parent directories
-      const parts = path.split("/");
+      const parts = (path as string).split("/");
       for (let i = 1; i < parts.length; i++) {
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
     mkdir: createMock(async (path: unknown, options?: { recursive?: boolean }) => {
-      directories.add(path);
+      directories.add(path as string);
       // If recursive option, add all parent directories
       if (options?.recursive) {
-        const parts = path.split("/");
+        const parts = (path as string).split("/");
         for (let i = 1; i <= parts.length; i++) {
           directories.add(parts.slice(0, i).join("/"));
         }
