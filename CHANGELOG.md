@@ -12,13 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Task #164: Add Bun Binary Builds and GitHub Actions Release Workflow**
-  - Added build scripts for cross-platform binary compilation using `bun build --compile`
+  - Added cross-platform binary compilation using `bun build --compile` with Just command runner
   - Implemented multi-platform support for Linux (x64, ARM64), macOS (x64, ARM64), and Windows (x64)
-  - Created GitHub Actions release workflow for automated binary builds on version tags
-  - Added package.json scripts: `build`, `build:linux`, `build:linux-arm64`, `build:macos`, `build:macos-arm64`, `build:windows`, `build:all`
+  - Created justfile with clean, maintainable build commands replacing repetitive npm scripts
+  - Added justfile recipes: `build`, `build-linux`, `build-linux-arm64`, `build-macos`, `build-macos-arm64`, `build-windows`, `build-all`, `clean`, `test-binary`
+  - Created GitHub Actions release workflow for automated binary builds on version tags using Just
   - Configured peer dependencies required for bun compilation: `@valibot/to-json-schema`, `effect`, `sury`
   - Set up automated release creation with multi-platform artifacts uploaded to GitHub Releases
   - Added binary patterns to .gitignore to exclude compiled binaries from repository
+  - Created comprehensive BUILD.md documentation with installation and usage instructions
   - Verified build process works correctly with functional cross-platform binary generation
   - Enabled release automation triggered by version tags (v*) with automatic release notes generation
 
