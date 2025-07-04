@@ -47,7 +47,8 @@ export function handleCliError(error: unknown): never {
 
     // Show validation details in debug mode
     if (isDebugMode() && error.errors) {
-      log.cliError("\nValidation details:", error.errors);
+      log.cliError("\nValidation details:");
+      log.cliError(JSON.stringify(error.errors, null, 2));
     }
   } else if (error instanceof ResourceNotFoundError) {
     log.cliError(`Not found: ${normalizedError.message}`);
@@ -71,8 +72,8 @@ export function handleCliError(error: unknown): never {
     }
   } else if (error instanceof GitOperationError) {
     log.cliError(`Git operation failed: ${normalizedError.message}`);
-    if (error._command) {
-      log.cliError(`Command: ${error._command}`);
+    if (error.command) {
+      log.cliError(`Command: ${error.command}`);
     }
   } else if (error instanceof MinskyError) {
     log.cliError(`Error: ${normalizedError.message}`);
@@ -132,7 +133,7 @@ export function outputResult<T>(
     // This ensures machine-readable output is separated from human-readable messages
     if (isStructuredMode()) {
       // In structured mode, log to agent logger
-      log.agent("Command result", { result });
+      log.agent({ message: "Command result", result });
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
       log.cli(JSON.stringify(result, null, 2));
