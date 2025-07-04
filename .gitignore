@@ -45,3 +45,11 @@ batch-results.json
 
 # local configuration overrides
 config/local.yaml
+
+# compiled binaries
+minsky
+minsky-linux-x64
+minsky-linux-arm64
+minsky-macos-x64
+minsky-macos-arm64
+minsky-windows-x64.exe
