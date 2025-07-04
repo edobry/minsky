@@ -1633,25 +1633,71 @@ Session requested: "${options.session}"
         commitMessage += `\n\n${options.body}`;
       }
 
+      // CRITICAL BUG FIX: Improve commit message file handling
       // Write commit message to file for git merge -F
       // Use fs.writeFile instead of echo to avoid shell parsing issues
       const fs = await import("fs/promises");
       await fs.writeFile(commitMsgFile, commitMessage, "utf8");
-      log.debug("Created commit message file for prepared merge commit");
+      
+      // VERIFICATION: Read back the commit message file to ensure it was written correctly
+      const writtenMessage = await fs.readFile(commitMsgFile, "utf8");
+      if (writtenMessage !== commitMessage) {
+        throw new Error(
+          `Commit message file verification failed. Expected: ${commitMessage}, Got: ${writtenMessage}`
+        );
+      }
+
+      log.debug("Created and verified commit message file for prepared merge commit", {
+        commitMessage,
+        commitMsgFile,
+        sourceBranch,
+        prBranch,
+      });
 
       // Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
       // First checkout the PR branch temporarily to perform the merge
       await execAsync(`git -C ${workdir} switch ${prBranch}`);
-      await execAsync(`git -C ${workdir} merge --no-ff ${sourceBranch} -F ${commitMsgFile}`);
+
+      // CRITICAL BUG FIX: Use explicit commit message format and verify the merge
+      // Use -m instead of -F to avoid potential file reading issues
+      const escapedCommitMessage = commitMessage.replace(/"/g, String.fromCharCode(92) + String.fromCharCode(34));
+      await execAsync(
+        `git -C ${workdir} merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`
+      );
+      
+      // VERIFICATION: Check that the merge commit has the correct message
+      const actualCommitMessage = await execAsync(`git -C ${workdir} log -1 --pretty=format:%B`);
+      const actualTitle = actualCommitMessage.stdout.trim().split("\n")[0];
+      const expectedTitle = commitMessage.split("\n")[0];
+      
+      if (actualTitle !== expectedTitle) {
+        log.warn("Commit message mismatch detected", {
+          expected: expectedTitle,
+          actual: actualTitle,
+          fullExpected: commitMessage,
+          fullActual: actualCommitMessage.stdout.trim(),
+        });
+        // Don't throw error but log the issue for debugging
+      } else {
+        log.debug("✅ Verified merge commit message is correct", {
+          commitMessage: actualTitle,
+        });
+      }
+
       log.debug(`Created prepared merge commit by merging ${sourceBranch} into ${prBranch}`);
 
       // Clean up the commit message file
-      await execAsync(`rm -f ${commitMsgFile}`);
+      await fs.unlink(commitMsgFile).catch(() => {
+        // Ignore errors when cleaning up
+      });
     } catch (err) {
       // Clean up on error
       try {
         await execAsync(`git -C ${workdir} merge --abort`);
-        await execAsync(`rm -f ${commitMsgFile}`);
+        const fs = await import("fs/promises");
+        await fs.unlink(commitMsgFile).catch(() => {
+          // Ignore file cleanup errors
+        });
         // CRITICAL: Switch back to session branch on error
         await execAsync(`git -C ${workdir} switch ${sourceBranch}`);
         log.debug("Aborted merge, cleaned up, and switched back to session branch after conflict");
@@ -1665,9 +1711,7 @@ Session requested: "${options.session}"
           { exitCode: 4 }
         );
       }
-      throw new MinskyError(
-        `Failed to create prepared merge commit: ${getErrorMessage(err)}`
-      );
+      throw new MinskyError(`Failed to create prepared merge commit: ${getErrorMessage(err)}`);
     }
 
     // Push changes to the PR branch
