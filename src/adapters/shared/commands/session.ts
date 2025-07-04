@@ -303,8 +303,8 @@ const sessionApproveCommandParams: CommandParameterMap = {
 const sessionPrCommandParams: CommandParameterMap = {
   title: {
     schema: z.string().min(1),
-    description: "Title for the PR",
-    required: true,
+    description: "Title for the PR (optional for existing PRs)",
+    required: false,
   },
   body: {
     schema: z.string(),

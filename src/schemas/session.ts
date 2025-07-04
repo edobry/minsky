@@ -186,7 +186,7 @@ export const sessionPrParamsSchema = z
   .object({
     name: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
-    title: z.string().min(1).describe("PR title (required)"),
+    title: z.string().min(1).optional().describe("PR title (optional for existing PRs)"),
     body: z.string().optional().describe("PR body text"),
     bodyPath: z.string().optional().describe("Path to file containing PR body text"),
     baseBranch: z.string().optional().describe("Base branch for PR (defaults to main)"),

@@ -859,6 +859,110 @@ export async function updateSessionFromParams(
 }
 
 /**
+ * Helper function to check if a PR branch exists for a session
+ */
+async function checkPrBranchExists(
+  sessionName: string,
+  gitService: GitServiceInterface,
+  currentDir: string
+): Promise<boolean> {
+  const prBranch = `pr/${sessionName}`;
+  
+  try {
+    // Check if branch exists locally
+    const localBranchOutput = await gitService.execInRepository(
+      currentDir,
+      `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
+    );
+    const localBranchExists = localBranchOutput.trim() !== "not-exists";
+    
+    if (localBranchExists) {
+      return true;
+    }
+    
+    // Check if branch exists remotely
+    const remoteBranchOutput = await gitService.execInRepository(
+      currentDir,
+      `git ls-remote --heads origin ${prBranch}`
+    );
+    const remoteBranchExists = remoteBranchOutput.trim().length > 0;
+    
+    return remoteBranchExists;
+  } catch (error) {
+    log.debug("Error checking PR branch existence", {
+      error: getErrorMessage(error),
+      prBranch,
+      sessionName,
+    });
+    return false;
+  }
+}
+
+/**
+ * Helper function to extract title and body from existing PR branch
+ */
+async function extractPrDescription(
+  sessionName: string,
+  gitService: GitServiceInterface,
+  currentDir: string
+): Promise<{ title: string; body: string } | null> {
+  const prBranch = `pr/${sessionName}`;
+  
+  try {
+    // Try to get from remote first
+    const remoteBranchOutput = await gitService.execInRepository(
+      currentDir,
+      `git ls-remote --heads origin ${prBranch}`
+    );
+    const remoteBranchExists = remoteBranchOutput.trim().length > 0;
+    
+    let commitMessage = "";
+    
+    if (remoteBranchExists) {
+      // Fetch the PR branch to ensure we have latest
+      await gitService.execInRepository(currentDir, `git fetch origin ${prBranch}`);
+      
+      // Get the commit message from the remote branch's last commit
+      commitMessage = await gitService.execInRepository(
+        currentDir,
+        `git log -1 --pretty=format:%B origin/${prBranch}`
+      );
+    } else {
+      // Check if branch exists locally
+      const localBranchOutput = await gitService.execInRepository(
+        currentDir,
+        `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
+      );
+      const localBranchExists = localBranchOutput.trim() !== "not-exists";
+      
+      if (localBranchExists) {
+        // Get the commit message from the local branch's last commit
+        commitMessage = await gitService.execInRepository(
+          currentDir,
+          `git log -1 --pretty=format:%B ${prBranch}`
+        );
+      } else {
+        return null;
+      }
+    }
+    
+    // Parse the commit message to extract title and body
+    const lines = commitMessage.trim().split("\n");
+    const title = lines[0] || "";
+    const body = lines.slice(1).join("\n").trim();
+    
+    return { title, body };
+  } catch (error) {
+    log.debug("Error extracting PR description", {
+      error: getErrorMessage(error),
+      prBranch,
+      sessionName,
+    });
+    return null;
+  }
+}
+
+/**
  * Interface-agnostic function for creating a PR for a session
  */
 export async function sessionPrFromParams(params: SessionPrParams): Promise<{
@@ -1042,6 +1146,41 @@ Need help? Run 'git status' to see what files have changed.
       baseBranch: params.baseBranch,
     });
 
+    // STEP 4.5: PR Branch Detection and Title/Body Handling
+    // This implements the new refresh functionality
+    const prBranchExists = await checkPrBranchExists(sessionName, gitService, currentDir);
+    
+    let titleToUse = params.title;
+    let bodyToUse = bodyContent;
+    
+    if (!titleToUse && prBranchExists) {
+      // Case: Existing PR + no title → Auto-reuse existing title/body (refresh)
+      log.cli("🔄 Refreshing existing PR (reusing title and body)...");
+      
+      const existingDescription = await extractPrDescription(sessionName, gitService, currentDir);
+      if (existingDescription) {
+        titleToUse = existingDescription.title;
+        bodyToUse = existingDescription.body;
+        log.cli(`📝 Reusing existing title: "${titleToUse}"`);
+      } else {
+        // Fallback if we can't extract description
+        throw new MinskyError(
+          `PR branch pr/${sessionName} exists but could not extract existing title/body. Please provide --title explicitly.`
+        );
+      }
+    } else if (!titleToUse && !prBranchExists) {
+      // Case: No PR + no title → Error (need title for first creation)
+      throw new MinskyError(
+        `PR branch pr/${sessionName} doesn't exist. Please provide --title for initial PR creation.`
+      );
+    } else if (titleToUse && prBranchExists) {
+      // Case: Existing PR + new title → Use new title/body (update)
+      log.cli("📝 Updating existing PR with new title/body...");
+    } else if (titleToUse && !prBranchExists) {
+      // Case: No PR + title → Normal creation flow
+      log.cli("✨ Creating new PR...");
+    }
+
     // STEP 5: Enhanced session update with conflict detection (unless --skip-update is specified)
     if (!params.skipUpdate) {
       log.cli("🔍 Checking for conflicts before PR creation...");
@@ -1083,8 +1222,8 @@ Need help? Run 'git status' to see what files have changed.
     // STEP 6: Now proceed with PR creation
     const result = await preparePrFromParams({
       session: sessionName,
-      title: params.title,
-      body: bodyContent,
+      title: titleToUse,
+      body: bodyToUse,
       baseBranch: params.baseBranch,
       debug: params.debug,
     });
@@ -1528,7 +1667,7 @@ export async function sessionReviewFromParams(
       // Check if branch exists locally
       const localBranchOutput = await deps.gitService.execInRepository(
         sessionWorkdir,
-        `git show-ref --verify --quiet refs/heads/${prBranchToUse} || echo 'not-exists'`
+        `git show-ref --verify --quiet refs/heads/${prBranchToUse} || echo "not-exists"`
       );
       const localBranchExists = localBranchOutput.trim() !== "not-exists";
 
