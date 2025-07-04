@@ -131,7 +131,7 @@ const sessionStartCommandParams: CommandParameterMap = {
     defaultValue: false,
   },
   packageManager: {
-    schema: z.enum(["bun", "npm", "yarn", "pnpm"] as any[]),
+    schema: z.string(),
     description: "Override the detected package manager",
     required: false,
   },

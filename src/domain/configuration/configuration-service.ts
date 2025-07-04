@@ -172,7 +172,7 @@ export class DefaultConfigurationService implements ConfigurationService {
 
     // Only auto-detect if we're using the default backend from detection rules
     const defaultBackend =
-      (config.detectionRules.find((rule) => rule.condition === "always") as any).backend || "json-file";
+      (config.detectionRules.find((rule) => rule.condition === "always" as any) as any).backend || "json-file";
     if ((config as any).backend !== defaultBackend) {
       return config; // Backend was explicitly configured
     }

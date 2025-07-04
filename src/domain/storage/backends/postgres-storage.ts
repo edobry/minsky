@@ -224,7 +224,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       // Update in database
       await (this.drizzle
         .update(postgresSessions)
-        .set(updateData) as any).where(eq((postgresSessions as any).session, id));
+        .set(updateData as any) as any).where(eq((postgresSessions as any).session, id));
 
       return updated;
     } catch (error) {

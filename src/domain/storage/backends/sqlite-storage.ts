@@ -289,7 +289,7 @@ implements DatabaseStorage<TEntity, TState>
 
       await (this.drizzleDb
         .update(sessionsTable)
-        .set(updateData) as any).where(eq((sessionsTable as any).session, id));
+        .set(updateData as any) as any).where(eq((sessionsTable as any).session, id));
 
       // Return updated entity
       return { ...existing, ...updates };

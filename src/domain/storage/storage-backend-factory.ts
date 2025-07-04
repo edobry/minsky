@@ -139,7 +139,7 @@ export function createStorageBackend(
           "postgres": ["PostgreSQL connection URL"]
         }
       );
-      throw new Error(errorMessage);
+      throw new Error(errorMessage as any);
     }
     return createPostgresStorage((storageConfig as any).postgres);
   }
@@ -149,7 +149,7 @@ export function createStorageBackend(
       (storageConfig as any).backend,
       ["json", "sqlite", "postgres"] as any[]
     );
-    throw new Error(errorMessage);
+    throw new Error(errorMessage as any);
   }
   }
 }
