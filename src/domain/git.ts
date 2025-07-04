@@ -2372,6 +2372,7 @@ export async function cloneFromParams(params: {
     const git = new GitService();
     const result = await git.clone({
       repoUrl: (params as any).url,
+      workdir: (params as any).workdir,
       session: (params as any).session,
       branch: (params as any).branch,
     });

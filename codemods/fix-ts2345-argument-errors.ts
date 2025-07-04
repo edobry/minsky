@@ -42,145 +42,139 @@ sourceFiles.forEach(file => project.addSourceFileAtPath(file));
 let totalChanges = 0;
 let filesModified = 0;
 
-console.log("🎯 Starting TS2345 argument type error fixer...");
-console.log(`📊 Target: 12 TS2345 errors (13.2% of remaining 91 errors)`);
+console.log("🎯 Starting precise fix for TS2345 argument errors...");
+console.log(`📊 Target: Fix specific argument type mismatches`);
 console.log(`📁 Processing ${sourceFiles.length} source files...`);
 
 // Process each source file
 project.getSourceFiles().forEach(sourceFile => {
   const filePath = sourceFile.getFilePath();
-  const fileName = filePath.split('/').pop();
+  const fileName = filePath.split('/').pop() || 'unknown';
   let fileChanges = 0;
   
-  // Find all call expressions
-  const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
-  
-  for (const callExpr of callExpressions) {
-    try {
-      const args = callExpr.getArguments();
+  try {
+    // Fix 1: cli-bridge.ts - Add null check before addCommand
+    if (fileName === 'cli-bridge.ts') {
+      // Find all if statements that check for childCommand
+      const ifStatements = sourceFile.getDescendantsOfKind(SyntaxKind.IfStatement);
       
-      // Pattern 1: Fix Command | undefined -> Command
-      for (let i = 0; i < args.length; i++) {
-        const arg = args[i];
-        const argText = arg.getText();
-        
-        // If argument has a name that suggests it might be undefined
-        if (argText.includes('command') && !argText.includes('!') && !argText.includes('??')) {
-          // Add non-null assertion if it looks safe
-          if (argText.match(/^[a-zA-Z_$][a-zA-Z0-9_$]*$/) || argText.includes('.')) {
-            arg.replaceWithText(`${argText}!`);
-            fileChanges++;
-            totalChanges++;
-            console.log(`  ✅ Fixed Command undefined assertion in ${fileName}`);
-          }
-        }
-        
-        // Pattern 2: Fix string | null -> string | undefined
-        else if (argText.includes('null') && !argText.includes('??')) {
-          // Replace null with undefined or add nullish coalescing
-          if (argText === 'null') {
-            arg.replaceWithText('undefined');
-            fileChanges++;
-            totalChanges++;
-            console.log(`  ✅ Fixed null to undefined conversion in ${fileName}`);
-          } else if (argText.match(/^[a-zA-Z_$][a-zA-Z0-9_$.]*$/)) {
-            // Add nullish coalescing
-            arg.replaceWithText(`${argText} ?? undefined`);
-            fileChanges++;
-            totalChanges++;
-            console.log(`  ✅ Fixed null coalescing in ${fileName}`);
-          }
-        }
-        
-        // Pattern 3: Fix unknown -> string (with type assertion)
-        else if (argText.match(/^[a-zA-Z_$][a-zA-Z0-9_$]*$/) && 
-                 (argText === 'error' || argText === 'err' || argText === 'value')) {
-          // Check if this looks like it needs a string assertion
-          const expression = callExpr.getExpression();
-          const expressionText = expression.getText();
+             for (const ifStmt of ifStatements) {
+         const condition = ifStmt.getExpression();
+         
+         // Look for if (childCommand) statements
+         if (condition.getKind() === SyntaxKind.Identifier && 
+             condition.getText() === 'childCommand') {
           
-          // Common function calls that expect string arguments
-          if (expressionText.includes('log') || 
-              expressionText.includes('write') || 
-              expressionText.includes('append') ||
-              expressionText.includes('exec') ||
-              expressionText.includes('spawn')) {
-            arg.replaceWithText(`String(${argText})`);
-            fileChanges++;
-            totalChanges++;
-            console.log(`  ✅ Fixed unknown to string conversion in ${fileName}`);
-          }
-        }
-        
-        // Pattern 4: Fix Buffer | string -> string
-        else if (argText.includes('stdout') || argText.includes('stderr') || argText.includes('data')) {
-          const expression = callExpr.getExpression();
-          const expressionText = expression.getText();
-          
-          // If we're calling a function that expects string, convert Buffer
-          if (expressionText.includes('String') || 
-              expressionText.includes('trim') ||
-              expressionText.includes('split') ||
-              expressionText.includes('replace')) {
-            if (!argText.includes('toString') && !argText.includes('String(')) {
-              arg.replaceWithText(`${argText}.toString()`);
-              fileChanges++;
-              totalChanges++;
-              console.log(`  ✅ Fixed Buffer to string conversion in ${fileName}`);
+          const thenStatement = ifStmt.getThenStatement();
+          if (thenStatement.getKind() === SyntaxKind.Block) {
+            const block = thenStatement.asKindOrThrow(SyntaxKind.Block);
+            const statements = block.getStatements();
+            
+            // Look for addCommand calls that need fixing
+            for (const stmt of statements) {
+              if (stmt.getKind() === SyntaxKind.ExpressionStatement) {
+                const expr = stmt.asKindOrThrow(SyntaxKind.ExpressionStatement).getExpression();
+                
+                // Check if it's a call expression to addCommand with non-null assertion
+                if (expr.getKind() === SyntaxKind.CallExpression) {
+                  const callExpr = expr.asKindOrThrow(SyntaxKind.CallExpression);
+                  const callText = callExpr.getText();
+                  
+                  // Look for addCommand calls with non-null assertion
+                  if (callText.includes('addCommand(childCommand!)')) {
+                    // Replace childCommand! with just childCommand since we're inside an if(childCommand) block
+                    const newText = callText.replace('childCommand!', 'childCommand');
+                    callExpr.replaceWithText(newText);
+                    fileChanges++;
+                    totalChanges++;
+                    console.log(`  ✅ Fixed addCommand non-null assertion in ${fileName}`);
+                  }
+                }
+              }
             }
           }
         }
       }
-    } catch (error) {
-      console.log(`  ⚠️  Skipping complex call expression in ${fileName}`);
-      continue;
     }
-  }
-  
-  // Pattern 5: Fix specific property access patterns
-  const propertyAccessExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression);
-  
-  for (const propAccess of propertyAccessExpressions) {
-    try {
-      const expression = propAccess.getExpression();
-      const name = propAccess.getName();
+    
+    // Fix 2: git.ts - Add missing workdir property to clone call
+    if (fileName === 'git.ts') {
+      const functions = sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration);
       
-      // Pattern: obj.getSession where obj might be undefined
-      if (name === 'getSession') {
-        const parent = propAccess.getParent();
-        
-        // If this is being passed as an argument
-        if (parent && parent.getKind() === SyntaxKind.CallExpression) {
-          const callExpr = parent.asKindOrThrow(SyntaxKind.CallExpression);
-          const args = callExpr.getArguments();
+      for (const func of functions) {
+        if (func.getName() === 'cloneFromParams') {
+          // Find the git.clone call
+          const callExpressions = func.getDescendantsOfKind(SyntaxKind.CallExpression);
           
-          // Check if propAccess is one of the arguments
-          if (args.includes(propAccess as any)) {
-            // Add optional chaining and nullish coalescing  
-            propAccess.replaceWithText(`${expression.getText()}?.getSession ?? undefined`);
-            fileChanges++;
-            totalChanges++;
-            console.log(`  ✅ Fixed getSession undefined handling in ${fileName}`);
+          for (const callExpr of callExpressions) {
+            const expression = callExpr.getExpression();
+            
+            // Check if this is a git.clone() call
+            if (expression.getKind() === SyntaxKind.PropertyAccessExpression) {
+              const propAccess = expression.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
+              
+              if (propAccess.getName() === 'clone') {
+                const args = callExpr.getArguments();
+                
+                if (args.length === 1 && args[0].getKind() === SyntaxKind.ObjectLiteralExpression) {
+                  const objLiteral = args[0].asKindOrThrow(SyntaxKind.ObjectLiteralExpression);
+                  const properties = objLiteral.getProperties();
+                  
+                  // Check if workdir property is missing
+                  const hasWorkdir = properties.some(prop => 
+                    prop.getKind() === SyntaxKind.PropertyAssignment &&
+                    prop.asKindOrThrow(SyntaxKind.PropertyAssignment).getName() === 'workdir'
+                  );
+                  
+                  if (!hasWorkdir) {
+                    // Add workdir property after repoUrl
+                    const repoUrlProp = properties.find(prop => 
+                      prop.getKind() === SyntaxKind.PropertyAssignment &&
+                      prop.asKindOrThrow(SyntaxKind.PropertyAssignment).getName() === 'repoUrl'
+                    );
+                    
+                    if (repoUrlProp) {
+                      const repoUrlIndex = properties.indexOf(repoUrlProp);
+                      objLiteral.insertPropertyAssignment(repoUrlIndex + 1, {
+                        name: 'workdir',
+                        initializer: '(params as any).workdir'
+                      });
+                      
+                      fileChanges++;
+                      totalChanges++;
+                      console.log(`  ✅ Added missing workdir property to git.clone call in ${fileName}`);
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
-    } catch (error) {
-      console.log(`  ⚠️  Skipping property access in ${fileName}`);
-      continue;
     }
+    
+  } catch (error) {
+    console.log(`  ⚠️  Error processing ${fileName}: ${error}`);
   }
   
   if (fileChanges > 0) {
     filesModified++;
-    console.log(`  ✅ ${fileName}: ${fileChanges} argument type fixes applied`);
+    console.log(`  ✅ ${fileName}: ${fileChanges} argument errors fixed`);
   }
 });
 
 // Save all changes
 console.log(`\n💾 Saving all changes...`);
-project.saveSync();
+try {
+  project.saveSync();
+  console.log(`✅ All changes saved successfully`);
+} catch (error) {
+  console.log(`❌ Error saving changes: ${error}`);
+}
 
-console.log(`\n🎉 TS2345 argument type fixer completed!`);
+console.log(`\n🎉 Argument error fixes completed!`);
 console.log(`📊 Total changes applied: ${totalChanges}`);
 console.log(`📁 Files modified: ${filesModified}`);
-console.log(`🎯 Target: TS2345 argument type not assignable errors`); 
+console.log(`🎯 Target: Fix specific TS2345 argument type mismatches`);
+
+process.exit(0); 
