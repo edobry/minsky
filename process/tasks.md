@@ -330,7 +330,7 @@
 
 - [!] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
 
-- [ ] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
+- [+] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
 
 - [ ] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
 
@@ -359,8 +359,6 @@
 - [x] Restore Init Command Interactivity [#189](process/tasks/189-restore-init-command-interactivity.md)
 
 - [ ] Design Containerized Session Workspace Architecture [#190](process/tasks/190-design-containerized-session-workspace-architecture.md)
-
-- [ ] Fix GitHub Token Validation for Non-GitHub Commands [#192](process/tasks/192-fix-github-token-validation-for-non-github-commands.md)
 
 - [x] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md)
 
@@ -424,4 +422,4 @@
 
 - [ ] Setup semantic-release with conventional commits for automated GitHub releases and binary builds [#233](process/tasks/233-setup-semantic-release-with-conventional-commits-for-automated-github-releases-and-binary-builds.md)
 
-- [ ] Implement Dagger CI Pipeline with Hybrid Development Workflow [#234](/Users/edobry/Projects/minsky/process/tasks/234-implement-dagger-ci-pipeline-with-hybrid-development-workflow.md)
+- [ ] Implement Dagger CI Pipeline with Hybrid Development Workflow [#234](process/tasks/234-implement-dagger-ci-pipeline-with-hybrid-development-workflow.md)
