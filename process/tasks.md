@@ -423,3 +423,5 @@
 - [ ] Improve session PR conflict resolution workflow with auto-resolution and better UX [#232](process/tasks/232-improve-session-pr-conflict-resolution-workflow-with-auto-resolution-and-better-ux.md)
 
 - [ ] Setup semantic-release with conventional commits for automated GitHub releases and binary builds [#233](process/tasks/233-setup-semantic-release-with-conventional-commits-for-automated-github-releases-and-binary-builds.md)
+
+- [ ] Implement Dagger CI Pipeline with Hybrid Development Workflow [#234](/Users/edobry/Projects/minsky/process/tasks/234-implement-dagger-ci-pipeline-with-hybrid-development-workflow.md)
