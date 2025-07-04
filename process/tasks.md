@@ -314,7 +314,7 @@
 
 - [x] Add --title and --description Options to tasks create Command [#163](process/tasks/163-add-title-and-description-options-to-tasks-create-command.md)
 
-- [ ] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
+- [x] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
 
 - [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#165](process/tasks/165-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
