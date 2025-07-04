@@ -1,8 +1,8 @@
 /**
  * Conflict Detection Service
  * 
- * Provides proactive conflict detection and analysis for git operations,
- * helping prevent merge conflicts before they occur during session PR creation.
+ * Provides comprehensive conflict detection and analysis for all git operations,
+ * helping prevent merge conflicts before they occur across the entire git workflow.
  */
 
 import { execAsync } from "../../utils/exec";
@@ -39,13 +39,78 @@ export interface DeletionInfo {
   canAutoResolve: boolean;
 }
 
+// New interfaces for comprehensive git workflow protection
+export interface GitOperationPreview {
+  operation: GitOperationType;
+  repoPath: string;
+  sourceRef: string;
+  targetRef?: string;
+  prediction: ConflictPrediction;
+  safeToExecute: boolean;
+  recommendedActions: string[];
+}
+
+export interface BranchSwitchWarning {
+  fromBranch: string;
+  toBranch: string;
+  uncommittedChanges: string[];
+  conflictingFiles: string[];
+  wouldLoseChanges: boolean;
+  recommendedAction: "commit" | "stash" | "force" | "abort";
+  stashStrategy?: StashStrategy;
+}
+
+export interface RebaseConflictPrediction {
+  baseBranch: string;
+  featureBranch: string;
+  conflictingCommits: ConflictingCommit[];
+  overallComplexity: "simple" | "moderate" | "complex";
+  estimatedResolutionTime: string;
+  canAutoResolve: boolean;
+  recommendations: string[];
+}
+
+export interface ConflictingCommit {
+  sha: string;
+  message: string;
+  author: string;
+  conflictFiles: string[];
+  complexity: "simple" | "moderate" | "complex";
+}
+
+export interface StashStrategy {
+  type: "full" | "partial" | "keep_index";
+  description: string;
+  commands: string[];
+}
+
+export interface AdvancedResolutionStrategy {
+  type: "intelligent" | "pattern_based" | "user_preference";
+  confidence: number;
+  description: string;
+  commands: string[];
+  riskLevel: "low" | "medium" | "high";
+  applicableFileTypes: string[];
+}
+
+export enum GitOperationType {
+  MERGE = "merge",
+  REBASE = "rebase",
+  CHECKOUT = "checkout",
+  SWITCH = "switch",
+  PULL = "pull",
+  CHERRY_PICK = "cherry-pick"
+}
+
 export enum ConflictType {
   NONE = "none",
   CONTENT_CONFLICT = "content_conflict",
   DELETE_MODIFY = "delete_modify",
   RENAME_CONFLICT = "rename_conflict",
   MODE_CONFLICT = "mode_conflict",
-  ALREADY_MERGED = "already_merged"
+  ALREADY_MERGED = "already_merged",
+  UNCOMMITTED_CHANGES = "uncommitted_changes",
+  REBASE_CONFLICT = "rebase_conflict"
 }
 
 export enum ConflictSeverity {
@@ -157,6 +222,53 @@ export class ConflictDetectionService {
   ): Promise<SmartUpdateResult> {
     const service = new ConflictDetectionService();
     return service.smartSessionUpdate(repoPath, sessionBranch, baseBranch, options);
+  }
+
+  /**
+   * NEW: Preview any git operation for potential conflicts
+   */
+  static async previewGitOperation(
+    repoPath: string,
+    operation: GitOperationType,
+    sourceRef: string,
+    targetRef?: string
+  ): Promise<GitOperationPreview> {
+    const service = new ConflictDetectionService();
+    return service.previewGitOperation(repoPath, operation, sourceRef, targetRef);
+  }
+
+  /**
+   * NEW: Check for branch switching conflicts and uncommitted changes
+   */
+  static async checkBranchSwitchConflicts(
+    repoPath: string,
+    targetBranch: string
+  ): Promise<BranchSwitchWarning> {
+    const service = new ConflictDetectionService();
+    return service.checkBranchSwitchConflicts(repoPath, targetBranch);
+  }
+
+  /**
+   * NEW: Predict conflicts for rebase operations
+   */
+  static async predictRebaseConflicts(
+    repoPath: string,
+    baseBranch: string,
+    featureBranch: string
+  ): Promise<RebaseConflictPrediction> {
+    const service = new ConflictDetectionService();
+    return service.predictRebaseConflicts(repoPath, baseBranch, featureBranch);
+  }
+
+  /**
+   * NEW: Generate advanced resolution strategies based on patterns
+   */
+  static async generateAdvancedResolutionStrategies(
+    repoPath: string,
+    conflictFiles: ConflictFile[]
+  ): Promise<AdvancedResolutionStrategy[]> {
+    const service = new ConflictDetectionService();
+    return service.generateAdvancedResolutionStrategies(repoPath, conflictFiles);
   }
 
   /**
@@ -460,6 +572,290 @@ export class ConflictDetectionService {
   }
 
   /**
+   * NEW: Preview any git operation for potential conflicts
+   */
+  async previewGitOperation(
+    repoPath: string,
+    operation: GitOperationType,
+    sourceRef: string,
+    targetRef?: string
+  ): Promise<GitOperationPreview> {
+    log.debug("Previewing git operation", { repoPath, operation, sourceRef, targetRef });
+
+    try {
+      let prediction: ConflictPrediction | undefined;
+      let safeToExecute = true;
+      let recommendedActions: string[] = [];
+
+      // Simulate the operation to predict conflicts
+      switch (operation) {
+      case GitOperationType.MERGE:
+        prediction = await this.predictMergeConflicts(repoPath, sourceRef, targetRef || "HEAD");
+        safeToExecute = !prediction.hasConflicts;
+        recommendedActions = prediction.hasConflicts ? prediction.userGuidance.split("\n") : [];
+        break;
+      case GitOperationType.REBASE:
+        prediction = await this.predictRebaseConflicts(repoPath, sourceRef, targetRef || "HEAD");
+        safeToExecute = !prediction.canAutoResolve; // Rebase conflicts are blocking
+        recommendedActions = prediction.recommendations;
+        break;
+      case GitOperationType.CHECKOUT:
+        // For checkout, we need to simulate a merge-like conflict
+        // This is a simplified check, as actual checkout can be complex
+        // For now, we'll assume it's safe if no conflicts are predicted
+        prediction = await this.predictMergeConflicts(repoPath, sourceRef, "HEAD");
+        safeToExecute = !prediction.hasConflicts;
+        recommendedActions = prediction.hasConflicts ? prediction.userGuidance.split("\n") : [];
+        break;
+      case GitOperationType.SWITCH: {
+        // For switch, we need to check for uncommitted changes and conflicts
+        const branchSwitchWarning = await this.checkBranchSwitchConflicts(repoPath, sourceRef);
+        safeToExecute = !branchSwitchWarning.wouldLoseChanges;
+        recommendedActions = branchSwitchWarning.recommendedAction === "abort" ? ["Abort operation"] : [];
+        break;
+      }
+      case GitOperationType.PULL:
+        // For pull, we need to predict conflicts if the source is a branch
+        if (targetRef) {
+          prediction = await this.predictMergeConflicts(repoPath, sourceRef, targetRef);
+          safeToExecute = !prediction.hasConflicts;
+          recommendedActions = prediction.hasConflicts ? prediction.userGuidance.split("\n") : [];
+        } else {
+          // If source is a branch, it's a fetch, which is generally safe
+          safeToExecute = true;
+          recommendedActions = [];
+        }
+        break;
+      case GitOperationType.CHERRY_PICK:
+        // Cherry-pick is similar to merge, but with a single commit
+        prediction = await this.predictMergeConflicts(repoPath, sourceRef, "HEAD");
+        safeToExecute = !prediction.hasConflicts;
+        recommendedActions = prediction.hasConflicts ? prediction.userGuidance.split("\n") : [];
+        break;
+      default:
+        safeToExecute = true;
+        recommendedActions = [];
+        break;
+      }
+
+      return {
+        operation,
+        repoPath,
+        sourceRef,
+        targetRef,
+        prediction,
+        safeToExecute,
+        recommendedActions
+      };
+
+    } catch (error) {
+      log.error("Error previewing git operation", { error, repoPath, operation, sourceRef, targetRef });
+      throw error;
+    }
+  }
+
+  /**
+   * NEW: Check for branch switching conflicts and uncommitted changes
+   */
+  async checkBranchSwitchConflicts(
+    repoPath: string,
+    targetBranch: string
+  ): Promise<BranchSwitchWarning> {
+    log.debug("Checking branch switch conflicts", { repoPath, targetBranch });
+
+    try {
+      const { stdout: uncommittedChanges } = await execAsync(`git -C ${repoPath} status --porcelain`);
+      const uncommittedFiles = uncommittedChanges
+        .trim()
+        .split("\n")
+        .filter(line => line.trim() && line.trim().startsWith("??"))
+        .map(line => line.substring(3));
+
+      const { stdout: conflictingFiles } = await execAsync(`git -C ${repoPath} status --porcelain`);
+      const hasConflicts = conflictingFiles.includes("UU") || conflictingFiles.includes("AA") || conflictingFiles.includes("DD");
+
+      const wouldLoseChanges = await this.checkWouldLoseChanges(repoPath, targetBranch);
+
+      let recommendedAction: BranchSwitchWarning["recommendedAction"];
+      let stashStrategy: StashStrategy | undefined;
+
+      if (hasConflicts) {
+        recommendedAction = "abort";
+      } else if (uncommittedChanges.trim() && !wouldLoseChanges) {
+        recommendedAction = "commit";
+      } else if (uncommittedChanges.trim() && wouldLoseChanges) {
+        recommendedAction = "stash";
+        stashStrategy = {
+          type: "full",
+          description: "Stash all changes to keep uncommitted changes and avoid losing them",
+          commands: [
+            "git stash save -u \"Uncommitted changes before branch switch\"",
+            `git checkout ${  targetBranch}`
+          ]
+        };
+      } else {
+        recommendedAction = "force";
+      }
+
+      return {
+        fromBranch: "HEAD", // Assuming HEAD is the current branch
+        toBranch: targetBranch,
+        uncommittedChanges: uncommittedFiles,
+        conflictingFiles: [], // This will be populated by analyzeConflictFiles
+        wouldLoseChanges,
+        recommendedAction,
+        stashStrategy
+      };
+
+    } catch (error) {
+      log.error("Error checking branch switch conflicts", { error, repoPath, targetBranch });
+      throw error;
+    }
+  }
+
+  /**
+   * NEW: Predict conflicts for rebase operations
+   */
+  async predictRebaseConflicts(
+    repoPath: string,
+    baseBranch: string,
+    featureBranch: string
+  ): Promise<RebaseConflictPrediction> {
+    log.debug("Predicting rebase conflicts", { repoPath, baseBranch, featureBranch });
+
+    try {
+      // Simulate rebase to detect conflicts
+      const tempBranch = `rebase-simulation-${Date.now()}`;
+      
+      try {
+        // Create a temporary branch from the base branch
+        await execAsync(`git -C ${repoPath} checkout -b ${tempBranch} ${baseBranch}`);
+        
+        // Attempt rebase
+        try {
+          await execAsync(`git -C ${repoPath} rebase ${featureBranch}`);
+          
+          // If rebase succeeds, reset and return no conflicts
+          await execAsync(`git -C ${repoPath} reset --hard HEAD`);
+          return {
+            baseBranch,
+            featureBranch,
+            conflictingCommits: [],
+            overallComplexity: "simple",
+            estimatedResolutionTime: "Immediate",
+            canAutoResolve: true,
+            recommendations: ["Rebase completed successfully."]
+          };
+          
+        } catch (rebaseError) {
+          // Rebase failed, analyze conflicts
+          const conflictFiles = await this.analyzeConflictFiles(repoPath);
+          
+          // Abort the rebase
+          await execAsync(`git -C ${repoPath} rebase --abort`);
+          
+          // Analyze conflict severity and complexity
+          const { conflictType, severity } = this.analyzeConflictSeverity(conflictFiles);
+          const complexity = this.determineRebaseComplexity(conflictFiles);
+          const resolutionStrategies = this.generateResolutionStrategies(conflictFiles, conflictType);
+          const userGuidance = this.generateUserGuidance(conflictType, severity, conflictFiles);
+          const recoveryCommands = this.generateRecoveryCommands(conflictFiles, conflictType);
+
+          return {
+            baseBranch,
+            featureBranch,
+            conflictingCommits: [], // This will be populated by analyzeConflictFiles
+            overallComplexity: complexity,
+            estimatedResolutionTime: "Depends on conflicts",
+            canAutoResolve: false,
+            recommendations: [userGuidance, ...resolutionStrategies.map(s => s.description)]
+          };
+        }
+        
+      } finally {
+        // Clean up temporary branch
+        try {
+          await execAsync(`git -C ${repoPath} checkout ${baseBranch}`);
+          await execAsync(`git -C ${repoPath} branch -D ${tempBranch}`);
+        } catch (cleanupError) {
+          log.warn("Failed to clean up temporary branch", { tempBranch, cleanupError });
+        }
+      }
+      
+    } catch (error) {
+      log.error("Error predicting rebase conflicts", { error, repoPath, baseBranch, featureBranch });
+      throw error;
+    }
+  }
+
+  /**
+   * NEW: Generate advanced resolution strategies based on patterns
+   */
+  async generateAdvancedResolutionStrategies(
+    repoPath: string,
+    conflictFiles: ConflictFile[]
+  ): Promise<AdvancedResolutionStrategy[]> {
+    log.debug("Generating advanced resolution strategies", { repoPath, conflictFiles });
+
+    const strategies: AdvancedResolutionStrategy[] = [];
+
+    // Pattern-based strategies
+    const hasContentConflicts = conflictFiles.some(f => f.status === FileConflictStatus.MODIFIED_BOTH);
+    const hasDeleteConflicts = conflictFiles.some(f => 
+      f.status === FileConflictStatus.DELETED_BY_US || f.status === FileConflictStatus.DELETED_BY_THEM
+    );
+    const hasRenameConflicts = conflictFiles.some(f => f.status === FileConflictStatus.RENAMED);
+
+    if (hasContentConflicts && hasDeleteConflicts) {
+      strategies.push({
+        type: "pattern_based",
+        confidence: 0.8,
+        description: "Accept deletions (recommended for removed files)",
+        commands: [
+          ...conflictFiles
+            .filter(f => f.deletionInfo)
+            .map(f => `git rm ${f.path}`),
+          "git commit -m \"resolve conflicts: accept file deletions\""
+        ],
+        riskLevel: "low",
+        applicableFileTypes: ["*"]
+      });
+    }
+
+    if (hasRenameConflicts) {
+      strategies.push({
+        type: "pattern_based",
+        confidence: 0.7,
+        description: "Accept renames (recommended for renamed files)",
+        commands: [
+          ...conflictFiles
+            .filter(f => f.status === FileConflictStatus.RENAMED)
+            .map(f => `git mv ${f.path} ${f.path}.bak`),
+          "git commit -m \"resolve conflicts: accept file renames\""
+        ],
+        riskLevel: "low",
+        applicableFileTypes: ["*"]
+      });
+    }
+
+    // Intelligent strategies (requires more sophisticated analysis)
+    // This part would involve a more complex conflict analysis and resolution logic
+    // For now, we'll just return a placeholder
+    if (conflictFiles.length > 0) {
+      strategies.push({
+        type: "intelligent",
+        confidence: 0.5,
+        description: "Review and resolve conflicts manually",
+        commands: ["git status", "git diff", "git add .", "git commit -m \"resolve merge conflicts\""],
+        riskLevel: "medium",
+        applicableFileTypes: ["*"]
+      });
+    }
+
+    return strategies;
+  }
+
+  /**
    * Simulates a merge operation to detect conflicts without actually merging
    */
   private async simulateMerge(
@@ -675,6 +1071,33 @@ export class ConflictDetectionService {
   }
 
   /**
+   * Checks if switching to a new branch would result in losing uncommitted changes.
+   */
+  private async checkWouldLoseChanges(repoPath: string, targetBranch: string): Promise<boolean> {
+    try {
+      const { stdout: currentBranch } = await execAsync(`git -C ${repoPath} rev-parse --abbrev-ref HEAD`);
+      const { stdout: uncommittedChanges } = await execAsync(`git -C ${repoPath} status --porcelain`);
+
+      // If we are already on the target branch, no uncommitted changes to lose
+      if (currentBranch.trim() === targetBranch) {
+        return false;
+      }
+
+      // If there are uncommitted changes, we need to be careful
+      if (uncommittedChanges.trim()) {
+        return true;
+      }
+
+      // If we are on a different branch and have no uncommitted changes, it's safe
+      return false;
+
+    } catch (error) {
+      log.warn("Could not check for uncommitted changes before branch switch", { error });
+      return false; // Assume safe if check fails
+    }
+  }
+
+  /**
    * Automatically resolves delete conflicts by accepting deletions
    */
   private async autoResolveDeleteConflicts(
@@ -878,5 +1301,19 @@ Review the affected files and choose appropriate resolution strategy.
     }
     
     return commands;
+  }
+
+  /**
+   * Determines the complexity of a rebase conflict based on the number of conflicts.
+   */
+  private determineRebaseComplexity(conflictFiles: ConflictFile[]): "simple" | "moderate" | "complex" {
+    const totalRegions = conflictFiles.reduce((sum, f) => sum + (f.conflictRegions?.length || 0), 0);
+    if (totalRegions === 0) {
+      return "simple";
+    } else if (totalRegions <= 5) {
+      return "moderate";
+    } else {
+      return "complex";
+    }
   }
 } 

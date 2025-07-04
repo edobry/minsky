@@ -14,7 +14,7 @@ To ensure all code, test, and configuration changes for a task are made exclusiv
 
 ## Requirements (Revised)
 - You MUST perform all code, test, config, and doc changes for a task in the session workspace only.
-- You MUST use absolute paths for all file operations in the session workspace.
+- **You MUST use absolute paths for ALL file operations in the session workspace.**
 - You MUST log all edits and maintain an audit trail for traceability.
 - You MUST adapt to tool limitations and log any workarounds in the session worklog.
 - You MUST confirm all changes are present in the session workspace before merging or marking a task complete.
@@ -25,14 +25,14 @@ To ensure all code, test, and configuration changes for a task are made exclusiv
 
 ## 1. Scope and Applicability
 
-- **All changes** (code, tests, configs, fixtures, docs, etc.) related to a task MUST be made **directly within the session workspace** for that task.
+- **All changes** (code, tests, configs, fixtures, docs, etc.) related to a task MUST be made **directly within the session workspace** for that task using **absolute paths only**.
 - This applies to any file that could affect the outcome of tests, builds, or reviews, including test files, fixtures, helper scripts, and configuration files.
 - **No edits to the main workspace are allowed** during an active session, except for the final merge after review.
 
 ## 2. Workflow Enforcement
 
 - **Session workspace** is a full, isolated clone of the repository, created and managed by the Minsky CLI.
-- All edits, commits, and pushes must be performed from within the session workspace.
+- All edits, commits, and pushes must be performed from within the session workspace **using absolute paths**.
 - **Never copy files from the main workspace into the session workspace.**
   The session workspace already contains all project files as of the session's creation or last update.
 - **Never copy files from the session workspace back to the main workspace manually.**
@@ -45,8 +45,9 @@ This section outlines the non-negotiable rules for file handling and editing wit
 ### 3.1. Absolute Path Mandate for All Operations
 
 - **Universal Requirement:** When working within a session directory, you **MUST ALWAYS use absolute paths** for any file operation (e.g., edit, read, diff, list). This applies to all tools and manual actions.
-- **Correct Example:** `/Users/username/.local/state/minsky/git/your-repo/sessions/task#123/src/file.ts`
+- **Correct Example:** `/Users/edobry/.local/state/minsky/sessions/task#227/src/file.ts`
 - **Incorrect Example (RISK OF MAIN WORKSPACE MODIFICATION):** `src/file.ts`
+- **Session Directory Pattern:** `/Users/edobry/.local/state/minsky/sessions/task#[TASK_ID]/[PROJECT_PATH]`
 
 - **Rationale:** Many tools (including the `edit_file` tool) and system commands may resolve relative paths against the main workspace root by default, *not* the current shell directory, even if your terminal is currently located within the session directory. Using relative paths can lead to silent, unintended modifications to the main workspace, corrupting its state.
 
@@ -55,8 +56,10 @@ This section outlines the non-negotiable rules for file handling and editing wit
 Before any file operation (especially edits), the following verifications **MUST** be performed:
 
 1.  **Confirm Session Directory:** Ensure the active Minsky session directory path is known and correct.
+    - Example: `/Users/edobry/.local/state/minsky/sessions/task#227`
 2.  **Validate Target Path:** The absolute path of the target file **MUST** be constructed and validated to ensure it unequivocally resides *within* the confirmed session directory. (This incorporates the previous "3. Edit Location Verification" rule).
-3.  **Existence Check (Highly Recommended):** Before editing, verify the file exists at the constructed absolute session path (e.g., using `ls -la <absolute_path_within_session>`).
+    - Example: `/Users/edobry/.local/state/minsky/sessions/task#227/src/domain/tasks/task-service.ts`
+3.  **Existence Check (Highly Recommended):** Before editing, verify the file exists at the constructed absolute session path (e.g., using `ls -la /Users/edobry/.local/state/minsky/sessions/task#227/src/domain/tasks/task-service.ts`).
 
 ### 3.3. Strict Enforcement and Error Handling
 
@@ -71,8 +74,8 @@ Before any file operation (especially edits), the following verifications **MUST
 - **Example Log Message (to be outputted before an edit operation):**
   ```
   Minsky Session Edit Pre-Check:
-  - Session Directory: /Users/username/.local/state/minsky/git/your-repo/sessions/task#123
-  - Target File (Absolute): /Users/username/.local/state/minsky/git/your-repo/sessions/task#123/src/file.ts
+  - Session Directory: /Users/edobry/.local/state/minsky/sessions/task#227
+  - Target File (Absolute): /Users/edobry/.local/state/minsky/sessions/task#227/src/domain/tasks/task-service.ts
   Proceeding with edit...
   ```
 - This logging should primarily be in the AI/tool's direct output to the user. Optional logging to a `.session-edit-log` file can also be considered.
@@ -80,7 +83,7 @@ Before any file operation (especially edits), the following verifications **MUST
 ## 4. No Temporary or Test-Only Main Workspace Changes
 
 - **No "temporary" or "test-only" changes in the main workspace are permitted.**
-- All test expectation, fixture, and helper file changes must be made in the session workspace.
+- All test expectation, fixture, and helper file changes must be made in the session workspace **using absolute paths**.
 
 ## 5. Audit and Logging
 
@@ -107,9 +110,9 @@ When utilizing the `edit_file` tool, adhere strictly to the **Core Practices for
 
 - **Example `edit_file` Invocation:**
   ```typescript
-  // Assume:
-  // const sessionDirectory = "/Users/username/.local/state/minsky/git/your-repo/sessions/task#123";
-  // const filePathRelativeToProject = "src/app/components/my-component.ts";
+  // Session directory for task #227:
+  const sessionDirectory = "/Users/edobry/.local/state/minsky/sessions/task#227";
+  const filePathRelativeToProject = "src/app/components/my-component.ts";
   const absolutePathInSession = `${sessionDirectory}/${filePathRelativeToProject}`;
 
   // Log verification message (as per Section 3.4)
@@ -126,6 +129,7 @@ When utilizing the `edit_file` tool, adhere strictly to the **Core Practices for
 Before starting any work in a session:
 
 - **Verify Current Working Directory:** Use terminal CWD information, `pwd`, or `ls` commands to confirm you're in the correct session workspace.
+  - Expected: `/Users/edobry/.local/state/minsky/sessions/task#[TASK_ID]`
 - **Confirm with Git Status:** Run `git status` to verify you're in the correct branch for the task.
 - **Directory Structure Check:** Verify the directory structure matches what's expected for a session workspace (standard project structure).
 
@@ -145,10 +149,27 @@ When working with code and tests:
 - **Fix Straightforward Errors:** Attempt to fix straightforward linter errors before committing.
 - **Document Complex Issues:** For complex linter errors, explicitly document limitations or reasoning when they can't be fixed immediately.
 
-## 10. Rationale
+## 10. Absolute Path Examples and Patterns
+
+### 10.1. Common File Operations with Absolute Paths
+
+- **Reading files:** `/Users/edobry/.local/state/minsky/sessions/task#227/src/domain/tasks/task-service.ts`
+- **Editing files:** `/Users/edobry/.local/state/minsky/sessions/task#227/src/domain/tasks/task-service.ts`
+- **Creating files:** `/Users/edobry/.local/state/minsky/sessions/task#227/src/domain/tasks/new-service.ts`
+- **Running tests:** `cd /Users/edobry/.local/state/minsky/sessions/task#227 && bun test`
+
+### 10.2. Tool-Specific Absolute Path Requirements
+
+- **edit_file tool:** Always use absolute paths like `/Users/edobry/.local/state/minsky/sessions/task#227/src/file.ts`
+- **read_file tool:** Always use absolute paths like `/Users/edobry/.local/state/minsky/sessions/task#227/src/file.ts`
+- **grep_search tool:** Can use relative patterns but within absolute directory contexts
+- **Terminal commands:** Use `cd` to session directory then use relative paths, or use absolute paths consistently
+
+## 11. Rationale
 
 - This ensures all work happens in the correct workspace, preventing accidental changes to the main workspace.
 - It promotes proper command usage, reducing errors and workflow disruptions.
 - It improves code quality by addressing linter issues proactively.
+- **Absolute paths eliminate ambiguity** about which workspace is being modified.
 
 ---

@@ -11,6 +11,7 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../command-registry";
 import {
   commitChangesFromParams,
@@ -144,6 +145,18 @@ const branchCommandParams: CommandParameterMap = {
     description: "Name of the branch to create",
     required: true,
   },
+  preview: {
+    schema: z.boolean(),
+    description: "Preview potential conflicts before creating the branch",
+    required: false,
+    defaultValue: false,
+  },
+  autoResolve: {
+    schema: z.boolean(),
+    description: "Enable advanced auto-resolution for detected conflicts",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
@@ -179,6 +192,156 @@ const prCommandParams: CommandParameterMap = {
     schema: z.boolean().default(false),
     description: NO_STATUS_UPDATE_DESCRIPTION,
     required: false,
+  },
+  preview: {
+    schema: z.boolean(),
+    description: "Preview potential conflicts before creating the PR",
+    required: false,
+    defaultValue: false,
+  },
+  autoResolve: {
+    schema: z.boolean(),
+    description: "Enable advanced auto-resolution for detected conflicts",
+    required: false,
+    defaultValue: false,
+  },
+  conflictStrategy: {
+    schema: z.enum(["automatic", "guided", "manual"]),
+    description: "Choose conflict resolution strategy",
+    required: false,
+  },
+};
+
+/**
+ * NEW: Parameters for the merge command
+ */
+const mergeCommandParams: CommandParameterMap = {
+  branch: {
+    schema: z.string(),
+    description: "Branch to merge into the current branch",
+    required: true,
+  },
+  session: {
+    schema: z.string(),
+    description: SESSION_DESCRIPTION,
+    required: false,
+  },
+  repo: {
+    schema: z.string(),
+    description: REPO_DESCRIPTION,
+    required: false,
+  },
+  preview: {
+    schema: z.boolean(),
+    description: "Preview potential conflicts before merging",
+    required: false,
+    defaultValue: false,
+  },
+  autoResolve: {
+    schema: z.boolean(),
+    description: "Enable advanced auto-resolution for detected conflicts",
+    required: false,
+    defaultValue: false,
+  },
+  conflictStrategy: {
+    schema: z.enum(["automatic", "guided", "manual"]),
+    description: "Choose conflict resolution strategy",
+    required: false,
+  },
+  noCommit: {
+    schema: z.boolean(),
+    description: "Perform merge without committing",
+    required: false,
+    defaultValue: false,
+  },
+  fastForwardOnly: {
+    schema: z.boolean(),
+    description: "Only allow fast-forward merges",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
+ * NEW: Parameters for the checkout command
+ */
+const checkoutCommandParams: CommandParameterMap = {
+  branch: {
+    schema: z.string(),
+    description: "Branch to checkout",
+    required: true,
+  },
+  session: {
+    schema: z.string(),
+    description: SESSION_DESCRIPTION,
+    required: false,
+  },
+  repo: {
+    schema: z.string(),
+    description: REPO_DESCRIPTION,
+    required: false,
+  },
+  preview: {
+    schema: z.boolean(),
+    description: "Preview potential conflicts and uncommitted changes before checkout",
+    required: false,
+    defaultValue: false,
+  },
+  force: {
+    schema: z.boolean(),
+    description: "Force checkout even with uncommitted changes",
+    required: false,
+    defaultValue: false,
+  },
+  autoStash: {
+    schema: z.boolean(),
+    description: "Automatically stash uncommitted changes before checkout",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
+ * NEW: Parameters for the rebase command
+ */
+const rebaseCommandParams: CommandParameterMap = {
+  baseBranch: {
+    schema: z.string(),
+    description: "Base branch to rebase onto",
+    required: true,
+  },
+  session: {
+    schema: z.string(),
+    description: SESSION_DESCRIPTION,
+    required: false,
+  },
+  repo: {
+    schema: z.string(),
+    description: REPO_DESCRIPTION,
+    required: false,
+  },
+  preview: {
+    schema: z.boolean(),
+    description: "Preview potential conflicts before rebasing",
+    required: false,
+    defaultValue: false,
+  },
+  autoResolve: {
+    schema: z.boolean(),
+    description: "Enable advanced auto-resolution for detected conflicts",
+    required: false,
+    defaultValue: false,
+  },
+  conflictStrategy: {
+    schema: z.enum(["automatic", "guided", "manual"]),
+    description: "Choose conflict resolution strategy",
+    required: false,
+  },
+  interactive: {
+    schema: z.boolean(),
+    description: "Start an interactive rebase",
+    required: false,
+    defaultValue: false,
   },
 };
 
@@ -250,8 +413,8 @@ export function registerGitCommands(): void {
 
       const result = await cloneFromParams({
         url: params.url,
+        workdir: params.destination || ".",
         session: params.session,
-        destination: params.destination,
         branch: params.branch,
       });
 
@@ -309,6 +472,72 @@ export function registerGitCommands(): void {
         success: true,
         markdown: result.markdown,
         statusUpdateResult: result.statusUpdateResult,
+      };
+    },
+  });
+
+  // Register git merge command - NEW
+  sharedCommandRegistry.registerCommand({
+    id: "git.merge",
+    category: CommandCategory.GIT,
+    name: "merge",
+    description: "Merge a branch with conflict detection",
+    parameters: mergeCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.merge command", { params });
+
+      // TODO: Implement mergeFromParams function in domain layer
+      // For now, return a placeholder
+      return {
+        success: true,
+        preview: params.preview,
+        autoResolve: params.autoResolve,
+        conflictStrategy: params.conflictStrategy,
+        message: `Would merge ${params.branch} with options: preview=${params.preview}, autoResolve=${params.autoResolve}`,
+      };
+    },
+  });
+
+  // Register git checkout command - NEW
+  sharedCommandRegistry.registerCommand({
+    id: "git.checkout",
+    category: CommandCategory.GIT,
+    name: "checkout",
+    description: "Checkout a branch with conflict detection",
+    parameters: checkoutCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.checkout command", { params });
+
+      // TODO: Implement checkoutFromParams function in domain layer
+      // For now, return a placeholder
+      return {
+        success: true,
+        preview: params.preview,
+        autoStash: params.autoStash,
+        message: `Would checkout ${params.branch} with options: preview=${params.preview}, autoStash=${params.autoStash}`,
+      };
+    },
+  });
+
+  // Register git rebase command - NEW
+  sharedCommandRegistry.registerCommand({
+    id: "git.rebase",
+    category: CommandCategory.GIT,
+    name: "rebase",
+    description: "Rebase with conflict detection",
+    parameters: rebaseCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.rebase command", { params });
+
+      // TODO: Implement rebaseFromParams function in domain layer
+      // For now, return a placeholder
+      return {
+        success: true,
+        preview: params.preview,
+        autoResolve: params.autoResolve,
+        conflictStrategy: params.conflictStrategy,
+        interactive: params.interactive,
+        message: `Would rebase onto ${params.baseBranch} with options: preview=${params.preview}, autoResolve=${params.autoResolve}`,
       };
     },
   });
