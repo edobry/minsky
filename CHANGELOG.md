@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task #189: Restore Init Command Interactivity**
+  - Restored interactive prompts for the `minsky init init` command that were lost during refactoring
+  - Added comprehensive interactive prompts using `@clack/prompts` for consistent UX
+  - Interactive backend selection between json-file, markdown, and github-issues backends
+  - GitHub configuration prompts for owner/repo when github-issues backend is selected
+  - Rule format selection between cursor and generic formats
+  - MCP (Model Context Protocol) configuration with transport type selection
+  - Added proper error handling for non-interactive environments and user cancellation
+  - Maintained full backward compatibility with explicit command-line flags
+  - Replaced silent defaults with guided user experience for better onboarding
+  - Added input validation for GitHub details and port numbers
+  - Implemented graceful cancellation handling throughout the interactive flow
+
+_See: SpecStory history [2025-07-04_task-189-restore-init-command-interactivity](mdc:.specstory/history/2025-07-04_task-189-restore-init-command-interactivity.md) for implementation details._
+
 - Task #216: Created task to implement core agent loop for independent Minsky operation, enabling Minsky to work outside of Cursor's agent loop and support multiple AI providers
 - Task 182: AI-powered rule suggestion MVP - `minsky context suggest-rules` command for intelligent rule selection based on natural language queries
 - Task 183: Rule suggestion evaluation and optimization - Advanced features including confidence scoring, model optimization, and evaluation integration
@@ -29,6 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 _See: SpecStory history [2025-01-28_task-229-mandatory-session-task-association](mdc:.specstory/history/2025-01-28_task-229-mandatory-session-task-association.md) for implementation details._
 
 ### Changed
+
+- **Enhanced Session PR Command with Required PR Descriptions**
+
+  - Added validation to `minsky session pr` command to require either `--body` or `--body-path` parameter
+  - Prevents creation of PRs without meaningful descriptions
+  - Provides clear error message with usage examples and suggestions
+  - Maintains backward compatibility with existing flags and functionality
+  - Improves code review processes by ensuring all PRs have proper documentation
+  - Enforces best practices for pull request documentation across all projects
 
 - Task #216: Updated to include investigation of existing agent framework libraries (claude-code SDK, OpenHands/OpenCode, LangChain, LlamaIndex, AutoGen, Semantic Kernel, etc.) before implementing from scratch, with evaluation criteria and decision framework for build vs. buy vs. extend
 - Task 082: Simplified to focus only on context analysis and visualization, removing obsolete concepts that don't match how AI context actually works
