@@ -328,6 +328,7 @@ export class TaskTitleMigration {
 
 // CLI interface if run directly
 if (import.meta.main) {
+// @ts-expect-error Bun supports process.argv at runtime, types incomplete
   const args = process.argv.slice(2);
   const options: MigrationOptions = {
     dryRun: args.includes("--dry-run"),

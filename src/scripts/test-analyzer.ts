@@ -25,6 +25,7 @@ import { exit } from "../utils/process.js";
 
 // Get current directory
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
+// @ts-expect-error Bun supports __dirname at runtime, types incomplete
 const baseDir = resolve(___dirname, "../..");
 
 // Configuration
@@ -35,6 +36,7 @@ const config = {
 };
 
 // Parse command line arguments
+// @ts-expect-error Bun supports process.argv at runtime, types incomplete
 for (const arg of process.argv.slice(2)) {
   if (arg.startsWith("--output-file=")) {
     const value = arg.split("=")[1];
@@ -216,6 +218,7 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
   // Count pattern occurrences
   for (const [category, categoryPatterns] of Object.entries(patterns)) {
     for (const [name, pattern] of Object.entries(categoryPatterns)) {
+      // @ts-expect-error Buffer type compatibility with string methods
       const matches = content.match(pattern) || [];
       const categoryKey = category as keyof typeof counts;
       counts[categoryKey][name] = matches.length;
