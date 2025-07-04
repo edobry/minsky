@@ -80,6 +80,11 @@ export interface TaskServiceInterface {
   createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
 
   /**
+   * Create a task from title and description
+   */
+  createTaskFromTitleAndDescription(title: string, description: string, options?: CreateTaskOptions): Promise<Task>;
+
+  /**
    * Delete a task
    */
   deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;

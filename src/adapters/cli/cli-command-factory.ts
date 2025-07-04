@@ -299,7 +299,11 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           },
           task: {
             alias: "t",
-            description: "Task ID to associate with the session",
+            description: "Task ID to associate with the session (required if --description not provided)",
+          },
+          description: {
+            alias: "d",
+            description: "Description for auto-created task (required if --task not provided)",
           },
         },
       },

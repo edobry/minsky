@@ -77,12 +77,17 @@ const sessionGetCommandParams: CommandParameterMap = {
 const sessionStartCommandParams: CommandParameterMap = {
   name: {
     schema: z.string().min(1),
-    description: "Name for the new session",
+    description: "Name for the new session (optional, alternative to --task)",
     required: false,
   },
   task: {
     schema: z.string(),
-    description: "Task ID to associate with the session",
+    description: "Task ID to associate with the session (required if --description not provided)",
+    required: false,
+  },
+  description: {
+    schema: z.string().min(1),
+    description: "Description for auto-created task (required if --task not provided)",
     required: false,
   },
   branch: {
@@ -445,15 +450,23 @@ export function registerSessionCommands(): void {
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.start command", { params, context });
 
-      // Validate that either name or task is provided
-      if (!params.name && !params.task) {
-        throw new Error("Either session name or task ID must be provided");
+      // Phase 2: Validate that task association is provided
+      if (!params.task && !params.description) {
+        throw new Error(`Task association is required for proper tracking.
+Please provide one of:
+  --task <id>           Associate with existing task
+  --description <text>  Create new task automatically
+
+Examples:
+  minsky session start --task 123
+  minsky session start --description "Fix login issue" my-session`);
       }
 
       try {
         const session = await startSessionFromParams({
           name: params.name,
           task: params.task,
+          description: params.description,
           branch: params.branch,
           repo: params.repo,
           session: params.session,

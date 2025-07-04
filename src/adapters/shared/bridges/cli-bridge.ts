@@ -590,7 +590,7 @@ export class CliCommandBridge {
     log.cli(`   Base Branch: ${baseBranch}`);
 
     if (body && typeof body === "string" && body.trim()) {
-      const truncatedBody = body.length > 100 ? `${body.substring(0, 100)  }...` : body;
+      const truncatedBody = body.length > 100 ? `${body.substring(0, 100)}...` : body;
       log.cli(`   Body: ${truncatedBody}`);
     }
     log.cli("");
