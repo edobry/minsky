@@ -1409,8 +1409,7 @@ You need to specify one of these options to identify the target repository:
               try {
                 const allSessions = await (this.sessionDb as any).listSessions();
                 log.debug(
-                  `All sessions in database: count=${(allSessions as any).length}, sessionNames=${((allSessions
-                    .map((s) => s.session) as any).slice(0, 10) as any).join(", ")}, searchedFor=${(options as any).session}`
+                  `All sessions in database: count=${(allSessions as any).length}, sessionNames=${((allSessions.map((s) => s.session as any) as any).slice(0, 10) as any).join(", ")}, searchedFor=${(options as any).session}`
                 );
               } catch (listError) {
                 log.error(`Failed to list sessions for debugging: ${listError}`);
@@ -1451,8 +1450,7 @@ Session requested: "${(options as any).session}"
             try {
               const allSessions = await (this.sessionDb as any).listSessions();
               log.debug(
-                `All sessions in database: count=${(allSessions as any).length}, sessionNames=${((allSessions
-                  .map((s) => s.session) as any).slice(0, 10) as any).join(", ")}, searchedFor=${(options as any).session}`
+                `All sessions in database: count=${(allSessions as any).length}, sessionNames=${((allSessions.map((s) => s.session as any) as any).slice(0, 10) as any).join(", ")}, searchedFor=${(options as any).session}`
               );
             } catch (listError) {
               log.error(`Failed to list sessions for debugging: ${listError}`);
@@ -1493,8 +1491,7 @@ Session requested: "${(options as any).session}"
           try {
             const allSessions = await (this.sessionDb as any).listSessions();
             log.debug(
-              `All sessions in database: count=${(allSessions as any).length}, sessionNames=${((allSessions
-                .map((s) => s.session) as any).slice(0, 10) as any).join(", ")}, searchedFor=${(options as any).session}`
+              `All sessions in database: count=${(allSessions as any).length}, sessionNames=${((allSessions.map((s) => s.session as any) as any).slice(0, 10) as any).join(", ")}, searchedFor=${(options as any).session}`
             );
           } catch (listError) {
             log.error(`Failed to list sessions for debugging: ${listError}`);

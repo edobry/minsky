@@ -154,7 +154,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       // Validate state before serialization to prevent circular references
       if (state === null || state === undefined) {
-        throw new Error("Cannot serialize null or undefined state");
+        throw new Error("Cannot serialize null or undefined state" as any);
       }
 
       // Serialize state to JSON with error handling for circular references

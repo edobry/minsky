@@ -50,7 +50,7 @@ export class ConfigurationGenerator {
           },
           workingDir
         );
-        throw new Error(errorMessage);
+        throw new Error(errorMessage as any);
       }
       (config as any).backends!["github-issues"] = {
         owner: (options as any).githubOwner,

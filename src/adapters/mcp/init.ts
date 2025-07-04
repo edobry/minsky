@@ -12,40 +12,34 @@ import { initializeProjectFromParams } from "../../domain/index.js";
  */
 export function registerInitTools(commandMapper: CommandMapper): void {
   // Register the init command
-  (commandMapper as any).addCommand({
+  commandMapper.addCommand({
     name: "init",
     description: "Initialize a project for Minsky",
     parameters: z.object({
-      _repoPath: z.string().optional().describe("Repository path (defaults to current directory)"),
-      backend: z.enum(["tasks.md", "tasks.csv"] as any[]).optional().describe("Task backend type"),
-      ruleFormat: z.enum(["cursor", "generic"] as any[]).optional().describe("Rule format"),
+      repoPath: z.string().optional(),
+      backend: z.string().optional(),
+      ruleFormat: z.string().optional(),
       mcp: z
         .object({
-          enabled: (z.boolean().optional() as any).describe("Enable MCP configuration"),
-          transport: z
-            .enum(["stdio", "sse", "httpStream"] as any[])
-            .optional()
-            .describe("MCP transport type"),
-          port: (z.number().optional() as any).describe("Port for MCP network transports"),
-          host: z.string().optional().describe("Host for MCP network transports"),
+          enabled: z.boolean().optional(),
+          transport: z.string().optional(),
+          port: z.number().optional(),
+          host: z.string().optional(),
         })
-        .optional()
-        .describe("MCP configuration _options"),
-      mcpOnly: (z
-        .boolean()
-        .optional() as any).describe("Only configure MCP, skip other initialization steps"),
-      overwrite: (z.boolean().optional() as any).describe("Overwrite existing files"),
+        .optional(),
+      mcpOnly: z.boolean().optional(),
+      overwrite: z.boolean().optional(),
     }),
-    execute: async (params) => {
+    execute: async (params: any) => {
       // Set default values
       const initParams = {
-        repoPath: (params as any).repoPath || (process as any).cwd(),
-        backend: (params as any).backend || "tasks.md",
-        ruleFormat: (params as any).ruleFormat || "cursor",
-        mcp: (params as any).mcp,
-        mcpOnly: (params as any).mcpOnly || false,
-        overwrite: (params as any).overwrite || false,
-      } as any;
+        repoPath: params.repoPath || process.cwd(),
+        backend: params.backend || "tasks.md",
+        ruleFormat: params.ruleFormat || "cursor",
+        mcp: params.mcp,
+        mcpOnly: params.mcpOnly || false,
+        overwrite: params.overwrite || false,
+      };
 
       // Call the domain function
       await initializeProjectFromParams(initParams);
@@ -55,7 +49,7 @@ export function registerInitTools(commandMapper: CommandMapper): void {
         success: true,
         message: "Project initialized for Minsky",
         config: {
-          repoPath: (initParams as any).repoPath,
+          repoPath: initParams.repoPath,
           backend: initParams.backend,
           ruleFormat: initParams.ruleFormat,
           mcp: initParams.mcp,
