@@ -386,8 +386,6 @@
 
 - [x] Fix CLI output suppression in session workspaces [#210](process/tasks/210-fix-cli-output-suppression-in-session-workspaces.md)
 
-- [ ] Improve session pr command error handling and UX [#211](process/tasks/211-improve-session-pr-command-error-handling-and-ux.md)
-
 - [!] Fix session pr path resolution issues [#212](process/tasks/212-fix-session-pr-path-resolution-issues.md)
 
 - [x] Investigate normalizeRepoName function and repo name formatting inconsistencies [#214](process/tasks/214-investigate-normalizereponame-function-and-repo-name-formatting-inconsistencies.md)
@@ -422,4 +420,4 @@
 
 - [ ] Investigate session workspace disk usage and optimize node_modules storage [#230](process/tasks/230-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
 
-- [ ] Implement session PR refresh functionality [#231](process/tasks/231-implement-session-pr-refresh-functionality.md)
+- [+] Implement session PR refresh functionality [#231](process/tasks/231-implement-session-pr-refresh-functionality.md)
