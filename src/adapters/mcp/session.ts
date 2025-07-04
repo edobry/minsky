@@ -125,7 +125,7 @@ Need help? Run: minsky sessions --help
       return {
         success: true,
         session: session.session,
-        directory: session.repoPath,
+        directory: session.repoUrl,
         taskId: session.taskId,
         repoName: session.repoName,
       };
@@ -292,6 +292,10 @@ Example commands:
         noStash: args.noStash || false,
         noPush: args.noPush || false,
         force: args.force || false,
+        skipConflictCheck: false,
+        autoResolveDeleteConflicts: false,
+        dryRun: false,
+        skipIfAlreadyMerged: false,
       };
 
       const updatedSession = await updateSessionFromParams(params);
@@ -302,7 +306,7 @@ Example commands:
         session: updatedSession.session,
         branch: updatedSession.branch,
         taskId: updatedSession.taskId,
-        repoPath: updatedSession.repoPath,
+        repoUrl: updatedSession.repoUrl,
         message: `Session ${updatedSession.session} updated successfully.`,
       };
     }
