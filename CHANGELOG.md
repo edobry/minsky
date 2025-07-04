@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task #164: Add Bun Binary Builds and GitHub Actions Release Workflow**
+  - Added build scripts for cross-platform binary compilation using `bun build --compile`
+  - Implemented multi-platform support for Linux (x64, ARM64), macOS (x64, ARM64), and Windows (x64)
+  - Created GitHub Actions release workflow for automated binary builds on version tags
+  - Added package.json scripts: `build`, `build:linux`, `build:linux-arm64`, `build:macos`, `build:macos-arm64`, `build:windows`, `build:all`
+  - Configured peer dependencies required for bun compilation: `@valibot/to-json-schema`, `effect`, `sury`
+  - Set up automated release creation with multi-platform artifacts uploaded to GitHub Releases
+  - Added binary patterns to .gitignore to exclude compiled binaries from repository
+  - Verified build process works correctly with functional cross-platform binary generation
+  - Enabled release automation triggered by version tags (v*) with automatic release notes generation
+
 - Task #216: Created task to implement core agent loop for independent Minsky operation, enabling Minsky to work outside of Cursor's agent loop and support multiple AI providers
 - Task 182: AI-powered rule suggestion MVP - `minsky context suggest-rules` command for intelligent rule selection based on natural language queries
 - Task 183: Rule suggestion evaluation and optimization - Advanced features including confidence scoring, model optimization, and evaluation integration
