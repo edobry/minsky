@@ -34,7 +34,8 @@ async function readContentFromFileIfExists(contentPath: string): Promise<string>
       const stats = await fs.stat(contentPath);
       if (stats.isFile()) {
         // If it's a file, read its contents
-        return await fs.readFile(contentPath, "utf-8");
+        const content = await fs.readFile(contentPath, "utf-8");
+        return content.toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
         throw new Error(`Failed to read content from file ${contentPath}: Not a file`);
@@ -133,7 +134,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
-      if (!isString(args.id)) {
+      if (!isString(args._id)) {
         throw new Error("Rule ID must be a string");
       }
 
@@ -142,7 +143,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       const debug = args.debug === true;
 
       // Call domain function
-      const rule = await ruleService.getRule(args.id, {
+      const rule = await ruleService.getRule(args._id, {
         format,
         debug,
       });
@@ -175,7 +176,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
-      if (!isString(args.id)) {
+      if (!isString(args._id)) {
         throw new Error("Rule ID must be a string");
       }
 
@@ -201,7 +202,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
 
       // Call domain function with correct signature
       const rule = await ruleService.createRule(
-        args.id,
+        args._id,
         content,
         {
           description: isString(args.description) ? args.description : undefined,
@@ -227,7 +228,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.update",
     description: "Update an existing rule",
-    _parameters: z.object({
+    parameters: z.object({
       _id: requiredString("ID of the rule to update"),
       content: ruleContentParam,
       description: ruleDescriptionParam,
@@ -245,7 +246,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
-      if (!isString(args.id)) {
+      if (!isString(args._id)) {
         throw new Error("Rule ID must be a string");
       }
 
@@ -281,7 +282,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       };
 
       // Call domain function with correct signature
-      const rule = await ruleService.updateRule(args.id, updateOptions, {
+      const rule = await ruleService.updateRule(args._id, updateOptions, {
         format,
       });
 
@@ -297,7 +298,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.search",
     description: "Search for rules by _content",
-    _parameters: z.object({
+    parameters: z.object({
       query: requiredString("Search query"),
       format: ruleFormatParam,
       tag: optionalString("Filter by tag"),

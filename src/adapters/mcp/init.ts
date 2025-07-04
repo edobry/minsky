@@ -15,7 +15,7 @@ export function registerInitTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "init",
     description: "Initialize a project for Minsky",
-    params: z.object({
+    parameters: z.object({
       _repoPath: z.string().optional().describe("Repository path (defaults to current directory)"),
       backend: z.enum(["tasks.md", "tasks.csv"]).optional().describe("Task backend type"),
       ruleFormat: z.enum(["cursor", "generic"]).optional().describe("Rule format"),
