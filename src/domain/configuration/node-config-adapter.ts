@@ -52,7 +52,7 @@ export class NodeConfigAdapter implements ConfigurationService {
    * Validate repository configuration
    * TODO: Implement using node-config's validation features
    */
-  validateRepositoryConfig(_config: RepositoryConfig): ValidationResult {
+  validateRepositoryConfig(config: RepositoryConfig): ValidationResult {
     return {
       valid: true,
       errors: [],
@@ -64,7 +64,7 @@ export class NodeConfigAdapter implements ConfigurationService {
    * Validate global user configuration
    * TODO: Implement using node-config's validation features
    */
-  validateGlobalUserConfig(_config: GlobalUserConfig): ValidationResult {
+  validateGlobalUserConfig(config: GlobalUserConfig): ValidationResult {
     return {
       valid: true,
       errors: [],

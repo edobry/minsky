@@ -174,7 +174,7 @@ Repository: ${this.repoUrl}
       const { stdout: branchOutput } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
-      const _branch = branchOutput.trim();
+      const branch = branchOutput.trim();
 
       // Get ahead/behind counts
       let ahead = 0;
@@ -201,7 +201,7 @@ Repository: ${this.repoUrl}
       const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
       return {
-        _branch,
+        branch,
         ahead,
         behind,
         dirty,

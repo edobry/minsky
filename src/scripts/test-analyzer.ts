@@ -229,13 +229,13 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
   // Calculate metrics for classification
   const totalMocks = Object.values(counts.mockPatterns).reduce((sum, count) => sum + count, 0);
   const usesJest =
-    imports.some((_i: unknown) => i.includes("jest")) ||
+    imports.some((i: unknown) => i.includes("jest")) ||
     (counts.frameworkFeatures.jestImport !== undefined && counts.frameworkFeatures.jestImport > 0);
   const usesBun =
-    imports.some((_i: unknown) => i.includes("bun:test")) ||
+    imports.some((i: unknown) => i.includes("bun:test")) ||
     (counts.frameworkFeatures.bunImport !== undefined && counts.frameworkFeatures.bunImport > 0);
   const usesVitest =
-    imports.some((_i: unknown) => i.includes("vitest")) ||
+    imports.some((i: unknown) => i.includes("vitest")) ||
     (counts.frameworkFeatures.vitestImport !== undefined &&
       counts.frameworkFeatures.vitestImport > 0);
   const usesCustomMocks =
@@ -376,7 +376,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.spyOn !== undefined &&
       file.counts.mockPatterns.spyOn > 0 &&
-      !file.imports.some((_i: unknown) => i.includes("createSpyOn"))
+      !file.imports.some((i: unknown) => i.includes("createSpyOn"))
     ) {
       failingPatterns[1]?.files?.push(file.relativePath);
     }
@@ -387,7 +387,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
         file.counts.frameworkFeatures.jestBeforeEach > 0) ||
         (file.counts.frameworkFeatures.jestAfterEach !== undefined &&
           file.counts.frameworkFeatures.jestAfterEach > 0)) &&
-      !file.imports.some((_i: unknown) => i.includes("bun:test"))
+      !file.imports.some((i: unknown) => i.includes("bun:test"))
     ) {
       failingPatterns[2]?.files?.push(file.relativePath);
     }
@@ -396,7 +396,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.bunMock !== undefined &&
       file.counts.mockPatterns.bunMock > 0 &&
-      !file.imports.some((_i: unknown) => i.includes("bun:test"))
+      !file.imports.some((i: unknown) => i.includes("bun:test"))
     ) {
       failingPatterns[3]?.files?.push(file.relativePath);
     }

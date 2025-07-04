@@ -165,7 +165,7 @@ export interface RepositoryBackend {
    * @param session Session identifier
    * @returns CloneResult with working directory information
    */
-  clone(__session: string): Promise<CloneResult>;
+  clone(_session: string): Promise<CloneResult>;
 
   /**
    * Get the status of the repository.
@@ -192,14 +192,14 @@ export interface RepositoryBackend {
    * @param branch Branch to push (defaults to current _branch)
    * @returns Result of the operation (may be void or a more detailed result)
    */
-  push(_branch?: string): Promise<any>;
+  push(branch?: string): Promise<any>;
 
   /**
    * Pull changes from the remote repository.
    * @param branch Branch to pull (defaults to current _branch)
    * @returns Result of the operation (may be void or a more detailed result)
    */
-  pull(_branch?: string): Promise<any>;
+  pull(branch?: string): Promise<any>;
 
   /**
    * Create a new branch and switch to it.
@@ -207,7 +207,7 @@ export interface RepositoryBackend {
    * @param name Branch name to create
    * @returns BranchResult with working directory and branch information
    */
-  branch(__session: string, name: string): Promise<BranchResult>;
+  branch(_session: string, name: string): Promise<BranchResult>;
 
   /**
    * Checkout an existing branch.
@@ -252,10 +252,10 @@ export async function createRepositoryBackend(
 
     // Create an adapter using GitService that conforms to RepositoryBackend interface
     return {
-      clone: async (_session: string): Promise<CloneResult> => {
+      clone: async (session: string): Promise<CloneResult> => {
         return await gitService.clone({
           repoUrl: config.url || "",
-          _session,
+          session,
           github: {
             token: (config as GitHubConfig).token,
             owner: (config as GitHubConfig).owner,
@@ -343,7 +343,7 @@ export async function createRepositoryBackend(
         };
       },
 
-      push: async (_branch?: string): Promise<void> => {
+      push: async (branch?: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
@@ -363,7 +363,7 @@ export async function createRepositoryBackend(
         });
       },
 
-      pull: async (_branch?: string): Promise<void> => {
+      pull: async (branch?: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
@@ -393,7 +393,7 @@ export async function createRepositoryBackend(
         };
       },
 
-      checkout: async (_branch: string): Promise<void> => {
+      checkout: async (branch: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();

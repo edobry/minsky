@@ -60,8 +60,8 @@ export interface GitDependencies {
     _command: string,
     _options?: Record<string, unknown>
   ) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (_name: unknown) => Promise<SessionData | null>;
-  getSessionWorkdir: (_repoName: unknown) => string;
+  getSession: (name: unknown) => Promise<SessionData | null>;
+  getSessionWorkdir: (repoName: unknown) => string;
   [key: string]: unknown;
 }
 
@@ -106,7 +106,7 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
     getTask: () => Promise.resolve(null),
     setTaskStatus: () => Promise.resolve(),
     getTaskStatus: () => Promise.resolve(null),
-    getBackendForTask: (__taskId: unknown) => Promise.resolve("markdown"),
+    getBackendForTask: (_taskId: unknown) => Promise.resolve("markdown"),
     listTasks: () => Promise.resolve([]),
     createTask: () =>
       Promise.resolve({
@@ -147,7 +147,7 @@ export function createTaskTestDeps(overrides: Partial<TaskDependencies> = {}): T
     getTask: () => Promise.resolve(null),
     setTaskStatus: () => Promise.resolve(),
     getTaskStatus: () => Promise.resolve(null),
-    getBackendForTask: (__taskId: unknown) => Promise.resolve("markdown"),
+    getBackendForTask: (_taskId: unknown) => Promise.resolve("markdown"),
     listTasks: () => Promise.resolve([]),
     createTask: () =>
       Promise.resolve({
@@ -175,7 +175,7 @@ export function createTaskTestDeps(overrides: Partial<TaskDependencies> = {}): T
  * @returns A complete set of session-specific dependencies for testing
  */
 export function createSessionTestDeps(
-  _overrides: Partial<SessionDependencies> = {}
+  overrides: Partial<SessionDependencies> = {}
 ): SessionDependencies {
   const sessionDB = createPartialMock<SessionProviderInterface>({
     listSessions: () => Promise.resolve([]),
@@ -254,7 +254,7 @@ export function createGitTestDeps(overrides: Partial<GitDependencies> = {}): Git
  * @returns A complete mock repository backend
  */
 export function createMockRepositoryBackend(
-  _overrides: Partial<RepositoryBackend> = {}
+  overrides: Partial<RepositoryBackend> = {}
 ): RepositoryBackend {
   // Use createPartialMock to handle the interface requirements
   return createPartialMock<RepositoryBackend>({
@@ -392,7 +392,7 @@ function deepMergeDeps<T extends Record<string, unknown>>(target: T, source: Par
  * @returns A partial set of domain dependencies for testing
  */
 export function createPartialTestDeps(
-  _overrides: Partial<DomainDependencies> = {}
+  overrides: Partial<DomainDependencies> = {}
 ): Partial<DomainDependencies> {
   return overrides;
 }

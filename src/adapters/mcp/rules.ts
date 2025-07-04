@@ -67,7 +67,7 @@ function parseGlobs(globsStr?: string): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (_error) {
+  } catch (error) {
     // If JSON parsing fails, fall back to comma-separated string
   }
 
@@ -93,7 +93,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       tag: optionalString("Filter by tag"),
       debug: debugParam,
     }),
-    execute: async (_args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
@@ -127,7 +127,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       format: ruleFormatParam,
       debug: debugParam,
     }),
-    execute: async (_args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
@@ -169,7 +169,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       format: ruleFormatParam,
       overwrite: overwriteParam,
     }),
-    execute: async (_args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
@@ -180,7 +180,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Get content from file if it exists, otherwise use as-is
-      const _content = isString(args._content)
+      const content = isString(args._content)
         ? await readContentFromFileIfExists(args._content)
         : "# New Rule Content\n\nAdd your rule content here.";
 
@@ -202,7 +202,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       // Call domain function with correct signature
       const rule = await ruleService.createRule(
         args.id,
-        _content,
+        content,
         {
           description: isString(args.description) ? args.description : undefined,
           name: isString(args.name) ? args.name : undefined,
@@ -239,7 +239,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       tags: ruleTagsParam,
       format: ruleFormatParam,
     }),
-    execute: async (_args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
@@ -303,7 +303,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       tag: optionalString("Filter by tag"),
       debug: debugParam,
     }),
-    execute: async (_args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);

@@ -27,7 +27,7 @@ export interface ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(_error: unknown, _options?: ErrorHandlingOptions): never;
+  handleError(error: unknown, options?: ErrorHandlingOptions): never;
 }
 
 /**
@@ -51,7 +51,7 @@ export class SharedErrorHandler {
    * @param debug Whether to include debug information
    * @returns A structured error object with consistent properties
    */
-  static formatError(_error: unknown, debug: boolean = false): Record<string, unknown> {
+  static formatError(error: unknown, debug: boolean = false): Record<string, unknown> {
     const normalizedError = ensureError(error);
     let errorType = "UNKNOWN_ERROR";
     const result = {
@@ -256,11 +256,11 @@ export class McpErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(_error: unknown, options: ErrorHandlingOptions = {}): never {
+  handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
 
     // Format error for MCP response
-    const formattedError = SharedErrorHandler.formatError(_error, debug);
+    const formattedError = SharedErrorHandler.formatError(error, debug);
 
     // Log error in structured format
     log.error("MCP operation failed", formattedError);

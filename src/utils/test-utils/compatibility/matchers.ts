@@ -14,7 +14,7 @@ export interface AsymmetricMatcher {
   /**
    * Determines if the provided value matches the matcher's criteria
    */
-  asymmetricMatch(_other: unknown): boolean;
+  asymmetricMatch(other: unknown): boolean;
 
   /**
    * Returns a string representation of the matcher for error messages
@@ -37,7 +37,7 @@ abstract class AsymmetricMatcherBase implements AsymmetricMatcher {
     this.matcherName = matcherName;
   }
 
-  abstract asymmetricMatch(_other: unknown): boolean;
+  abstract asymmetricMatch(other: unknown): boolean;
 
   toString(): string {
     return `${this.matcherName}`;

@@ -99,12 +99,11 @@ export function getGitHubBackendConfig(
  * Create labels for a GitHub repository
  */
 export async function createGitHubLabels(
-  _octokit: any,
+  octokit: any,
   owner: string,
   repo: string,
   labels: Record<string, string>
 ): Promise<void> {
-  const octokit = _octokit;
   for (const [status, labelName] of Object.entries(labels)) {
     try {
       // Check if label already exists

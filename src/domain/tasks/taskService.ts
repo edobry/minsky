@@ -131,14 +131,14 @@ export class TaskService {
    */
   async getTask(id: string): Promise<TaskData | null> {
     // Get all tasks
-    const _tasks = await this.listTasks();
+    const tasks = await this.listTasks();
 
     // Find the requested task
     const normalizedId = normalizeTaskId(id);
     if (!normalizedId) return null;
 
     // First try exact match
-    const exactMatch = _tasks.find((task) => task.id === normalizedId);
+    const exactMatch = tasks.find((task) => task.id === normalizedId);
     if (exactMatch) {
       return exactMatch;
     }
@@ -147,7 +147,7 @@ export class TaskService {
     const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
     if (isNaN(numericId)) return null;
 
-    const numericMatch = _tasks.find((task) => {
+    const numericMatch = tasks.find((task) => {
       const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
       return !isNaN(taskNumericId) && taskNumericId === numericId;
     });

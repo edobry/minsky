@@ -53,7 +53,7 @@ export interface CliCommandOptions {
   /** Custom examples to show in help */
   examples?: string[];
   /** Custom output formatter */
-  outputFormatter?: (_result: unknown) => void;
+  outputFormatter?: (result: unknown) => void;
 }
 
 /**
@@ -442,8 +442,8 @@ export class CliCommandBridge {
           // Handle session list results
           const sessions = result.sessions as unknown[];
           if (Array.isArray(sessions) && sessions.length > 0) {
-            sessions.forEach((_session: unknown) => {
-              this.formatSessionSummary(_session as Record<string, unknown>);
+            sessions.forEach((session: unknown) => {
+              this.formatSessionSummary(session as Record<string, unknown>);
             });
           } else {
             log.cli("No sessions found.");

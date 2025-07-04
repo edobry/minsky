@@ -210,7 +210,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     // Test URL accessibility using ls-remote (only contacts the remote, doesn't clone)
     try {
       await this.execGit(["ls-remote", "--exit-code", this.config.url]);
-    } catch (_error) {
+    } catch (error) {
       issues.push(`Cannot access remote repository: ${this.config.url}`);
       return { valid: false, issues };
     }
@@ -227,7 +227,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         if (!output) {
           issues.push(`Branch '${this.config._branch}' not found in remote repository`);
         }
-      } catch (_error) {
+      } catch (error) {
         issues.push(`Cannot verify _branch '${this.config._branch}' in remote repository`);
       }
     }
@@ -240,7 +240,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    *
    * @param branch Branch to push (defaults to current _branch)
    */
-  async push(_branch?: string): Promise<void> {
+  async push(branch?: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -265,7 +265,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    *
    * @param branch Branch to pull (defaults to current _branch)
    */
-  async pull(_branch?: string): Promise<void> {
+  async pull(branch?: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -320,7 +320,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    *
    * @param branch Branch name to checkout
    */
-  async checkout(__branch: string): Promise<void> {
+  async checkout(_branch: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }

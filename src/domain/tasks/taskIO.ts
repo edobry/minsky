@@ -128,7 +128,7 @@ export async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;
-  } catch (_error) {
+  } catch (error) {
     return false;
   }
 }
@@ -204,8 +204,8 @@ export async function listFiles(dirPath: string): Promise<string[] | null> {
  * @param workspacePath Workspace path
  * @returns Path to the tasks file
  */
-export function getTasksFilePath(__workspacePath: string): string {
-  return join(__workspacePath, "process", "tasks.md");
+export function getTasksFilePath(_workspacePath: string): string {
+  return join(_workspacePath, "process", "tasks.md");
 }
 
 /**
@@ -213,8 +213,8 @@ export function getTasksFilePath(__workspacePath: string): string {
  * @param workspacePath Workspace path
  * @returns Path to the task specs directory
  */
-export function getTaskSpecsDirectoryPath(__workspacePath: string): string {
-  return join(__workspacePath, "process", "tasks");
+export function getTaskSpecsDirectoryPath(_workspacePath: string): string {
+  return join(_workspacePath, "process", "tasks");
 }
 
 /**
@@ -226,10 +226,10 @@ export function getTaskSpecsDirectoryPath(__workspacePath: string): string {
  */
 export function getTaskSpecFilePath(
   __taskId: string,
-  _title: string,
-  _workspacePath: string
+  title: string,
+  workspacePath: string
 ): string {
   const taskIdNum = __taskId.startsWith("#") ? __taskId.slice(1) : __taskId;
-  const normalizedTitle = _title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  return join(getTaskSpecsDirectoryPath(_workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
+  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
 }

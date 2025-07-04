@@ -13,8 +13,8 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
   commandMapper.addSessionCommand("list", "List all sessions", z.object({}), async () => {
     try {
       // Execute the command
-      const _command = "minsky session list --json";
-      const output = execSync(_command).toString();
+      const command = "minsky session list --json";
+      const output = execSync(command).toString();
 
       // Parse the JSON output
       return JSON.parse(output);
@@ -36,8 +36,8 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     async (args: unknown) => {
       try {
         // Execute the command
-        const _command = `minsky session get ${args.session} --json`;
-        const output = execSync(_command).toString();
+        const command = `minsky session get ${args.session} --json`;
+        const output = execSync(command).toString();
 
         // Parse the JSON output
         return JSON.parse(output);

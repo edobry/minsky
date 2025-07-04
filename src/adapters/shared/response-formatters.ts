@@ -29,7 +29,7 @@ export interface ResponseFormatter<T = unknown> {
    * @param context Command execution context
    * @returns Formatted response
    */
-  format(__data: T, _context: CommandExecutionContext): string | object;
+  format(_data: T, context: CommandExecutionContext): string | object;
 }
 
 /**
@@ -38,7 +38,7 @@ export interface ResponseFormatter<T = unknown> {
  * @param data Response data
  * @returns JSON formatted string
  */
-export function formatAsJson(__data: unknown): string {
+export function formatAsJson(_data: unknown): string {
   return JSON.stringify(_data, null, 2);
 }
 
@@ -73,7 +73,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @param context Command execution context
    * @returns Text formatted string
    */
-  abstract formatText(__data: T, _context: CommandExecutionContext): string;
+  abstract formatText(_data: T, context: CommandExecutionContext): string;
 
   /**
    * Format the response as JSON
@@ -126,7 +126,7 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
    * @param context Command execution context
    * @returns Formatted error message
    */
-  formatText(_error: Error, _context: CommandExecutionContext): string {
+  formatText(error: Error, context: CommandExecutionContext): string {
     let output = `${chalk.red("✗")} Error: ${error.message}`;
 
     // Add stack trace in debug mode
@@ -144,7 +144,7 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
    * @param context Command execution context
    * @returns JSON object with error details
    */
-  formatJson(_error: Error, _context: CommandExecutionContext): object {
+  formatJson(error: Error, context: CommandExecutionContext): object {
     const result = {
       success: false,
       error: error.message,
@@ -164,7 +164,7 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
  */
 export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
   constructor(
-    private itemFormatter?: (_item: unknown) => string,
+    private itemFormatter?: (item: unknown) => string,
     private title?: string
   ) {
     super();
@@ -176,7 +176,7 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
    * @param items List of items
    * @returns Formatted list
    */
-  formatText(_items: T[]): string {
+  formatText(items: T[]): string {
     if (items.length === 0) {
       return "No items found.";
     }
@@ -208,7 +208,7 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
    * @param items List of items
    * @returns JSON object with items array
    */
-  formatJson(_items: T[]): object {
+  formatJson(items: T[]): object {
     return {
       items,
       count: items.length,
@@ -234,7 +234,7 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
    * @param rows Table data rows
    * @returns Formatted table
    */
-  formatText(_rows: T[]): string {
+  formatText(rows: T[]): string {
     if (rows.length === 0) {
       return "No data found.";
     }
@@ -302,7 +302,7 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
    * @param rows Table data rows
    * @returns JSON object with rows array
    */
-  formatJson(_rows: T[]): object {
+  formatJson(rows: T[]): object {
     return {
       rows,
       count: rows.length,
@@ -336,7 +336,7 @@ export function createErrorFormatter(): ErrorFormatter {
  * @returns A new list formatter
  */
 export function createListFormatter<T>(
-  itemFormatter?: (_item: unknown) => string,
+  itemFormatter?: (item: unknown) => string,
   title?: string
 ): ListFormatter<T> {
   return new ListFormatter<T>(itemFormatter, _title);

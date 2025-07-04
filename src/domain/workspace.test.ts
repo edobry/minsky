@@ -76,7 +76,7 @@ function createMockWorkspaceUtils(
     isSessionWorkspace: createMockFn(async () => false),
     getCurrentSession: createMockFn(async () => null),
     getSessionFromWorkspace: createMockFn(async () => null),
-    resolveWorkspacePath: createMockFn(async (_options) => _options.workspace || process.cwd()),
+    resolveWorkspacePath: createMockFn(async (options) => options.workspace || process.cwd()),
     ...overrides,
   };
 }

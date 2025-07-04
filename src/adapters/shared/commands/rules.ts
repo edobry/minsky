@@ -12,6 +12,7 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../../shared/command-registry.js";
 import { RuleService, type RuleFormat } from "../../../domain/rules.js";
 import { resolveWorkspacePath } from "../../../domain/workspace.js";

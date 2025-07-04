@@ -83,7 +83,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
     }
   }
 
-  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
+  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
     const result = await this.readState();
     if (!result.success || !result.data) {
       return null;

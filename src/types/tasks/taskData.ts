@@ -62,7 +62,7 @@ export interface TaskSpecData {
  * TaskFileFormat represents the format of a task file (e.g., Markdown)
  */
 export interface TaskFileFormat {
-  parseContent: (_content: unknown) => TaskState;
+  parseContent: (content: unknown) => TaskState;
   formatContent: (_state: unknown) => string;
 }
 

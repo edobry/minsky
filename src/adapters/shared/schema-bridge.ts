@@ -6,7 +6,7 @@
  */
 import { Command } from "commander";
 import { z } from "zod";
-import type { CommandParameter } from "./command-registry.js";
+import type { CommandParameterDefinition, CommandParameterMap } from "./command-registry.js";
 /**
  * Type for CLI option flag definition
  */
@@ -150,7 +150,7 @@ export function getEnumValues(schema: z.ZodEnum<[string, ...string[]]>): string[
  */
 export function parameterToOptionFlag(
   name: string,
-  param: CommandParameter,
+  param: CommandParameterDefinition,
   shortFlag?: string
 ): OptionFlag {
   // Create the base flag

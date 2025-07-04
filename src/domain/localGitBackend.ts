@@ -44,7 +44,7 @@ export class LocalGitBackend implements RepositoryBackend {
    */
   constructor(__config: RepositoryConfig) {
     this.config = {
-      ...config,
+      ...__config,
       type: RepositoryBackendType.LOCAL,
     };
     const _xdgStateHome =
@@ -204,7 +204,7 @@ export class LocalGitBackend implements RepositoryBackend {
     // Check if it's a Git repository
     try {
       await execAsync(`git -C ${this.config.path} rev-parse --git-dir`);
-    } catch (_error) {
+    } catch (error) {
       issues.push(`Not a valid Git repository: ${this.config.path}`);
       return { valid: false, issues };
     }
@@ -217,7 +217,7 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param branch Branch to push (defaults to current _branch)
    */
-  async push(_branch?: string): Promise<void> {
+  async push(branch?: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -242,7 +242,7 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param branch Branch to pull (defaults to current _branch)
    */
-  async pull(_branch?: string): Promise<void> {
+  async pull(branch?: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -297,7 +297,7 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param branch Branch name to checkout
    */
-  async checkout(__branch: string): Promise<void> {
+  async checkout(_branch: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }

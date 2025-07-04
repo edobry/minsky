@@ -1,0 +1,133 @@
+---
+description: Guidelines for creating automated code fixes, codemods, and other automation tools
+globs: 
+alwaysApply: false
+---
+# Automation and Codemod Approaches
+
+## Core Principle: Root Cause vs Symptoms
+
+**Always address the root cause, not symptoms.**
+
+Before creating any automated solution, ask:
+1. **Am I treating symptoms or root cause?**
+2. **What's the simplest principle that addresses the core issue?**
+3. **Can I solve this with one simple algorithm instead of many patterns?**
+
+## ⚠️ Critical Error Pattern: Complex Pattern-Specific Solutions
+
+**DOCUMENTED FAILURE**: Task #166 - Complex Pattern-Specific vs Simple Root-Cause Approaches
+
+### The Error Pattern
+
+**Wrong Approach**: Creating complex, symptom-specific solutions
+- Built comprehensive regex patterns for every possible usage context
+- Added specific patterns for: function calls, property access, assignments, returns, etc.
+- Created multiple targeted codemods for edge cases
+- Kept adding more patterns when issues remained
+
+**Correct Approach**: Address the root cause directly
+- Simple principle: Find variables with underscores, check if used without underscores, remove underscores from declarations
+- One simple algorithm that handles all cases
+
+### Performance Evidence
+
+**Complex Approach Results**:
+- fix-incorrect-underscore-prefixes.ts: 57 fixes across 28 files
+- fix-result-underscore-mismatch.ts: 188 fixes across 59 files  
+- comprehensive-underscore-fix.ts: 39 fixes across 22 files
+- **Total**: ~284 fixes across multiple iterations
+
+**Simple Approach Results**:
+- simple-underscore-fix.ts: 239 fixes across 88 files in **one run**
+- **6x more effective** than the complex approach
+
+### Root Cause Analysis
+
+**Process Error**: Treating symptoms instead of root cause
+- **Symptom**: Variables with underscores being used without underscores
+- **Root Cause**: Underscore in declaration when usage expects clean variable
+- **Wrong Fix**: Try to catch every usage pattern with regex
+- **Right Fix**: Remove underscore from declaration
+
+## Automation Design Principles
+
+### 1. Simplicity First
+- Start with the simplest possible solution
+- Only add complexity when simple approaches prove insufficient
+- One clear principle beats many specific patterns
+
+### 2. Root Cause Focus
+- Identify the fundamental issue, not just observable symptoms
+- Fix the source of the problem, not its manifestations
+- Ask "why" multiple times to find the true root cause
+
+### 3. Comprehensive Coverage
+- Simple algorithms often handle more cases than complex pattern-matching
+- Avoid trying to enumerate every possible context
+- Focus on the underlying logic that applies universally
+
+### 4. Measurable Effectiveness
+- Track fixes per iteration and success rate
+- Compare simple vs complex approaches with concrete metrics
+- Prefer approaches that solve more problems with less code
+
+## When Complex Patterns Are Justified
+
+Complex pattern-matching is appropriate when:
+- Multiple distinct root causes exist that require different solutions
+- The problem is genuinely about context-specific transformations
+- Simple approaches have been tried and proven insufficient
+- The complexity is in the domain logic, not the implementation approach
+
+## Enforcement Protocol
+
+**If questioned about approach with phrases like:**
+- "why did you create a new codemod instead of improving the existing one?"
+- "why do we need to keep adding patterns?"
+- "is our criteria overly specific?"
+
+**Immediate Response:**
+1. **STOP** creating new patterns/codemods
+2. **ANALYZE** if treating symptoms vs root cause
+3. **SIMPLIFY** to fundamental principle
+4. **VERIFY** simple approach is more effective before proceeding
+
+## Codemod Development Workflow
+
+### Phase 1: Problem Analysis
+1. Identify the root cause, not just symptoms
+2. Define the simplest principle that addresses the core issue
+3. Verify this principle handles the majority of cases
+
+### Phase 2: Simple Implementation
+1. Implement the simplest possible solution
+2. Test on a representative sample
+3. Measure effectiveness (fixes per run, success rate)
+
+### Phase 3: Evaluation
+1. Compare results to expected coverage
+2. If insufficient, analyze what the simple approach missed
+3. Only add complexity if simple approach has fundamental limitations
+
+### Phase 4: Iteration
+1. Improve the simple approach first
+2. Add targeted complexity only for proven edge cases
+3. Maintain the core simple principle as the foundation
+
+## Anti-Patterns to Avoid
+
+- **Pattern Accumulation**: Adding more and more specific regex patterns
+- **Context Enumeration**: Trying to handle every possible usage context
+- **Premature Optimization**: Starting with complex solutions
+- **Symptom Chasing**: Fixing manifestations instead of causes
+- **Tool Proliferation**: Creating multiple tools when one would suffice
+
+## Success Metrics
+
+- **Coverage**: Percentage of issues fixed in single run
+- **Efficiency**: Fixes per line of automation code
+- **Maintainability**: Ease of understanding and modifying the solution
+- **Reliability**: Consistency of results across different codebases
+
+**CRITICAL**: This represents a systematic thinking error that must be eliminated through conscious verification of approach before implementation.

@@ -334,7 +334,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       await access(path);
       return true;
-    } catch (_error) {
+    } catch (error) {
       return false;
     }
   }
