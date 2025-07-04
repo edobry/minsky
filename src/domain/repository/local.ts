@@ -30,8 +30,8 @@ const execAsync = promisify(exec);
  */
 export class LocalGitBackend implements RepositoryBackend {
   private readonly baseDir: string;
-  private readonly repoUrl: string;
-  private readonly repoName: string;
+  private readonly repoUrl!: string;
+  private readonly repoName!: string;
   private sessionDb: SessionProviderInterface;
   private config: RepositoryBackendConfig;
 

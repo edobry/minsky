@@ -36,8 +36,8 @@ const execAsync = promisify(exec);
  */
 export class GitHubBackend implements RepositoryBackend {
   private readonly baseDir: string;
-  private readonly repoUrl: string;
-  private readonly repoName: string;
+  private readonly repoUrl!: string;
+  private readonly repoName!: string;
   private readonly owner?: string;
   private readonly repo?: string;
   private sessionDb: SessionProviderInterface;

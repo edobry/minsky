@@ -40,7 +40,7 @@ interface LockInfo {
  * - Error recovery and workspace repair
  */
 export class SpecialWorkspaceManager {
-  private readonly repoUrl: string;
+  private readonly repoUrl!: string;
   private readonly workspacePath: string;
   private readonly lockPath: string;
   private readonly lockTimeoutMs: number;

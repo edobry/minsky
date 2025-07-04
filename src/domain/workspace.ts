@@ -236,7 +236,7 @@ export async function resolveWorkspacePath(
 export async function getCurrentSession(
   cwd: string = (process as any).cwd(),
   execAsyncFn: typeof execAsync = execAsync,
-  sessionDbOverride?: { getSession: SessionDB["getSession"] }
+  sessionDbOverride?: SessionProviderInterface
 ): Promise<string | null> {
   const sessionInfo = await getSessionFromWorkspace(cwd, execAsyncFn, sessionDbOverride);
   return sessionInfo ? (sessionInfo as any).session : null as any;
@@ -252,7 +252,7 @@ export async function getCurrentSessionContext(
   // Added getCurrentSessionFn dependency for better testability
   dependencies: {
     execAsyncFn?: typeof execAsync;
-    sessionDbOverride?: { getSession: SessionDB["getSession"] };
+    sessionDbOverride?: SessionProviderInterface;
     getCurrentSessionFn?: typeof getCurrentSession;
   } = {}
 ): Promise<{
@@ -261,15 +261,16 @@ export async function getCurrentSessionContext(
 } | null> {
   const { execAsyncFn, sessionDbOverride, getCurrentSessionFn = getCurrentSession } = dependencies;
 
+  let sessionId: string | null = null;
   try {
     // Get the session name from the current working directory
-    const sessionId = await getCurrentSessionFn(cwd, execAsyncFn, sessionDbOverride);
+    sessionId = await getCurrentSessionFn(cwd, execAsyncFn, sessionDbOverride);
     if (!sessionId) {
       return null as any;
     }
 
     // Query the SessionDB to get task information
-    const sessionDb = sessionDbOverride || new SessionDB();
+    const sessionDb = sessionDbOverride || createSessionProvider();
     const sessionRecord = await (sessionDb as any).getSession(sessionId);
 
     if (!sessionRecord) {
@@ -282,7 +283,7 @@ export async function getCurrentSessionContext(
     };
   } catch (error) {
     log.error("Error fetching session record", {
-      sessionName: currentSessionName,
+      sessionName: sessionId,
       error: getErrorMessage(error as any),
       stack: error instanceof Error ? (error as any).stack as any : undefined as any,
       cwd,
