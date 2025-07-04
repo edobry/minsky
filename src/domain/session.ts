@@ -1181,6 +1181,18 @@ Need help? Run 'git status' to see what files have changed.
       log.cli("✨ Creating new PR...");
     }
 
+    // STEP 4.6: Conditional body/bodyPath validation
+    // For new PR creation, we need either body or bodyPath (unless we extracted from existing)
+    if (!bodyToUse && !params.bodyPath && (!prBranchExists || !titleToUse)) {
+      // Only require body/bodyPath when:
+      // 1. No existing PR to reuse from (prBranchExists=false), OR
+      // 2. Existing PR but new title provided (titleToUse=true) indicating update
+      if (!prBranchExists) {
+        log.cli("💡 Tip: For new PRs, consider providing --body or --body-path for a complete description");
+        // Allow empty body for new PRs (user choice)
+      }
+    }
+
     // STEP 5: Enhanced session update with conflict detection (unless --skip-update is specified)
     if (!params.skipUpdate) {
       log.cli("🔍 Checking for conflicts before PR creation...");
