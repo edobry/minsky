@@ -7,6 +7,7 @@ export * from "./init";
 
 // Export Git-related functions
 export {
+  GitService,
   createPullRequestFromParams,
   preparePrFromParams,
   mergePrFromParams,
@@ -14,6 +15,9 @@ export {
   branchFromParams,
   pushFromParams,
   commitChangesFromParams,
+  mergeFromParams,
+  checkoutFromParams,
+  rebaseFromParams,
 } from "./git.js";
 
 // Export legacy SessionDB and related functions

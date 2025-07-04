@@ -168,7 +168,7 @@ export interface SmartUpdateResult {
 
 export class ConflictDetectionService {
   /**
-   * Predicts conflicts between two branches without performing actual merge
+   * Static method to predict merge conflicts
    */
   static async predictConflicts(
     repoPath: string,
@@ -180,7 +180,7 @@ export class ConflictDetectionService {
   }
 
   /**
-   * Analyzes branch divergence between session and base branches
+   * Static method to analyze branch divergence 
    */
   static async analyzeBranchDivergence(
     repoPath: string,
@@ -355,7 +355,9 @@ export class ConflictDetectionService {
       const { stdout: aheadBehind } = await execAsync(
         `git -C ${repoPath} rev-list --left-right --count ${baseBranch}...${sessionBranch}`
       );
-      const [behind, ahead] = aheadBehind.trim().split("\t").map(Number);
+      const counts = aheadBehind.trim().split("\t").map(Number);
+      const behind: number = counts[0] || 0;
+      const ahead: number = counts[1] || 0;
 
       // Get last common commit
       const { stdout: commonCommit } = await execAsync(
@@ -594,11 +596,27 @@ export class ConflictDetectionService {
         safeToExecute = !prediction.hasConflicts;
         recommendedActions = prediction.hasConflicts ? prediction.userGuidance.split("\n") : [];
         break;
-      case GitOperationType.REBASE:
-        prediction = await this.predictRebaseConflicts(repoPath, sourceRef, targetRef || "HEAD");
-        safeToExecute = !prediction.canAutoResolve; // Rebase conflicts are blocking
-        recommendedActions = prediction.recommendations;
+      case GitOperationType.REBASE: {
+        const rebasePrediction = await this.predictRebaseConflicts(repoPath, sourceRef, targetRef || "HEAD");
+        // Convert RebaseConflictPrediction to ConflictPrediction format
+        prediction = {
+          hasConflicts: !rebasePrediction.canAutoResolve,
+          conflictType: rebasePrediction.canAutoResolve ? ConflictType.NONE : ConflictType.REBASE_CONFLICT,
+          severity: rebasePrediction.canAutoResolve ? ConflictSeverity.NONE : ConflictSeverity.MANUAL_COMPLEX,
+          affectedFiles: [], // This would need to be populated from the actual rebase analysis
+          resolutionStrategies: rebasePrediction.recommendations.map(rec => ({
+            type: "manual" as const,
+            description: rec,
+            commands: [],
+            riskLevel: "medium" as const
+          })),
+          userGuidance: rebasePrediction.recommendations.join("\n"),
+          recoveryCommands: []
+        };
+        safeToExecute = rebasePrediction.canAutoResolve;
+        recommendedActions = rebasePrediction.recommendations;
         break;
+      }
       case GitOperationType.CHECKOUT:
         // For checkout, we need to simulate a merge-like conflict
         // This is a simplified check, as actual checkout can be complex
@@ -636,6 +654,19 @@ export class ConflictDetectionService {
         safeToExecute = true;
         recommendedActions = [];
         break;
+      }
+
+      // Ensure prediction is always defined
+      if (!prediction) {
+        prediction = {
+          hasConflicts: false,
+          conflictType: ConflictType.NONE,
+          severity: ConflictSeverity.NONE,
+          affectedFiles: [],
+          resolutionStrategies: [],
+          userGuidance: "No conflicts detected",
+          recoveryCommands: []
+        };
       }
 
       return {
@@ -1012,6 +1043,8 @@ export class ConflictDetectionService {
       
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
+        
+        if (!line) continue; // Skip undefined lines
         
         if (line.startsWith("<<<<<<<")) {
           inConflict = true;
