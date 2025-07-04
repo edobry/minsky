@@ -2291,28 +2291,16 @@ export async function preparePrFromParams(params: {
   branchName?: string;
   debug?: boolean;
 }): Promise<PreparePrResult> {
-  try {
-    const git = new GitService();
-    const result = await git.preparePr({
-      session: params.session,
-      repoPath: params.repo,
-      baseBranch: params.baseBranch,
-      title: params.title,
-      body: params.body,
-      branchName: params.branchName,
-      debug: params.debug,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error preparing PR branch", {
-      session: params.session,
-      repo: params.repo,
-      baseBranch: params.baseBranch,
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    throw error;
-  }
+  const git = new GitService();
+  return await git.preparePr({
+    session: params.session,
+    repoPath: params.repo,
+    baseBranch: params.baseBranch,
+    title: params.title,
+    body: params.body,
+    branchName: params.branchName,
+    debug: params.debug,
+  });
 }
 
 /**
