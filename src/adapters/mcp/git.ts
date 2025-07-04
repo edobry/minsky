@@ -100,8 +100,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         workdir: (result as any).workdir,
         pushed: (result as any).pushed,
       } as any;
-    }
-  );
+    });
 
   // Git PR command
   (commandMapper as any).addGitCommand(

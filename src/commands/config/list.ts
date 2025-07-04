@@ -36,7 +36,7 @@ export function createConfigListCommand(): Command {
             parsed: (source as any).parsed
           }))
         };
-        (process.stdout as any).write(`${JSON.stringify(output as any, null, 2)}\n`);
+        (process.stdout as any).write(`${JSON.stringify(output as any, undefined, 2)}\n`);
       } else {
         displayConfigurationSources(resolved, sources);
       }

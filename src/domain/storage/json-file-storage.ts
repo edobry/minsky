@@ -106,7 +106,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       }
 
       const data = readFileSync(this.filePath, "utf8");
-      const dataStr = typeof data === "string" ? data : String(data as any);
+      const dataStr = typeof data === "string" ? data : String((data as any).toString());
 
       // Validate JSON before parsing to prevent stack overflow
       if (!(((dataStr) as any).toString() as any).trim()) {
@@ -160,7 +160,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       // Serialize state to JSON with error handling for circular references
       let json: string;
       try {
-        json = this.prettyPrint ? JSON.stringify(state, null, 2) : JSON.stringify(state);
+        json = this.prettyPrint ? JSON.stringify(state, undefined, 2) : JSON.stringify(state);
       } catch (serializationError) {
         if (
           serializationError instanceof Error &&

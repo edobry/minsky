@@ -167,7 +167,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         workspacePath: this.workspacePath,
       },
     };
-    return JSON.stringify(state, null, 2);
+    return JSON.stringify(state, undefined, 2);
   }
 
   parseTaskSpec(content: string): TaskSpecData {

@@ -201,7 +201,7 @@ export class CliErrorHandler implements ErrorHandler {
     // Add type-specific details
     if (error instanceof ValidationError && (error as any).errors && debug) {
       log.cliError("\nValidation details:");
-      log.cliError(JSON.stringify((error as any).errors, null, 2));
+      log.cliError(JSON.stringify((error as any).errors, undefined, 2));
     } else if (error instanceof ResourceNotFoundError) {
       if ((error as any).resourceType && (error as any).resourceId) {
         log.cliError(`Resource: ${(error as any).resourceType}, ID: ${(error as any).resourceId}`);

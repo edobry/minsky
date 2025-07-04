@@ -62,7 +62,7 @@ export function writeSessionDbFile(
       mkdirSync(dbDir, { recursive: true });
     }
 
-    writeFileSync(dbPath, JSON.stringify((state as any).sessions, null, 2));
+    writeFileSync(dbPath, JSON.stringify((state as any).sessions, undefined, 2));
     return true;
   } catch (error) {
     log.error(`Error writing session database: ${getErrorMessage(error as any)}`);
