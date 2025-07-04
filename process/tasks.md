@@ -421,3 +421,5 @@
 - [x] Implement session PR refresh functionality [#231](process/tasks/231-implement-session-pr-refresh-functionality.md)
 
 - [ ] Improve session PR conflict resolution workflow with auto-resolution and better UX [#232](process/tasks/232-improve-session-pr-conflict-resolution-workflow-with-auto-resolution-and-better-ux.md)
+
+- [ ] Setup semantic-release with conventional commits for automated GitHub releases and binary builds [#233](/Users/edobry/Projects/minsky/process/tasks/233-setup-semantic-release-with-conventional-commits-for-automated-github-releases-and-binary-builds.md)
