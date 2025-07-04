@@ -130,6 +130,7 @@ _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/20
 ### Fixed
 
 - **Session PR Commit Message Bug Fix**
+
   - Fixed critical bug where session PR branches would use incorrect commit messages from unrelated tasks
   - Issue: PR branches were getting commit messages from arbitrary previous commits (e.g., task #166 messages appearing in task #229 PRs)
   - Root cause: Git merge process was not reliably using the specified commit message file (-F flag)

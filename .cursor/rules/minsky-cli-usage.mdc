@@ -1,8 +1,3 @@
----
-description: REQUIRED guidelines for using the Minsky CLI for all task/session operations
-globs:
-alwaysApply: false
----
 # Minsky CLI Usage Protocol
 
 ⛔️ **CRITICAL: ALL TASK AND SESSION OPERATIONS MUST USE THE MINSKY CLI**
@@ -102,10 +97,12 @@ minsky session get <session-name> [options]
   --json           # Output in JSON format
 
 # Start a new session (ALWAYS use with --quiet)
+# REQUIRED: Either --task or --description must be provided
 minsky session start [name] [options]
-  --task <task-id> # Associate session with a task
-  --repo <repo>    # Path or URL to repository
-  --quiet          # MANDATORY: Only output session directory path
+  --task <task-id>         # Associate session with existing task
+  --description <text>     # Create new task automatically
+  --repo <repo>            # Path or URL to repository
+  --quiet                  # MANDATORY: Only output session directory path
 
 # Get session directory path
 minsky session dir <session-name-or-task#id>
