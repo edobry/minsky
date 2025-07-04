@@ -87,7 +87,7 @@ export class ConfigurationGenerator {
       };
 
       if ((options as any).githubToken && (options as any).githubTokenSource === "file") {
-        (config?.github.credentials! as any).token = (options as any).githubToken;
+        (config?.github?.credentials! as any).token = (options as any).githubToken;
       }
     }
 

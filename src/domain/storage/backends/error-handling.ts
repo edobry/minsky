@@ -148,12 +148,12 @@ export class StorageErrorClassifier {
       severity: (StorageErrorSeverity).MEDIUM,
       recoveryActions: [
         {
-          type: "RETRY",
+          type: "RETRY" as const,
           description: "Retry the operation",
           autoExecutable: true,
         },
         {
-          type: "MANUAL",
+          type: "MANUAL" as const,
           description: "Check logs and contact support",
           autoExecutable: false,
         },
@@ -170,7 +170,7 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
-            type: "REPAIR",
+            type: "REPAIR" as const,
             description: "Initialize session database",
             autoExecutable: true,
             command: "minsky sessiondb init --backend json",
@@ -188,7 +188,7 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Fix file permissions",
             autoExecutable: false,
             command: "chmod 644 ~/.local/state/minsky/session-db.json",
@@ -205,14 +205,14 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).CRITICAL,
         recoveryActions: [
           {
-            type: "FALLBACK",
+            type: "FALLBACK" as const,
             description: "Restore from backup",
             autoExecutable: true,
             command: "minsky sessiondb restore --backup <latest>",
             estimatedTime: "2-5 minutes",
           },
           {
-            type: "REPAIR",
+            type: "REPAIR" as const,
             description: "Attempt JSON repair",
             autoExecutable: true,
             command: "minsky sessiondb repair --auto",
@@ -230,7 +230,7 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Free up disk space",
             autoExecutable: false,
             command: "minsky session clean --older-than 30d",
@@ -256,13 +256,13 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).MEDIUM,
         recoveryActions: [
           {
-            type: "RETRY",
+            type: "RETRY" as const,
             description: "Wait and retry operation",
             autoExecutable: true,
             estimatedTime: "5-30 seconds",
           },
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Kill blocking processes",
             autoExecutable: false,
             command: "lsof ~/.local/state/minsky/sessions.db",
@@ -279,14 +279,14 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).CRITICAL,
         recoveryActions: [
           {
-            type: "REPAIR",
+            type: "REPAIR" as const,
             description: "Attempt database recovery",
             autoExecutable: true,
             command: "minsky sessiondb repair --backend sqlite --auto-recover",
             estimatedTime: "2-10 minutes",
           },
           {
-            type: "FALLBACK",
+            type: "FALLBACK" as const,
             description: "Restore from backup",
             autoExecutable: true,
             command: "minsky sessiondb restore --backup <latest> --to sqlite",
@@ -303,7 +303,7 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Fix database file permissions",
             autoExecutable: false,
             command: "chmod 644 ~/.local/state/minsky/sessions.db",
@@ -320,7 +320,7 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
-            type: "REPAIR",
+            type: "REPAIR" as const,
             description: "Initialize database schema",
             autoExecutable: true,
             command: "minsky sessiondb init --backend sqlite --force",
@@ -348,13 +348,13 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
-            type: "RETRY",
+            type: "RETRY" as const,
             description: "Retry connection",
             autoExecutable: true,
             estimatedTime: "10-30 seconds",
           },
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Check PostgreSQL server status",
             autoExecutable: false,
             command: "pg_isready -h hostname -p 5432",
@@ -371,7 +371,7 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Verify database credentials",
             autoExecutable: false,
             command: "minsky config get sessiondb.connectionString",
@@ -388,7 +388,7 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Create database",
             autoExecutable: false,
             command: "createdb minsky_sessions",
@@ -405,7 +405,7 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
-            type: "REPAIR",
+            type: "REPAIR" as const,
             description: "Initialize database schema",
             autoExecutable: true,
             command: "minsky sessiondb init --backend postgres --force",
@@ -422,13 +422,13 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).MEDIUM,
         recoveryActions: [
           {
-            type: "RETRY",
+            type: "RETRY" as const,
             description: "Wait for connections to close and retry",
             autoExecutable: true,
             estimatedTime: "1-5 minutes",
           },
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Increase connection limits",
             autoExecutable: false,
           },
@@ -444,7 +444,7 @@ export class StorageErrorClassifier {
         severity: (StorageErrorSeverity).MEDIUM,
         recoveryActions: [
           {
-            type: "RETRY",
+            type: "RETRY" as const,
             description: "Retry with longer timeout",
             autoExecutable: true,
           },

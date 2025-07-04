@@ -105,7 +105,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         return { success: true, data: state };
       }
 
-      const data = readFileSync(this.filePath, "utf8");
+      const data = readFileSync(this.filePath, "utf8").toString();
       const dataStr = typeof data === "string" ? data : String((data as any).toString());
 
       // Validate JSON before parsing to prevent stack overflow
