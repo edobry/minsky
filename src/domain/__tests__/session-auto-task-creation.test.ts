@@ -9,6 +9,7 @@ import { startSessionFromParams, type SessionProviderInterface } from "../sessio
 import type { TaskServiceInterface } from "../tasks.js";
 import type { GitServiceInterface } from "../git.js";
 import type { WorkspaceUtilsInterface } from "../workspace.js";
+import { createPartialMock, createMock } from "../../utils/test-utils/mocking.js";
 
 describe("Session Auto-Task Creation", () => {
   let mockSessionDB: SessionProviderInterface;
@@ -16,8 +17,17 @@ describe("Session Auto-Task Creation", () => {
   let mockTaskService: TaskServiceInterface;
   let mockWorkspaceUtils: WorkspaceUtilsInterface;
   let mockResolveRepoPath: (params: any) => Promise<string>;
+  let createTaskFromTitleAndDescriptionSpy: any;
 
   beforeEach(() => {
+    // Create spy for the method we want to track
+    createTaskFromTitleAndDescriptionSpy = createMock((title: string, description: string) => Promise.resolve({
+      id: "#001",
+      title,
+      description,
+      status: "TODO",
+    }));
+
     // Mock session database
     mockSessionDB = createPartialMock<SessionProviderInterface>({
       getSession: () => Promise.resolve(null),
@@ -33,20 +43,17 @@ describe("Session Auto-Task Creation", () => {
         repoUrl: "test-repo",
         repoName: "test-repo",
         branch: "test-session",
+        workdir: "/test/workdir",
       }),
       branchWithoutSession: () => Promise.resolve({
         branch: "test-session",
+        workdir: "/test/workdir",
       }),
     });
 
     // Mock task service with auto-creation functionality
     mockTaskService = createPartialMock<TaskServiceInterface>({
-      createTaskFromTitleAndDescription: (title: string, description: string) => Promise.resolve({
-        id: "#001",
-        title,
-        description,
-        status: "TODO",
-      }),
+      createTaskFromTitleAndDescription: createTaskFromTitleAndDescriptionSpy,
       getTask: () => Promise.resolve({
         id: "#001",
         title: "Test Task",
@@ -67,7 +74,7 @@ describe("Session Auto-Task Creation", () => {
 
     // Mock workspace utils
     mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
-      isSessionWorkspace: () => Promise.resolve(false),
+      isSessionWorkspace: () => false,
     });
 
     // Mock resolve repo path
@@ -91,7 +98,7 @@ describe("Session Auto-Task Creation", () => {
     });
 
     // Verify task was created
-    expect(mockTaskService.createTaskFromTitleAndDescription).toHaveBeenCalledWith(
+    expect(createTaskFromTitleAndDescriptionSpy).toHaveBeenCalledWith(
       "Fix the authentication bug",
       "Auto-created task for session: Fix the authentication bug"
     );
@@ -119,7 +126,7 @@ describe("Session Auto-Task Creation", () => {
     });
 
     // Verify task was NOT auto-created since task ID was provided
-    expect(mockTaskService.createTaskFromTitleAndDescription).not.toHaveBeenCalled();
+    expect(createTaskFromTitleAndDescriptionSpy).not.toHaveBeenCalled();
   });
 
   test("should use session name when provided with description", async () => {
@@ -140,7 +147,7 @@ describe("Session Auto-Task Creation", () => {
     });
 
     // Verify task was created
-    expect(mockTaskService.createTaskFromTitleAndDescription).toHaveBeenCalled();
+    expect(createTaskFromTitleAndDescriptionSpy).toHaveBeenCalled();
 
     // Verify session name is the provided name, not auto-generated
     expect(result.session).toBe("custom-session");
