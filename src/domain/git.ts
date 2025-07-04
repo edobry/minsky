@@ -1602,6 +1602,16 @@ Session requested: "${options.session}"
         // Branch doesn't exist, which is fine
       }
 
+      // Check if PR branch exists remotely and delete it for clean slate
+      try {
+        await execAsync(`git -C ${workdir} ls-remote --exit-code origin ${prBranch}`);
+        // Remote branch exists, delete it to recreate cleanly
+        await execAsync(`git -C ${workdir} push origin --delete ${prBranch}`);
+        log.debug(`Deleted existing remote PR branch ${prBranch} for clean recreation`);
+      } catch {
+        // Remote branch doesn't exist, which is fine
+      }
+
       // Fix for origin/origin/main bug: Don't prepend origin/ if baseBranch already has it
       const remoteBaseBranch = baseBranch.startsWith("origin/") ? baseBranch : `origin/${baseBranch}`;
       
@@ -2281,28 +2291,16 @@ export async function preparePrFromParams(params: {
   branchName?: string;
   debug?: boolean;
 }): Promise<PreparePrResult> {
-  try {
-    const git = new GitService();
-    const result = await git.preparePr({
-      session: params.session,
-      repoPath: params.repo,
-      baseBranch: params.baseBranch,
-      title: params.title,
-      body: params.body,
-      branchName: params.branchName,
-      debug: params.debug,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error preparing PR branch", {
-      session: params.session,
-      repo: params.repo,
-      baseBranch: params.baseBranch,
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    throw error;
-  }
+  const git = new GitService();
+  return await git.preparePr({
+    session: params.session,
+    repoPath: params.repo,
+    baseBranch: params.baseBranch,
+    title: params.title,
+    body: params.body,
+    branchName: params.branchName,
+    debug: params.debug,
+  });
 }
 
 /**
