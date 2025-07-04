@@ -1,4 +1,4 @@
-# feat(#229): Implement Mandatory Task-Session Association with Auto-Task Creation
+# Implement Mandatory Task-Session Association with Auto-Task Creation
 
 ## Summary
 
