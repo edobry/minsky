@@ -28,7 +28,7 @@ export async function readTasksFile(filePath: string): Promise<TaskReadOperation
       content,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to read tasks file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -55,7 +55,7 @@ export async function writeTasksFile(
       filePath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to write tasks file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -79,7 +79,7 @@ export async function readTaskSpecFile(filePath: string): Promise<TaskReadOperat
       content,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to read task spec file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -109,7 +109,7 @@ export async function writeTaskSpecFile(
       filePath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to write task spec file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -146,7 +146,7 @@ export async function createDirectory(dirPath: string): Promise<TaskFileOperatio
       filePath: dirPath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to create directory: ${dirPath}`, { error: err });
     return {
       success: false,
@@ -171,7 +171,7 @@ export async function deleteFile(filePath: string): Promise<TaskFileOperationRes
       filePath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to delete file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -193,7 +193,7 @@ export async function listFiles(dirPath: string): Promise<string[] | null> {
     return files;
   } catch (error) {
     log.error(`Failed to list files in directory: ${dirPath}`, {
-      error: error instanceof Error ? error : String(error),
+      error: error instanceof Error ? error : String(error as any),
     });
     return null as any;
   }
@@ -229,7 +229,7 @@ export function getTaskSpecFilePath(
   title: string,
   workspacePath: string
 ): string {
-  const taskIdNum = __taskId.startsWith("#") ? __taskId.slice(1) : __taskId;
-  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const taskIdNum = __taskId.startsWith("#") ? (__taskId as any).slice(1) : __taskId;
+  const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
   return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
 }

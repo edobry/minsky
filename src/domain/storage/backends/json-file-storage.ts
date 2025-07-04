@@ -31,7 +31,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
   private readonly baseDir: string;
 
   constructor(dbPath?: string, baseDir?: string) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
 
     if (dbPath) {
       this.dbPath = dbPath;
@@ -57,7 +57,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
         data: state,
       };
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
+      const err = error instanceof Error ? error : new Error(String(error as any));
       log.error(`Error reading session database: ${(err as any).message}`);
       return {
         success: false,
@@ -71,10 +71,10 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       const success = writeSessionDbFile(state, this.getFileOptions());
       return {
         success,
-        bytesWritten: success ? JSON.stringify(state.sessions).length : 0,
+        bytesWritten: success ? (JSON.stringify(state.sessions) as any).length : 0,
       };
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
+      const err = error instanceof Error ? error : new Error(String(error as any));
       log.error(`Error writing session database: ${(err as any).message}`);
       return {
         success: false,
@@ -85,37 +85,37 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async getEntity(id: string, options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
     const result = await this.readState();
-    if (!result.success || !result.data) {
+    if (!(result as any).success || !(result as any).data) {
       return null as any;
     }
 
-    return result.data.sessions.find((session) => session.session === id) || null as any;
+    return (result.data.sessions as any).find((session) => (session as any).session === id) || null as any;
   }
 
   async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
     const result = await this.readState();
-    if (!result.success || !result.data) {
+    if (!(result as any).success || !(result as any).data) {
       return [];
     }
 
-    let sessions = result.data.sessions;
+    let sessions = (result.data as any).sessions;
 
     // Apply filters if provided
     if (options) {
-      if (options.taskId) {
-        const normalizedTaskId = options.taskId.replace(/^#/, "");
-        sessions = sessions.filter((s) => {
-          if (!s.taskId) {
+      if ((options as any).taskId) {
+        const normalizedTaskId = (options.taskId as any).replace(/^#/, "");
+        sessions = (sessions as any).filter((s) => {
+          if (!(s as any).taskId) {
             return false;
           }
-          return s.taskId.replace(/^#/, "") === normalizedTaskId;
+          return (s.taskId as any).replace(/^#/, "") === normalizedTaskId;
         });
       }
-      if (options.repoName) {
-        sessions = sessions.filter((s) => s.repoName === options.repoName);
+      if ((options as any).repoName) {
+        sessions = (sessions as any).filter((s) => (s as any).repoName === (options as any).repoName);
       }
-      if (options.branch) {
-        sessions = sessions.filter((s) => s.branch === options.branch);
+      if ((options as any).branch) {
+        sessions = (sessions as any).filter((s) => (s as any).branch === (options as any).branch);
       }
     }
 
@@ -124,18 +124,18 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async createEntity(entity: SessionRecord): Promise<SessionRecord> {
     const result = await this.readState();
-    if (!result.success || !result.data) {
+    if (!(result as any).success || !(result as any).data) {
       throw new Error("Failed to read current state");
     }
 
     const newState: SessionDbState = {
-      ...result.data,
-      sessions: [...result.data.sessions, entity],
+      ...(result as any).data,
+      sessions: [...(result.data as any).sessions, entity],
     };
 
     const writeResult = await this.writeState(newState);
-    if (!writeResult.success) {
-      throw new Error(`Failed to create entity: ${writeResult.error?.message}`);
+    if (!(writeResult as any).success) {
+      throw new Error(`Failed to create entity: ${(writeResult.error as any).message}`);
     }
 
     return entity;
@@ -143,36 +143,36 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async updateEntity(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null> {
     const result = await this.readState();
-    if (!result.success || !result.data) {
+    if (!(result as any).success || !(result as any).data) {
       return null as any;
     }
 
-    const sessionIndex = result.data.sessions.findIndex((s) => s.session === id);
+    const sessionIndex = (result.data.sessions as any).findIndex((s) => (s as any).session === id);
     if (sessionIndex === -1) {
       return null as any;
     }
 
     // Create safe updates by explicitly building the update object without session
     const safeUpdates: Partial<Omit<SessionRecord, "session">> = {};
-    Object.entries(updates).forEach(([key, value]) => {
+    (Object.entries(updates) as any).forEach(([key, value]) => {
       if (key !== "session") {
         (safeUpdates as any)[key] = value;
       }
     });
 
-    const updatedSession: SessionRecord = { ...result.data.sessions[sessionIndex], ...safeUpdates };
+    const updatedSession: SessionRecord = { ...(result.data as any).sessions[sessionIndex], ...safeUpdates };
 
-    const newSessions = [...result.data.sessions];
+    const newSessions = [...(result.data as any).sessions];
     newSessions[sessionIndex] = updatedSession;
 
     const newState: SessionDbState = {
-      ...result.data,
+      ...(result as any).data,
       sessions: newSessions,
     };
 
     const writeResult = await this.writeState(newState);
-    if (!writeResult.success) {
-      throw new Error(`Failed to update entity: ${writeResult.error?.message}`);
+    if (!(writeResult as any).success) {
+      throw new Error(`Failed to update entity: ${(writeResult.error as any).message}`);
     }
 
     return updatedSession;
@@ -180,25 +180,25 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async deleteEntity(id: string): Promise<boolean> {
     const result = await this.readState();
-    if (!result.success || !result.data) {
+    if (!(result as any).success || !(result as any).data) {
       return false;
     }
 
-    const sessionIndex = result.data.sessions.findIndex((s) => s.session === id);
+    const sessionIndex = (result.data.sessions as any).findIndex((s) => (s as any).session === id);
     if (sessionIndex === -1) {
       return false;
     }
 
-    const newSessions = [...result.data.sessions];
-    newSessions.splice(sessionIndex, 1);
+    const newSessions = [...(result.data as any).sessions];
+    (newSessions as any).splice(sessionIndex, 1);
 
     const newState: SessionDbState = {
-      ...result.data,
+      ...(result as any).data,
       sessions: newSessions,
     };
 
     const writeResult = await this.writeState(newState);
-    return writeResult.success;
+    return (writeResult as any).success;
   }
 
   async entityExists(id: string): Promise<boolean> {
@@ -222,13 +222,13 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       if (!existsSync(this.dbPath)) {
         const initialState = initializeSessionDbState({ baseDir: this.baseDir });
         const writeResult = await this.writeState(initialState);
-        return writeResult.success;
+        return (writeResult as any).success;
       }
 
       return true;
     } catch (error) {
       log.error(
-        `Error initializing JSON file storage: ${getErrorMessage(error)}`
+        `Error initializing JSON file storage: ${getErrorMessage(error as any)}`
       );
       return false;
     }

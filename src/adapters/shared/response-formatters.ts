@@ -39,7 +39,7 @@ export interface ResponseFormatter<T = any> {
  * @returns JSON formatted string
  */
 export function formatAsJson(data: any): string {
-  return JSON.stringify(data, null, 2);
+  return JSON.stringify(data as any, null, 2);
 }
 
 /**
@@ -55,15 +55,15 @@ export abstract class BaseResponseFormatter<T = any> implements ResponseFormatte
    */
   format(data: T, context: CommandExecutionContext): string | object {
     // Determine the output format
-    const format = context.format?.toLowerCase() as OutputFormat;
+    const format = (context.format as any).toLowerCase() as OutputFormat;
 
     // Format the response based on the requested format
     if (format === OutputFormat.JSON) {
-      return this.formatJson(data, context);
+      return this.formatJson(data as any, context as any);
     }
 
     // Default to text format
-    return this.formatText(data, context);
+    return this.formatText(data as any, context as any);
   }
 
   /**
@@ -130,8 +130,8 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
     let output = `${chalk.red("✗")} Error: ${(error as any).message}`;
 
     // Add stack trace in debug mode
-    if (context.debug && error.stack) {
-      output += `\n\n${error.stack}`;
+    if ((context as any).debug && (error as any).stack) {
+      output += `\n\n${(error as any).stack}`;
     }
 
     return output;
@@ -147,12 +147,12 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
   formatJson(error: Error, context: CommandExecutionContext): object {
     const result = {
       success: false,
-      error: error.message as any,
+      error: (error as any).message as any,
     } as any;
 
     // Add stack trace in debug mode
-    if (context.debug && error.stack) {
-      result.stack = error.stack as any;
+    if ((context as any).debug && (error as any).stack) {
+      (result as any).stack = (error as any).stack as any;
     }
 
     return result;
@@ -177,25 +177,25 @@ export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
    * @returns Formatted list
    */
   formatText(items: T[]): string {
-    if (items.length === 0) {
+    if ((items as any).length === 0) {
       return "No items found.";
     }
 
     let output = "";
 
     // Add title if provided
-    if (this.title) {
+    if ((this as any).title) {
       output += `${chalk.bold(this._title)}\n\n`;
     }
 
     // Format each item
     if (this.itemFormatter) {
-      items.forEach((item, index) => {
-        output += `${index + 1}. ${this.itemFormatter!(item)}\n`;
+      (items as any).forEach((item, index) => {
+        output += `${index + 1}. ${this.itemFormatter!(item as any)}\n`;
       });
     } else {
-      items.forEach((item, index) => {
-        output += `${index + 1}. ${String(item)}\n`;
+      (items as any).forEach((item, index) => {
+        output += `${index + 1}. ${String(item as any)}\n`;
       });
     }
 
@@ -211,7 +211,7 @@ export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
   formatJson(items: T[]): object {
     return {
       items,
-      count: items.length,
+      count: (items as any).length,
     };
   }
 }
@@ -235,14 +235,14 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
    * @returns Formatted table
    */
   formatText(rows: T[]): string {
-    if (rows.length === 0) {
+    if ((rows as any).length === 0) {
       return "No data found.";
     }
 
     let output = "";
 
     // Add title if provided
-    if (this.title) {
+    if ((this as any).title) {
       output += `${chalk.bold(this._title)}\n\n`;
     }
 
@@ -251,14 +251,14 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
 
     // Initialize with header lengths
     this.columns.forEach((col) => {
-      columnWidths[col] = String(this.headers[col] || col).length;
+      columnWidths[col] = (String(this.headers[col] || col) as any).length;
     });
 
     // Update with maximum data lengths
     rows.forEach((row) => {
       this.columns.forEach((col) => {
         const value = String(row[col] || "");
-        columnWidths[col] = Math.max(columnWidths[col], value.length);
+        columnWidths[col] = Math.max((columnWidths as any)[col], (value as any).length);
       });
     });
 
@@ -266,7 +266,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
     const headerRow = this.columns
       .map((col) => {
         const header = String(this.headers[col] || col);
-        return header.padEnd(columnWidths[col]);
+        return (header as any).padEnd((columnWidths as any)[col]);
       })
       .join(" | ");
 
@@ -275,7 +275,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
     // Create separator row
     const separatorRow = this.columns
       .map((col) => {
-        return "-".repeat(columnWidths[col]);
+        return "-".repeat((columnWidths as any)[col]);
       })
       .join("-|-");
 
@@ -286,7 +286,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
       const dataRow = this.columns
         .map((col) => {
           const value = String(row[col] || "");
-          return value.padEnd(columnWidths[col]);
+          return (value as any).padEnd((columnWidths as any)[col]);
         })
         .join(" | ") as any;
 
@@ -305,7 +305,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
   formatJson(rows: T[]): object {
     return {
       rows,
-      count: rows.length,
+      count: (rows as any).length,
     };
   }
 }

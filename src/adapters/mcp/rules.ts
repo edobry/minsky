@@ -35,7 +35,7 @@ async function readContentFromFileIfExists(contentPath: string): Promise<string>
       if (stats.isFile()) {
         // If it's a file, read its contents
         const content = await fs.readFile(contentPath, "utf-8");
-        return content.toString();
+        return (content as any).toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
         throw new Error(`Failed to read content from file ${contentPath}: Not a file`);
@@ -58,7 +58,7 @@ async function readContentFromFileIfExists(contentPath: string): Promise<string>
  * Parse glob patterns from a string, handling both comma-separated values and JSON arrays
  */
 function parseGlobs(globsStr?: string): string[] | undefined {
-  if (!globsStr || globsStr.trim() === "") {
+  if (!globsStr || (globsStr as any).trim() === "") {
     return undefined as any;
   }
 
@@ -73,7 +73,7 @@ function parseGlobs(globsStr?: string): string[] | undefined {
   }
 
   // Handle as comma-separated string
-  return globsStr.split(",").map((glob) => glob.trim());
+  return (globsStr as any).split(",").map((glob) => (glob as any).trim());
 }
 
 // Type guard for string
@@ -86,7 +86,7 @@ function isString(value: any): value is string {
  */
 export function registerRulesTools(commandMapper: CommandMapper): void {
   // List rules command
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "rules.list",
     description: "List all rules in the workspace",
     parameters: z.object({
@@ -105,14 +105,14 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       const debug = args.debug === true;
 
       // Call domain function
-      const rules = await ruleService.listRules({
+      const rules = await (ruleService as any).listRules({
         format,
         tag,
         debug,
       });
 
       // Transform the rules to exclude content
-      const transformedRules = rules.map(({ content, ...rest }) => rest);
+      const transformedRules = (rules as any).map(({ content, ...rest }) => rest);
 
       // Return formatted result as a record
       return { rules: transformedRules };
@@ -120,7 +120,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   });
 
   // Get rule command
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "rules.get",
     description: "Get a specific rule by ID",
     parameters: z.object({
@@ -143,7 +143,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       const debug = args.debug === true;
 
       // Call domain function
-      const rule = await ruleService.getRule(args._id, {
+      const rule = await (ruleService as any).getRule(args._id, {
         format,
         debug,
       });
@@ -154,7 +154,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   });
 
   // Create rule command
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "rules.create",
     description: "Create a new rule",
     parameters: z.object({
@@ -181,8 +181,8 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Get content from file if it exists, otherwise use as-is
-      const content = isString(args.content)
-        ? await readContentFromFileIfExists(args.content)
+      const content = isString((args as any).content)
+        ? await readContentFromFileIfExists((args as any).content)
         : "# New Rule Content\n\nAdd your rule content here.";
 
       // Parse globs (handling both string and array types)
@@ -194,19 +194,19 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Parse tags
-      const tags = isString(args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined as any;
+      const tags = isString(args.tags) ? (args.tags as any).split(",").map((tag) => (tag as any).trim()) : undefined as any;
 
       // Convert formats with type safety
       const format = isString(args.format) ? (args.format as RuleFormat) : undefined as any;
       const overwrite = args.overwrite === true;
 
       // Call domain function with correct signature
-      const rule = await ruleService.createRule(
+      const rule = await (ruleService as any).createRule(
         args._id,
         content,
         {
-          description: isString(args.description) ? args.description : undefined as any,
-          name: isString(args.name) ? args.name : undefined as any,
+          description: isString((args as any).description) ? (args as any).description : undefined as any,
+          name: isString((args as any).name) ? (args as any).name : undefined as any,
           globs,
           tags,
         },
@@ -225,7 +225,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   });
 
   // Update rule command
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "rules.update",
     description: "Update an existing rule",
     parameters: z.object({
@@ -252,8 +252,8 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
 
       // Process content if provided
       let content: string | undefined;
-      if (isString(args.content)) {
-        content = await readContentFromFileIfExists(args.content);
+      if (isString((args as any).content)) {
+        content = await readContentFromFileIfExists((args as any).content);
       }
 
       // Parse globs (handling both string and array types)
@@ -265,7 +265,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Parse tags
-      const tags = isString(args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined as any;
+      const tags = isString(args.tags) ? (args.tags as any).split(",").map((tag) => (tag as any).trim()) : undefined as any;
 
       // Convert format with type safety
       const format = isString(args.format) ? (args.format as RuleFormat) : undefined as any;
@@ -274,15 +274,15 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       const updateOptions: UpdateRuleOptions = {
         content,
         meta: {
-          description: isString(args.description) ? args.description : undefined as any,
-          name: isString(args.name) ? args.name : undefined as any,
+          description: isString((args as any).description) ? (args as any).description : undefined as any,
+          name: isString((args as any).name) ? (args as any).name : undefined as any,
           globs,
           tags,
         },
       };
 
       // Call domain function with correct signature
-      const rule = await ruleService.updateRule(args._id, updateOptions, {
+      const rule = await (ruleService as any).updateRule(args._id, updateOptions, {
         format,
       });
 
@@ -295,7 +295,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   });
 
   // Search rules command
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "rules.search",
     description: "Search for rules by _content",
     parameters: z.object({
@@ -328,7 +328,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
         tag,
       };
 
-      const rules = await ruleService.searchRules(searchOptions);
+      const rules = await (ruleService as any).searchRules(searchOptions);
 
       // Return search results as a record
       return { rules };

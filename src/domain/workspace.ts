@@ -38,11 +38,11 @@ export interface TestDependencies {
  */
 export function resolveMainWorkspaceFromRepoUrl(repoUrl: string): string {
   // For file:// URLs, just remove the file:// prefix
-  if (repoUrl.startsWith("file://")) {
-    return repoUrl.replace("file://", "");
+  if ((repoUrl as any).startsWith("file://")) {
+    return (repoUrl as any).replace("file://", "");
   }
   // For other URLs, assume they refer to the current directory
-  return process.cwd();
+  return (process as any).cwd();
 }
 
 /**
@@ -51,9 +51,9 @@ export function resolveMainWorkspaceFromRepoUrl(repoUrl: string): string {
  * @returns true if inside a session workspace
  */
 export function isSessionWorkspace(workspacePath: string): boolean {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+  const xdgStateHome = (process.env as any).XDG_STATE_HOME || join(homedir(), ".local", "state");
   const minskySessionsPath = join(xdgStateHome, "minsky", "sessions");
-  return workspacePath.startsWith(minskySessionsPath);
+  return (workspacePath as any).startsWith(minskySessionsPath);
 }
 
 /**
@@ -75,10 +75,10 @@ export async function getSessionFromWorkspace(
   try {
     // Get the git root of the workspace
     const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: workspacePath });
-    const gitRoot = stdout.trim();
+    const gitRoot = (stdout as any).trim();
 
     // Check if this is in the minsky sessions directory structure
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join(homedir(), ".local", "state");
     const minskySessionsPath = join(xdgStateHome, "minsky", "sessions");
 
     if (!gitRoot.startsWith(minskySessionsPath)) {
@@ -87,8 +87,8 @@ export async function getSessionFromWorkspace(
     }
 
     // Extract session name from the simplified path structure: /sessions/{sessionId}/
-    const relativePath = gitRoot.substring(minskySessionsPath.length + 1);
-    const sessionName = relativePath.split("/")[0]; // First part is the session ID
+    const relativePath = gitRoot.substring((minskySessionsPath as any).length + 1);
+    const sessionName = (relativePath as any).split("/")[0]; // First part is the session ID
 
     if (!sessionName) {
       return null as any;
@@ -97,13 +97,13 @@ export async function getSessionFromWorkspace(
     const db = sessionDbOverride || createSessionProvider();
     const sessionRecord = await db.getSession(sessionName);
 
-    if (!sessionRecord || !sessionRecord.repoUrl) {
+    if (!sessionRecord || !(sessionRecord as any).repoUrl) {
       return null as any;
     }
 
     return {
       session: sessionName,
-      upstreamRepository: sessionRecord.repoUrl,
+      upstreamRepository: (sessionRecord as any).repoUrl,
       gitRoot,
     };
   } catch (error) {
@@ -124,7 +124,7 @@ export const isSessionRepository = async (
     const { stdout } = await (execAsyncFn || execAsync)("git rev-parse --show-toplevel", {
       cwd: workspacePath,
     });
-    const gitRoot = stdout.trim();
+    const gitRoot = (stdout as any).trim();
     return isSessionWorkspace(gitRoot);
   } catch {
     return false;
@@ -139,30 +139,30 @@ export const isSessionRepository = async (
  * @returns Promise resolving to the main workspace path
  */
 export async function resolveMainWorkspacePath(deps: TestDependencies = {}): Promise<string> {
-  const currentDir = process.cwd();
+  const currentDir = (process as any).cwd();
   const { execAsync: execAsyncDep = execAsync } = deps;
 
   try {
     // Get the git root of the current directory
     const { stdout } = await execAsyncDep("git rev-parse --show-toplevel", { cwd: currentDir });
-    const gitRoot = stdout.trim();
+    const gitRoot = (stdout as any).trim();
 
     // Check if this is in the minsky sessions directory structure
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join(homedir(), ".local", "state");
     const minskySessionsPath = join(xdgStateHome, "minsky", "sessions");
 
     if (gitRoot.startsWith(minskySessionsPath)) {
       // We're in a session workspace, extract session name and get the main workspace path
-      const relativePath = gitRoot.substring(minskySessionsPath.length + 1);
-      const sessionName = relativePath.split("/")[0]; // First part is the session ID
+      const relativePath = gitRoot.substring((minskySessionsPath as any).length + 1);
+      const sessionName = (relativePath as any).split("/")[0]; // First part is the session ID
 
       if (sessionName) {
         // Use the session database to get the repository URL
         try {
           const sessionProvider = createSessionProvider();
-          const sessionRecord = await sessionProvider.getSession(sessionName);
-          if (sessionRecord && sessionRecord.repoUrl) {
-            return sessionRecord.repoUrl;
+          const sessionRecord = await (sessionProvider as any).getSession(sessionName);
+          if (sessionRecord && (sessionRecord as any).repoUrl) {
+            return (sessionRecord as any).repoUrl;
           }
         } catch (sessionError) {
           // If session DB lookup fails, fall back to current directory
@@ -194,35 +194,35 @@ export async function resolveWorkspacePath(
   const { access = fs.access } = deps;
 
   // For task operations, always use the main workspace.
-  if (options?.forTaskOperations) {
-    const sessionInfo = await getSessionFromWorkspace(process.cwd());
-    if (sessionInfo && sessionInfo.upstreamRepository) {
-      return resolveMainWorkspaceFromRepoUrl(sessionInfo.upstreamRepository);
+  if ((options as any).forTaskOperations) {
+    const sessionInfo = await getSessionFromWorkspace((process as any).cwd());
+    if (sessionInfo && (sessionInfo as any).upstreamRepository) {
+      return resolveMainWorkspaceFromRepoUrl((sessionInfo as any).upstreamRepository);
     }
     // If not in a session, or session has no upstream, fall through to normal logic.
   }
 
   // If workspace path is explicitly provided, use it
-  if (options?.workspace) {
+  if ((options as any).workspace) {
     // Validate if it's a valid workspace
     try {
-      const processDir = join(options.workspace, "process");
+      const processDir = join((options as any).workspace, "process");
       await access(processDir);
-      return options.workspace;
+      return (options as any).workspace;
     } catch (error) {
       throw new Error(
-        `Invalid workspace path: ${options.workspace}. Path must be a valid Minsky workspace.`
+        `Invalid workspace path: ${(options as any).workspace}. Path must be a valid Minsky workspace.`
       );
     }
   }
 
   // For backward compatibility, use sessionRepo if provided
-  if (options?.sessionRepo) {
-    return options.sessionRepo;
+  if ((options as any).sessionRepo) {
+    return (options as any).sessionRepo;
   }
 
   // Use current directory or provided session workspace as workspace
-  const checkPath = options?.sessionWorkspace || process.cwd();
+  const checkPath = (options as any).sessionWorkspace || (process as any).cwd();
 
   // Note: We're no longer redirecting to the upstream repository path when in a session
   // This allows rules commands to operate on the current directory's rules
@@ -234,12 +234,12 @@ export async function resolveWorkspacePath(
  * Uses getSessionFromWorkspace to extract the session context from the current working directory.
  */
 export async function getCurrentSession(
-  cwd: string = process.cwd(),
+  cwd: string = (process as any).cwd(),
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<string | null> {
   const sessionInfo = await getSessionFromWorkspace(cwd, execAsyncFn, sessionDbOverride);
-  return sessionInfo ? sessionInfo.session : null as any;
+  return sessionInfo ? (sessionInfo as any).session : null as any;
 }
 
 /**
@@ -248,7 +248,7 @@ export async function getCurrentSession(
  * and then queries the SessionDB for the taskId.
  */
 export async function getCurrentSessionContext(
-  cwd: string = process.cwd(),
+  cwd: string = (process as any).cwd(),
   // Added getCurrentSessionFn dependency for better testability
   dependencies: {
     execAsyncFn?: typeof execAsync;
@@ -270,7 +270,7 @@ export async function getCurrentSessionContext(
 
     // Query the SessionDB to get task information
     const sessionDb = sessionDbOverride || new SessionDB();
-    const sessionRecord = await sessionDb.getSession(sessionId);
+    const sessionRecord = await (sessionDb as any).getSession(sessionId);
 
     if (!sessionRecord) {
       return null as any;
@@ -278,13 +278,13 @@ export async function getCurrentSessionContext(
 
     return {
       sessionId,
-      taskId: sessionRecord.taskId,
+      taskId: (sessionRecord as any).taskId,
     };
   } catch (error) {
     log.error("Error fetching session record", {
       sessionName: currentSessionName,
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack as any : undefined as any,
+      error: getErrorMessage(error as any),
+      stack: error instanceof Error ? (error as any).stack as any : undefined as any,
       cwd,
     });
     return null as any;
@@ -360,11 +360,11 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
     isSessionWorkspace,
     getCurrentSession: async (repoPath: string): Promise<string | null> => {
       const sessionInfo = await getSessionFromRepo(repoPath);
-      return sessionInfo ? sessionInfo.session : null as any;
+      return sessionInfo ? (sessionInfo as any).session : null as any;
     },
     getSessionFromWorkspace: async (workspacePath: string): Promise<string | null> => {
       const sessionInfo = await getSessionFromWorkspace(workspacePath);
-      return sessionInfo ? sessionInfo.session : null as any;
+      return sessionInfo ? (sessionInfo as any).session : null as any;
     },
     resolveWorkspacePath: resolveWorkspacePath,
   };
@@ -372,7 +372,7 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
 
 export async function getWorkspaceGitRoot(workspacePath: string): Promise<string> {
   const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd: workspacePath });
-  return stdout.trim();
+  return (stdout as any).trim();
 }
 
 export async function getWorkspaceSession(workspacePath: string): Promise<WorkspaceSession | null> {
@@ -387,7 +387,7 @@ export async function getWorkspaceSession(workspacePath: string): Promise<Worksp
     return {
       gitRoot,
       workspacePath,
-      session: sessionInfo.session,
+      session: (sessionInfo as any).session,
       sessionDbPath: "", // Placeholder for session DB path
       sessionData: {}, // Placeholder for session data
     };

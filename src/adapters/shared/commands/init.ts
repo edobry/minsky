@@ -23,7 +23,7 @@ const initParams: CommandParameterMap = {
     required: false,
   },
   backend: {
-    schema: z.enum(["markdown", "json-file", "github-issues"]).optional(),
+    schema: z.enum(["markdown", "json-file", "github-issues"] as any[]).optional(),
     description: "Task backend type (markdown, json-file, github-issues)",
     required: false,
   },
@@ -43,7 +43,7 @@ const initParams: CommandParameterMap = {
     required: false,
   },
   mcp: {
-    schema: z.union([z.string(), z.boolean()]).optional(),
+    schema: (z.union([z.string(), z.boolean()]) as any).optional(),
     description: "Enable/disable MCP configuration (default: true)",
     required: false,
   },
@@ -63,12 +63,12 @@ const initParams: CommandParameterMap = {
     required: false,
   },
   mcpOnly: {
-    schema: z.boolean().optional(),
+    schema: (z.boolean() as any).optional(),
     description: "Only configure MCP, skip other initialization steps",
     required: false,
   },
   overwrite: {
-    schema: z.boolean().optional(),
+    schema: (z.boolean() as any).optional(),
     description: "Overwrite existing files",
     required: false,
   },
@@ -80,20 +80,20 @@ const initParams: CommandParameterMap = {
 };
 
 export function registerInitCommands() {
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "init",
-    category: CommandCategory.INIT,
+    category: (CommandCategory as any).INIT,
     name: "init",
     description: "Initialize a project for Minsky",
     parameters: initParams,
     execute: async (params, _ctx: CommandExecutionContext) => {
       try {
         // Map CLI params to domain params
-        const repoPath = params.repo || params.workspacePath || process.cwd();
-        const backend = params.backend === "tasks.csv" ? "tasks.csv" : "tasks.md";
-        const ruleFormat = params.ruleFormat === "generic" ? "generic" : "cursor";
-        const mcpOnly = params.mcpOnly ?? false;
-        const overwrite = params.overwrite ?? false;
+        const repoPath = (params as any).repo || (params as any).workspacePath || (process as any).cwd();
+        const backend = (params as any).backend === "tasks.csv" ? "tasks.csv" : "tasks.md";
+        const ruleFormat = (params as any).ruleFormat === "generic" ? "generic" : "cursor";
+        const mcpOnly = (params as any).mcpOnly ?? false;
+        const overwrite = (params as any).overwrite ?? false;
         // Map MCP options
         let mcp:
           | {
@@ -103,12 +103,12 @@ export function registerInitCommands() {
               host?: string;
             }
           | undefined = undefined;
-        if (params.mcp !== undefined || params.mcpTransport || params.mcpPort || params.mcpHost) {
+        if ((params as any).mcp !== undefined || (params as any).mcpTransport || (params as any).mcpPort || (params as any).mcpHost) {
           mcp = {
-            enabled: params.mcp === undefined ? true : params.mcp === true || params.mcp === "true",
-            transport: params.mcpTransport || "stdio",
-            port: params.mcpPort ? Number(params.mcpPort) : undefined as any,
-            host: params.mcpHost,
+            enabled: (params as any).mcp === undefined ? true : (params as any).mcp === true || (params as any).mcp === "true",
+            transport: (params as any).mcpTransport || "stdio",
+            port: (params as any).mcpPort ? Number((params as any).mcpPort) : undefined as any,
+            host: (params as any).mcpHost,
           };
         }
         await initializeProjectFromParams({
@@ -124,7 +124,7 @@ export function registerInitCommands() {
         log.error("Error initializing project", { error });
         throw error instanceof ValidationError
           ? error
-          : new ValidationError(getErrorMessage(error));
+          : new ValidationError(getErrorMessage(error as any));
       }
     },
   });

@@ -52,64 +52,64 @@ export class SharedErrorHandler {
    * @returns A structured error object with consistent properties
    */
   static formatError(error: any, debug: boolean = false): Record<string, any> {
-    const normalizedError = ensureError(error);
+    const normalizedError = ensureError(error as any);
     let errorType = "UNKNOWN_ERROR";
     const result: Record<string, any> = {
-      message: normalizedError.message,
+      message: (normalizedError as any).message,
     };
 
     // Add error-specific information
     if (error instanceof ValidationError) {
       errorType = "VALIDATION_ERROR";
-      if (error.errors) {
-        result.validationErrors = error.errors as any;
+      if ((error as any).errors) {
+        (result as any).validationErrors = (error as any).errors as any;
       }
     } else if (error instanceof ResourceNotFoundError) {
       errorType = "NOT_FOUND_ERROR";
-      if (error.resourceType) {
-        result.resourceType = error.resourceType as any;
+      if ((error as any).resourceType) {
+        (result as any).resourceType = (error as any).resourceType as any;
       }
-      if (error.resourceId) {
-        result.resourceId = error.resourceId as any;
+      if ((error as any).resourceId) {
+        (result as any).resourceId = (error as any).resourceId as any;
       }
     } else if (error instanceof ServiceUnavailableError) {
       errorType = "SERVICE_UNAVAILABLE_ERROR";
-      if (error.serviceName) {
-        result.serviceName = error.serviceName as any;
+      if ((error as any).serviceName) {
+        (result as any).serviceName = (error as any).serviceName as any;
       }
     } else if (error instanceof FileSystemError) {
       errorType = "FILE_SYSTEM_ERROR";
-      if (error.path) {
-        result.path = error.path as any;
+      if ((error as any).path) {
+        (result as any).path = (error as any).path as any;
       }
     } else if (error instanceof ConfigurationError) {
       errorType = "CONFIGURATION_ERROR";
-      if (error.configKey) {
-        result.configKey = error.configKey as any;
+      if ((error as any).configKey) {
+        (result as any).configKey = (error as any).configKey as any;
       }
     } else if (error instanceof GitOperationError) {
       errorType = "GIT_OPERATION_ERROR";
-      if (error.command) {
-        result.command = error.command as any;
+      if ((error as any).command) {
+        (result as any).command = (error as any).command as any;
       }
     } else if (error instanceof MinskyError) {
       errorType = "MINSKY_ERROR";
     }
 
     // Add error type to the result
-    result.errorType = errorType;
+    (result as any).errorType = errorType;
 
     // Add debug information if requested
     if (debug) {
-      if (normalizedError.stack) {
-        result.stack = normalizedError.stack;
+      if ((normalizedError as any).stack) {
+        (result as any).stack = (normalizedError as any).stack;
       }
 
       // Add cause chain if available
-      if (normalizedError instanceof MinskyError && normalizedError.cause) {
-        const cause = normalizedError.cause;
-        result.cause =
-          cause instanceof Error ? { message: cause.message, stack: cause.stack } : String(cause);
+      if (normalizedError instanceof MinskyError && (normalizedError as any).cause) {
+        const cause = (normalizedError as any).cause;
+        (result as any).cause =
+          cause instanceof Error ? { message: (cause as any).message, stack: (cause as any).stack } : String(cause);
       }
     }
 
@@ -148,9 +148,9 @@ export class SharedErrorHandler {
    */
   static isDebugMode(): boolean {
     return (
-      process.env.DEBUG === "true" ||
-      process.env.DEBUG === "1" ||
-      (typeof process.env.NODE_DEBUG === "string" && process.env.NODE_DEBUG.includes("minsky"))
+      (process.env as any).DEBUG === "true" ||
+      (process.env as any).DEBUG === "1" ||
+      (typeof (process.env as any).NODE_DEBUG === "string" && (process.env.NODE_DEBUG as any).includes("minsky"))
     );
   }
 
@@ -162,11 +162,11 @@ export class SharedErrorHandler {
    * @returns Never returns, process exits
    */
   static handleError(error: any, options: ErrorHandlingOptions = {}): never {
-    const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
-    const normalizedError = ensureError(error);
+    const { debug = (SharedErrorHandler as any).isDebugMode(), exitCode = 1 } = options;
+    const normalizedError = ensureError(error as any);
 
     // Format error for structured logging
-    const formattedError = SharedErrorHandler.formatError(error, debug);
+    const formattedError = (SharedErrorHandler as any).formatError(error as any, debug);
 
     // Log to appropriate channels based on mode
     if (isStructuredMode()) {
@@ -189,46 +189,46 @@ export class CliErrorHandler implements ErrorHandler {
    * @param options Error handling options
    */
   handleError(error: any, options: ErrorHandlingOptions = {}): never {
-    const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
-    const normalizedError = ensureError(error);
+    const { debug = (SharedErrorHandler as any).isDebugMode(), exitCode = 1 } = options;
+    const normalizedError = ensureError(error as any);
 
     // Get type-specific error prefix
-    const prefix = SharedErrorHandler.getErrorPrefix(error);
+    const prefix = (SharedErrorHandler as any).getErrorPrefix(error as any);
 
     // Output human-readable error message
-    log.cliError(`${prefix}: ${normalizedError.message}`);
+    log.cliError(`${prefix}: ${(normalizedError as any).message}`);
 
     // Add type-specific details
-    if (error instanceof ValidationError && error.errors && debug) {
+    if (error instanceof ValidationError && (error as any).errors && debug) {
       log.cliError("\nValidation details:");
-      log.cliError(JSON.stringify(error.errors, null, 2));
+      log.cliError(JSON.stringify((error as any).errors, null, 2));
     } else if (error instanceof ResourceNotFoundError) {
-      if (error.resourceType && error.resourceId) {
-        log.cliError(`Resource: ${error.resourceType}, ID: ${error.resourceId}`);
+      if ((error as any).resourceType && (error as any).resourceId) {
+        log.cliError(`Resource: ${(error as any).resourceType}, ID: ${(error as any).resourceId}`);
       }
-    } else if (error instanceof ServiceUnavailableError && error.serviceName) {
-      log.cliError(`Service: ${error.serviceName}`);
-    } else if (error instanceof FileSystemError && error.path) {
-      log.cliError(`Path: ${error.path}`);
-    } else if (error instanceof ConfigurationError && error.configKey) {
-      log.cliError(`Key: ${error.configKey}`);
-    } else if (error instanceof GitOperationError && error.command) {
-      log.cliError(`Command: ${error.command}`);
+    } else if (error instanceof ServiceUnavailableError && (error as any).serviceName) {
+      log.cliError(`Service: ${(error as any).serviceName}`);
+    } else if (error instanceof FileSystemError && (error as any).path) {
+      log.cliError(`Path: ${(error as any).path}`);
+    } else if (error instanceof ConfigurationError && (error as any).configKey) {
+      log.cliError(`Key: ${(error as any).configKey}`);
+    } else if (error instanceof GitOperationError && (error as any).command) {
+      log.cliError(`Command: ${(error as any).command}`);
     }
 
     // Add debug information if in debug mode
     if (debug) {
       log.cliError("\nDebug information:");
-      if (normalizedError.stack) {
-        log.cliError(normalizedError.stack);
+      if ((normalizedError as any).stack) {
+        log.cliError((normalizedError as any).stack);
       }
 
       // Log cause chain if available
-      if (normalizedError instanceof MinskyError && normalizedError.cause) {
+      if (normalizedError instanceof MinskyError && (normalizedError as any).cause) {
         log.cliError("\nCaused by:");
-        const cause = normalizedError.cause;
+        const cause = (normalizedError as any).cause;
         if (cause instanceof Error) {
-          log.cliError(cause.stack || cause.message);
+          log.cliError((cause as any).stack || (cause as any).message);
         } else {
           log.cliError(String(cause));
         }
@@ -238,7 +238,7 @@ export class CliErrorHandler implements ErrorHandler {
     // Use structured logging in structured mode
     if (isStructuredMode()) {
       // Format error for structured logging
-      const formattedError = SharedErrorHandler.formatError(error, debug);
+      const formattedError = (SharedErrorHandler as any).formatError(error as any, debug);
       log.error("CLI operation failed", formattedError);
     }
 
@@ -258,10 +258,10 @@ export class McpErrorHandler implements ErrorHandler {
    * @param options Error handling options
    */
   handleError(error: any, options: ErrorHandlingOptions = {}): never {
-    const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
+    const { debug = (SharedErrorHandler as any).isDebugMode(), exitCode = 1 } = options;
 
     // Format error for MCP response
-    const formattedError = SharedErrorHandler.formatError(error, debug);
+    const formattedError = (SharedErrorHandler as any).formatError(error as any, debug);
 
     // Log error in structured format
     log.error("MCP operation failed", formattedError);
@@ -285,7 +285,7 @@ export const mcpErrorHandler = new McpErrorHandler();
  * @returns The appropriate error handler
  */
 export function getErrorHandler(interfaceName: string): ErrorHandler {
-  switch (interfaceName.toLowerCase()) {
+  switch ((interfaceName as any).toLowerCase()) {
   case "cli":
     return cliErrorHandler;
   case "mcp":

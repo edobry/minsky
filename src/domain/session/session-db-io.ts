@@ -23,9 +23,9 @@ export interface SessionDbFileOptions {
  * Read sessions from the database file
  */
 export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDbState {
-  const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-  const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
-  const baseDir = options.baseDir || join(xdgStateHome, "minsky");
+  const xdgStateHome = (process.env as any).XDGSTATE_HOME || join((process.env as any).HOME || "", ".local/state");
+  const dbPath = (options as any).dbPath || join(xdgStateHome, "minsky", "session-db.json");
+  const baseDir = (options as any).baseDir || join(xdgStateHome, "minsky");
 
   try {
     if (!existsSync(dbPath)) {
@@ -33,14 +33,14 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
     }
 
     const data = readFileSync(dbPath, "utf8") as string;
-    const sessions = JSON.parse(data);
+    const sessions = JSON.parse(data as any);
 
     return {
       sessions,
       baseDir,
     };
   } catch (error) {
-    log.error(`Error reading session database: ${getErrorMessage(error)}`);
+    log.error(`Error reading session database: ${getErrorMessage(error as any)}`);
     return initializeSessionDbState({ baseDir });
   }
 }
@@ -52,8 +52,8 @@ export function writeSessionDbFile(
   state: SessionDbState,
   options: SessionDbFileOptions = {}
 ): boolean {
-  const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-  const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
+  const xdgStateHome = (process.env as any).XDGSTATE_HOME || join((process.env as any).HOME || "", ".local/state");
+  const dbPath = (options as any).dbPath || join(xdgStateHome, "minsky", "session-db.json");
 
   try {
     // Ensure directory exists
@@ -62,10 +62,10 @@ export function writeSessionDbFile(
       mkdirSync(dbDir, { recursive: true });
     }
 
-    writeFileSync(dbPath, JSON.stringify(state.sessions, null, 2));
+    writeFileSync(dbPath, JSON.stringify((state as any).sessions, null, 2));
     return true;
   } catch (error) {
-    log.error(`Error writing session database: ${getErrorMessage(error)}`);
+    log.error(`Error writing session database: ${getErrorMessage(error as any)}`);
     return false;
   }
 }
@@ -81,7 +81,7 @@ export function ensureDbDir(dbPath: string): boolean {
     }
     return true;
   } catch (error) {
-    log.error(`Error creating database directory: ${getErrorMessage(error)}`);
+    log.error(`Error creating database directory: ${getErrorMessage(error as any)}`);
     return false;
   }
 }

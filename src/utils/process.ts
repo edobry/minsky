@@ -16,7 +16,7 @@ export function exit(code: number): never {
 
 // Store the original process.cwd() function to allow resetting
 let currentWorkingDirectoryImpl = () => {
-  return process.cwd();
+  return (process as any).cwd();
 };
 
 /**

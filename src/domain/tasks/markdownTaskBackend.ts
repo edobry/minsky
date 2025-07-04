@@ -49,7 +49,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   private readonly tasksDirectory: string;
 
   constructor(config: TaskBackendConfig) {
-    this.workspacePath = config.workspacePath;
+    this.workspacePath = (config as any).workspacePath;
     this.tasksFilePath = getTasksFilePath(this.workspacePath);
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
   }
@@ -61,7 +61,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
     return readTaskSpecFile(fullPath);
   }
 
@@ -75,8 +75,8 @@ export class MarkdownTaskBackend implements TaskBackend {
     for (const task of tasks) {
       if (!task.specPath) {
         // Use a default spec path pattern
-        const id = task.id.startsWith("#") ? task.id.slice(1) : task.id;
-        const normalizedTitle = task.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        const id = (task as any).id.startsWith("#") ? (task as any).id.slice(1) : (task as any).id;
+        const normalizedTitle = (task.title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
         task.specPath = join("process", "tasks", `${id}-${normalizedTitle}.md`);
       }
     }
@@ -107,8 +107,8 @@ export class MarkdownTaskBackend implements TaskBackend {
     const markdownContent = formatTaskSpecToMarkdown(spec);
 
     // Then add any metadata as frontmatter
-    if (spec.metadata && Object.keys(spec.metadata).length > 0) {
-      return matter.stringify(markdownContent, spec.metadata);
+    if ((spec as any).metadata && (Object.keys(spec.metadata) as any).length > 0) {
+      return (matter as any).stringify(markdownContent, (spec as any).metadata);
     }
 
     return markdownContent;
@@ -121,7 +121,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
-    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
     return writeTaskSpecFile(fullPath, content);
   }
 
@@ -129,13 +129,13 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       // Get all tasks first
       const tasksResult = await this.getTasksData();
-      if (!tasksResult.success || !tasksResult.content) {
+      if (!(tasksResult as any).success || !(tasksResult as any).content) {
         return false;
       }
 
       // Parse tasks and find the one to delete
-      const tasks = this.parseTasks(tasksResult.content);
-      const taskToDelete = tasks.find(task => task.id === id || task.id === `#${id}` || task.id.slice(1) === id);
+      const tasks = this.parseTasks((tasksResult as any).content);
+      const taskToDelete = tasks.find(task => (task as any).id === id || (task as any).id === `#${id}` || (task as any).id.slice(1) === id);
       
       if (!taskToDelete) {
         log.debug(`Task ${id} not found for deletion`);
@@ -143,25 +143,25 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
 
       // Remove the task from the array
-      const updatedTasks = tasks.filter(task => task.id !== taskToDelete.id);
+      const updatedTasks = tasks.filter(task => (task as any).id !== (taskToDelete as any).id);
 
       // Save the updated tasks
       const updatedContent = this.formatTasks(updatedTasks);
       const saveResult = await this.saveTasksData(updatedContent);
       
-      if (!saveResult.success) {
+      if (!(saveResult as any).success) {
         log.error(`Failed to save tasks after deleting ${id}:`, {
-          error: saveResult.error?.message
+          error: (saveResult.error as any).message
         });
         return false;
       }
 
       // Try to delete the spec file if it exists
-      if (taskToDelete.specPath) {
+      if ((taskToDelete as any).specPath) {
         try {
-          const fullSpecPath = taskToDelete.specPath.startsWith("/") 
-            ? taskToDelete.specPath 
-            : join(this.workspacePath, taskToDelete.specPath);
+          const fullSpecPath = (taskToDelete.specPath as any).startsWith("/") 
+            ? (taskToDelete as any).specPath 
+            : join(this.workspacePath, (taskToDelete as any).specPath);
           
           if (await this.fileExists(fullSpecPath)) {
             const { unlink } = await import("fs/promises");
@@ -170,14 +170,14 @@ export class MarkdownTaskBackend implements TaskBackend {
           }
         } catch (error) {
           // Log but don't fail the operation if spec file deletion fails
-          log.debug(`Could not delete spec file for task ${id}: ${getErrorMessage(error)}`);
+          log.debug(`Could not delete spec file for task ${id}: ${getErrorMessage(error as any)}`);
         }
       }
 
       return true;
     } catch (error) {
       log.error(`Failed to delete task ${id}:`, {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
       return false;
     }
@@ -207,10 +207,10 @@ export class MarkdownTaskBackend implements TaskBackend {
   async findTaskSpecFiles(taskId: string): Promise<string[]> {
     try {
       const files = await readdir(this.tasksDirectory);
-      return files.filter((file) => file.startsWith(`${taskId}-`));
+      return (files as any).filter((file) => (file as any).startsWith(`${taskId}-`));
     } catch (error) {
       log.error(`Failed to find task spec file for task #${taskId}`, {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
       return [];
     }
@@ -231,5 +231,5 @@ export class MarkdownTaskBackend implements TaskBackend {
  * @returns MarkdownTaskBackend instance
  */
 export function createMarkdownTaskBackend(config: TaskBackendConfig): TaskBackend {
-  return new MarkdownTaskBackend(config);
+  return new MarkdownTaskBackend(config as any);
 }

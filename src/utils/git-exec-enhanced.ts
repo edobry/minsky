@@ -49,7 +49,7 @@ export async function execGitWithTimeout(
     context = []
   } = options;
 
-  const startTime = Date.now();
+  const startTime = (Date as any).now();
   const fullCommand = workdir ? `git -C ${workdir} ${command}` : `git ${command}`;
 
   try {
@@ -58,7 +58,7 @@ export async function execGitWithTimeout(
       ...(workdir && { cwd: workdir })
     });
 
-    const executionTimeMs = Date.now() - startTime;
+    const executionTimeMs = (Date as any).now() - startTime;
 
     return {
       stdout,
@@ -68,10 +68,10 @@ export async function execGitWithTimeout(
       executionTimeMs
     };
   } catch (error: any) {
-    const executionTimeMs = Date.now() - startTime;
+    const executionTimeMs = (Date as any).now() - startTime;
 
     // Handle timeout errors with enhanced error messages
-    if (error.killed && error.signal === "SIGTERM") {
+    if ((error as any).killed && (error as any).signal === "SIGTERM") {
       const errorMessage = createGitTimeoutErrorMessage(
         operation,
         timeout,
@@ -86,9 +86,9 @@ export async function execGitWithTimeout(
     }
 
     // Handle merge conflicts with enhanced error messages
-    if (error.stdout?.includes("CONFLICT") || error.stderr?.includes("CONFLICT")) {
-      const conflictFiles = extractConflictFiles(error.stdout, error.stderr);
-      const conflictTypes = analyzeConflictTypes(error.stdout, error.stderr, conflictFiles);
+    if ((error.stdout as any).includes("CONFLICT") || (error.stderr as any).includes("CONFLICT")) {
+      const conflictFiles = extractConflictFiles((error as any).stdout, (error as any).stderr);
+      const conflictTypes = analyzeConflictTypes((error as any).stdout, (error as any).stderr, conflictFiles);
       
       const errorMessage = createMergeConflictErrorMessage(
         operation,
@@ -105,9 +105,9 @@ export async function execGitWithTimeout(
     }
 
     // Re-throw other errors with additional context
-    const errorMessage = error.message || "Unknown git command error";
+    const errorMessage = (error as any).message || "Unknown git command error";
     const enhancedError = new MinskyError(
-      `Git ${operation} failed: ${errorMessage}\n\nCommand: ${fullCommand}\nWorking directory: ${workdir || process.cwd()}\nExecution time: ${executionTimeMs}ms`
+      `Git ${operation} failed: ${errorMessage}\n\nCommand: ${fullCommand}\nWorking directory: ${workdir || (process as any).cwd()}\nExecution time: ${executionTimeMs}ms`
     );
     
     throw enhancedError;
@@ -119,14 +119,14 @@ export async function execGitWithTimeout(
  */
 function extractConflictFiles(stdout: string, stderr: string): string[] {
   const output = `${stdout}\n${stderr}`;
-  const conflictLines = output.split("\n").filter(line => 
-    line.includes("CONFLICT") && line.includes(" in ")
+  const conflictLines = ((output as any).split("\n") as any).filter(line => 
+    (line as any).includes("CONFLICT") && (line as any).includes(" in ")
   );
   
-  const files = conflictLines.map(line => {
+  const files = ((conflictLines as any).map(line => {
     const match = line.match(/CONFLICT.*in (.+?)(?:\s|$)/);
     return match ? match[1] : null;
-  }).filter(Boolean) as string[];
+  }) as any).filter(Boolean) as string[];
 
   // Remove duplicates
   return [...new Set(files)];
@@ -143,12 +143,12 @@ function analyzeConflictTypes(
   const output = `${stdout}\n${stderr}`;
   const types: { [file: string]: "modify/modify" | "add/add" | "delete/modify" | "other" } = {};
 
-  conflictFiles.forEach(file => {
-    if (output.includes(`CONFLICT (content): Merge conflict in ${file}`)) {
+  (conflictFiles as any).forEach(file => {
+    if ((output as any).includes(`CONFLICT (content): Merge conflict in ${file}`)) {
       types[file] = "modify/modify";
-    } else if (output.includes(`CONFLICT (add/add): Merge conflict in ${file}`)) {
+    } else if ((output as any).includes(`CONFLICT (add/add): Merge conflict in ${file}`)) {
       types[file] = "add/add";
-    } else if (output.includes(`CONFLICT (modify/delete): ${file}`)) {
+    } else if ((output as any).includes(`CONFLICT (modify/delete): ${file}`)) {
       types[file] = "delete/modify";
     } else {
       types[file] = "other";
@@ -173,7 +173,7 @@ export async function gitCloneWithTimeout(
     {
       ...options,
       context: [
-        ...options.context || [],
+        ...(options as any).context || [],
         { label: "Repository URL", value: repoUrl },
         { label: "Target directory", value: targetDir }
       ]
@@ -193,7 +193,7 @@ export async function gitFetchWithTimeout(
     {
       ...options,
       context: [
-        ...options.context || [],
+        ...(options as any).context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -213,7 +213,7 @@ export async function gitPushWithTimeout(
     {
       ...options,
       context: [
-        ...options.context || [],
+        ...(options as any).context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -233,7 +233,7 @@ export async function gitPullWithTimeout(
     {
       ...options,
       context: [
-        ...options.context || [],
+        ...(options as any).context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -251,7 +251,7 @@ export async function gitMergeWithTimeout(
     {
       ...options,
       context: [
-        ...options.context || [],
+        ...(options as any).context || [],
         { label: "Branch to merge", value: branch }
       ]
     }

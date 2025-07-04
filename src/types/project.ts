@@ -32,7 +32,7 @@ export interface ProjectContext {
 export function validateRepositoryPath(repositoryPath: string): boolean {
   try {
     // Check if the path exists and is a directory
-    return fs.existsSync(repositoryPath) && fs.statSync(repositoryPath).isDirectory();
+    return fs.existsSync(repositoryPath) && (fs.statSync(repositoryPath) as any).isDirectory();
   } catch (error) {
     return false;
   }
@@ -66,5 +66,5 @@ export function createProjectContext(repositoryPath: string): ProjectContext {
  * @throws Error if the current directory is invalid as a repository path
  */
 export function createProjectContextFromCwd(): ProjectContext {
-  return createProjectContext(process.cwd());
+  return createProjectContext((process as any).cwd());
 }

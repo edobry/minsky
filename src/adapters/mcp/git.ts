@@ -30,11 +30,11 @@ import {
  */
 export function registerGitTools(commandMapper: CommandMapper): void {
   // Git clone command
-  commandMapper.addGitCommand(
+  (commandMapper as any).addGitCommand(
     "clone",
     "Clone a repository",
     z.object({
-      url: z.string().url().describe("URL of the Git repository to clone"),
+      url: (z.string() as any).url().describe("URL of the Git repository to clone"),
       session: z.string().optional().describe(SESSION_DESCRIPTION),
       destination: z.string().optional().describe("Target directory for the clone"),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
@@ -44,18 +44,18 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         ...args,
       };
 
-      const result = await cloneFromParams(params);
+      const result = await cloneFromParams(params as any);
 
       return {
         success: true,
-        workdir: result.workdir,
-        session: result.session,
+        workdir: (result as any).workdir,
+        session: (result as any).session,
       } as any;
     }
   );
 
   // Git branch command
-  commandMapper.addGitCommand(
+  (commandMapper as any).addGitCommand(
     "branch",
     "Create a branch in a repository",
     z.object({
@@ -67,25 +67,25 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         ...args,
       };
 
-      const result = await branchFromParams(params);
+      const result = await branchFromParams(params as any);
 
       return {
         success: true,
-        workdir: result.workdir,
-        branch: result.branch,
+        workdir: (result as any).workdir,
+        branch: (result as any).branch,
       } as any;
     }
   );
 
   // Git push command
-  commandMapper.addGitCommand(
+  (commandMapper as any).addGitCommand(
     "push",
     "Push changes to a remote repository",
     z.object({
       session: z.string().optional().describe(SESSION_DESCRIPTION),
       repo: z.string().optional().describe(REPO_DESCRIPTION),
       remote: z.string().optional().describe(GIT_REMOTE_DESCRIPTION),
-      force: z.boolean().optional().describe(GIT_FORCE_DESCRIPTION),
+      force: (z.boolean().optional() as any).describe(GIT_FORCE_DESCRIPTION),
     }),
     async (args) => {
       const params = {
@@ -93,18 +93,18 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         debug: true, // Enable debugging for MCP commands
       };
 
-      const result = await pushFromParams(params);
+      const result = await pushFromParams(params as any);
 
       return {
         success: true,
-        workdir: result.workdir,
-        pushed: result.pushed,
+        workdir: (result as any).workdir,
+        pushed: (result as any).pushed,
       } as any;
     }
   );
 
   // Git PR command
-  commandMapper.addGitCommand(
+  (commandMapper as any).addGitCommand(
     "pr",
     "Create a pull request",
     z.object({
@@ -112,8 +112,8 @@ export function registerGitTools(commandMapper: CommandMapper): void {
       repo: z.string().optional().describe(REPO_DESCRIPTION),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
-      debug: z.boolean().optional().describe(DEBUG_DESCRIPTION),
-      noStatusUpdate: z.boolean().optional().describe(NO_STATUS_UPDATE_DESCRIPTION),
+      debug: (z.boolean().optional() as any).describe(DEBUG_DESCRIPTION),
+      noStatusUpdate: (z.boolean().optional() as any).describe(NO_STATUS_UPDATE_DESCRIPTION),
     }),
     async (args) => {
       const params = {
@@ -122,34 +122,34 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         json: true, // Always use JSON format for MCP
       };
 
-      const result = await createPullRequestFromParams(params);
+      const result = await createPullRequestFromParams(params as any);
 
       return {
         success: true,
-        markdown: result.markdown,
-        statusUpdateResult: result.statusUpdateResult,
+        markdown: (result as any).markdown,
+        statusUpdateResult: (result as any).statusUpdateResult,
       } as any;
     }
   );
 
   // Git commit command
-  commandMapper.addGitCommand(
+  (commandMapper as any).addGitCommand(
     "commit",
     "Commit changes",
     z.object({
       message: z.string().describe("Commit message"),
       session: z.string().optional().describe(SESSION_DESCRIPTION),
       repo: z.string().optional().describe(REPO_DESCRIPTION),
-      amend: z.boolean().optional().describe("Amend the previous commit"),
-      all: z.boolean().optional().describe("Stage all changes"),
-      noStage: z.boolean().optional().describe("Skip staging changes"),
+      amend: (z.boolean().optional() as any).describe("Amend the previous commit"),
+      all: (z.boolean().optional() as any).describe("Stage all changes"),
+      noStage: (z.boolean().optional() as any).describe("Skip staging changes"),
     }),
     async (args) => {
       const params = {
         ...args,
       };
 
-      const commitSha = await commitChangesFromParams(params);
+      const commitSha = await commitChangesFromParams(params as any);
 
       return {
         success: true,

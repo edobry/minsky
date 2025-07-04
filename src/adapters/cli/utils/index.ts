@@ -47,36 +47,36 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
   }
 
   try {
-    if (options.json) {
+    if ((options as any).json) {
       // JSON output
-      log.cli(JSON.stringify(result, null, 2));
-    } else if (options.formatter) {
+      log.cli(JSON.stringify(result as any, null, 2));
+    } else if ((options as any).formatter) {
       // Custom formatter
-      options.formatter(result);
+      (options as any).formatter(result as any);
     } else {
       // Default output based on result type
       if (typeof result === "string") {
-        log.cli(result);
+        log.cli(result as any);
       } else if (typeof result === "object" && result !== null) {
-        if (Array.isArray(result)) {
-          result.forEach((item) => {
+        if (Array.isArray(result as any)) {
+          (result as any).forEach((item) => {
             if (typeof item === "string") {
-              log.cli(item);
+              log.cli(item as any);
             } else {
-              log.cli(JSON.stringify(item, null, 2));
+              log.cli(JSON.stringify(item as any, null, 2));
             }
           });
         } else {
-          log.cli(JSON.stringify(result, null, 2));
+          log.cli(JSON.stringify(result as any, null, 2));
         }
       } else {
-        log.cli(String(result));
+        log.cli(String(result as any));
       }
     }
   } catch (error) {
     log.cliError("Failed to format output");
-    log.cliError(String(error));
-    log.cli(String(result));
+    log.cliError(String(error as any));
+    log.cli(String(result as any));
   }
 }
 
@@ -84,14 +84,14 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
  * Handle CLI errors
  */
 export function handleCliError(error: any, options: { debug?: boolean } = {}): void {
-  const err = ensureError(error);
+  const err = ensureError(error as any);
 
-  if (options.debug) {
+  if ((options as any).debug) {
     // Detailed error in debug mode
     log.cliError("Command execution failed");
-    log.cliError(String(err));
-    if (err.stack) {
-      log.cliError(err.stack);
+    log.cliError(String(err as any));
+    if ((err as any).stack) {
+      log.cliError((err as any).stack);
     }
   } else {
     // Simple error in regular mode
@@ -99,14 +99,11 @@ export function handleCliError(error: any, options: { debug?: boolean } = {}): v
   }
 
   // Set appropriate exit code based on error type
-  if (err.name === "ValidationError") {
-    // @ts-expect-error - Bun supports process.exitCode at runtime, types incomplete
-    process.exitCode = 2;
-  } else if (err.name === "NotFoundError") {
-    // @ts-expect-error - Bun supports process.exitCode at runtime, types incomplete
-    process.exitCode = 4;
+  if ((err as any).name === "ValidationError") {
+    (process as any).exitCode = 2;
+  } else if ((err as any).name === "NotFoundError") {
+    (process as any).exitCode = 4;
   } else {
-    // @ts-expect-error - Bun supports process.exitCode at runtime, types incomplete
-    process.exitCode = 1;
+    (process as any).exitCode = 1;
   }
 }
