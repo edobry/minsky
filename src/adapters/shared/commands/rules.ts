@@ -425,37 +425,37 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Process content if provided (could be file path)
-        const content = params.content
-          ? await readContentFromFileIfExists(params.content)
+        const content = typedParams.content
+          ? await readContentFromFileIfExists(typedParams.content)
           : undefined;
 
         // Process globs and tags
-        const globs = params.globs ? parseGlobs(params.globs) : undefined;
-        const tags = params.tags
-          ? params.tags.split(",").map((tag: unknown) => tag.trim())
+        const globs = typedParams.globs ? parseGlobs(typedParams.globs) : undefined;
+        const tags = typedParams.tags
+          ? typedParams.tags.split(",").map((tag: unknown) => tag.trim())
           : undefined;
 
         // Prepare metadata updates
         const meta: Record<string, unknown> = {};
 
-        if (params.name !== undefined) meta.name = params.name;
-        if (params.description !== undefined) meta.description = params.description;
+        if (typedParams.name !== undefined) meta.name = typedParams.name;
+        if (typedParams.description !== undefined) meta.description = typedParams.description;
         if (globs !== undefined) meta.globs = globs;
         if (tags !== undefined) meta.tags = tags;
 
         // Convert format
-        const format = params.format as RuleFormat | undefined;
+        const format = typedParams.format as RuleFormat | undefined;
 
         // Call domain function
         const rule = await ruleService.updateRule(
-          params.id,
+          typedParams.id,
           {
             content,
             meta: Object.keys(meta).length > 0 ? meta : undefined,
           },
           {
             format,
-            debug: params.debug,
+            debug: typedParams.debug,
           }
         );
 
@@ -466,7 +466,7 @@ export function registerRulesCommands(): void {
       } catch (error) {
         log.error("Failed to update rule", {
           error: getErrorMessage(error),
-          id: params.id,
+          id: typedParams.id,
         });
         throw error;
       }
