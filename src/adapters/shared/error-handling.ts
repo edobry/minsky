@@ -54,7 +54,7 @@ export class SharedErrorHandler {
   static formatError(error: unknown, debug: boolean = false): Record<string, unknown> {
     const normalizedError = ensureError(error);
     let errorType = "UNKNOWN_ERROR";
-    const result = {
+    const result: Record<string, unknown> = {
       message: normalizedError.message,
     };
 
@@ -89,7 +89,7 @@ export class SharedErrorHandler {
       }
     } else if (error instanceof GitOperationError) {
       errorType = "GIT_OPERATION_ERROR";
-      if (error._command) {
+      if (error.command) {
         result.command = error.command;
       }
     } else if (error instanceof MinskyError) {
@@ -200,7 +200,8 @@ export class CliErrorHandler implements ErrorHandler {
 
     // Add type-specific details
     if (error instanceof ValidationError && error.errors && debug) {
-      log.cliError("\nValidation details:", error.errors);
+      log.cliError("\nValidation details:");
+      log.cliError(JSON.stringify(error.errors, null, 2));
     } else if (error instanceof ResourceNotFoundError) {
       if (error.resourceType && error.resourceId) {
         log.cliError(`Resource: ${error.resourceType}, ID: ${error.resourceId}`);
@@ -211,8 +212,8 @@ export class CliErrorHandler implements ErrorHandler {
       log.cliError(`Path: ${error.path}`);
     } else if (error instanceof ConfigurationError && error.configKey) {
       log.cliError(`Key: ${error.configKey}`);
-    } else if (error instanceof GitOperationError && error._command) {
-      log.cliError(`Command: ${error._command}`);
+    } else if (error instanceof GitOperationError && error.command) {
+      log.cliError(`Command: ${error.command}`);
     }
 
     // Add debug information if in debug mode
