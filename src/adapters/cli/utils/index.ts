@@ -74,7 +74,8 @@ export function outputResult(result: unknown, options: OutputOptions = {}): void
       }
     }
   } catch (error) {
-    log.cliError("Failed to format output:", error);
+    log.cliError("Failed to format output");
+    log.cliError(String(error));
     log.cli(String(result));
   }
 }
@@ -87,7 +88,8 @@ export function handleCliError(error: unknown, options: { debug?: boolean } = {}
 
   if (options.debug) {
     // Detailed error in debug mode
-    log.cliError("Command execution failed:", err);
+    log.cliError("Command execution failed");
+    log.cliError(String(err));
     if (err.stack) {
       log.cliError(err.stack);
     }
@@ -97,11 +99,12 @@ export function handleCliError(error: unknown, options: { debug?: boolean } = {}
   }
 
   // Set appropriate exit code based on error type
+  // Note: TypeScript types for Bun's process object are incomplete, but these properties exist at runtime
   if (err.name === "ValidationError") {
-    process.exitCode = 2;
+    (process as any).exitCode = 2;
   } else if (err.name === "NotFoundError") {
-    process.exitCode = 4;
+    (process as any).exitCode = 4;
   } else {
-    process.exitCode = 1;
+    (process as any).exitCode = 1;
   }
 }

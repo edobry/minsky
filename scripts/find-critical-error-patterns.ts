@@ -156,7 +156,7 @@ function main() {
     console.log(
       "\n🎯 FOCUS ON CRITICAL ISSUES FIRST - these are most likely causing the runtime error"
     );
-    process.exit(1);
+    (process as any).exit(1);
   }
 }
 
