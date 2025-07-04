@@ -40,7 +40,7 @@ describe("Enhanced Test Utilities", () => {
   describe("mockFunction", () => {
     test("should create a type-safe mock function", () => {
       // Define a function type
-      type GreetFn = (_name: unknown) => string;
+      type GreetFn = (name: unknown) => string;
 
       // Create a typed mock with implementation
       const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
@@ -144,9 +144,9 @@ describe("Enhanced Test Utilities", () => {
       });
 
       // Test the overridden method
-      return deps.sessionDB.getSession("any").then((_session) => {
-        expect(_session).toBeDefined();
-        expect(_session?.session).toBe("custom-session");
+      return deps.sessionDB.getSession("any").then((session) => {
+        expect(session).toBeDefined();
+        expect(session?.session).toBe("custom-session");
       });
     });
   });

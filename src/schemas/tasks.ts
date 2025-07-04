@@ -120,7 +120,7 @@ export const taskCreateParamsSchema = z
   .refine(
     (data) => {
       // Either description or descriptionPath must be provided
-      return data.description || data.descriptionPath;
+      return data.description || data.descriptionPath as any;
     },
     {
       message: "Either --description or --description-path must be provided",

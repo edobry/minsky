@@ -99,7 +99,7 @@ Code block with task-like content:
     });
 
     test("should format tasks to markdown with one-liner format only", () => {
-      const _tasks: TaskData[] = [
+      const tasks: TaskData[] = [
         {
           id: "#001",
           title: "First task",
@@ -113,7 +113,7 @@ Code block with task-like content:
         },
       ];
 
-      const markdown = formatTasksToMarkdown(_tasks);
+      const markdown = formatTasksToMarkdown(tasks);
       expect(markdown).toContain("- [ ] First task [#001](#)");
       expect(markdown).toContain("- [x] Completed task [#002](#)");
       // Descriptions should NOT be included in the markdown output
@@ -122,7 +122,7 @@ Code block with task-like content:
     });
 
     test("should use task specPath if available", () => {
-      const _tasks: TaskData[] = [
+      const tasks: TaskData[] = [
         {
           id: "#001",
           title: "Task with spec",
@@ -131,7 +131,7 @@ Code block with task-like content:
         },
       ];
 
-      const markdown = formatTasksToMarkdown(_tasks);
+      const markdown = formatTasksToMarkdown(tasks);
       expect(markdown).toBe("- [ ] Task with spec [#001](path/to/spec.md)");
     });
   });
@@ -178,29 +178,29 @@ Code block with task-like content:
     });
 
     test("should find the maximum ID and increment it", () => {
-      const _tasks: TaskData[] = [
+      const tasks: TaskData[] = [
         { id: "#001", title: "Task 1", status: "TODO" },
         { id: "#005", title: "Task TEST_ARRAY_SIZE", status: "IN-PROGRESS" },
         { id: "#003", title: "Task 3", status: "DONE" },
       ];
 
-      expect(getNextTaskId(_tasks)).toBe("#006");
+      expect(getNextTaskId(tasks)).toBe("#006");
     });
 
     test("should handle non-sequential IDs", () => {
-      const _tasks: TaskData[] = [
+      const tasks: TaskData[] = [
         { id: "#010", title: "Task 10", status: "TODO" },
         { id: "#050", title: "Task 50", status: "IN-PROGRESS" },
         { id: "#030", title: "Task 30", status: "DONE" },
       ];
 
-      expect(getNextTaskId(_tasks)).toBe("#051");
+      expect(getNextTaskId(tasks)).toBe("#051");
     });
 
     test("should pad with zeros", () => {
-      const _tasks: TaskData[] = [{ id: "#9", title: "Task 9", status: "TODO" }];
+      const tasks: TaskData[] = [{ id: "#9", title: "Task 9", status: "TODO" }];
 
-      expect(getNextTaskId(_tasks)).toBe("#010");
+      expect(getNextTaskId(tasks)).toBe("#010");
     });
   });
 
@@ -382,13 +382,13 @@ Description here.
 
   describe("formatTaskSpecToMarkdown", () => {
     test("should format task spec to markdown with ID", () => {
-      const _spec: TaskSpecData = {
+      const spec: TaskSpecData = {
         title: "Test Task",
         description: "This is a test description.",
         id: "#TEST_VALUE",
       };
 
-      const markdown = formatTaskSpecToMarkdown(_spec);
+      const markdown = formatTaskSpecToMarkdown(spec);
       expect(markdown).toContain("# Task #TEST_VALUE: Test Task");
       expect(markdown).toContain("## Context");
       expect(markdown).toContain("This is a test description.");
@@ -397,12 +397,12 @@ Description here.
     });
 
     test("should format task spec without ID", () => {
-      const _spec: TaskSpecData = {
+      const spec: TaskSpecData = {
         title: "Test Task Without ID",
         description: "Description here.",
       };
 
-      const markdown = formatTaskSpecToMarkdown(_spec);
+      const markdown = formatTaskSpecToMarkdown(spec);
       expect(markdown).toContain("# Task: Test Task Without ID");
       expect(markdown).toContain("Description here.");
     });

@@ -15,7 +15,7 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "debug.listMethods",
     description: "List all registered MCP methods for debugging",
-    _parameters: z.object({}).strict(),
+    parameters: z.object({}).strict(),
     execute: async () => {
       // Get the list of all registered method names from the CommandMapper
       const methodNames = commandMapper.getRegisteredMethodNames();
@@ -65,13 +65,18 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "debug.systemInfo",
     description: "Get system information about the MCP server",
-    _parameters: z.object({}).strict(),
+    parameters: z.object({}).strict(),
     execute: async () => {
       // Get basic system info for diagnostics
+      // @ts-expect-error - Bun supports process.version at runtime, types incomplete
       const nodejsVersion = process.version;
+      // @ts-expect-error - Bun supports process.platform at runtime, types incomplete
       const platform = process.platform;
+      // @ts-expect-error - Bun supports process.arch at runtime, types incomplete
       const arch = process.arch;
+      // @ts-expect-error - Bun supports process.uptime at runtime, types incomplete
       const uptime = process.uptime();
+      // @ts-expect-error - Bun supports process.memoryUsage at runtime, types incomplete
       const memory = process.memoryUsage();
 
       // Return formatted system information
@@ -106,5 +111,5 @@ function formatBytes(bytes: number): string {
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
-  return `${parseFloat((bytes / Math.pow(_k, i)).toFixed(2))} ${sizes[i]}`;
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }

@@ -35,13 +35,13 @@ function fixCatchBlocks(content: string): { content: string; fixes: number } {
   let fixes = 0;
 
   // Pattern 1: catch (_error) { ... error.message ... }
-  content = content.replace(/catch \(_error\) {([^}]*[^_])error([^_])/g, (match, middle, after) => {
+  content = (content).toString().replace(/catch \(_error\) {([^}]*[^_])error([^_])/g, (match, middle, after) => {
     fixes++;
     return `catch (error) {${middle}error${after}`;
   });
 
   // Pattern 2: } catch (_error) \\n ... error instanceof ...
-  const lines = content.split("\\n");
+  const lines = (content).toString().split("\\n");
   const newLines = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -73,7 +73,7 @@ function fixCatchBlocks(content: string): { content: string; fixes: number } {
 
 function fixFunctionParameters(content: string): { content: string; fixes: number } {
   let fixes = 0;
-  const lines = content.split("\\n");
+  const lines = (content).toString().split("\\n");
   const newLines = [];
 
   for (let i = 0; i < lines.length; i++) {

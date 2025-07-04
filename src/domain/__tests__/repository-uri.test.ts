@@ -131,24 +131,24 @@ describe("Repository URI Utilities", () => {
 
   describe("convertRepositoryURI", () => {
     test("converts from GitHub shorthand to HTTPS URL", () => {
-      const _result = convertRepositoryURI("org/repo", RepositoryURIType.HTTPS);
-      expect(_result).toBe("https://github.com/org/repo");
+      const result = convertRepositoryURI("org/repo", RepositoryURIType.HTTPS);
+      expect(result).toBe("https://github.com/org/repo");
     });
 
     test("converts from GitHub shorthand to SSH URL", () => {
-      const _result = convertRepositoryURI("org/repo", RepositoryURIType.SSH);
-      expect(_result).toBe("git@github.com:org/repo.git");
+      const result = convertRepositoryURI("org/repo", RepositoryURIType.SSH);
+      expect(result).toBe("git@github.com:org/repo.git");
     });
 
     test("converts from HTTPS URL to SSH URL", () => {
-      const _result = convertRepositoryURI("https://github.com/org/repo.git", RepositoryURIType.SSH);
-      expect(_result).toBe("git@github.com:org/repo.git");
+      const result = convertRepositoryURI("https://github.com/org/repo.git", RepositoryURIType.SSH);
+      expect(result).toBe("git@github.com:org/repo.git");
     });
 
     test("returns null for incompatible conversions", () => {
       // Can't convert local path to GitHub shorthand
-      const _result = convertRepositoryURI(testRepoPath, RepositoryURIType.GITHUB_SHORTHAND);
-      expect(_result).toBeNull();
+      const result = convertRepositoryURI(testRepoPath, RepositoryURIType.GITHUB_SHORTHAND);
+      expect(result).toBeNull();
     });
   });
 

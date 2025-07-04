@@ -105,25 +105,25 @@ describe("Rules Domain Methods", () => {
       mockGetRule.mockResolvedValue(mockRules[0]);
 
       // Act
-      const _result = await mockGetRule(ruleId);
+      const result = await mockGetRule(ruleId);
 
       // Assert
       expect(mockGetRule).toHaveBeenCalledWith(ruleId);
-      expect(_result).toEqual(mockRules[0]);
+      expect(result).toEqual(mockRules[0]);
     });
 
     test("gets rule with specific format option", async () => {
       // Arrange
       const ruleId = "test-rule-1";
-      const _options = { format: "cursor" as const };
+      const options = { format: "cursor" as const };
       mockGetRule.mockResolvedValue(mockRules[0]);
 
       // Act
-      const _result = await mockGetRule(ruleId, _options);
+      const result = await mockGetRule(ruleId, options);
 
       // Assert
-      expect(mockGetRule).toHaveBeenCalledWith(ruleId, _options);
-      expect(_result).toEqual(mockRules[0]);
+      expect(mockGetRule).toHaveBeenCalledWith(ruleId, options);
+      expect(result).toEqual(mockRules[0]);
     });
 
     test("throws error when rule not found", async () => {
@@ -177,7 +177,7 @@ describe("Rules Domain Methods", () => {
         globs: ["**/*.ts"],
         alwaysApply: false,
       };
-      const _options = { format: "cursor" as const };
+      const options = { format: "cursor" as const };
 
       mockCreateRule.mockResolvedValue({
         id: ruleId,
@@ -188,10 +188,10 @@ describe("Rules Domain Methods", () => {
       });
 
       // Act
-      const result = await mockCreateRule(ruleId, content, meta, _options);
+      const result = await mockCreateRule(ruleId, content, meta, options);
 
       // Assert
-      expect(mockCreateRule).toHaveBeenCalledWith(ruleId, content, meta, _options);
+      expect(mockCreateRule).toHaveBeenCalledWith(ruleId, content, meta, options);
       expect(result.id).toBe(ruleId);
       expect(result.content).toBe(content);
       expect(result.name).toBe(meta.name);
@@ -203,13 +203,13 @@ describe("Rules Domain Methods", () => {
       const ruleId = "existing-rule";
       const content = "# Existing Rule\n\nThis rule already exists";
       const meta = { name: "Existing Rule" };
-      const _options = { format: "cursor" as const, overwrite: false };
+      const options = { format: "cursor" as const, overwrite: false };
 
       const error = new Error(`Rule '${ruleId}' already exists and overwrite is not enabled`);
       mockCreateRule.mockRejectedValue(error);
 
       // Act & Assert
-      await expect(mockCreateRule(ruleId, content, meta, _options)).rejects.toThrow(
+      await expect(mockCreateRule(ruleId, content, meta, options)).rejects.toThrow(
         `Rule '${ruleId}' already exists and overwrite is not enabled`
       );
     });
@@ -219,7 +219,7 @@ describe("Rules Domain Methods", () => {
       const ruleId = "existing-rule";
       const content = "# Updated Rule\n\nThis rule has been updated";
       const meta = { name: "Updated Rule" };
-      const _options = { format: "cursor" as const, overwrite: true };
+      const options = { format: "cursor" as const, overwrite: true };
 
       mockCreateRule.mockResolvedValue({
         id: ruleId,
@@ -230,10 +230,10 @@ describe("Rules Domain Methods", () => {
       });
 
       // Act
-      const result = await mockCreateRule(ruleId, content, meta, _options);
+      const result = await mockCreateRule(ruleId, content, meta, options);
 
       // Assert
-      expect(mockCreateRule).toHaveBeenCalledWith(ruleId, content, meta, _options);
+      expect(mockCreateRule).toHaveBeenCalledWith(ruleId, content, meta, options);
       expect(result.id).toBe(ruleId);
       expect(result.content).toBe(content);
       expect(result.name).toBe(meta.name);
@@ -245,7 +245,7 @@ describe("Rules Domain Methods", () => {
       // Arrange
       const ruleId = "test-rule-1";
       const updatedContent = "# Updated Rule Content\n\nThis content has been updated";
-      const _options = { content: updatedContent };
+      const options = { content: updatedContent };
       const ruleOptions = { format: "cursor" as const };
 
       const updatedRule = {
@@ -256,10 +256,10 @@ describe("Rules Domain Methods", () => {
       mockUpdateRule.mockResolvedValue(updatedRule);
 
       // Act
-      const result = await mockUpdateRule(ruleId, _options, ruleOptions);
+      const result = await mockUpdateRule(ruleId, options, ruleOptions);
 
       // Assert
-      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, _options, ruleOptions);
+      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, options, ruleOptions);
       expect(result.content).toBe(updatedContent);
       expect(result.id).toBe(ruleId);
     });
@@ -272,7 +272,7 @@ describe("Rules Domain Methods", () => {
         description: "Updated rule description",
         globs: ["**/*.tsx", "**/*.jsx"],
       };
-      const _options = { meta: updatedMeta };
+      const options = { meta: updatedMeta };
 
       const updatedRule = {
         ...mockRules[0],
@@ -282,10 +282,10 @@ describe("Rules Domain Methods", () => {
       mockUpdateRule.mockResolvedValue(updatedRule);
 
       // Act
-      const result = await mockUpdateRule(ruleId, _options);
+      const result = await mockUpdateRule(ruleId, options);
 
       // Assert
-      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, _options);
+      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, options);
       expect(result.name).toBe(updatedMeta.name);
       expect(result.description).toBe(updatedMeta.description);
       expect(result.globs).toEqual(updatedMeta.globs);
@@ -299,7 +299,7 @@ describe("Rules Domain Methods", () => {
         name: "Fully Updated Rule",
         tags: ["updated", "test"],
       };
-      const _options = {
+      const options = {
         content: updatedContent,
         meta: updatedMeta,
       };
@@ -313,10 +313,10 @@ describe("Rules Domain Methods", () => {
       mockUpdateRule.mockResolvedValue(updatedRule);
 
       // Act
-      const result = await mockUpdateRule(ruleId, _options);
+      const result = await mockUpdateRule(ruleId, options);
 
       // Assert
-      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, _options);
+      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, options);
       expect(result.content).toBe(updatedContent);
       expect(result.name).toBe(updatedMeta.name);
       expect(result.tags).toEqual(updatedMeta.tags);
@@ -325,28 +325,28 @@ describe("Rules Domain Methods", () => {
     test("throws error when rule not found", async () => {
       // Arrange
       const ruleId = "non-existent";
-      const _options = { content: "Updated content" };
+      const options = { content: "Updated content" };
 
       const error = new Error(`Rule not found: ${ruleId}`);
       mockUpdateRule.mockRejectedValue(error);
 
       // Act & Assert
-      await expect(mockUpdateRule(ruleId, _options)).rejects.toThrow(`Rule not found: ${ruleId}`);
+      await expect(mockUpdateRule(ruleId, options)).rejects.toThrow(`Rule not found: ${ruleId}`);
     });
 
     test("returns unchanged rule when no options provided", async () => {
       // Arrange
       const ruleId = "test-rule-1";
-      const _options = {}; // Empty options
+      const options = {}; // Empty options
 
       mockUpdateRule.mockResolvedValue(mockRules[0]);
 
       // Act
-      const _result = await mockUpdateRule(ruleId, _options);
+      const result = await mockUpdateRule(ruleId, options);
 
       // Assert
-      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, _options);
-      expect(_result).toEqual(mockRules[0]);
+      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, options);
+      expect(result).toEqual(mockRules[0]);
     });
   });
 });

@@ -33,10 +33,10 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const _result = await isSessionWorkspace(repoPath, execAsyncMock);
+        const result = await isSessionWorkspace(repoPath, execAsyncMock);
 
         // Assert
-        expect(_result).toBe(true);
+        expect(result).toBe(true);
       } finally {
         // Restore the original HOME
         process.env.HOME = originalHome;
@@ -49,10 +49,10 @@ describe("Workspace Domain Methods", () => {
       const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       // Act
-      const _result = await isSessionWorkspace(repoPath, execAsyncMock);
+      const result = await isSessionWorkspace(repoPath, execAsyncMock);
 
       // Assert
-      expect(_result).toBe(false);
+      expect(result).toBe(false);
     });
 
     test("returns false when an error occurs during check", async () => {
@@ -63,10 +63,10 @@ describe("Workspace Domain Methods", () => {
       };
 
       // Act
-      const _result = await isSessionWorkspace(repoPath, execAsyncMock as any);
+      const result = await isSessionWorkspace(repoPath, execAsyncMock as any);
 
       // Assert
-      expect(_result).toBe(false);
+      expect(result).toBe(false);
     });
 
     test("verifies isSessionRepository is an alias for isSessionWorkspace", async () => {
@@ -116,10 +116,10 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const _result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
+        const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
 
         // Assert
-        expect(_result).toEqual({
+        expect(result).toEqual({
           _session: "session-name",
           upstreamRepository: "https://github.com/org/repo.git",
         });
@@ -135,10 +135,10 @@ describe("Workspace Domain Methods", () => {
       const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       // Act
-      const _result = await getSessionFromWorkspace(repoPath, execAsyncMock);
+      const result = await getSessionFromWorkspace(repoPath, execAsyncMock);
 
       // Assert
-      expect(_result).toBeNull();
+      expect(result).toBeNull();
     });
 
     test("returns null when session record is not found", async () => {
@@ -157,10 +157,10 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const _result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
+        const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
 
         // Assert
-        expect(_result).toBeNull();
+        expect(result).toBeNull();
       } finally {
         // Restore original HOME
         process.env.HOME = originalHome;
@@ -225,10 +225,10 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const _result = await getCurrentSession(sessionPath, execAsyncMock, sessionDbMock);
+        const result = await getCurrentSession(sessionPath, execAsyncMock, sessionDbMock);
 
         // Assert
-        expect(_result).toBe("session-name");
+        expect(result).toBe("session-name");
       } finally {
         // Restore original HOME
         process.env.HOME = originalHome;
@@ -241,10 +241,10 @@ describe("Workspace Domain Methods", () => {
       const execAsyncMock = mockGitRootExecAsync(notSessionPath) as any;
 
       // Act
-      const _result = await getCurrentSession(notSessionPath, execAsyncMock);
+      const result = await getCurrentSession(notSessionPath, execAsyncMock);
 
       // Assert
-      expect(_result).toBeNull();
+      expect(result).toBeNull();
     });
 
     test("getCurrentSession returns null when repo path does not exist", async () => {
@@ -344,10 +344,10 @@ describe("Workspace Domain Methods", () => {
       const accessMock = async () => {};
 
       // Act
-      const _result = await resolveWorkspacePath(_options, { access: accessMock });
+      const result = await resolveWorkspacePath(_options, { access: accessMock });
 
       // Assert
-      expect(_result).toBe(_workspacePath);
+      expect(result).toBe(_workspacePath);
     });
 
     test("throws error for invalid workspace path", async () => {
@@ -380,20 +380,20 @@ describe("Workspace Domain Methods", () => {
       const _options = { sessionRepo: sessionRepoPath };
 
       // Act
-      const _result = await resolveWorkspacePath(_options);
+      const result = await resolveWorkspacePath(_options);
 
       // Assert
-      expect(_result).toBe(sessionRepoPath);
+      expect(result).toBe(sessionRepoPath);
     });
 
     test("falls back to current directory when no options provided", async () => {
       // Arrange - no options means using current directory
 
       // Act
-      const _result = await resolveWorkspacePath();
+      const result = await resolveWorkspacePath();
 
       // Assert - should return the current directory
-      expect(_result).toBe(process.cwd());
+      expect(result).toBe(process.cwd());
     });
 
     test("uses provided sessionWorkspace path", async () => {
@@ -402,10 +402,10 @@ describe("Workspace Domain Methods", () => {
       const _options = { sessionWorkspace };
 
       // Act
-      const _result = await resolveWorkspacePath(_options);
+      const result = await resolveWorkspacePath(_options);
 
       // Assert
-      expect(_result).toBe(sessionWorkspace);
+      expect(result).toBe(sessionWorkspace);
     });
 
     test("getSessionFromWorkspace returns session for deeply nested session paths", async () => {

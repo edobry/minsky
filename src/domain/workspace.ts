@@ -83,7 +83,7 @@ export async function getSessionFromWorkspace(
 
     if (!gitRoot.startsWith(minskySessionsPath)) {
       // Not in a session workspace
-      return null;
+      return null as any;
     }
 
     // Extract session name from the simplified path structure: /sessions/{sessionId}/
@@ -91,14 +91,14 @@ export async function getSessionFromWorkspace(
     const sessionName = relativePath.split("/")[0]; // First part is the session ID
 
     if (!sessionName) {
-      return null;
+      return null as any;
     }
 
     const db = sessionDbOverride || createSessionProvider();
     const sessionRecord = await db.getSession(sessionName);
 
     if (!sessionRecord || !sessionRecord.repoUrl) {
-      return null;
+      return null as any;
     }
 
     return {
@@ -108,7 +108,7 @@ export async function getSessionFromWorkspace(
     };
   } catch (error) {
     // If anything fails, assume not in a session
-    return null;
+    return null as any;
   }
 }
 
@@ -209,7 +209,7 @@ export async function resolveWorkspacePath(
       const processDir = join(options.workspace, "process");
       await access(processDir);
       return options.workspace;
-    } catch (_error) {
+    } catch (error) {
       throw new Error(
         `Invalid workspace path: ${options.workspace}. Path must be a valid Minsky workspace.`
       );
@@ -239,7 +239,7 @@ export async function getCurrentSession(
   sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<string | null> {
   const sessionInfo = await getSessionFromWorkspace(cwd, execAsyncFn, sessionDbOverride);
-  return sessionInfo ? sessionInfo.session : null;
+  return sessionInfo ? sessionInfo.session : null as any;
 }
 
 /**
@@ -265,7 +265,7 @@ export async function getCurrentSessionContext(
     // Get the session name from the current working directory
     const sessionId = await getCurrentSessionFn(cwd, execAsyncFn, sessionDbOverride);
     if (!sessionId) {
-      return null;
+      return null as any;
     }
 
     // Query the SessionDB to get task information
@@ -273,7 +273,7 @@ export async function getCurrentSessionContext(
     const sessionRecord = await sessionDb.getSession(sessionId);
 
     if (!sessionRecord) {
-      return null;
+      return null as any;
     }
 
     return {
@@ -284,10 +284,10 @@ export async function getCurrentSessionContext(
     log.error("Error fetching session record", {
       sessionName: currentSessionName,
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: error instanceof Error ? error.stack as any : undefined as any,
       cwd,
     });
-    return null;
+    return null as any;
   }
 }
 
@@ -353,18 +353,18 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
       try {
         await fs.access(join(path, "process"));
         return true;
-      } catch (_error) {
+      } catch (error) {
         return false;
       }
     },
     isSessionWorkspace,
     getCurrentSession: async (repoPath: string): Promise<string | null> => {
       const sessionInfo = await getSessionFromRepo(repoPath);
-      return sessionInfo ? sessionInfo.session : null;
+      return sessionInfo ? sessionInfo.session : null as any;
     },
     getSessionFromWorkspace: async (workspacePath: string): Promise<string | null> => {
       const sessionInfo = await getSessionFromWorkspace(workspacePath);
-      return sessionInfo ? sessionInfo.session : null;
+      return sessionInfo ? sessionInfo.session : null as any;
     },
     resolveWorkspacePath: resolveWorkspacePath,
   };
@@ -381,7 +381,7 @@ export async function getWorkspaceSession(workspacePath: string): Promise<Worksp
     const sessionInfo = await getSessionFromWorkspace(workspacePath);
 
     if (!sessionInfo) {
-      return null;
+      return null as any;
     }
 
     return {
@@ -392,7 +392,7 @@ export async function getWorkspaceSession(workspacePath: string): Promise<Worksp
       sessionData: {}, // Placeholder for session data
     };
   } catch {
-    return null;
+    return null as any;
   }
 }
 

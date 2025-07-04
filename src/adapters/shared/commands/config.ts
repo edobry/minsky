@@ -87,7 +87,7 @@ const configListRegistration = {
         backendConfig: config.get("backendConfig"),
         credentials: config.get("credentials"),
         sessiondb: config.get("sessiondb"),
-        ai: config.has("ai") ? config.get("ai") : undefined,
+        ai: config.has("ai") ? config.get("ai") : undefined as any,
       };
 
       return {
@@ -113,7 +113,7 @@ const configListRegistration = {
       };
     }
   },
-};
+} as any;
 
 /**
  * Config show command definition
@@ -132,7 +132,7 @@ const configShowRegistration = {
         backendConfig: config.get("backendConfig"),
         credentials: config.get("credentials"),
         sessiondb: config.get("sessiondb"),
-        ai: config.has("ai") ? config.get("ai") : undefined,
+        ai: config.has("ai") ? config.get("ai") : undefined as any,
       };
 
       return {
@@ -160,7 +160,7 @@ const configShowRegistration = {
       };
     }
   },
-};
+} as any;
 
 /**
  * Register all config commands

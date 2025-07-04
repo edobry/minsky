@@ -629,7 +629,7 @@ const tasksDeleteRegistration = {
       repo: params.repo,
       workspace: params.workspace,
       session: params.session,
-    });
+    }) as any;
 
     const message = result.success
       ? `Task ${result.taskId} deleted successfully`
@@ -643,7 +643,7 @@ const tasksDeleteRegistration = {
         taskId: result.taskId,
         task: result.task,
         message: message,
-      };
+      } as any;
     } else {
       // Simple message for user-friendly output
       return message;

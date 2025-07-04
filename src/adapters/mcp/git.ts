@@ -50,7 +50,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         success: true,
         workdir: result.workdir,
         session: result.session,
-      };
+      } as any;
     }
   );
 
@@ -73,7 +73,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         success: true,
         workdir: result.workdir,
         branch: result.branch,
-      };
+      } as any;
     }
   );
 
@@ -99,7 +99,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         success: true,
         workdir: result.workdir,
         pushed: result.pushed,
-      };
+      } as any;
     }
   );
 
@@ -128,7 +128,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         success: true,
         markdown: result.markdown,
         statusUpdateResult: result.statusUpdateResult,
-      };
+      } as any;
     }
   );
 

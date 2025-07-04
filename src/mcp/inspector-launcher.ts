@@ -140,8 +140,8 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     // Handle process events
     inspectorProcess.on("error", (error) => {
       log.error("MCP Inspector process error", {
-        error: error.message,
-        stack: error.stack,
+        error: error.message as any,
+        stack: error.stack as any,
       });
     });
 
@@ -163,12 +163,12 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: error instanceof Error ? error.stack as any : undefined as any,
     });
 
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error launching MCP Inspector",
+      error: error instanceof Error ? error.message as any : "Unknown error launching MCP Inspector" as any,
     };
   }
 }

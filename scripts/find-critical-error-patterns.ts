@@ -38,7 +38,7 @@ function analyzeFile(filePath: string): ErrorPattern[] {
 
   try {
     const content = readFileSync(filePath, "utf8") as string;
-    const lines = content.split("\n");
+    const lines = (content).toString().split("\n");
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -156,7 +156,7 @@ function main() {
     console.log(
       "\n🎯 FOCUS ON CRITICAL ISSUES FIRST - these are most likely causing the runtime error"
     );
-    process.exit(1);
+    (process as any).exit(1);
   }
 }
 

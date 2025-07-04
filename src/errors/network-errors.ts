@@ -19,7 +19,7 @@ export class NetworkError extends MinskyError {
     public readonly code?: string,
     public readonly port?: number,
     public readonly host?: string,
-    cause?: unknown
+    cause?: any
   ) {
     super(message, cause);
   }
@@ -29,7 +29,7 @@ export class NetworkError extends MinskyError {
  * Error class specifically for port-in-use (EADDRINUSE) errors
  */
 export class PortInUseError extends NetworkError {
-  constructor(port: number, host: string = "localhost", cause?: unknown) {
+  constructor(port: number, host: string = "localhost", cause?: any) {
     super(`Port ${port} is already in use.`, "EADDRINUSE", port, host, cause);
   }
 
@@ -52,7 +52,7 @@ export class PortInUseError extends NetworkError {
  * Error class for permission-related network errors (EACCES)
  */
 export class NetworkPermissionError extends NetworkError {
-  constructor(port: number, host: string = "localhost", cause?: unknown) {
+  constructor(port: number, host: string = "localhost", cause?: any) {
     super(`Permission denied when trying to use port ${port}.`, "EACCES", port, host, cause);
   }
 
@@ -76,7 +76,7 @@ export class NetworkPermissionError extends NetworkError {
  * @returns A specialized network error
  */
 export function createNetworkError(
-  error: unknown,
+  error: any,
   port: number,
   host: string = "localhost"
 ): NetworkError {
@@ -102,7 +102,7 @@ export function createNetworkError(
  * @param error The error to check
  * @returns Whether the error is a network error
  */
-export function isNetworkError(error: unknown): boolean {
+export function isNetworkError(error: any): boolean {
   if (!(error instanceof Error)) return false;
 
   // Check for typical network error codes
@@ -126,7 +126,7 @@ export function isNetworkError(error: unknown): boolean {
  * @returns A formatted error message
  */
 export function formatNetworkErrorMessage(error: NetworkError, debug: boolean = false): string {
-  let message = `Error: ${error.message}\n`;
+  let message = `Error: ${(error as any).message}\n`;
 
   // Add suggestions if available
   if (error instanceof PortInUseError || error instanceof NetworkPermissionError) {

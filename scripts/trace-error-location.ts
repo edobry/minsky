@@ -6,7 +6,7 @@ import { join } from "path";
 // Add debug logging to all catch blocks to trace the error
 function addDebugLogging(filePath: string): boolean {
   const content = readFileSync(filePath, "utf8") as string;
-  const lines = content.split("\n");
+  const lines = (content).toString().split("\n");
   let modified = false;
 
   for (let i = 0; i < lines.length; i++) {

@@ -146,7 +146,7 @@ export class TaskTitleMigration {
     try {
       // Read the file
       const content = await readFile(filePath, "utf-8");
-      const lines = content.split("\n");
+      const lines = (content).toString().split("\n");
 
       // Find the title line
       const titleLineIndex = lines.findIndex(line => line.startsWith("# "));
@@ -302,7 +302,7 @@ export class TaskTitleMigration {
     for (const filePath of taskFiles) {
       try {
         const content = await readFile(filePath, "utf-8");
-        const lines = content.split("\n");
+        const lines = (content).toString().split("\n");
         const titleLine = lines.find(line => line.startsWith("# "));
 
         if (!titleLine) {
@@ -328,6 +328,7 @@ export class TaskTitleMigration {
 
 // CLI interface if run directly
 if (import.meta.main) {
+// @ts-expect-error Bun supports process.argv at runtime, types incomplete
   const args = process.argv.slice(2);
   const options: MigrationOptions = {
     dryRun: args.includes("--dry-run"),

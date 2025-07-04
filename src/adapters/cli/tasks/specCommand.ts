@@ -4,7 +4,7 @@
 import { Command } from "commander";
 import { log } from "../../../utils/logger.js";
 import { getTaskSpecContentFromParams, normalizeTaskId } from "../../../domain/tasks.js";
-import type { TaskSpecContentParams } from "../../../domain/tasks/taskCommands.js";
+import type { TaskSpecContentParams } from "../../../schemas/tasks.js";
 import { ValidationError } from "../../../errors/index.js";
 import {
   addRepoOptions,
@@ -34,7 +34,7 @@ export function createSpecCommand(): Command {
 
   command.action(
     async (
-      _taskId: string,
+      taskId: string,
       options: {
         section?: string;
         session?: string;
@@ -46,10 +46,10 @@ export function createSpecCommand(): Command {
     ) => {
       try {
         // Normalize the task ID before passing to domain
-        const normalizedTaskId = normalizeTaskId(_taskId);
+        const normalizedTaskId = normalizeTaskId(taskId);
         if (!normalizedTaskId) {
           throw new ValidationError(
-            `Invalid task ID: '${_taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+            `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
           );
         }
 
@@ -59,9 +59,9 @@ export function createSpecCommand(): Command {
         // Convert CLI options to domain parameters
         const params: TaskSpecContentParams = {
           ...normalizedParams,
-          _taskId: normalizedTaskId,
+          taskId: normalizedTaskId,
           section: options.section,
-        };
+        } as any;
 
         // Call the domain function
         const result = await getTaskSpecContentFromParams(params);
@@ -89,7 +89,7 @@ export function createSpecCommand(): Command {
                   ? startIndex + match[0].length + nextSectionMatch.index
                   : data.content.length;
 
-                const sectionContent = data.content.slice(startIndex, endIndex).trim();
+                const sectionContent = (data.content.slice(startIndex, endIndex)).toString().trim();
                 log.cli(`\n${sectionContent}`);
               } else {
                 log.cli(`\nSection "${data.section}" not found in specification.`);

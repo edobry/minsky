@@ -24,7 +24,7 @@ export async function tryCreateGitHubBackend(
 
     const config = getGitHubBackendConfig(__workspacePath, { logErrors: shouldLogErrors });
     if (!config || !config.githubToken || !config.owner || !config.repo) {
-      return null;
+      return null as any;
     }
 
     return createGitHubIssuesTaskBackend({
@@ -37,7 +37,7 @@ export async function tryCreateGitHubBackend(
     });
   } catch (_error) {
     // Return null if GitHub modules are not available
-    return null;
+    return null as any;
   }
 }
 

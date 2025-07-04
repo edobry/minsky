@@ -140,7 +140,7 @@ export class LocalGitBackend implements RepositoryBackend {
         behind = parseInt(counts[0] || "0", 10);
         ahead = parseInt(counts[1] || "0", 10);
       }
-    } catch (_error) {
+    } catch (error) {
       // If no upstream branch is set, this will fail - that's okay
     }
 

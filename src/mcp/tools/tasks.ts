@@ -43,11 +43,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         const output = execSync(command).toString();
 
         // Parse the JSON output
-        return JSON.parse(output);
+        return JSON.parse(output) as any;
       } catch (error) {
         log.error("MCP: Error listing tasks via execSync", {
           originalError: getErrorMessage(error),
-          stack: error instanceof Error ? error.stack : undefined,
+          stack: error instanceof Error ? error.stack as any : undefined as any,
           mcpArgs: args,
         });
         throw new Error(
@@ -71,11 +71,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         const output = execSync(command).toString();
 
         // Parse the JSON output
-        return JSON.parse(output);
+        return JSON.parse(output) as any;
       } catch (error) {
         log.error(`MCP: Error getting task ${args.taskId} via execSync`, {
           originalError: getErrorMessage(error),
-          stack: error instanceof Error ? error.stack : undefined,
+          stack: error instanceof Error ? error.stack as any : undefined as any,
           mcpArgs: args,
         });
         throw new Error(
@@ -106,7 +106,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       } catch (error) {
         log.error(`MCP: Error getting task status for ${args.taskId} via execSync`, {
           originalError: getErrorMessage(error),
-          stack: error instanceof Error ? error.stack : undefined,
+          stack: error instanceof Error ? error.stack as any : undefined as any,
           mcpArgs: args,
         });
         throw new Error(
@@ -141,7 +141,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       } catch (error) {
         log.error(`MCP: Error setting task status for ${args.taskId} via execSync`, {
           originalError: getErrorMessage(error),
-          stack: error instanceof Error ? error.stack : undefined,
+          stack: error instanceof Error ? error.stack as any : undefined as any,
           mcpArgs: args,
         });
         throw new Error(
@@ -165,11 +165,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         const output = execSync(command).toString();
 
         // Parse the JSON output
-        return JSON.parse(output);
+        return JSON.parse(output) as any;
       } catch (error) {
         log.error("MCP: Error creating task via execSync", {
           originalError: getErrorMessage(error),
-          stack: error instanceof Error ? error.stack : undefined,
+          stack: error instanceof Error ? error.stack as any : undefined as any,
           mcpArgs: args,
         });
         throw new Error(

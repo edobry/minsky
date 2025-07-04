@@ -36,7 +36,7 @@ function getAllTsFiles(dir: string): string[] {
 function checkFile(filePath: string): VariableNamingIssue[] {
   const issues: VariableNamingIssue[] = [];
   const content = readFileSync(filePath, "utf8");
-  const lines = content.split("\n");
+  const lines = (content).toString().split("\n");
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];

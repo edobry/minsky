@@ -59,7 +59,7 @@ const programLogFormat = format.combine(
   format.colorize(),
   format.printf((info: any) => {
     // Cast info to a proper type
-    const logInfo = info as { message?: unknown; stack?: string; [key: string]: unknown };
+    const logInfo = info as { message?: any; stack?: string; [key: string]: any };
     // Ensure message is a string
     const message =
       typeof logInfo.message === "string" ? logInfo.message : JSON.stringify(logInfo.message);
@@ -77,7 +77,7 @@ const programLogFormat = format.combine(
         acc[key] = logInfo[key];
         return acc;
       },
-      {} as Record<string, unknown>
+      {} as Record<string, any>
     );
 
     if (Object.keys(metadata).length > 0) {
@@ -127,7 +127,7 @@ programLogger.exceptions.handle(new transports.Console({ format: programLogForma
 programLogger.rejections.handle(new transports.Console({ format: programLogFormat }));
 
 interface LogContext {
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 // Check if we're in structured mode
@@ -138,7 +138,7 @@ export const isHumanMode = () => currentLogMode === LogMode.HUMAN;
 // Convenience wrapper
 export const log = {
   // Agent logs (structured JSON to stdout)
-  agent: (message: unknown) => {
+  agent: (message: any) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
@@ -185,7 +185,7 @@ export const log = {
     context?:
       | LogContext
       | Error
-      | { originalError?: unknown; stack?: string; [key: string]: unknown }
+      | { originalError?: any; stack?: string; [key: string]: any }
   ) => {
     // For errors, in HUMAN mode route to programLogger.error instead of suppressing
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
@@ -228,19 +228,19 @@ export const log = {
     }
   },
   // Program/CLI logs (plain text to stderr)
-  cli: (message: unknown) => programLogger.info(String(message)),
-  cliWarn: (message: unknown) => programLogger.warn(String(message)),
-  cliError: (message: unknown) => programLogger.error(String(message)),
+  cli: (message: any) => programLogger.info(String(message)),
+  cliWarn: (message: any) => programLogger.warn(String(message)),
+  cliError: (message: any) => programLogger.error(String(message)),
   // Add ability to set log level
   setLevel: (level: string) => {
     agentLogger.level = level;
     programLogger.level = level;
   },
   // Add additional CLI-oriented debug log
-  cliDebug: (message: unknown) => programLogger.debug(String(message)),
+  cliDebug: (message: any) => programLogger.debug(String(message)),
   // Add system-level debug logging that always goes to stderr, bypassing the mode limitations
   // Use this for important system debugging that should always be visible when debug level is set
-  systemDebug: (message: unknown) => {
+  systemDebug: (message: any) => {
     // Always log to programLogger (stderr) regardless of mode
     programLogger.debug(String(message));
   },

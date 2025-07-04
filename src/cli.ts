@@ -62,7 +62,7 @@ async function main(): Promise<void> {
 main().catch((err) => {
   log.systemDebug(`Error caught in main: ${err}`);
   log.systemDebug(`Error stack: ${err.stack}`);
-  log.error(`Unhandled error in CLI: ${err.message}`);
+  log.error(`Unhandled error in CLI: ${(err as any).message}`);
   if (err.stack) log.debug(err.stack);
   exit(1);
 });

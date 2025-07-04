@@ -21,7 +21,7 @@ interface CacheEntry<T> {
  */
 export class RepositoryMetadataCache {
   private static instance: RepositoryMetadataCache;
-  private cache: Map<string, CacheEntry<unknown>> = new Map();
+  private cache: Map<string, CacheEntry<any>> = new Map();
 
   /**
    * Default TTL for cache entries in milliseconds (5 minutes).
@@ -119,7 +119,7 @@ export class RepositoryMetadataCache {
 export function generateRepoKey(
   repoPath: string,
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, any>
 ): string {
   let key = `repo:${repoPath}:${operation}`;
 

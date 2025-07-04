@@ -118,7 +118,7 @@ export function setupTestEnvironment(options: {
 
     // Clean up temp directory if created
     if (typeof tempDir === "string" && fs.existsSync(tempDir)) {
-      fs.rmSync(_tempDir, { recursive: true, force: true });
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 

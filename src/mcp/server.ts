@@ -217,7 +217,7 @@ export class MinskyMCPServer {
         // @ts-ignore - Accessing a private property for debugging
         if (this.server._tools) {
           // @ts-ignore
-          methods.push(...Object.keys(this.server._tools));
+          methods.push(...Object.keys(this.server._tools) as any);
         }
         log.debug("MCP Server registered methods", {
           methodCount: methods.length,
@@ -232,7 +232,7 @@ export class MinskyMCPServer {
       // Log error with full details (for structured logging/debugging)
       log.error("Failed to start Minsky MCP Server", {
         error: getErrorMessage(error),
-        stack: error instanceof Error ? error.stack : undefined,
+        stack: error instanceof Error ? error.stack as any : undefined as any,
         transport: this.options.transportType,
       });
 

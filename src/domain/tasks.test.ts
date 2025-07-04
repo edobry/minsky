@@ -66,10 +66,10 @@ describe("MarkdownTaskBackend", () => {
   });
 
   it("filters tasks by status", async () => {
-    const done = await backend.listTasks({ _status: "DONE" });
+    const done = await backend.listTasks({ status: "DONE" });
     expect(done.length).toBe(1);
     expect(done[0]?.id).toBe("#002");
-    const todo = await backend.listTasks({ _status: "TODO" });
+    const todo = await backend.listTasks({ status: "TODO" });
     expect(todo.length).toBe(2);
     expect(todo.map((t) => t.id)).toEqual(["#001", "#003"]);
   });
@@ -281,7 +281,7 @@ mock.module("fs", () => {
       },
     },
     // Add sync versions too for readFileSync used in tests
-    mkdtempSync: (_prefix: unknown) => prefix + Date.now(),
+    mkdtempSync: (prefix: unknown) => prefix + Date.now(),
     mkdirSync: (path: unknown) => {
       mockDirs.add(path.toString());
     },

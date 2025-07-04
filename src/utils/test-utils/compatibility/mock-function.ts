@@ -127,12 +127,12 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
   /**
    * Sets the return value for all calls to the mock function.
    */
-  mockReturnValue(_value: TReturn): CompatMockFunction<TReturn, TArgs>;
+  mockReturnValue(value: TReturn): CompatMockFunction<TReturn, TArgs>;
 
   /**
    * Sets a one-time return value for the next call.
    */
-  mockReturnValueOnce(_value: TReturn): CompatMockFunction<TReturn, TArgs>;
+  mockReturnValueOnce(value: TReturn): CompatMockFunction<TReturn, TArgs>;
 
   /**
    * Sets a promise return value that resolves to the given value.
@@ -147,12 +147,12 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
   /**
    * Sets a promise return value that rejects with the given value.
    */
-  mockRejectedValue(_value: unknown): CompatMockFunction<Promise<never>, TArgs>;
+  mockRejectedValue(value: unknown): CompatMockFunction<Promise<never>, TArgs>;
 
   /**
    * Sets a one-time promise return value that rejects with the given value.
    */
-  mockRejectedValueOnce(_value: unknown): CompatMockFunction<Promise<never>, TArgs>;
+  mockRejectedValueOnce(value: unknown): CompatMockFunction<Promise<never>, TArgs>;
 }
 
 // Global counter for tracking invocation order

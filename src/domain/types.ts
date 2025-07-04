@@ -24,5 +24,5 @@ export enum CommandCategory {
 export interface CommandResult {
   success: boolean;
   message?: string;
-  data?: unknown;
+  data?: any;
 }

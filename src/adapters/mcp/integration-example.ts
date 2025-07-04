@@ -14,7 +14,7 @@ import {
   TASK_ID_DESCRIPTION,
   RULE_FORMAT_DESCRIPTION,
   RULE_TAGS_DESCRIPTION,
-} from "../../../utils/option-descriptions.js";
+} from "../../utils/option-descriptions.js";
 
 // Define local type for CommandSchema since @minsky/core isn't available in this context
 interface CommandSchema<_Params, Result> {
@@ -28,7 +28,7 @@ interface CommandSchema<_Params, Result> {
       required: boolean;
     }
   >;
-  handler: (params: unknown) => Promise<Result>;
+  handler: (params: any) => Promise<Result>;
 }
 
 import { registerGitCommands } from "../shared/commands/git.js";
@@ -41,7 +41,7 @@ import { log } from "../../utils/logger.js";
 // Mock import for demonstration purposes
 // In a real implementation, this would be imported from the MCP adapter bridge
 const mcpBridge = {
-  registerSharedCommands: (categories: unknown) => {
+  registerSharedCommands: (categories: any) => {
     log.debug(`Registering MCP commands for categories: ${categories.join(", ")}`);
     // Implementation would:
     // 1. Get commands from shared registry for the specified categories
@@ -79,7 +79,7 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (params: unknown) => {
+  handler: async (params: any) => {
     log.debug("MCP git.commit called with params:", params);
     return {
       success: true,
@@ -113,7 +113,7 @@ const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (params: unknown) => {
+  handler: async (params: any) => {
     log.debug("MCP tasks.status.get called with params:", params);
     return {
       success: true,
@@ -137,7 +137,7 @@ const sessionListCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (params: unknown) => {
+  handler: async (params: any) => {
     log.debug("MCP session.list called with params:", params);
     return {
       success: true,
@@ -178,7 +178,7 @@ const rulesListCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (params: unknown) => {
+  handler: async (params: any) => {
     log.debug("MCP rules.list called with params:", params);
     return {
       success: true,

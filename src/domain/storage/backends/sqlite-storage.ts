@@ -122,7 +122,7 @@ implements DatabaseStorage<TEntity, TState>
       // and possibly other fields like baseDir
       const state = {
         sessions,
-        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky`,
+        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky` as any,
       } as TState;
 
       return { success: true, data: state };
@@ -174,7 +174,7 @@ implements DatabaseStorage<TEntity, TState>
 
   async getEntity(id: string, options?: DatabaseQueryOptions): Promise<TEntity | null> {
     if (!this.drizzleDb) {
-      return null;
+      return null as any;
     }
 
     try {
@@ -188,7 +188,7 @@ implements DatabaseStorage<TEntity, TState>
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
-      return null;
+      return null as any;
     }
   }
 
@@ -265,14 +265,14 @@ implements DatabaseStorage<TEntity, TState>
 
   async updateEntity(id: string, updates: Partial<TEntity>): Promise<TEntity | null> {
     if (!this.drizzleDb) {
-      return null;
+      return null as any;
     }
 
     try {
       // Get existing entity first
       const existing = await this.getEntity(id);
       if (!existing) {
-        return null;
+        return null as any;
       }
 
       // Prepare update data
@@ -330,7 +330,7 @@ implements DatabaseStorage<TEntity, TState>
         .where(eq(sessionsTable.session, id))
         .limit(1);
 
-      return result.length > 0;
+      return result.length > 0 as any;
     } catch (error) {
       log.error("Failed to check entity existence in SQLite", { error, id });
       return false;

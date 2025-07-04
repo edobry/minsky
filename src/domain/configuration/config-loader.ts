@@ -63,7 +63,7 @@ export class ConfigurationLoader {
 
     // Backend override
     if (process.env[ENV_VARS.BACKEND]) {
-      config.backend = process.env[ENV_VARS.BACKEND];
+      config.backend = process.env[ENV_VARS.BACKEND] as any;
     }
 
     // GitHub token for credentials
@@ -72,7 +72,7 @@ export class ConfigurationLoader {
         credentials: {
           token: process.env[ENV_VARS.GITHUB_TOKEN],
           source: "environment",
-        },
+        } as any,
       };
     }
 
@@ -85,13 +85,13 @@ export class ConfigurationLoader {
       }
     }
     if (process.env[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
-      sessionDbConfig.dbPath = process.env[ENV_VARS.SESSIONDB_SQLITE_PATH];
+      sessionDbConfig.dbPath = process.env[ENV_VARS.SESSIONDB_SQLITE_PATH] as any;
     }
     if (process.env[ENV_VARS.SESSIONDB_POSTGRES_URL]) {
-      sessionDbConfig.connectionString = process.env[ENV_VARS.SESSIONDB_POSTGRES_URL];
+      sessionDbConfig.connectionString = process.env[ENV_VARS.SESSIONDB_POSTGRES_URL] as any;
     }
     if (process.env[ENV_VARS.SESSIONDB_BASE_DIR]) {
-      sessionDbConfig.baseDir = process.env[ENV_VARS.SESSIONDB_BASE_DIR];
+      sessionDbConfig.baseDir = process.env[ENV_VARS.SESSIONDB_BASE_DIR] as any;
     }
 
     if (Object.keys(sessionDbConfig).length > 0) {
@@ -108,7 +108,7 @@ export class ConfigurationLoader {
     const configPath = this.expandTilde(CONFIG_PATHS.GLOBAL_USER);
 
     if (!existsSync(configPath)) {
-      return null;
+      return null as any;
     }
 
     try {
@@ -117,8 +117,8 @@ export class ConfigurationLoader {
       return parseYaml(contentStr) as GlobalUserConfig;
     } catch (error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-      console.error(`Failed to load global user config from ${configPath}:`, error);
-      return null;
+      console.error(`Failed to load global user config from ${configPath}:`, error as any);
+      return null as any;
     }
   }
 
@@ -129,7 +129,7 @@ export class ConfigurationLoader {
     const configPath = join(workingDir, CONFIG_PATHS.REPOSITORY);
 
     if (!existsSync(configPath)) {
-      return null;
+      return null as any;
     }
 
     try {
@@ -138,7 +138,7 @@ export class ConfigurationLoader {
       return parseYaml(contentStr) as RepositoryConfig;
     } catch (error) {
       // Silently fail - configuration loading should be resilient
-      return null;
+      return null as any;
     }
   }
 

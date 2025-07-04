@@ -71,10 +71,10 @@ describe.skip("Git Integration Tests", () => {
 
   test("execInRepository executes git commands in the repository", async () => {
     // Act
-    const _result = await gitService.execInRepository(repoPath, "git log --oneline -n 1");
+    const result = await gitService.execInRepository(repoPath, "git log --oneline -n 1");
 
     // Assert
-    expect(_result).toContain("Initial commit");
+    expect(result).toContain("Initial commit");
   }, TEST_TIMEOUT_MS);
 
   test("getSessionWorkdir returns the correct workdir path", () => {
@@ -132,9 +132,9 @@ describe.skip("Git Integration Tests", () => {
     await gitService.stageAll(repoPath);
 
     // Assert
-    const _status = execGit("status --porcelain", repoPath);
-    expect(_status).toContain("A  staged1.txt");
-    expect(_status).toContain("A  staged2.txt");
+    const status = execGit("status --porcelain", repoPath);
+    expect(status).toContain("A  staged1.txt");
+    expect(status).toContain("A  staged2.txt");
   }, TEST_TIMEOUT_MS);
 
   test("getCommitsOnBranch gets formatted commits", async () => {
@@ -148,14 +148,14 @@ describe.skip("Git Integration Tests", () => {
     execGit("commit -m 'Add file2'", repoPath);
 
     // Act - We need to call execInRepository directly since getCommitsOnBranch is private
-    const _result = await gitService.execInRepository(
+    const result = await gitService.execInRepository(
       repoPath,
       "git log --pretty=format:'%h %s' -n 2"
     );
 
     // Assert
-    expect(_result).toContain("Add file2");
-    expect(_result).toContain("Add file1");
+    expect(result).toContain("Add file2");
+    expect(result).toContain("Add file1");
   }, TEST_TIMEOUT_MS);
 
   // Skip tests that require stashing for now, as they're more complex

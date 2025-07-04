@@ -88,7 +88,7 @@ function fixImportInFile(filePath: string): boolean {
     
     // Replace with correct import
     const newImport = `import { getErrorMessage } from "${correctImportPath}"`;
-    const newContent = content.replace(importPattern, newImport);
+    const newContent = (content).toString().replace(importPattern, newImport);
     
     if (newContent !== content) {
       writeFileSync(filePath, newContent, "utf-8");

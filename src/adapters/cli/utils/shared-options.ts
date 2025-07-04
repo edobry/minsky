@@ -179,7 +179,7 @@ export function normalizeTaskOptions(options: TaskOptions): {
 } {
   // If task ID is provided, normalize it
   // normalizeTaskId can return null, so handle that case
-  const taskId = options.task ? normalizeTaskId(options.task) : undefined;
+  const taskId = options.task ? normalizeTaskId(options.task) : undefined as any;
 
   return {
     task: taskId || undefined,

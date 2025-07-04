@@ -44,7 +44,7 @@ export class LocalGitBackend implements RepositoryBackend {
    */
   constructor(__config: RepositoryConfig) {
     this.config = {
-      ...config,
+      ...__config,
       type: RepositoryBackendType.LOCAL,
     };
     const _xdgStateHome =
@@ -63,7 +63,7 @@ export class LocalGitBackend implements RepositoryBackend {
   private async execGit(args: string[], cwd?: string): Promise<string> {
     const cmd = `git ${args.join(" ")}`;
     try {
-      const { stdout, stderr } = await execAsync(_cmd, { cwd: cwd || this.localPath });
+      const { stdout, stderr } = await execAsync(cmd, { cwd: cwd || this.localPath });
       if (stderr) {
         log.debug("Git _command produced stderr", {
           _command: cmd,
@@ -75,7 +75,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Git _command failed: ${cmd}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -124,7 +124,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to clone local repository from ${this.config.path}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -142,7 +142,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const cacheKey = generateRepoKey(this.localPath, "status");
 
     return this.cache.get(
-      _cacheKey,
+      cacheKey,
       async () => {
         try {
           const statusOutput = await this.execGit(["status", "--porcelain"]);
@@ -160,12 +160,12 @@ export class LocalGitBackend implements RepositoryBackend {
             clean: statusOutput === "",
             changes: statusOutput.split("\n").filter((line) => line !== ""),
             branch: branchOutput,
-            tracking: trackingOutput !== "" ? trackingOutput : undefined,
+            tracking: trackingOutput !== "" ? trackingOutput : undefined as any,
           };
         } catch (error) {
           throw new RepositoryError(
             "Failed to get repository status",
-            error instanceof Error ? error : undefined
+            error instanceof Error ? error : undefined as any
           );
         }
       },
@@ -204,12 +204,12 @@ export class LocalGitBackend implements RepositoryBackend {
     // Check if it's a Git repository
     try {
       await execAsync(`git -C ${this.config.path} rev-parse --git-dir`);
-    } catch (_error) {
+    } catch (error) {
       issues.push(`Not a valid Git repository: ${this.config.path}`);
       return { valid: false, issues };
     }
 
-    return { valid: issues.length === 0, issues: issues.length > 0 ? issues : undefined };
+    return { valid: issues.length === 0, issues: issues.length > 0 ? issues : undefined as any };
   }
 
   /**
@@ -217,7 +217,7 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param branch Branch to push (defaults to current _branch)
    */
-  async push(_branch?: string): Promise<void> {
+  async push(branch?: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -232,7 +232,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to push branch ${branchToPush}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -242,7 +242,7 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param branch Branch to pull (defaults to current _branch)
    */
-  async pull(_branch?: string): Promise<void> {
+  async pull(branch?: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -257,7 +257,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to pull branch ${branchToPull}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -282,12 +282,12 @@ export class LocalGitBackend implements RepositoryBackend {
 
       return {
         workdir: this.localPath,
-        _branch: name,
+        branch: name,
       };
     } catch (error) {
       throw new RepositoryError(
         `Failed to create branch ${name}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -297,7 +297,7 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param branch Branch name to checkout
    */
-  async checkout(__branch: string): Promise<void> {
+  async checkout(branch: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -310,7 +310,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to checkout branch ${branch}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }

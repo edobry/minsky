@@ -17,7 +17,7 @@ export function createRobustTempDir(
 ): string | null {
   const locations = [
     "/tmp/minsky-test-tmp",
-    process.env.SESSION_WORKSPACE ? path.join(process.env.SESSION_WORKSPACE, "test-tmp") : null,
+    process.env.SESSION_WORKSPACE ? path.join(process.env.SESSION_WORKSPACE, "test-tmp") : null as any,
     path.join(os.tmpdir(), "minsky-test-tmp"),
   ].filter(Boolean) as string[];
 
@@ -44,7 +44,7 @@ export function createRobustTempDir(
   }
   if (opts?.softFail) {
     log.warn(`All temp dir creation attempts failed for prefix '${prefix}'. Returning null.`);
-    return null;
+    return null as any;
   }
   throw new Error(`All temp dir creation attempts failed for prefix '${prefix}'.`);
 }

@@ -249,7 +249,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         clean: !dirty,
         changes,
         branch,
-        tracking: remotes.length > 0 ? remotes[0] : undefined,
+        tracking: remotes.length > 0 ? remotes[0] : undefined as any,
 
         // Extended properties
         ahead,

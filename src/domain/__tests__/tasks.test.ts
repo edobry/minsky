@@ -68,9 +68,9 @@ describe("interface-agnostic task functions", () => {
         all: false,
       };
 
-      const _result = await listTasksFromParams(params, mockDeps);
+      const result = await listTasksFromParams(params, mockDeps);
 
-      expect(_result).toEqual([mockTask]);
+      expect(result).toEqual([mockTask]);
       expect(mockResolveRepoPath.mock.calls.length > 0).toBe(true);
       expect(mockResolveWorkspacePath.mock.calls.length > 0).toBe(true);
       expect(mockCreateTaskService).toHaveBeenCalledWith({
@@ -106,9 +106,9 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const _result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params, mockDeps);
 
-      expect(_result).toEqual(mockTask);
+      expect(result).toEqual(mockTask);
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#TEST_VALUE");
     });
 
@@ -132,9 +132,9 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const _result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params, mockDeps);
 
-      expect(_result).toEqual(mockTask);
+      expect(result).toEqual(mockTask);
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#TEST_VALUE");
     });
 
@@ -154,9 +154,9 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const _result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params, mockDeps);
 
-      expect(_result).toEqual({ ...mockTask, id: "#023" });
+      expect(result).toEqual({ ...mockTask, id: "#023" });
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#23");
     });
   });
@@ -168,9 +168,9 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const _result = await getTaskStatusFromParams(params, mockDeps);
+      const result = await getTaskStatusFromParams(params, mockDeps);
 
-      expect(_result).toBe(TASK_STATUS.TODO);
+      expect(result).toBe(TASK_STATUS.TODO);
       expect(mockTaskService.getTaskStatus).toHaveBeenCalledWith("#TEST_VALUE");
     });
 

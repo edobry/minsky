@@ -34,7 +34,7 @@ export class ConfigurationGenerator {
       backends: {
         default: options.backend,
       },
-    };
+    } as any;
 
     // Add GitHub-specific configuration
     if (options.backend === "github-issues") {
@@ -99,7 +99,7 @@ export class ConfigurationGenerator {
    */
   private writeRepositoryConfig(workingDir: string, config: RepositoryConfig): void {
     const configDir = join(workingDir, ".minsky");
-    const configPath = join(configDir, "config.yaml");
+    const configPath = join(configDir, "config.yaml") as any;
 
     // Ensure .minsky directory exists
     if (!existsSync(configDir)) {

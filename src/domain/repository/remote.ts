@@ -108,10 +108,10 @@ export class RemoteGitBackend implements RepositoryBackend {
         session,
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
 
       // Provide more informative error messages for common Git issues
-      if (normalizedError.message.includes("Authentication failed")) {
+      if (normalizedError?.message.includes("Authentication failed")) {
         throw new Error(`
 🔐 Git Authentication Failed
 
@@ -125,14 +125,14 @@ Unable to authenticate with the Git repository.
 Repository: ${this.repoUrl}
 `);
       } else if (
-        normalizedError.message.includes("not found") ||
-        normalizedError.message.includes("does not exist")
+        normalizedError?.message.includes("not found") ||
+        normalizedError?.message.includes("does not exist")
       ) {
         throw new Error(`Git repository not found: ${this.repoUrl}. Check the URL.`);
-      } else if (normalizedError.message.includes("timed out")) {
+      } else if (normalizedError?.message.includes("timed out")) {
         throw new Error("Git connection timed out. Check your network connection and try again.");
       } else {
-        throw new Error(`Failed to clone Git repository: ${normalizedError.message}`);
+        throw new Error(`Failed to clone Git repository: ${normalizedError?.message}`);
       }
     }
   }
@@ -156,8 +156,8 @@ Repository: ${this.repoUrl}
         branch,
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
-      throw new Error(`Failed to create branch in Git repository: ${normalizedError.message}`);
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      throw new Error(`Failed to create branch in Git repository: ${normalizedError?.message}`);
     }
   }
 
@@ -174,7 +174,7 @@ Repository: ${this.repoUrl}
       const { stdout: branchOutput } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
-      const _branch = branchOutput.trim();
+      const branch = branchOutput.trim();
 
       // Get ahead/behind counts
       let ahead = 0;
@@ -184,7 +184,7 @@ Repository: ${this.repoUrl}
           `git -C ${workdir} rev-list --left-right --count @{upstream}...HEAD`
         );
         const counts = revListOutput.trim().split(/\s+/);
-        if (counts && counts.length === 2) {
+        if (counts && counts?.length === 2) {
           behind = parseInt(counts[0] || "0", 10);
           ahead = parseInt(counts[1] || "0", 10);
         }
@@ -201,19 +201,19 @@ Repository: ${this.repoUrl}
       const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
       return {
-        _branch,
+        branch,
         ahead,
         behind,
         dirty,
         remotes,
-        _workdir: workdir,
+        workdir: workdir,
         defaultBranch: this.defaultBranch,
         clean: !dirty,
         changes: [],
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
-      throw new Error(`Failed to get Git repository status: ${normalizedError.message}`);
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      throw new Error(`Failed to get Git repository status: ${normalizedError?.message}`);
     }
   }
 
@@ -264,10 +264,10 @@ Repository: ${this.repoUrl}
         message: "Git repository URL validated successfully",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
-        message: `Failed to validate Git repository: ${normalizedError.message}`,
+        message: `Failed to validate Git repository: ${normalizedError?.message}`,
         error: normalizedError,
       };
     }
@@ -294,7 +294,7 @@ Repository: ${this.repoUrl}
       const sessions = await this.sessionDb.listSessions();
       const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
 
-      if (currentSessions.length === 0) {
+      if (currentSessions?.length === 0) {
         return {
           success: false,
           message: "No active sessions found for this repository",
@@ -303,7 +303,7 @@ Repository: ${this.repoUrl}
 
       // For each session with this repository, push changes
       for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir(session._session);
+        const workdir = this.getSessionWorkdir(session.session);
 
         try {
           // Determine current branch
@@ -315,14 +315,14 @@ Repository: ${this.repoUrl}
           // Push to remote
           await execAsync(`git -C ${workdir} push origin ${branch}`);
         } catch (error) {
-          const normalizedError = error instanceof Error ? error : new Error(String(error));
-          if (normalizedError.message.includes("Authentication failed")) {
+          const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+          if (normalizedError?.message.includes("Authentication failed")) {
             return {
               success: false,
               message: "Git authentication failed. Check your credentials or SSH key.",
               error,
             };
-          } else if (error.message.includes("[rejected]")) {
+          } else if ((error as any).message.includes("[rejected]")) {
             return {
               success: false,
               message: "Push rejected. Try pulling changes first or use force push if appropriate.",
@@ -331,7 +331,7 @@ Repository: ${this.repoUrl}
           } else {
             return {
               success: false,
-              message: `Failed to push to remote repository: ${error.message}`,
+              message: `Failed to push to remote repository: ${(error as any).message}`,
               error,
             };
           }
@@ -343,10 +343,10 @@ Repository: ${this.repoUrl}
         message: "Successfully pushed changes to remote repository",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
-        message: `Failed to push to remote repository: ${normalizedError.message}`,
+        message: `Failed to push to remote repository: ${normalizedError?.message}`,
         error: normalizedError,
       };
     }
@@ -372,7 +372,7 @@ Repository: ${this.repoUrl}
       const sessions = await this.sessionDb.listSessions();
       const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
 
-      if (currentSessions.length === 0) {
+      if (currentSessions?.length === 0) {
         return {
           success: false,
           message: "No active sessions found for this repository",
@@ -381,7 +381,7 @@ Repository: ${this.repoUrl}
 
       // For each session with this repository, pull changes
       for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir(session._session);
+        const workdir = this.getSessionWorkdir(session.session);
 
         try {
           // Determine current branch
@@ -393,14 +393,14 @@ Repository: ${this.repoUrl}
           // Pull from remote
           await execAsync(`git -C ${workdir} pull origin ${branch}`);
         } catch (error) {
-          const normalizedError = error instanceof Error ? error : new Error(String(error));
-          if (normalizedError.message.includes("Authentication failed")) {
+          const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+          if (normalizedError?.message.includes("Authentication failed")) {
             return {
               success: false,
               message: "Git authentication failed. Check your credentials or SSH key.",
               error,
             };
-          } else if (error.message.includes("conflict")) {
+          } else if ((error as any).message.includes("conflict")) {
             return {
               success: false,
               message: "Pull failed due to conflicts. Resolve conflicts manually.",
@@ -409,7 +409,7 @@ Repository: ${this.repoUrl}
           } else {
             return {
               success: false,
-              message: `Failed to pull from remote repository: ${error.message}`,
+              message: `Failed to pull from remote repository: ${(error as any).message}`,
               error,
             };
           }
@@ -421,10 +421,10 @@ Repository: ${this.repoUrl}
         message: "Successfully pulled changes from remote repository",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
-        message: `Failed to pull from remote repository: ${normalizedError.message}`,
+        message: `Failed to pull from remote repository: ${normalizedError?.message}`,
         error: normalizedError,
       };
     }

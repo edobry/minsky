@@ -47,7 +47,7 @@ export interface CliFactoryConfig {
 class CliCommandFactory {
   private initialized = false;
   private config: CliFactoryConfig = {
-    enableDevWarnings: process.env.NODE_ENV !== "production",
+    enableDevWarnings: process.env.NODE_ENV !== "production" as any,
     strictValidation: true,
   };
 

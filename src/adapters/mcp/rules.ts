@@ -34,7 +34,8 @@ async function readContentFromFileIfExists(contentPath: string): Promise<string>
       const stats = await fs.stat(contentPath);
       if (stats.isFile()) {
         // If it's a file, read its contents
-        return await fs.readFile(contentPath, "utf-8");
+        const content = await fs.readFile(contentPath, "utf-8");
+        return content.toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
         throw new Error(`Failed to read content from file ${contentPath}: Not a file`);
@@ -58,7 +59,7 @@ async function readContentFromFileIfExists(contentPath: string): Promise<string>
  */
 function parseGlobs(globsStr?: string): string[] | undefined {
   if (!globsStr || globsStr.trim() === "") {
-    return undefined;
+    return undefined as any;
   }
 
   // Try to parse as JSON array first
@@ -67,7 +68,7 @@ function parseGlobs(globsStr?: string): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (_error) {
+  } catch (error) {
     // If JSON parsing fails, fall back to comma-separated string
   }
 
@@ -76,7 +77,7 @@ function parseGlobs(globsStr?: string): string[] | undefined {
 }
 
 // Type guard for string
-function isString(value: unknown): value is string {
+function isString(value: any): value is string {
   return typeof value === "string";
 }
 
@@ -88,19 +89,19 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.list",
     description: "List all rules in the workspace",
-    _parameters: z.object({
+    parameters: z.object({
       format: ruleFormatParam,
       tag: optionalString("Filter by tag"),
       debug: debugParam,
     }),
-    execute: async (_args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
 
       // Convert parameters with type safety
-      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
-      const tag = isString(args.tag) ? args.tag : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined as any;
+      const tag = isString(args.tag) ? args.tag : undefined as any;
       const debug = args.debug === true;
 
       // Call domain function
@@ -111,7 +112,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       });
 
       // Transform the rules to exclude content
-      const transformedRules = rules.map(({ _content, ...rest }) => rest);
+      const transformedRules = rules.map(({ content, ...rest }) => rest);
 
       // Return formatted result as a record
       return { rules: transformedRules };
@@ -122,27 +123,27 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.get",
     description: "Get a specific rule by ID",
-    _parameters: z.object({
-      _id: requiredString("Rule ID"),
+    parameters: z.object({
+      id: requiredString("Rule ID"),
       format: ruleFormatParam,
       debug: debugParam,
     }),
-    execute: async (_args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
-      if (!isString(args.id)) {
+      if (!isString(args._id)) {
         throw new Error("Rule ID must be a string");
       }
 
       // Convert parameters with type safety
-      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined as any;
       const debug = args.debug === true;
 
       // Call domain function
-      const rule = await ruleService.getRule(args.id, {
+      const rule = await ruleService.getRule(args._id, {
         format,
         debug,
       });
@@ -156,8 +157,8 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.create",
     description: "Create a new rule",
-    _parameters: z.object({
-      _id: requiredString("ID of the rule to create"),
+    parameters: z.object({
+      id: requiredString("ID of the rule to create"),
       content: ruleContentParam,
       description: ruleDescriptionParam,
       name: ruleNameParam,
@@ -169,19 +170,19 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       format: ruleFormatParam,
       overwrite: overwriteParam,
     }),
-    execute: async (_args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
-      if (!isString(args.id)) {
+      if (!isString(args._id)) {
         throw new Error("Rule ID must be a string");
       }
 
       // Get content from file if it exists, otherwise use as-is
-      const _content = isString(args._content)
-        ? await readContentFromFileIfExists(args._content)
+      const content = isString(args.content)
+        ? await readContentFromFileIfExists(args.content)
         : "# New Rule Content\n\nAdd your rule content here.";
 
       // Parse globs (handling both string and array types)
@@ -193,19 +194,19 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Parse tags
-      const tags = isString(args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined;
+      const tags = isString(args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined as any;
 
       // Convert formats with type safety
-      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined as any;
       const overwrite = args.overwrite === true;
 
       // Call domain function with correct signature
       const rule = await ruleService.createRule(
-        args.id,
-        _content,
+        args._id,
+        content,
         {
-          description: isString(args.description) ? args.description : undefined,
-          name: isString(args.name) ? args.name : undefined,
+          description: isString(args.description) ? args.description : undefined as any,
+          name: isString(args.name) ? args.name : undefined as any,
           globs,
           tags,
         },
@@ -227,7 +228,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.update",
     description: "Update an existing rule",
-    _parameters: z.object({
+    parameters: z.object({
       _id: requiredString("ID of the rule to update"),
       content: ruleContentParam,
       description: ruleDescriptionParam,
@@ -239,20 +240,20 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       tags: ruleTagsParam,
       format: ruleFormatParam,
     }),
-    execute: async (_args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
-      if (!isString(args.id)) {
+      if (!isString(args._id)) {
         throw new Error("Rule ID must be a string");
       }
 
       // Process content if provided
       let content: string | undefined;
-      if (isString(args._content)) {
-        content = await readContentFromFileIfExists(args._content);
+      if (isString(args.content)) {
+        content = await readContentFromFileIfExists(args.content);
       }
 
       // Parse globs (handling both string and array types)
@@ -264,24 +265,24 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Parse tags
-      const tags = isString(args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined;
+      const tags = isString(args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined as any;
 
       // Convert format with type safety
-      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined as any;
 
       // Create update options object
       const updateOptions: UpdateRuleOptions = {
         content,
         meta: {
-          description: isString(args.description) ? args.description : undefined,
-          name: isString(args.name) ? args.name : undefined,
+          description: isString(args.description) ? args.description : undefined as any,
+          name: isString(args.name) ? args.name : undefined as any,
           globs,
           tags,
         },
       };
 
       // Call domain function with correct signature
-      const rule = await ruleService.updateRule(args.id, updateOptions, {
+      const rule = await ruleService.updateRule(args._id, updateOptions, {
         format,
       });
 
@@ -297,13 +298,13 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.search",
     description: "Search for rules by _content",
-    _parameters: z.object({
+    parameters: z.object({
       query: requiredString("Search query"),
       format: ruleFormatParam,
       tag: optionalString("Filter by tag"),
       debug: debugParam,
     }),
-    execute: async (_args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
@@ -314,8 +315,8 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Convert parameters with type safety
-      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
-      const tag = isString(args.tag) ? args.tag : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined as any;
+      const tag = isString(args.tag) ? args.tag : undefined as any;
 
       // Note: debug parameter is accepted in the command but not passed to the domain
       // as SearchRuleOptions doesn't include a debug option

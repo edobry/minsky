@@ -130,7 +130,7 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
 export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | null {
   const session = getSessionFn(state, sessionName);
   if (!session) {
-    return null;
+    return null as any;
   }
 
   return getRepoPathFn(state, session);

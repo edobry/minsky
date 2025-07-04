@@ -11,6 +11,7 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../command-registry";
 import {
   commitChangesFromParams,
@@ -203,13 +204,13 @@ export function registerGitCommands(): void {
         noStage: params.noStage,
         repo: params.repo,
         session: params.session,
-      });
+      }) as any;
 
       return {
         success: true,
         commitHash: result.commitHash,
         message: result.message,
-      };
+      } as any;
     },
   });
 
@@ -229,12 +230,12 @@ export function registerGitCommands(): void {
         remote: params.remote,
         force: params.force,
         debug: params.debug,
-      });
+      }) as any;
 
       return {
         success: result.pushed,
         workdir: result.workdir,
-      };
+      } as any;
     },
   });
 
@@ -253,13 +254,13 @@ export function registerGitCommands(): void {
         session: params.session,
         destination: params.destination,
         branch: params.branch,
-      });
+      }) as any;
 
       return {
         success: true,
         workdir: result.workdir,
         session: result.session,
-      };
+      } as any;
     },
   });
 
@@ -276,13 +277,13 @@ export function registerGitCommands(): void {
       const result = await branchFromParams({
         session: params.session,
         name: params.name,
-      });
+      }) as any;
 
       return {
         success: true,
         workdir: result.workdir,
         branch: result.branch,
-      };
+      } as any;
     },
   });
 
@@ -303,13 +304,13 @@ export function registerGitCommands(): void {
         taskId: params.task,
         debug: params.debug,
         noStatusUpdate: params.noStatusUpdate,
-      });
+      }) as any;
 
       return {
         success: true,
         markdown: result.markdown,
         statusUpdateResult: result.statusUpdateResult,
-      };
+      } as any;
     },
   });
 }

@@ -10,7 +10,7 @@
  */
 export function normalizeTaskId(userInput: string): string | null {
   if (!userInput || typeof userInput !== "string") {
-    return null;
+    return null as any;
   }
 
   let normalizedInput = userInput.trim();
@@ -27,7 +27,7 @@ export function normalizeTaskId(userInput: string): string | null {
 
   // Check if the result is valid (numeric only)
   if (!/^\d+$/.test(normalizedInput) || normalizedInput.length === 0) {
-    return null;
+    return null as any;
   }
 
   // Add the '#' prefix to ensure canonical format - don't pad with zeros

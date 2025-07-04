@@ -63,7 +63,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         name: relativePath.split("/").pop() || relativePath,
         path: relativePath,
         type: stats.isDirectory() ? "directory" : "file",
-        size: stats.isFile() ? stats.size : undefined,
+        size: stats.isFile() ? stats.size : undefined as any,
         lastModified: stats.mtime,
       };
     } catch (error) {
@@ -72,7 +72,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         "file_info",
         workspaceDir,
         relative(workspaceDir, fullPath),
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -115,7 +115,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         "read_file",
         workspaceDir,
         relativePath,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -281,7 +281,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         "list_directory",
         workspaceDir,
         relativePath,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }

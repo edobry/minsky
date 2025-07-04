@@ -99,7 +99,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -155,7 +155,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -183,6 +183,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
             await pathResolver.getSessionWorkspacePath(args.session),
             resolvedPath
           ),
+          // @ts-expect-error - Bun supports Buffer.byteLength at runtime, types incomplete
           bytesWritten: Buffer.byteLength(args.content, "utf8"),
         };
       } catch (error) {
@@ -220,7 +221,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         .default(false)
         .describe("Include hidden files (starting with .)"),
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -289,7 +290,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to check within the session workspace"),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -357,7 +358,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file to delete within the session workspace"),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -419,7 +420,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 

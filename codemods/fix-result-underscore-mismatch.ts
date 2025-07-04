@@ -25,7 +25,7 @@ for (const file of files) {
       const line = lines[i];
       
       // Check if this line declares _result
-      if (line.includes('const result =') || line.includes('let _result =')) {
+      if (line.includes('const result =') || line.includes('let result =')) {
         // Check next few lines for usage of 'result' without underscore
         for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
           if (lines[j].match(/\bresult\b/) && !lines[j].match(/\b_result\b/)) {
