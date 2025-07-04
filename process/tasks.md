@@ -420,6 +420,8 @@
 
 - [ ] Investigate session workspace disk usage and optimize node_modules storage [#230](process/tasks/230-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
 
+- [x] Implement session PR refresh functionality [#231](process/tasks/231-implement-session-pr-refresh-functionality.md)
+
 - [+] Implement session PR refresh functionality [#231](process/tasks/231-implement-session-pr-refresh-functionality.md)
 
 - [ ] Improve session PR conflict resolution workflow with auto-resolution and better UX [#232](process/tasks/232-improve-session-pr-conflict-resolution-workflow-with-auto-resolution-and-better-ux.md)
