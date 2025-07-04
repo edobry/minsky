@@ -125,10 +125,10 @@ export const TASK_PARSING_UTILS = {
    */
   parseTaskLine(line: string): { checkbox: string; title: string; id: string } | null {
     const match = TASK_REGEX_PATTERNS.TASK_LINE.exec(line);
-    if (!match) return null;
+    if (!match) return null as any;
 
     const [, checkbox, title, idNum] = match;
-    if (!checkbox || !title || !idNum) return null;
+    if (!checkbox || !title || !idNum) return null as any;
 
     return {
       checkbox: checkbox,

@@ -142,7 +142,7 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
 export function normalizeRepositoryURI(uri: string): string {
   try {
     const result = normalizeRepositoryUri(uri, { validateLocalExists: false });
-    return result.name;
+    return result.name as any;
   } catch (error) {
     // Fallback to simple basename normalization (filesystem-safe)
     return `local-${basename(uri)}`;
@@ -183,7 +183,7 @@ export function convertRepositoryURI(uri: string, targetType: RepositoryURIType)
     const targetFormat = targetType as any as UriFormat;
     return convertRepositoryUri(uri, targetFormat);
   } catch (error) {
-    return null;
+    return null as any;
   }
 }
 
@@ -234,7 +234,7 @@ export function expandGitHubShorthand(
     const targetFormat = format === "https" ? UriFormat.HTTPS : UriFormat.SSH;
     return convertRepositoryUri(shorthand, targetFormat);
   } catch (error) {
-    return null;
+    return null as any;
   }
 }
 

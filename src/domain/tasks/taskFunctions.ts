@@ -91,7 +91,7 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
  * @returns Found task or null
  */
 export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
-  if (!tasks || !id) return null;
+  if (!tasks || !id) return null as any;
 
   // First try exact match
   const exactMatch = tasks.find((task) => task.id === id);
@@ -102,10 +102,10 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
   // If no exact match, try numeric comparison
   // This handles case where ID is provided without leading zeros
   const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return null;
+  if (!normalizedId) return null as any;
 
   const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
-  if (isNaN(numericId)) return null;
+  if (isNaN(numericId)) return null as any;
 
   const numericMatch = tasks.find((task) => {
     const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
@@ -121,7 +121,7 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
  * @returns Normalized task ID or null if invalid
  */
 export function normalizeTaskId(id: string): string | null {
-  if (!id) return null;
+  if (!id) return null as any;
 
   // If already in #XXX format, validate and return
   if (/^#[a-zA-Z0-9_]+$/.test(id)) {
@@ -139,7 +139,7 @@ export function normalizeTaskId(id: string): string | null {
     return `#${match[1]}`;
   }
 
-  return null;
+  return null as any;
 }
 
 /**

@@ -139,7 +139,7 @@ export class CommandMapper {
             command: normalizedName,
             error: errorMessage,
             args,
-            stack: error instanceof Error ? error.stack : undefined,
+            stack: error instanceof Error ? error.stack as any : undefined as any,
           });
           throw error; // Re-throw to let FastMCP handle error presentation
         }
@@ -204,7 +204,7 @@ export class CommandMapper {
                 originalName: normalizedName,
                 error: errorMessage,
                 args,
-                stack: error instanceof Error ? error.stack : undefined,
+                stack: error instanceof Error ? error.stack as any : undefined as any,
               });
               throw error; // Re-throw to let FastMCP handle error presentation
             }

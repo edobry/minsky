@@ -135,7 +135,7 @@ export class TaskService {
 
     // Find the requested task
     const normalizedId = normalizeTaskId(id);
-    if (!normalizedId) return null;
+    if (!normalizedId) return null as any;
 
     // First try exact match
     const exactMatch = tasks.find((task) => task.id === normalizedId);
@@ -145,7 +145,7 @@ export class TaskService {
 
     // If no exact match, try numeric comparison
     const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
-    if (isNaN(numericId)) return null;
+    if (isNaN(numericId)) return null as any;
 
     const numericMatch = tasks.find((task) => {
       const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
@@ -162,7 +162,7 @@ export class TaskService {
    */
   async getTaskStatus(id: string): Promise<string | null> {
     const task = await this.getTask(id);
-    return task ? task.status : null;
+    return task ? task.status : null as any;
   }
 
   /**
@@ -325,7 +325,7 @@ export class TaskService {
     // Normalize the task ID
     const normalizedId = normalizeTaskId(id);
     if (!normalizedId) {
-      return null;
+      return null as any;
     }
 
     // Try to find the task in each backend
@@ -346,7 +346,7 @@ export class TaskService {
       }
     }
 
-    return null;
+    return null as any;
   }
 
   /**
@@ -473,7 +473,7 @@ export class TaskService {
 
       const config = getGitHubBackendConfig(workspacePath);
       if (!config) {
-        return null;
+        return null as any;
       }
 
       return createGitHubIssuesTaskBackend({
@@ -484,7 +484,7 @@ export class TaskService {
     } catch (error) {
       console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
       // Return null if GitHub modules are not available
-      return null;
+      return null as any;
     }
   }
 

@@ -22,7 +22,7 @@ export class DefaultCredentialManager implements CredentialManager {
     case "github":
       return this.getGitHubCredential();
     default:
-      return null;
+      return null as any;
     }
   }
 
@@ -84,7 +84,7 @@ export class DefaultCredentialManager implements CredentialManager {
       }
     }
 
-    return null;
+    return null as any;
   }
 
   /**
@@ -132,7 +132,7 @@ export class DefaultCredentialManager implements CredentialManager {
     const configPath = this.expandTilde(CONFIG_PATHS.GLOBAL_USER);
     
     if (!existsSync(configPath)) {
-      return null;
+      return null as any;
     }
 
     try {
@@ -140,7 +140,7 @@ export class DefaultCredentialManager implements CredentialManager {
       const contentStr = typeof content === "string" ? content : content.toString();
       return parseYaml(contentStr) as GlobalUserConfig;
     } catch (error) {
-      return null;
+      return null as any;
     }
   }
 

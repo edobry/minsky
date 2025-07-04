@@ -46,7 +46,7 @@ export function registerInitTools(commandMapper: CommandMapper): void {
         mcp: params.mcp,
         mcpOnly: params.mcpOnly || false,
         overwrite: params.overwrite || false,
-      };
+      } as any;
 
       // Call the domain function
       await initializeProjectFromParams(initParams);

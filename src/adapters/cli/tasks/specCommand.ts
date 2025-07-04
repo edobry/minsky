@@ -61,7 +61,7 @@ export function createSpecCommand(): Command {
           ...normalizedParams,
           taskId: normalizedTaskId,
           section: options.section,
-        };
+        } as any;
 
         // Call the domain function
         const result = await getTaskSpecContentFromParams(params);

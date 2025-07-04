@@ -106,7 +106,7 @@ export class SessionPathResolver {
       
       // Return null if path is outside session boundaries
       if (relativePath.startsWith("..") || relativePath === "..") {
-        return null;
+        return null as any;
       }
       
       // Return "." for the session root
@@ -117,7 +117,7 @@ export class SessionPathResolver {
         absolutePath,
         error: getErrorMessage(error),
       });
-      return null;
+      return null as any;
     }
   }
 

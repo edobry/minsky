@@ -120,7 +120,7 @@ export class RuleService {
             log.error("Error processing rule file", {
               file,
               originalError: getErrorMessage(error),
-              stack: error instanceof Error ? error.stack : undefined,
+              stack: error instanceof Error ? error.stack as any : undefined as any,
             });
           }
         }
@@ -130,7 +130,7 @@ export class RuleService {
           log.error("Error reading rules directory", {
             format,
             originalError: getErrorMessage(error),
-            stack: error instanceof Error ? error.stack : undefined,
+            stack: error instanceof Error ? error.stack as any : undefined as any,
           });
         }
       }
@@ -179,7 +179,7 @@ export class RuleService {
           if (options.debug) {
             log.debug("Successfully parsed frontmatter", {
               filePath,
-              dataKeys: Object.keys(data),
+              dataKeys: Object.keys(data) as any,
               contentLength: ruleContent.length,
             });
           }
@@ -194,7 +194,7 @@ export class RuleService {
             content: ruleContent.trim(),
             format: requestedFormat,
             path: filePath,
-          };
+          } as any;
         } catch (error) {
           // FIXED: Gracefully handle errors in frontmatter parsing
           // This allows rules with invalid YAML frontmatter to still be loaded and used
@@ -267,7 +267,7 @@ export class RuleService {
           if (options.debug) {
             log.debug("Successfully parsed frontmatter in alternative format", {
               filePath,
-              dataKeys: Object.keys(data),
+              dataKeys: Object.keys(data) as any,
               contentLength: ruleContent.length,
             });
           }
@@ -290,7 +290,7 @@ export class RuleService {
               format: originalFormat, // Return actual format, not requested format
               path: filePath,
               formatNote: `Rule found in '${originalFormat}' format but '${requestedFormat}' was requested. Format conversion is not supported yet.`,
-            };
+            } as any;
           }
 
           // Otherwise just return the rule as found
@@ -304,7 +304,7 @@ export class RuleService {
             content: ruleContent.trim(),
             format,
             path: filePath,
-          };
+          } as any;
         } catch (error) {
           // FIXED: Gracefully handle errors in frontmatter parsing for alternative formats
           if (options.debug) {

@@ -107,7 +107,7 @@ export function registerInitCommands() {
           mcp = {
             enabled: params.mcp === undefined ? true : params.mcp === true || params.mcp === "true",
             transport: params.mcpTransport || "stdio",
-            port: params.mcpPort ? Number(params.mcpPort) : undefined,
+            port: params.mcpPort ? Number(params.mcpPort) : undefined as any,
             host: params.mcpHost,
           };
         }

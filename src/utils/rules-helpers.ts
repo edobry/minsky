@@ -43,7 +43,7 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
  */
 export function parseGlobs(globsStr?: string): string[] | undefined {
   if (!globsStr || globsStr.trim() === "") {
-    return undefined;
+    return undefined as any;
   }
 
   // Try to parse as JSON array first

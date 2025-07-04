@@ -136,7 +136,7 @@ export class CliCommandBridge {
     const commandDef = sharedCommandRegistry.getCommand(commandId);
     log.systemDebug(`commandDef found: ${!!commandDef}`);
     if (!commandDef) {
-      return null;
+      return null as any;
     }
 
     const options = this.getCommandOptions(commandId);
@@ -250,7 +250,7 @@ export class CliCommandBridge {
 
     const commands = sharedCommandRegistry.getCommandsByCategory(category);
     if (commands.length === 0) {
-      return null;
+      return null as any;
     }
 
     const customOptions = this.categoryCustomizations.get(category) || {};

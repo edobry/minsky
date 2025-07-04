@@ -175,10 +175,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         .where(eq(postgresSessions.session, id))
         .limit(1);
 
-      return result.length > 0 ? fromPostgresSelect(result[0]) : null;
+      return result.length > 0 ? fromPostgresSelect(result[0]) : null as any;
     } catch (error) {
       log.error("Failed to get session from PostgreSQL:", error as Error);
-      return null;
+      return null as any;
     }
   }
 
@@ -217,7 +217,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       // Get existing session
       const existing = await this.getEntity(id);
       if (!existing) {
-        return null;
+        return null as any;
       }
 
       // Merge updates
@@ -247,7 +247,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         .where(eq(postgresSessions.session, id));
 
       // @ts-expect-error - rowCount property exists in actual Drizzle result but not in type definitions
-      return result.rowCount !== null && result.rowCount > 0;
+      return result.rowCount !== null && result.rowCount > 0 as any;
     } catch (error) {
       log.error("Failed to delete session from PostgreSQL:", error as any);
       return false;
@@ -265,7 +265,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         .where(eq(postgresSessions.session, id))
         .limit(1);
 
-      return result.length > 0;
+      return result.length > 0 as any;
     } catch (error) {
       log.error("Failed to check session existence in PostgreSQL:", error as any);
       return false;

@@ -197,7 +197,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
   async getEntity(id: string, options?: DatabaseQueryOptions): Promise<T | null> {
     const result = await this.readState();
     if (!result.success || !result.data) {
-      return null;
+      return null as any;
     }
 
     const state = result.data;
@@ -296,7 +296,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       // Find entity index
       const index = entities.findIndex((e) => (e as any)[this.idField] === id);
       if (index === -1) {
-        return null;
+        return null as any;
       }
 
       // Update entity

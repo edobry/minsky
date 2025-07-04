@@ -62,35 +62,35 @@ export class SharedErrorHandler {
     if (error instanceof ValidationError) {
       errorType = "VALIDATION_ERROR";
       if (error.errors) {
-        result.validationErrors = error.errors;
+        result.validationErrors = error.errors as any;
       }
     } else if (error instanceof ResourceNotFoundError) {
       errorType = "NOT_FOUND_ERROR";
       if (error.resourceType) {
-        result.resourceType = error.resourceType;
+        result.resourceType = error.resourceType as any;
       }
       if (error.resourceId) {
-        result.resourceId = error.resourceId;
+        result.resourceId = error.resourceId as any;
       }
     } else if (error instanceof ServiceUnavailableError) {
       errorType = "SERVICE_UNAVAILABLE_ERROR";
       if (error.serviceName) {
-        result.serviceName = error.serviceName;
+        result.serviceName = error.serviceName as any;
       }
     } else if (error instanceof FileSystemError) {
       errorType = "FILE_SYSTEM_ERROR";
       if (error.path) {
-        result.path = error.path;
+        result.path = error.path as any;
       }
     } else if (error instanceof ConfigurationError) {
       errorType = "CONFIGURATION_ERROR";
       if (error.configKey) {
-        result.configKey = error.configKey;
+        result.configKey = error.configKey as any;
       }
     } else if (error instanceof GitOperationError) {
       errorType = "GIT_OPERATION_ERROR";
       if (error.command) {
-        result.command = error.command;
+        result.command = error.command as any;
       }
     } else if (error instanceof MinskyError) {
       errorType = "MINSKY_ERROR";

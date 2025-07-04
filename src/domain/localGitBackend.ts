@@ -75,7 +75,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Git _command failed: ${cmd}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -124,7 +124,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to clone local repository from ${this.config.path}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -160,12 +160,12 @@ export class LocalGitBackend implements RepositoryBackend {
             clean: statusOutput === "",
             changes: statusOutput.split("\n").filter((line) => line !== ""),
             branch: branchOutput,
-            tracking: trackingOutput !== "" ? trackingOutput : undefined,
+            tracking: trackingOutput !== "" ? trackingOutput : undefined as any,
           };
         } catch (error) {
           throw new RepositoryError(
             "Failed to get repository status",
-            error instanceof Error ? error : undefined
+            error instanceof Error ? error : undefined as any
           );
         }
       },
@@ -209,7 +209,7 @@ export class LocalGitBackend implements RepositoryBackend {
       return { valid: false, issues };
     }
 
-    return { valid: issues.length === 0, issues: issues.length > 0 ? issues : undefined };
+    return { valid: issues.length === 0, issues: issues.length > 0 ? issues : undefined as any };
   }
 
   /**
@@ -232,7 +232,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to push branch ${branchToPush}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -257,7 +257,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to pull branch ${branchToPull}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -287,7 +287,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to create branch ${name}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }
@@ -310,7 +310,7 @@ export class LocalGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to checkout branch ${branch}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined as any
       );
     }
   }

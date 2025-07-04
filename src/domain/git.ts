@@ -290,7 +290,7 @@ export class GitService implements GitServiceInterface {
   constructor(baseDir?: string) {
     this.baseDir =
       baseDir ||
-      join(process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"), "minsky");
+              join(process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"), "minsky") as any;
     this.sessionDb = createSessionProvider({ dbPath: process.cwd() });
   }
 
@@ -345,7 +345,7 @@ export class GitService implements GitServiceInterface {
         const { stdout, stderr } = await execAsync(cloneCmd);
         log.debug("git clone succeeded", {
           stdout: stdout.trim().substring(0, 200),
-          stderr: stderr.trim().substring(0, 200),
+          stderr: stderr.trim().substring(0, 200) as any,
         });
       } catch (cloneErr) {
         log.error("git clone command failed", {
@@ -405,7 +405,7 @@ export class GitService implements GitServiceInterface {
     } catch (error) {
       log.error("Error during git clone", {
         error: getErrorMessage(error),
-        stack: error instanceof Error ? error.stack : undefined,
+        stack: error instanceof Error ? error.stack as any : undefined as any,
         repoUrl: options.repoUrl,
         workdir,
       });
@@ -1313,7 +1313,7 @@ You need to specify one of these options to identify the target repository:
 
     // No taskId found
     log.debug("No task ID could be determined");
-    return undefined;
+    return undefined as any;
   }
 
   /**
@@ -1385,7 +1385,7 @@ You need to specify one of these options to identify the target repository:
 
               // Extract task ID from session name if it follows the task#N pattern
               const taskIdMatch = options.session.match(/^task#(\d+)$/);
-              const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
+              const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined as any;
 
               // Create session record
               const newSessionRecord: SessionRecord = {
@@ -2191,7 +2191,7 @@ export async function createPullRequestFromParams(params: {
       taskId: params.taskId,
       debug: params.debug,
       noStatusUpdate: params.noStatusUpdate,
-    });
+    }) as any;
     return result;
   } catch (error) {
     log.error("Error creating pull request", {
@@ -2200,7 +2200,7 @@ export async function createPullRequestFromParams(params: {
       branch: params.branch,
       taskId: params.taskId,
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: error instanceof Error ? error.stack as any : undefined as any,
     });
     throw error;
   }
@@ -2243,7 +2243,7 @@ export async function commitChangesFromParams(params: {
       all: params.all,
       amend: params.amend,
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: error instanceof Error ? error.stack as any : undefined as any,
     });
     throw error;
   }
@@ -2271,7 +2271,7 @@ export async function preparePrFromParams(params: {
       body: params.body,
       branchName: params.branchName,
       debug: params.debug,
-    });
+    }) as any;
     return result;
   } catch (error) {
     log.error("Error preparing PR branch", {
@@ -2279,7 +2279,7 @@ export async function preparePrFromParams(params: {
       repo: params.repo,
       baseBranch: params.baseBranch,
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: error instanceof Error ? error.stack as any : undefined as any,
     });
     throw error;
   }
@@ -2301,7 +2301,7 @@ export async function mergePrFromParams(params: {
       repoPath: params.repo,
       baseBranch: params.baseBranch,
       session: params.session,
-    });
+    }) as any;
     return result;
   } catch (error) {
     log.error("Error merging PR branch", {
@@ -2310,7 +2310,7 @@ export async function mergePrFromParams(params: {
       session: params.session,
       repo: params.repo,
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: error instanceof Error ? error.stack as any : undefined as any,
     });
     throw error;
   }
@@ -2332,7 +2332,7 @@ export async function cloneFromParams(params: {
       workdir: params.workdir,
       session: params.session,
       branch: params.branch,
-    });
+    }) as any;
     return result;
   } catch (error) {
     log.error("Error cloning repository", {
@@ -2341,7 +2341,7 @@ export async function cloneFromParams(params: {
       session: params.session,
       branch: params.branch,
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: error instanceof Error ? error.stack as any : undefined as any,
     });
     throw error;
   }
@@ -2359,14 +2359,14 @@ export async function branchFromParams(params: {
     const result = await git.branch({
       session: params.session,
       branch: params.name,
-    });
+    }) as any;
     return result;
   } catch (error) {
     log.error("Error creating branch", {
       session: params.session,
       name: params.name,
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: error instanceof Error ? error.stack as any : undefined as any,
     });
     throw error;
   }
@@ -2390,7 +2390,7 @@ export async function pushFromParams(params: {
       remote: params.remote,
       force: params.force,
       debug: params.debug,
-    });
+    }) as any;
     return result;
   } catch (error) {
     log.error("Error pushing changes", {
@@ -2399,7 +2399,7 @@ export async function pushFromParams(params: {
       remote: params.remote,
       force: params.force,
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: error instanceof Error ? error.stack as any : undefined as any,
     });
     throw error;
   }

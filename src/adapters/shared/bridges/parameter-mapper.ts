@@ -238,7 +238,7 @@ export function createParameterMappings(
       // Override with custom options if available
       ...customOptions[name],
     },
-  }));
+  })) as any;
 }
 
 /**
