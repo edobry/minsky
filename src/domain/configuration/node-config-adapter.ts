@@ -24,12 +24,12 @@ export class NodeConfigAdapter implements ConfigurationService {
   async loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult> {
     // Use node-config to get the resolved configuration
     const resolved: ResolvedConfig = {
-      backend: config.get("backend"),
-      backendConfig: config.get("backendConfig"),
-      credentials: config.get("credentials"),
-      detectionRules: config.get("detectionRules"),
-      sessiondb: config.get("sessiondb"),
-      ai: config.has("ai") ? config.get("ai") : undefined as any,
+      backend: (config as any).get("backend"),
+      backendConfig: (config as any).get("backendConfig"),
+      credentials: (config as any).get("credentials"),
+      detectionRules: (config as any).get("detectionRules"),
+      sessiondb: (config as any).get("sessiondb"),
+      ai: (config as any).has("ai") ? (config as any).get("ai") : undefined as any,
     };
 
     // Create mock sources for backward compatibility
@@ -80,8 +80,8 @@ export class NodeConfigAdapter implements ConfigurationService {
 
     // These will be handled by custom-environment-variables.yaml in node-config
     // but we maintain this for compatibility during migration
-    if (process.env.MINSKY_BACKEND) {
-      overrides.backend = process.env.MINSKY_BACKEND as any;
+    if ((process.env as any).MINSKY_BACKEND) {
+      (overrides as any).backend = (process.env as any).MINSKY_BACKEND as any;
     }
 
     return overrides;

@@ -24,7 +24,7 @@ export class CommandMapper {
 
     if (projectContext) {
       log.debug("CommandMapper initialized with project context", {
-        repositoryPath: projectContext.repositoryPath,
+        repositoryPath: (projectContext as any).repositoryPath,
       });
     }
   }
@@ -57,7 +57,7 @@ export class CommandMapper {
   private normalizeMethodName(methodName: string): string {
     // Ensure there are no unexpected characters in the method name
     // Replace any problematic characters with underscores
-    const normalized = methodName.replace(/[^a-zA-Z0-9_.]/g, "_");
+    const normalized = (methodName as any).replace(/[^a-zA-Z0-9_.]/g, "_");
 
     // Log the normalization if it changed the method name
     if (normalized !== methodName) {
@@ -81,41 +81,41 @@ export class CommandMapper {
     execute: (args: z.infer<T>) => Promise<string | Record<string, any>>;
   }): void {
     // Normalize the method name for consistency and compatibility
-    const normalizedName = this.normalizeMethodName(command.name);
+    const normalizedName = this.normalizeMethodName((command as any).name);
 
     // Log the addition of the tool to help with debugging
     log.debug("Registering MCP tool", {
       methodName: normalizedName,
-      originalName: command.name,
-      description: command.description,
-      hasParameters: command.parameters ? true : false,
+      originalName: (command as any).name,
+      description: (command as any).description,
+      hasParameters: (command as any).parameters ? true : false,
     });
 
     // Keep track of registered method names
-    this.registeredMethodNames.push(normalizedName);
+    (this.registeredMethodNames as any).push(normalizedName);
 
     // Register the tool with FastMCP
-    this.server.addTool({
+    (this.server as any).addTool({
       name: normalizedName,
-      description: command.description,
-      parameters: command.parameters || z.object({}),
+      description: (command as any).description,
+      parameters: (command as any).parameters || z.object({}),
       execute: async (args) => {
         try {
           // If the command might use repository context and no explicit repository is provided,
           // inject the default repository path from project context
           if (
             this.projectContext &&
-            this.projectContext.repositoryPath &&
+            (this.projectContext as any).repositoryPath &&
             args &&
             typeof args === "object"
           ) {
             if (!("repositoryPath" in args) || !args.repositoryPath) {
               args = {
                 ...args,
-                repositoryPath: this.projectContext.repositoryPath,
+                repositoryPath: (this.projectContext as any).repositoryPath,
               };
               log.debug(`Using default repository path for command ${normalizedName}`, {
-                repositoryPath: this.projectContext.repositoryPath,
+                repositoryPath: (this.projectContext as any).repositoryPath,
               });
             }
           }
@@ -132,14 +132,14 @@ export class CommandMapper {
             return result;
           }
           // Otherwise, return it as a JSON string for structured data
-          return JSON.stringify(result, null, 2);
+          return JSON.stringify(result as any, null, 2);
         } catch (error) {
-          const errorMessage = getErrorMessage(error);
+          const errorMessage = getErrorMessage(error as any);
           log.error("Error executing MCP command", {
             command: normalizedName,
             error: errorMessage,
             args,
-            stack: error instanceof Error ? error.stack as any : undefined as any,
+            stack: error instanceof Error ? (error as any).stack as any : undefined as any,
           });
           throw error; // Re-throw to let FastMCP handle error presentation
         }
@@ -148,8 +148,8 @@ export class CommandMapper {
 
     // Also register the method with an underscore-based name if it contains dots
     // This provides a fallback for JSON-RPC clients that have issues with dot notation
-    if (normalizedName.includes(".")) {
-      const underscoreName = normalizedName.replace(/\./g, "_");
+    if ((normalizedName as any).includes(".")) {
+      const underscoreName = (normalizedName as any).replace(/\./g, "_");
 
       // Don't register the same name twice
       if (underscoreName !== normalizedName) {
@@ -159,13 +159,13 @@ export class CommandMapper {
         });
 
         // Keep track of the alias
-        this.registeredMethodNames.push(underscoreName);
+        (this.registeredMethodNames as any).push(underscoreName);
 
         // Register the alias
-        this.server.addTool({
+        (this.server as any).addTool({
           name: underscoreName,
-          description: `${command.description} (underscore alias)`,
-          parameters: command.parameters || z.object({}),
+          description: `${(command as any).description} (underscore alias)`,
+          parameters: (command as any).parameters || z.object({}),
           execute: async (args) => {
             try {
               log.debug("Executing MCP command via underscore alias", {
@@ -178,14 +178,14 @@ export class CommandMapper {
               // inject the default repository path from project context
               if (
                 this.projectContext &&
-                this.projectContext.repositoryPath &&
+                (this.projectContext as any).repositoryPath &&
                 args &&
                 typeof args === "object"
               ) {
                 if (!("repositoryPath" in args) || !args.repositoryPath) {
                   args = {
                     ...args,
-                    repositoryPath: this.projectContext.repositoryPath,
+                    repositoryPath: (this.projectContext as any).repositoryPath,
                   };
                 }
               }
@@ -196,15 +196,15 @@ export class CommandMapper {
                 return result;
               }
               // Otherwise, return it as a JSON string for structured data
-              return JSON.stringify(result, null, 2);
+              return JSON.stringify(result as any, null, 2);
             } catch (error) {
-              const errorMessage = getErrorMessage(error);
+              const errorMessage = getErrorMessage(error as any);
               log.error("Error executing MCP command via underscore alias", {
                 command: underscoreName,
                 originalName: normalizedName,
                 error: errorMessage,
                 args,
-                stack: error instanceof Error ? error.stack as any : undefined as any,
+                stack: error instanceof Error ? (error as any).stack as any : undefined as any,
               });
               throw error; // Re-throw to let FastMCP handle error presentation
             }
@@ -228,12 +228,12 @@ export class CommandMapper {
     executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
   ): void {
     // Extend parameters to include optional repositoryPath if not already present
-    const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
+    const hasRepositoryPath = (Object.keys(parameters.shape) as any).includes("repositoryPath");
 
     let extendedParameters: z.ZodTypeAny;
     if (!hasRepositoryPath) {
       // Create extended parameters including repositoryPath
-      extendedParameters = parameters.extend({
+      extendedParameters = (parameters as any).extend({
         repositoryPath: z
           .string()
           .optional()
@@ -267,11 +267,11 @@ export class CommandMapper {
     executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
   ): void {
     // Extend parameters to include optional repositoryPath if not already present
-    const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
+    const hasRepositoryPath = (Object.keys(parameters.shape) as any).includes("repositoryPath");
 
     let extendedParameters: z.ZodTypeAny;
     if (!hasRepositoryPath) {
-      extendedParameters = parameters.extend({
+      extendedParameters = (parameters as any).extend({
         repositoryPath: z
           .string()
           .optional()
@@ -305,11 +305,11 @@ export class CommandMapper {
     executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
   ): void {
     // Extend parameters to include optional repositoryPath if not already present
-    const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
+    const hasRepositoryPath = (Object.keys(parameters.shape) as any).includes("repositoryPath");
 
     let extendedParameters: z.ZodTypeAny;
     if (!hasRepositoryPath) {
-      extendedParameters = parameters.extend({
+      extendedParameters = (parameters as any).extend({
         repositoryPath: z
           .string()
           .optional()
@@ -343,11 +343,11 @@ export class CommandMapper {
     executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
   ): void {
     // Extend parameters to include optional repositoryPath if not already present
-    const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
+    const hasRepositoryPath = (Object.keys(parameters.shape) as any).includes("repositoryPath");
 
     let extendedParameters: z.ZodTypeAny;
     if (!hasRepositoryPath) {
-      extendedParameters = parameters.extend({
+      extendedParameters = (parameters as any).extend({
         repositoryPath: z
           .string()
           .optional()

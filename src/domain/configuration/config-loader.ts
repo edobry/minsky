@@ -62,15 +62,15 @@ export class ConfigurationLoader {
     const config: Partial<ResolvedConfig> = {};
 
     // Backend override
-    if (process.env[ENV_VARS.BACKEND]) {
-      config.backend = process.env[ENV_VARS.BACKEND] as any;
+    if ((process as any).env[ENV_VARS.BACKEND]) {
+      (config as any).backend = (process as any).env[ENV_VARS.BACKEND] as any;
     }
 
     // GitHub token for credentials
-    if (process.env[ENV_VARS.GITHUB_TOKEN]) {
-      config.github = {
+    if ((process as any).env[ENV_VARS.GITHUB_TOKEN]) {
+      (config as any).github = {
         credentials: {
-          token: process.env[ENV_VARS.GITHUB_TOKEN],
+          token: (process as any).env[ENV_VARS.GITHUB_TOKEN],
           source: "environment",
         } as any,
       };
@@ -78,24 +78,24 @@ export class ConfigurationLoader {
 
     // SessionDB configuration overrides
     const sessionDbConfig: Partial<SessionDbConfig> = {};
-    if (process.env[ENV_VARS.SESSIONDB_BACKEND]) {
-      const backend = process.env[ENV_VARS.SESSIONDB_BACKEND];
+    if ((process as any).env[ENV_VARS.SESSIONDB_BACKEND]) {
+      const backend = (process as any).env[ENV_VARS.SESSIONDB_BACKEND];
       if (backend === "json" || backend === "sqlite" || backend === "postgres") {
-        sessionDbConfig.backend = backend;
+        (sessionDbConfig as any).backend = backend;
       }
     }
-    if (process.env[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
-      sessionDbConfig.dbPath = process.env[ENV_VARS.SESSIONDB_SQLITE_PATH] as any;
+    if ((process as any).env[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
+      (sessionDbConfig as any).dbPath = (process as any).env[ENV_VARS.SESSIONDB_SQLITE_PATH] as any;
     }
-    if (process.env[ENV_VARS.SESSIONDB_POSTGRES_URL]) {
-      sessionDbConfig.connectionString = process.env[ENV_VARS.SESSIONDB_POSTGRES_URL] as any;
+    if ((process as any).env[ENV_VARS.SESSIONDB_POSTGRES_URL]) {
+      (sessionDbConfig as any).connectionString = (process as any).env[ENV_VARS.SESSIONDB_POSTGRES_URL] as any;
     }
-    if (process.env[ENV_VARS.SESSIONDB_BASE_DIR]) {
-      sessionDbConfig.baseDir = process.env[ENV_VARS.SESSIONDB_BASE_DIR] as any;
+    if ((process as any).env[ENV_VARS.SESSIONDB_BASE_DIR]) {
+      (sessionDbConfig as any).baseDir = (process as any).env[ENV_VARS.SESSIONDB_BASE_DIR] as any;
     }
 
-    if (Object.keys(sessionDbConfig).length > 0) {
-      config.sessiondb = sessionDbConfig as SessionDbConfig;
+    if ((Object.keys(sessionDbConfig) as any).length > 0) {
+      (config as any).sessiondb = sessionDbConfig as SessionDbConfig;
     }
 
     return config;
@@ -113,11 +113,11 @@ export class ConfigurationLoader {
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
-      const contentStr = typeof content === "string" ? content : content.toString();
+      const contentStr = typeof content === "string" ? content : (content as any).toString();
       return parseYaml(contentStr) as GlobalUserConfig;
     } catch (error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-      console.error(`Failed to load global user config from ${configPath}:`, error as any);
+      (console as any).error(`Failed to load global user config from ${configPath}:`, error as any);
       return null as any;
     }
   }
@@ -134,7 +134,7 @@ export class ConfigurationLoader {
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
-      const contentStr = typeof content === "string" ? content : content.toString();
+      const contentStr = typeof content === "string" ? content : (content as any).toString();
       return parseYaml(contentStr) as RepositoryConfig;
     } catch (error) {
       // Silently fail - configuration loading should be resilient
@@ -150,93 +150,93 @@ export class ConfigurationLoader {
 
     // Start with defaults
     const resolved: ResolvedConfig = {
-      backend: defaults.backend || "json-file",
-      backendConfig: { ...defaults.backendConfig },
-      detectionRules: [...(defaults.detectionRules || [])],
-      sessiondb: { ...defaults.sessiondb } as SessionDbConfig,
+      backend: (defaults as any).backend || "json-file",
+      backendConfig: { ...(defaults as any).backendConfig },
+      detectionRules: [...((defaults as any).detectionRules || [])],
+      sessiondb: { ...(defaults as any).sessiondb } as SessionDbConfig,
     };
 
     // Apply repository config
     if (repository) {
-      if (repository.backends?.default) {
-        resolved.backend = repository.backends.default;
+      if ((repository.backends as any).default) {
+        (resolved as any).backend = (repository.backends as any).default;
       }
 
       // Merge backend-specific configs
-      if (repository.backends) {
-        resolved.backendConfig = this.mergeBackendConfig(
-          resolved.backendConfig,
-          repository.backends
+      if ((repository as any).backends) {
+        (resolved as any).backendConfig = this.mergeBackendConfig(
+          (resolved as any).backendConfig,
+          (repository as any).backends
         );
       }
 
       // Use repository detection rules if available
-      if (repository.repository?.detection_rules) {
-        resolved.detectionRules = repository.repository.detection_rules;
+      if ((repository.repository as any).detection_rules) {
+        (resolved as any).detectionRules = (repository.repository as any).detection_rules;
       }
 
       // Merge sessiondb config from repository
-      if (repository.sessiondb) {
+      if ((repository as any).sessiondb) {
         // Convert repository sessiondb format to SessionDbConfig format
         const repoSessionDb: Partial<SessionDbConfig> = {
-          backend: repository.sessiondb.backend,
-          dbPath: repository.sessiondb.sqlite?.path,
-          baseDir: repository.sessiondb.base_dir,
-          connectionString: repository.sessiondb.postgres?.connection_string,
+          backend: (repository.sessiondb as any).backend,
+          dbPath: (repository.sessiondb.sqlite as any).path,
+          baseDir: (repository.sessiondb as any).base_dir,
+          connectionString: (repository.sessiondb.postgres as any).connection_string,
         };
-        resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, repoSessionDb);
+        (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, repoSessionDb);
       }
 
       // Merge GitHub config from repository
-      if (repository.github) {
-        resolved.github = this.mergeGitHubConfig(resolved.github, repository.github);
+      if ((repository as any).github) {
+        (resolved as any).github = this.mergeGitHubConfig((resolved as any).github, (repository as any).github);
       }
 
       // Merge AI config from repository
-      if (repository.ai) {
-        resolved.ai = this.mergeAIConfig(resolved.ai, repository.ai);
+      if ((repository as any).ai) {
+        (resolved as any).ai = this.mergeAIConfig((resolved as any).ai, (repository as any).ai);
       }
     }
 
     // Apply global user config
-    if (globalUser?.github) {
-      resolved.github = this.mergeGitHubConfig(resolved.github, globalUser.github);
+    if ((globalUser as any).github) {
+      (resolved as any).github = this.mergeGitHubConfig((resolved as any).github, (globalUser as any).github);
     }
-    if (globalUser?.sessiondb) {
+    if ((globalUser as any).sessiondb) {
       // Convert global user sessiondb format to SessionDbConfig format
       const globalSessionDb: Partial<SessionDbConfig> = {
-        dbPath: globalUser.sessiondb.sqlite?.path,
-        baseDir: globalUser.sessiondb.base_dir,
+        dbPath: (globalUser.sessiondb.sqlite as any).path,
+        baseDir: (globalUser.sessiondb as any).base_dir,
       };
-      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, globalSessionDb);
+      (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, globalSessionDb);
     }
-    if (globalUser?.ai) {
-      resolved.ai = this.mergeAIConfig(resolved.ai, globalUser.ai);
+    if ((globalUser as any).ai) {
+      (resolved as any).ai = this.mergeAIConfig((resolved as any).ai, (globalUser as any).ai);
     }
-    if (globalUser?.postgres) {
-      resolved.postgres = { ...globalUser.postgres };
+    if ((globalUser as any).postgres) {
+      (resolved as any).postgres = { ...(globalUser as any).postgres };
     }
 
     // Apply environment overrides
-    if (environment.backend) {
-      resolved.backend = environment.backend;
+    if ((environment as any).backend) {
+      (resolved as any).backend = (environment as any).backend;
     }
-    if (environment.github) {
-      resolved.github = this.mergeGitHubConfig(resolved.github, environment.github);
+    if ((environment as any).github) {
+      (resolved as any).github = this.mergeGitHubConfig((resolved as any).github, (environment as any).github);
     }
-    if (environment.sessiondb) {
-      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, environment.sessiondb);
+    if ((environment as any).sessiondb) {
+      (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, (environment as any).sessiondb);
     }
 
     // Apply CLI flags (highest priority)
     if (cliFlags.backend) {
-      resolved.backend = cliFlags.backend;
+      (resolved as any).backend = cliFlags.backend;
     }
     if (cliFlags.github) {
-      resolved.github = this.mergeGitHubConfig(resolved.github, cliFlags.github);
+      (resolved as any).github = this.mergeGitHubConfig((resolved as any).github, cliFlags.github);
     }
     if (cliFlags.sessiondb) {
-      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, cliFlags.sessiondb);
+      (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, cliFlags.sessiondb);
     }
 
     return resolved;
@@ -270,10 +270,10 @@ export class ConfigurationLoader {
   ): GitHubConfig {
     const merged = { ...existing };
     
-    if (newGitHub.credentials) {
-      merged.credentials = {
-        ...merged.credentials,
-        ...newGitHub.credentials,
+    if ((newGitHub as any).credentials) {
+      (merged as any).credentials = {
+        ...(merged as any).credentials,
+        ...(newGitHub as any).credentials,
       };
     }
 
@@ -289,14 +289,14 @@ export class ConfigurationLoader {
   ): AIConfig {
     const merged = { ...existing };
     
-    if (newAI.default_provider) {
-      merged.default_provider = newAI.default_provider;
+    if ((newAI as any).default_provider) {
+      (merged as any).default_provider = (newAI as any).default_provider;
     }
 
-    if (newAI.providers) {
-      merged.providers = {
-        ...merged.providers,
-        ...newAI.providers,
+    if ((newAI as any).providers) {
+      (merged as any).providers = {
+        ...(merged as any).providers,
+        ...(newAI as any).providers,
       };
     }
 
@@ -323,8 +323,8 @@ export class ConfigurationLoader {
    * Expand tilde in file paths
    */
   private expandTilde(filePath: string): string {
-    if (filePath.startsWith("~/")) {
-      return join(homedir(), filePath.slice(2));
+    if ((filePath as any).startsWith("~/")) {
+      return join(homedir(), (filePath as any).slice(2));
     }
     return filePath;
   }

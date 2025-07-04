@@ -39,7 +39,7 @@ type RulesListParams = {
 
 const rulesListCommandParams: CommandParameterMap = {
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.enum(["cursor", "generic"] as any[]).optional(),
     description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
@@ -79,7 +79,7 @@ const rulesGetCommandParams: CommandParameterMap = {
     required: true,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.enum(["cursor", "generic"] as any[]).optional(),
     description: "Preferred rule format (cursor or generic)",
     required: false,
   },
@@ -144,7 +144,7 @@ const rulesCreateCommandParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.enum(["cursor", "generic"] as any[]).optional(),
     description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
@@ -209,7 +209,7 @@ const rulesUpdateCommandParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.enum(["cursor", "generic"] as any[]).optional(),
     description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
@@ -245,7 +245,7 @@ const rulesSearchCommandParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.enum(["cursor", "generic"] as any[]).optional(),
     description: "Filter by rule format (cursor or generic)",
     required: false,
   },
@@ -273,9 +273,9 @@ const rulesSearchCommandParams: CommandParameterMap = {
  */
 export function registerRulesCommands(): void {
   // Register rules list command
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "rules.list",
-    category: CommandCategory.RULES,
+    category: (CommandCategory as any).RULES,
     name: "list",
     description: "List all rules in the workspace",
     parameters: rulesListCommandParams,
@@ -288,13 +288,13 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Convert parameters
-        const format = params.format as RuleFormat | undefined;
+        const format = (params as any).format as RuleFormat | undefined;
 
         // Call domain function
-        const rules = await ruleService.listRules({
+        const rules = await (ruleService as any).listRules({
           format,
-          tag: params.tag,
-          debug: params.debug,
+          tag: (params as any).tag,
+          debug: (params as any).debug,
         });
 
         return {
@@ -303,7 +303,7 @@ export function registerRulesCommands(): void {
         };
       } catch (error) {
         log.error("Failed to list rules", {
-          error: getErrorMessage(error),
+          error: getErrorMessage(error as any),
         });
         throw error;
       }
@@ -311,9 +311,9 @@ export function registerRulesCommands(): void {
   });
 
   // Register rules get command
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "rules.get",
-    category: CommandCategory.RULES,
+    category: (CommandCategory as any).RULES,
     name: "get",
     description: "Get a specific rule by ID",
     parameters: rulesGetCommandParams,
@@ -328,12 +328,12 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Convert parameters
-        const format = typedParams.format as RuleFormat | undefined;
+        const format = (typedParams as any).format as RuleFormat | undefined;
 
         // Call domain function
-        const rule = await ruleService.getRule(typedParams.id, {
+        const rule = await (ruleService as any).getRule((typedParams as any).id, {
           format,
-          debug: typedParams.debug,
+          debug: (typedParams as any).debug,
         });
 
         return {
@@ -342,8 +342,8 @@ export function registerRulesCommands(): void {
         };
       } catch (error) {
         log.error("Failed to get rule", {
-          error: getErrorMessage(error),
-          id: typedParams.id,
+          error: getErrorMessage(error as any),
+          id: (typedParams as any).id,
         });
         throw error;
       }
@@ -351,9 +351,9 @@ export function registerRulesCommands(): void {
   });
 
   // Register rules create command
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "rules.create",
-    category: CommandCategory.RULES,
+    category: (CommandCategory as any).RULES,
     name: "create",
     description: "Create a new rule",
     parameters: rulesCreateCommandParams,
@@ -368,29 +368,29 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Process content (could be file path)
-        const content = await readContentFromFileIfExists(typedParams.content);
+        const content = await readContentFromFileIfExists((typedParams as any).content);
 
         // Process globs and tags
-        const globs = parseGlobs(typedParams.globs);
-        const tags = typedParams.tags
-          ? typedParams.tags.split(",").map((tag: string) => tag.trim())
+        const globs = parseGlobs((typedParams as any).globs);
+        const tags = (typedParams as any).tags
+          ? ((typedParams.tags as any).split(",") as any).map((tag: string) => (tag as any).trim())
           : undefined as any;
 
         // Prepare metadata
         const meta = {
-          name: typedParams.name || typedParams.id,
-          description: typedParams.description,
+          name: (typedParams as any).name || (typedParams as any).id,
+          description: (typedParams as any).description,
           globs,
           tags,
         };
 
         // Convert format
-        const format = typedParams.format as RuleFormat | undefined;
+        const format = (typedParams as any).format as RuleFormat | undefined;
 
         // Call domain function
-        const rule = await ruleService.createRule(typedParams.id, content, meta, {
+        const rule = await (ruleService as any).createRule((typedParams as any).id, content, meta, {
           format,
-          overwrite: typedParams.overwrite,
+          overwrite: (typedParams as any).overwrite,
         });
 
         return {
@@ -399,8 +399,8 @@ export function registerRulesCommands(): void {
         };
       } catch (error) {
         log.error("Failed to create rule", {
-          error: getErrorMessage(error),
-          id: typedParams.id,
+          error: getErrorMessage(error as any),
+          id: (typedParams as any).id,
         });
         throw error;
       }
@@ -408,9 +408,9 @@ export function registerRulesCommands(): void {
   });
 
   // Register rules update command
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "rules.update",
-    category: CommandCategory.RULES,
+    category: (CommandCategory as any).RULES,
     name: "update",
     description: "Update an existing rule",
     parameters: rulesUpdateCommandParams,
@@ -425,37 +425,37 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Process content if provided (could be file path)
-        const content = typedParams.content
-          ? await readContentFromFileIfExists(typedParams.content)
+        const content = (typedParams as any).content
+          ? await readContentFromFileIfExists((typedParams as any).content)
           : undefined as any;
 
         // Process globs and tags
-        const globs = typedParams.globs ? parseGlobs(typedParams.globs) : undefined as any;
-        const tags = typedParams.tags
-          ? typedParams.tags.split(",").map((tag: any) => tag.trim())
+        const globs = (typedParams as any).globs ? parseGlobs((typedParams as any).globs) : undefined as any;
+        const tags = (typedParams as any).tags
+          ? ((typedParams.tags as any).split(",") as any).map((tag: any) => (tag as any).trim())
           : undefined as any;
 
         // Prepare metadata updates
         const meta: Record<string, any> = {};
 
-        if (typedParams.name !== undefined) meta.name = typedParams.name;
-        if (typedParams.description !== undefined) meta.description = typedParams.description;
-        if (globs !== undefined) meta.globs = globs;
-        if (tags !== undefined) meta.tags = tags;
+        if ((typedParams as any).name !== undefined) (meta as any).name = (typedParams as any).name;
+        if ((typedParams as any).description !== undefined) (meta as any).description = (typedParams as any).description;
+        if (globs !== undefined) (meta as any).globs = globs;
+        if (tags !== undefined) (meta as any).tags = tags;
 
         // Convert format
-        const format = typedParams.format as RuleFormat | undefined;
+        const format = (typedParams as any).format as RuleFormat | undefined;
 
         // Call domain function
-        const rule = await ruleService.updateRule(
-          typedParams.id,
+        const rule = await (ruleService as any).updateRule(
+          (typedParams as any).id,
           {
             content,
-            meta: Object.keys(meta).length > 0 ? meta : undefined as any,
+            meta: (Object.keys(meta) as any).length > 0 ? meta : undefined as any,
           },
           {
             format,
-            debug: typedParams.debug,
+            debug: (typedParams as any).debug,
           }
         );
 
@@ -465,8 +465,8 @@ export function registerRulesCommands(): void {
         };
       } catch (error) {
         log.error("Failed to update rule", {
-          error: getErrorMessage(error),
-          id: typedParams.id,
+          error: getErrorMessage(error as any),
+          id: (typedParams as any).id,
         });
         throw error;
       }
@@ -474,9 +474,9 @@ export function registerRulesCommands(): void {
   });
 
   // Register rules search command
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "rules.search",
-    category: CommandCategory.RULES,
+    category: (CommandCategory as any).RULES,
     name: "search",
     description: "Search for rules by content or metadata",
     parameters: rulesSearchCommandParams,
@@ -489,13 +489,13 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Convert parameters
-        const format = params.format as RuleFormat | undefined;
+        const format = (params as any).format as RuleFormat | undefined;
 
         // Call domain function
-        const rules = await ruleService.searchRules({
+        const rules = await (ruleService as any).searchRules({
           format,
-          tag: params.tag,
-          query: params.query,
+          tag: (params as any).tag,
+          query: (params as any).query,
         });
 
         return {
@@ -504,8 +504,8 @@ export function registerRulesCommands(): void {
         };
       } catch (error) {
         log.error("Failed to search rules", {
-          error: getErrorMessage(error),
-          query: params.query,
+          error: getErrorMessage(error as any),
+          query: (params as any).query,
         });
         throw error;
       }

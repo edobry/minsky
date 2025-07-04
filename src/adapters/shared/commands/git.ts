@@ -110,7 +110,7 @@ const pushCommandParams: CommandParameterMap = {
  */
 const cloneCommandParams: CommandParameterMap = {
   url: {
-    schema: z.string().url(),
+    schema: (z.string() as any).url(),
     description: "URL of the Git repository to clone",
     required: true,
   },
@@ -172,12 +172,12 @@ const prCommandParams: CommandParameterMap = {
     required: false,
   },
   debug: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: DEBUG_DESCRIPTION,
     required: false,
   },
   noStatusUpdate: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: NO_STATUS_UPDATE_DESCRIPTION,
     required: false,
   },
@@ -188,9 +188,9 @@ const prCommandParams: CommandParameterMap = {
  */
 export function registerGitCommands(): void {
   // Register git commit command
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "git.commit",
-    category: CommandCategory.GIT,
+    category: (CommandCategory as any).GIT,
     name: "commit",
     description: "Commit changes to the repository",
     parameters: commitCommandParams,
@@ -198,26 +198,26 @@ export function registerGitCommands(): void {
       log.debug("Executing git.commit command", { params });
 
       const result = await commitChangesFromParams({
-        message: params.message,
-        all: params.all,
-        amend: params.amend,
-        noStage: params.noStage,
-        repo: params.repo,
-        session: params.session,
+        message: (params as any).message,
+        all: (params as any).all,
+        amend: (params as any).amend,
+        noStage: (params as any).noStage,
+        repo: (params as any).repo,
+        session: (params as any).session,
       }) as any;
 
       return {
         success: true,
-        commitHash: result.commitHash,
-        message: result.message,
+        commitHash: (result as any).commitHash,
+        message: (result as any).message,
       } as any;
     },
   });
 
   // Register git push command
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "git.push",
-    category: CommandCategory.GIT,
+    category: (CommandCategory as any).GIT,
     name: "push",
     description: "Push changes to the remote repository",
     parameters: pushCommandParams,
@@ -225,24 +225,24 @@ export function registerGitCommands(): void {
       log.debug("Executing git.push command", { params });
 
       const result = await pushFromParams({
-        repo: params.repo,
-        session: params.session,
-        remote: params.remote,
-        force: params.force,
-        debug: params.debug,
+        repo: (params as any).repo,
+        session: (params as any).session,
+        remote: (params as any).remote,
+        force: (params as any).force,
+        debug: (params as any).debug,
       }) as any;
 
       return {
-        success: result.pushed,
-        workdir: result.workdir,
+        success: (result as any).pushed,
+        workdir: (result as any).workdir,
       } as any;
     },
   });
 
   // Register git clone command
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "git.clone",
-    category: CommandCategory.GIT,
+    category: (CommandCategory as any).GIT,
     name: "clone",
     description: "Clone a Git repository",
     parameters: cloneCommandParams,
@@ -250,24 +250,24 @@ export function registerGitCommands(): void {
       log.debug("Executing git.clone command", { params });
 
       const result = await cloneFromParams({
-        url: params.url,
-        session: params.session,
-        destination: params.destination,
-        branch: params.branch,
+        url: (params as any).url,
+        session: (params as any).session,
+        destination: (params as any).destination,
+        branch: (params as any).branch,
       }) as any;
 
       return {
         success: true,
-        workdir: result.workdir,
-        session: result.session,
+        workdir: (result as any).workdir,
+        session: (result as any).session,
       } as any;
     },
   });
 
   // Register git branch command
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "git.branch",
-    category: CommandCategory.GIT,
+    category: (CommandCategory as any).GIT,
     name: "branch",
     description: "Create a new branch",
     parameters: branchCommandParams,
@@ -275,22 +275,22 @@ export function registerGitCommands(): void {
       log.debug("Executing git.branch command", { params });
 
       const result = await branchFromParams({
-        session: params.session,
-        name: params.name,
+        session: (params as any).session,
+        name: (params as any).name,
       }) as any;
 
       return {
         success: true,
-        workdir: result.workdir,
-        branch: result.branch,
+        workdir: (result as any).workdir,
+        branch: (result as any).branch,
       } as any;
     },
   });
 
   // Register git pr command
-  sharedCommandRegistry.registerCommand({
+  (sharedCommandRegistry as any).registerCommand({
     id: "git.pr",
-    category: CommandCategory.GIT,
+    category: (CommandCategory as any).GIT,
     name: "pr",
     description: "Create a new pull request",
     parameters: prCommandParams,
@@ -298,18 +298,18 @@ export function registerGitCommands(): void {
       log.debug("Executing git.pr command", { params });
 
       const result = await createPullRequestFromParams({
-        session: params.session,
-        repo: params.repo,
-        branch: params.branch,
-        taskId: params.task,
-        debug: params.debug,
-        noStatusUpdate: params.noStatusUpdate,
+        session: (params as any).session,
+        repo: (params as any).repo,
+        branch: (params as any).branch,
+        taskId: (params as any).task,
+        debug: (params as any).debug,
+        noStatusUpdate: (params as any).noStatusUpdate,
       }) as any;
 
       return {
         success: true,
-        markdown: result.markdown,
-        statusUpdateResult: result.statusUpdateResult,
+        markdown: (result as any).markdown,
+        statusUpdateResult: (result as any).statusUpdateResult,
       } as any;
     },
   });

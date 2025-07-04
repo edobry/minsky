@@ -13,69 +13,58 @@ interface ListOptions {
 }
 
 export function createConfigListCommand(): Command {
-  return new Command("list")
+  return (new Command("list")
     .description("List all configuration values and their sources")
-    .option("--json", "Output in JSON format", false)
-    .action(async (options: ListOptions) => {
-      try {
-        // Use node-config directly - it provides source information via config.util.getConfigSources()
-        const sources = config.util.getConfigSources();
-        const resolved = {
-          backend: config.get("backend"),
-          backendConfig: config.get("backendConfig"),
-          credentials: config.get("credentials"),
-          sessiondb: config.get("sessiondb"),
-          ai: config.has("ai") ? config.get("ai") : undefined as any,
-        };
+    .option("--json", "Output in JSON format", false) as any).action(async (options: ListOptions) => {
+    try {
+      // Use node-config directly - it provides source information via config.util.getConfigSources()
+      const sources = (config.util as any).getConfigSources();
+      const resolved = {
+        backend: (config as any).get("backend"),
+        backendConfig: (config as any).get("backendConfig"),
+        credentials: (config as any).get("credentials"),
+        sessiondb: (config as any).get("sessiondb"),
+        ai: (config as any).has("ai") ? (config as any).get("ai") : undefined as any,
+      };
 
-        if (options.json) {
-          const output = {
-            resolved,
-            sources: sources.map(source => ({
-              name: source.name,
-              original: source.original,
-              parsed: source.parsed
-            }))
-          };
-            // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-          process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-        } else {
-          displayConfigurationSources(resolved, sources);
-        }
-      } catch (error) {
-        // @ts-expect-error - Bun supports process.stderr.write at runtime, types incomplete
-        process.stderr.write(`Failed to load configuration: ${error}\n`);
-        exit(1);
+      if ((options as any).json) {
+        const output = {
+          resolved,
+          sources: (sources as any).map(source => ({
+            name: (source as any).name,
+            original: (source as any).original,
+            parsed: (source as any).parsed
+          }))
+        };
+        (process.stdout as any).write(`${JSON.stringify(output as any, null, 2)}\n`);
+      } else {
+        displayConfigurationSources(resolved, sources);
       }
-    }) as any;
+    } catch (error) {
+      (process.stderr as any).write(`Failed to load configuration: ${error}\n`);
+      exit(1);
+    }
+  }) as any;
 }
 
 function displayConfigurationSources(resolved: any, sources: any[]) {
-  // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-  process.stdout.write("CONFIGURATION SOURCES\n");
-  // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-  process.stdout.write(`${"=".repeat(40)}\n`);
+  (process.stdout as any).write("CONFIGURATION SOURCES\n");
+  (process.stdout as any).write(`${"=".repeat(40)}\n`);
 
   // Show source precedence
-  // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-  process.stdout.write("Source Precedence (highest to lowest):\n");
-  sources.forEach((source, index) => {
-    // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-    process.stdout.write(`  ${index + 1}. ${source.name}\n`);
+  (process.stdout as any).write("Source Precedence (highest to lowest):\n");
+  (sources as any).forEach((source, index) => {
+    (process.stdout as any).write(`  ${index + 1}. ${(source as any).name}\n`);
   });
 
-  // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-  process.stdout.write("\nResolved Configuration:\n");
-  // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-  process.stdout.write(`Backend: ${resolved.backend}\n`);
+  (process.stdout as any).write("\nResolved Configuration:\n");
+  (process.stdout as any).write(`Backend: ${(resolved as any).backend}\n`);
   
-  if (resolved.sessiondb) {
-    // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-    process.stdout.write(`SessionDB Backend: ${resolved.sessiondb.backend}\n`);
+  if ((resolved as any).sessiondb) {
+    (process.stdout as any).write(`SessionDB Backend: ${(resolved.sessiondb as any).backend}\n`);
   }
 
   // Backend detection is now handled directly in code (no configuration needed)
 
-  // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-  process.stdout.write("\nFor detailed configuration values, use: minsky config show\n");
+  (process.stdout as any).write("\nFor detailed configuration values, use: minsky config show\n");
 }

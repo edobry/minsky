@@ -148,8 +148,8 @@ export class MarkdownTaskBackend implements TaskBackend {
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     const tasks = await this.parseTasks();
 
-    if (options?.status) {
-      return tasks.filter((task) => task.status === options.status);
+    if ((options as any).status) {
+      return tasks.filter((task) => (task as any).status === (options as any).status);
     }
 
     return tasks;
@@ -159,17 +159,17 @@ export class MarkdownTaskBackend implements TaskBackend {
     const tasks = await this.parseTasks();
 
     // First try exact match
-    const exactMatch = tasks.find((task) => task.id === id);
+    const exactMatch = tasks.find((task) => (task as any).id === id);
     if (exactMatch) {
       return exactMatch;
     }
 
     // If no exact match, try numeric comparison
     // This handles case where ID is provided without leading zeros
-    const numericId = parseInt(id.replace(/^#/, ""), 10);
+    const numericId = parseInt((id as any).replace(/^#/, ""), 10);
     if (!isNaN(numericId)) {
       const numericMatch = tasks.find((task) => {
-        const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
+        const taskNumericId = parseInt((task.id as any).replace(/^#/, ""), 10);
         return !isNaN(taskNumericId) && taskNumericId === numericId;
       });
       return numericMatch || null;
@@ -180,12 +180,12 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   async getTaskStatus(id: string): Promise<string | null> {
     const task = await this.getTask(id);
-    return task ? task.status : null as any;
+    return task ? (task as any).status : null as any;
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
-    if (!Object.values(TASK_STATUS).includes(status as TaskStatus)) {
-      throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(", ")}`);
+    if (!(Object.values(TASK_STATUS) as any).includes(status as TaskStatus)) {
+      throw new Error(`Status must be one of: ${(Object.values(TASK_STATUS) as any).join(", ")}`);
     }
 
     // First verify the task exists with our enhanced getTask method
@@ -196,31 +196,31 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     // Use the canonical task ID from the found task
-    const canonicalId = task.id;
-    const idNum = canonicalId.startsWith("#") ? canonicalId.slice(1) : canonicalId;
+    const canonicalId = (task as any).id;
+    const idNum = canonicalId.startsWith("#") ? (canonicalId as any).slice(1) : canonicalId;
 
     const content = await fs.readFile(this.filePath, "utf-8");
     const newStatusChar = TASK_STATUS_CHECKBOX[status];
-    const lines = (content).toString().split("\n");
+    const lines = (((content) as any).toString() as any).split("\n");
     let inCodeBlock = false;
-    const updatedLines = lines.map((line) => {
-      if (line.trim().startsWith("```")) {
+    const updatedLines = (lines as any).map((line) => {
+      if (((line as any).trim() as any).startsWith("```")) {
         inCodeBlock = !inCodeBlock;
         return line;
       }
       if (inCodeBlock) return line;
-      if (line.includes(`[#${idNum}]`)) {
+      if ((line as any).includes(`[#${idNum}]`)) {
         // Use centralized utility to replace checkbox status
         return TASK_PARSING_UTILS.replaceCheckboxStatus(line, status as TaskStatus);
       }
       return line;
     });
-    await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
+    await fs.writeFile(this.filePath, (updatedLines as any).join("\n"), "utf-8");
   }
 
   private async validateSpecPath(taskId: string, title: string): Promise<string | undefined> {
-    const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const taskIdNum = taskId.startsWith("#") ? (taskId as any).slice(1) : taskId;
+    const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
     const specPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
     const fullPath = join(this.workspacePath, specPath);
 
@@ -232,7 +232,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       const taskDir = join(this.workspacePath, "process", "tasks");
       try {
         const files = await fs.readdir(taskDir);
-        const matchingFile = files.find((f) => f.startsWith(`${taskIdNum}-`));
+        const matchingFile = (files as any).find((f) => f.startsWith(`${taskIdNum}-`));
         if (matchingFile) {
           return join("process", "tasks", matchingFile);
         }
@@ -247,12 +247,12 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       const content = await fs.readFile(this.filePath, "utf-8");
       // Split into lines and track code block state
-      const lines = (content).toString().split("\n");
+      const lines = (((content) as any).toString() as any).split("\n");
       const tasks: Task[] = [];
       let inCodeBlock = false;
-      for (let i = 0; i < lines.length; i++) {
+      for (let i = 0; i < (lines as any).length; i++) {
         const line = lines[i] ?? "";
-        if (line.trim().startsWith("```")) {
+        if (((line as any).trim() as any).startsWith("```")) {
           inCodeBlock = !inCodeBlock;
           continue;
         }
@@ -264,14 +264,14 @@ export class MarkdownTaskBackend implements TaskBackend {
         const { checkbox, title, id } = parsed;
         if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
 
-        const status = Object.keys(TASK_STATUS_CHECKBOX).find(
+        const status = (Object.keys(TASK_STATUS_CHECKBOX) as any).find(
           (key) => TASK_STATUS_CHECKBOX[key] === checkbox
         );
         if (!status) continue;
 
         const specPath = await this.validateSpecPath(id, title);
 
-        tasks.push({
+        (tasks as any).push({
           id,
           title,
           status,
@@ -280,7 +280,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
       return tasks;
     } catch (error: any) {
-      if (error.code === "ENOENT") {
+      if ((error as any).code === "ENOENT") {
         log.warn(`Task file not found at ${this.filePath}. Returning empty task list.`);
         return []; // File not found, return empty array
       }
@@ -294,7 +294,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
     // Validate that the spec file exists
-    const fullSpecPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    const fullSpecPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
     try {
       await fs.access(fullSpecPath);
     } catch (error) {
@@ -303,10 +303,10 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     // Read and parse the spec file
     const specContent = await fs.readFile(fullSpecPath, "utf-8");
-    const lines = specContent.split("\n");
+    const lines = (specContent as any).split("\n");
 
     // Extract title from the first heading
-    const titleLine = lines.find((line) => line.startsWith("# "));
+    const titleLine = (lines as any).find((line) => (line as any).startsWith("# "));
     if (!titleLine) {
       throw new Error("Invalid spec file: Missing title heading");
     }
@@ -315,9 +315,9 @@ export class MarkdownTaskBackend implements TaskBackend {
     // 1. Old format with task number: "# Task #XXX: Title"
     // 2. Old format without number: "# Task: Title"
     // 3. New clean format: "# Title"
-    const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
-    const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
-    const cleanTitleMatch = titleLine.match(/^# (.+)$/);
+    const titleWithIdMatch = (titleLine as any).match(/^# Task #(\d+): (.+)$/);
+    const titleWithoutIdMatch = (titleLine as any).match(/^# Task: (.+)$/);
+    const cleanTitleMatch = (titleLine as any).match(/^# (.+)$/);
 
     let title: string;
     let hasTaskId = false;
@@ -335,7 +335,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       // New clean format: "# Title"
       title = cleanTitleMatch[1];
       // Skip if this looks like an old task format to avoid false positives
-      if (title.startsWith("Task ")) {
+      if ((title as any).startsWith("Task ")) {
         throw new Error(
           "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
         );
@@ -347,17 +347,17 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     // Extract description from the Context section
-    const contextIndex = lines.findIndex((line) => line.trim() === "## Context");
+    const contextIndex = (lines as any).findIndex((line) => (line as any).trim() === "## Context");
     if (contextIndex === -1) {
       throw new Error("Invalid spec file: Missing Context section");
     }
     let description = "";
-    for (let i = contextIndex + 1; i < lines.length; i++) {
+    for (let i = contextIndex + 1; i < (lines as any).length; i++) {
       const line = lines[i] || "";
-      if (line.trim().startsWith("## ")) break;
-      if (line.trim()) description += `${line.trim()}\n`;
+      if (((line as any).trim() as any).startsWith("## ")) break;
+      if ((line as any).trim()) description += `${(line as any).trim()}\n`;
     }
-    if (!description.trim()) {
+    if (!(description as any).trim()) {
       throw new Error("Invalid spec file: Empty Context section");
     }
 
@@ -366,7 +366,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (hasTaskId && existingId) {
       // Verify the task ID doesn't already exist
       const existingTask = await this.getTask(existingId);
-      if (existingTask && !options.force) {
+      if (existingTask && !(options as any).force) {
         throw new Error(`Task ${existingId} already exists. Use --force to overwrite.`);
       }
       taskId = existingId;
@@ -374,23 +374,23 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Find the next available task ID
       const tasks = await this.parseTasks();
       const maxId = tasks.reduce((max, task) => {
-        const id = parseInt(task.id.slice(1));
+        const id = parseInt((task as any).id.slice(1));
         return id > max ? id : max;
       }, 0);
       taskId = `#${String(maxId + 1).padStart(3, "0")}`;
     }
 
-    const taskIdNum = taskId.slice(1); // Remove the # prefix for file naming
+    const taskIdNum = (taskId as any).slice(1); // Remove the # prefix for file naming
 
     // Generate the standardized filename
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
     const newSpecPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
     const fullNewPath = join(this.workspacePath, newSpecPath);
 
     // Update the title in the spec file to use clean format
     let updatedContent = specContent;
     const cleanTitleLine = `# ${title}`;
-    updatedContent = updatedContent.replace(titleLine, cleanTitleLine);
+    updatedContent = (updatedContent as any).replace(titleLine, cleanTitleLine);
 
     // Rename and update the spec file
     try {
@@ -405,7 +405,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Check if the target file already exists
       try {
         await fs.access(fullNewPath);
-        if (!options.force) {
+        if (!(options as any).force) {
           throw new Error(`Target file already exists: ${newSpecPath}. Use --force to overwrite.`);
         }
       } catch (error) {
@@ -427,7 +427,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
     } catch (error: any) {
       throw new Error(
-        `Failed to rename or update spec file: ${getErrorMessage(error)}`
+        `Failed to rename or update spec file: ${getErrorMessage(error as any)}`
       );
     }
 
@@ -435,7 +435,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     const task: Task = {
       id: taskId,
       title,
-      description: description.trim(),
+      description: (description as any).trim(),
       status: TASK_STATUS.TODO,
       specPath: newSpecPath,
     };
@@ -477,14 +477,14 @@ export class MarkdownTaskBackend implements TaskBackend {
       const parsed = matter(fileContent);
 
       // Update the merge info in the frontmatter
-      const data = parsed.data || {};
-      data.merge_info = {
-        ...data.merge_info,
+      const data = (parsed as any).data || {};
+      (data as any).merge_info = {
+        ...(data as any).merge_info,
         ...metadata,
       };
 
       // Serialize the updated frontmatter and content
-      const updatedContent = matter.stringify(parsed.content, data);
+      const updatedContent = (matter as any).stringify((parsed as any).content, data as any);
 
       // Write back to the file
       await fs.writeFile(specFilePath, updatedContent, "utf-8");
@@ -492,12 +492,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       log.debug("Updated task metadata", { id, specFilePath, metadata });
     } catch (error: any) {
       log.error("Failed to update task metadata", {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
         id,
         specFilePath,
       });
       throw new Error(
-        `Failed to update task metadata: ${getErrorMessage(error)}`
+        `Failed to update task metadata: ${getErrorMessage(error as any)}`
       );
     }
   }
@@ -509,24 +509,24 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     // Get the task ID number for file naming
-    const taskIdNum = task.id.startsWith("#") ? task.id.slice(1) : task.id;
+    const taskIdNum = (task as any).id.startsWith("#") ? (task as any).id.slice(1) : (task as any).id;
 
     try {
       // Remove task from tasks.md
       const content = await fs.readFile(this.filePath, "utf-8");
-      const lines = (content).toString().split("\n");
+      const lines = (((content) as any).toString() as any).split("\n");
       let inCodeBlock = false;
       let removed = false;
 
-      const updatedLines = lines.filter((line) => {
-        if (line.trim().startsWith("```")) {
+      const updatedLines = (lines as any).filter((line) => {
+        if (((line as any).trim() as any).startsWith("```")) {
           inCodeBlock = !inCodeBlock;
           return true;
         }
         if (inCodeBlock) return true;
         
         // Check if this line contains our task
-        if (line.includes(`[#${taskIdNum}]`)) {
+        if ((line as any).includes(`[#${taskIdNum}]`)) {
           removed = true;
           return false; // Remove this line
         }
@@ -538,10 +538,10 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
 
       // Write the updated tasks.md
-      await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
+      await fs.writeFile(this.filePath, (updatedLines as any).join("\n"), "utf-8");
 
       // Delete the task specification file if it exists
-      const normalizedTitle = task.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const normalizedTitle = (task.title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
       const specPath = join(this.workspacePath, "process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
       
       try {
@@ -554,7 +554,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       return true;
     } catch (error) {
       log.error(`Failed to delete task ${id}:`, {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
       return false;
     }
@@ -618,7 +618,7 @@ export class TaskService {
   private currentBackend: TaskBackend;
 
   constructor(options: TaskServiceOptions = {}) {
-    const { workspacePath = process.cwd(), backend = "markdown" } = options;
+    const { workspacePath = (process as any).cwd(), backend = "markdown" } = options;
 
     // Initialize backends
     this.backends = [
@@ -628,37 +628,37 @@ export class TaskService {
     ];
 
     // Set current backend
-    const selectedBackend = this.backends.find((b) => b.name === backend);
+    const selectedBackend = (this.backends as any).find((b) => (b as any).name === backend);
     if (!selectedBackend) {
       throw new Error(
-        `Backend '${backend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
+        `Backend '${backend}' not found. Available backends: ${((this.backends as any).map((b) => b.name) as any).join(", ")}`
       );
     }
     this.currentBackend = selectedBackend;
   }
 
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
-    return this.currentBackend.listTasks(options);
+    return (this.currentBackend as any).listTasks(options as any);
   }
 
   async getTask(id: string): Promise<Task | null> {
-    return this.currentBackend.getTask(id);
+    return (this.currentBackend as any).getTask(id);
   }
 
   async getTaskStatus(id: string): Promise<string | null> {
-    return this.currentBackend.getTaskStatus(id);
+    return (this.currentBackend as any).getTaskStatus(id);
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
-    return this.currentBackend.setTaskStatus(id, status);
+    return (this.currentBackend as any).setTaskStatus(id, status);
   }
 
   getWorkspacePath(): string {
-    return this.currentBackend.getWorkspacePath();
+    return (this.currentBackend as any).getWorkspacePath();
   }
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
-    return this.currentBackend.createTask(specPath, options);
+    return (this.currentBackend as any).createTask(specPath, options as any);
   }
 
   /**
@@ -675,7 +675,7 @@ export class TaskService {
 
     // Try to find the task in each backend
     for (const backend of this.backends) {
-      const task = await backend.getTask(normalizedId);
+      const task = await (backend as any).getTask(normalizedId);
       if (task) {
         return backend;
       }
@@ -685,6 +685,6 @@ export class TaskService {
   }
 
   async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
-    return this.currentBackend.deleteTask(id, options);
+    return (this.currentBackend as any).deleteTask(id, options as any);
   }
 }

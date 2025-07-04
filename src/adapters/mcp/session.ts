@@ -32,7 +32,7 @@ import {
  */
 export function registerSessionTools(commandMapper: CommandMapper): void {
   // Session list command
-  commandMapper.addSessionCommand(
+  (commandMapper as any).addSessionCommand(
     "list",
     "List all sessions",
     z.object({}),
@@ -42,14 +42,14 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         json: true, // Always use JSON format for MCP
       };
 
-      const sessions = await listSessionsFromParams(params);
+      const sessions = await listSessionsFromParams(params as any);
       // Return sessions as a record
       return { sessions };
     }
   );
 
   // Session get command
-  commandMapper.addSessionCommand(
+  (commandMapper as any).addSessionCommand(
     "get",
     "Get a specific session by name or task ID",
     z.object({
@@ -62,7 +62,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         json: true, // Always use JSON format for MCP
       };
 
-      const session = await getSessionFromParams(params);
+      const session = await getSessionFromParams(params as any);
 
       if (!session) {
         throw new Error(`
@@ -71,7 +71,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
 Unable to find a session with the provided criteria.
 
 What you tried:
-${args.name ? `• Session name: "${args.name}"` : ""}
+${(args as any).name ? `• Session name: "${(args as any).name}"` : ""}
 ${args.task ? `• Task ID: "${args.task}"` : ""}
 
 💡 How to fix this:
@@ -101,7 +101,7 @@ Need help? Run: minsky sessions --help
   );
 
   // Session start command
-  commandMapper.addSessionCommand(
+  (commandMapper as any).addSessionCommand(
     "start",
     "Start a new session",
     z.object({
@@ -110,11 +110,11 @@ Need help? Run: minsky sessions --help
       description: z.string().optional().describe("Description for auto-created task"),
       repo: z.string().optional().describe(REPO_DESCRIPTION),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
-      quiet: z.boolean().optional().describe(SESSION_QUIET_DESCRIPTION).default(true),
+      quiet: (z.boolean().optional().describe(SESSION_QUIET_DESCRIPTION) as any).default(true),
     }),
     async (args): Promise<Record<string, unknown>> => {
       // Validate that either task or description is provided
-      if (!args.task && !args.description) {
+      if (!args.task && !(args as any).description) {
         throw new Error(`
 🚫 Task Association Required
 
@@ -142,36 +142,36 @@ Examples:
         skipInstall: false, // Default value for required parameter
       };
 
-      const session = await startSessionFromParams(params);
+      const session = await startSessionFromParams(params as any);
 
       // Get the repo path using the session provider
       const sessionProvider = createSessionProvider();
-      const sessionRecord = await sessionProvider.getSession(session.session);
-      const repoPath = sessionRecord ? await sessionProvider.getRepoPath(sessionRecord) : undefined;
+      const sessionRecord = await (sessionProvider as any).getSession((session as any).session);
+      const repoPath = sessionRecord ? await (sessionProvider as any).getRepoPath(sessionRecord) : undefined;
 
       // Format response for MCP
       return {
         success: true,
-        session: session.session,
+        session: (session as any).session,
         directory: repoPath,
-        taskId: session.taskId,
-        repoName: session.repoName,
+        taskId: (session as any).taskId,
+        repoName: (session as any).repoName,
       };
     }
   );
 
   // Session delete command
-  commandMapper.addSessionCommand(
+  (commandMapper as any).addSessionCommand(
     "delete",
     "Delete a session",
     z.object({
       name: z.string().optional().describe("Name of the session to delete"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
-      force: z.boolean().optional().describe(FORCE_DESCRIPTION),
+      force: (z.boolean().optional() as any).describe(FORCE_DESCRIPTION),
     }),
     async (args): Promise<Record<string, unknown>> => {
       // Must provide either name or task
-      if (!args.name && !args.task) {
+      if (!(args as any).name && !args.task) {
         throw new Error(`
 🚫 Missing Required Information
 
@@ -200,7 +200,7 @@ Example commands:
       }
 
       // Special handling for task-based deletion
-      if (args.task && !args.name) {
+      if (args.task && !(args as any).name) {
         // Find the session by task ID first using getSessionFromParams
         const taskParams = {
           task: args.task,
@@ -214,7 +214,7 @@ Example commands:
 
         // Now we can delete with the session name
         const deleteParams = {
-          name: session.session,
+          name: (session as any).session,
           force: args.force || false,
           json: true,
         };
@@ -230,7 +230,7 @@ Example commands:
 
       // Regular name-based deletion
       const deleteParams = {
-        name: args.name as string, // We've verified it exists above
+        name: (args as any).name as string, // We've verified it exists above
         force: args.force || false,
         json: true,
       };
@@ -239,14 +239,14 @@ Example commands:
       return {
         success: deleted,
         message: deleted
-          ? `Session ${args.name} deleted successfully.`
-          : `Session ${args.name} could not be deleted.`,
+          ? `Session ${(args as any).name} deleted successfully.`
+          : `Session ${(args as any).name} could not be deleted.`,
       };
     }
   );
 
   // Session dir command
-  commandMapper.addSessionCommand(
+  (commandMapper as any).addSessionCommand(
     "dir",
     "Get the directory path for a session",
     z.object({
@@ -259,18 +259,18 @@ Example commands:
         json: true,
       };
 
-      const dir = await getSessionDirFromParams(params);
+      const dir = await getSessionDirFromParams(params as any);
 
       // Format response for MCP
       return {
-        session: args.name || `task#${args.task?.replace(/^#/, "")}`,
+        session: (args as any).name || `task#${(args.task as any).replace(/^#/, "")}`,
         directory: dir,
       };
     }
   );
 
   // Session update command
-  commandMapper.addSessionCommand(
+  (commandMapper as any).addSessionCommand(
     "update",
     "Update a session with the latest changes from the main branch",
     z.object({
@@ -278,13 +278,13 @@ Example commands:
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       remote: z.string().optional().describe(GIT_REMOTE_DESCRIPTION),
-      noStash: z.boolean().optional().describe("Skip stashing local changes"),
-      noPush: z.boolean().optional().describe("Skip pushing changes to remote after update"),
-      force: z.boolean().optional().describe(FORCE_DESCRIPTION),
+      noStash: (z.boolean().optional() as any).describe("Skip stashing local changes"),
+      noPush: (z.boolean().optional() as any).describe("Skip pushing changes to remote after update"),
+      force: (z.boolean().optional() as any).describe(FORCE_DESCRIPTION),
     }),
     async (args): Promise<Record<string, unknown>> => {
       // Must provide either name or task
-      if (!args.name && !args.task) {
+      if (!(args as any).name && !args.task) {
         throw new Error(`
 🚫 Missing Required Information
 
@@ -326,15 +326,15 @@ Example commands:
         skipIfAlreadyMerged: false,
       };
 
-      const updatedSession = await updateSessionFromParams(params);
+      const updatedSession = await updateSessionFromParams(params as any);
 
       // Format response for MCP with session details
       return {
         success: true,
-        session: updatedSession.session,
-        branch: updatedSession.branch,
-        taskId: updatedSession.taskId,
-        message: `Session ${updatedSession.session} updated successfully.`,
+        session: (updatedSession as any).session,
+        branch: (updatedSession as any).branch,
+        taskId: (updatedSession as any).taskId,
+        message: `Session ${(updatedSession as any).session} updated successfully.`,
       };
     }
   );

@@ -10,5 +10,5 @@ export interface RepoResolutionOptions {
  * If neither is provided, attempt to determine from current directory
  */
 export async function resolveRepoPath(options: RepoResolutionOptions = {}): Promise<string> {
-  return resolveRepoPathInternal(options);
+  return resolveRepoPathInternal(options as any);
 }

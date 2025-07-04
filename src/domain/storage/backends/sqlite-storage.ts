@@ -28,10 +28,10 @@ export interface SqliteStorageConfig {
 
 // Drizzle schema definition
 const sessionsTable = sqliteTable("sessions", {
-  session: text("session").primaryKey(),
-  repoName: text("repoName").notNull(),
+  session: (text("session") as any).primaryKey(),
+  repoName: (text("repoName") as any).notNull(),
   repoUrl: text("repoUrl"),
-  createdAt: text("createdAt").notNull(),
+  createdAt: (text("createdAt") as any).notNull(),
   taskId: text("taskId"),
   branch: text("branch"),
   repoPath: text("repoPath"),
@@ -54,7 +54,7 @@ implements DatabaseStorage<TEntity, TState>
 
   constructor(config: SqliteStorageConfig) {
     this.config = config;
-    this.dbPath = config.dbPath;
+    this.dbPath = (config as any).dbPath;
   }
 
   async initialize(): Promise<boolean> {
@@ -74,14 +74,14 @@ implements DatabaseStorage<TEntity, TState>
       this.drizzleDb = drizzle(this.db);
 
       // Enable WAL mode for better performance
-      if (this.config.enableWAL !== false) {
+      if ((this.config as any).enableWAL !== false) {
         this.db.exec("PRAGMA journal_mode = WAL;");
         this.db.exec("PRAGMA synchronous = NORMAL;");
       }
 
       // Set timeout if specified
-      if (this.config.timeout) {
-        this.db.exec(`PRAGMA busy_timeout = ${this.config.timeout};`);
+      if ((this.config as any).timeout) {
+        this.db.exec(`PRAGMA busy_timeout = ${(this.config as any).timeout};`);
       }
 
       // Additional performance optimizations
@@ -116,20 +116,20 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const sessions = await this.drizzleDb.select().from(sessionsTable);
+      const sessions = await (this.drizzleDb.select() as any).from(sessionsTable);
 
       // Construct state object - this assumes TState has a sessions array
       // and possibly other fields like baseDir
       const state = {
         sessions,
-        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky` as any,
+        baseDir: (process.env as any).XDG_STATE_HOME ? `${(process.env as any).XDG_STATE_HOME}/minsky` : `${(process.env as any).HOME}/.local/state/minsky` as any,
       } as TState;
 
       return { success: true, data: state };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: error instanceof Error ? error : new Error(String(error as any)),
       };
     }
   }
@@ -143,31 +143,31 @@ implements DatabaseStorage<TEntity, TState>
       const sessions = (state as any).sessions || [];
 
       // Use Drizzle transaction
-      await this.drizzleDb.transaction(async (tx) => {
+      await (this.drizzleDb as any).transaction(async (tx) => {
         // Clear existing sessions
         await tx.delete(sessionsTable);
 
         // Insert new sessions
-        if (sessions.length > 0) {
-          const sessionRecords: NewSessionRecord[] = sessions.map((session: TEntity) => ({
-            session: session.session,
-            repoName: session.repoName,
-            repoUrl: session.repoUrl || null,
-            createdAt: session.createdAt,
-            taskId: session.taskId || null,
-            branch: session.branch || null,
-            repoPath: session.repoPath || null,
+        if ((sessions as any).length > 0) {
+          const sessionRecords: NewSessionRecord[] = (sessions as any).map((session: TEntity) => ({
+            session: (session as any).session,
+            repoName: (session as any).repoName,
+            repoUrl: (session as any).repoUrl || null,
+            createdAt: (session as any).createdAt,
+            taskId: (session as any).taskId || null,
+            branch: (session as any).branch || null,
+            repoPath: (session as any).repoPath || null,
           }));
 
-          await tx.insert(sessionsTable).values(sessionRecords);
+          await (tx.insert(sessionsTable) as any).values(sessionRecords);
         }
       });
 
-      return { success: true, bytesWritten: sessions.length };
+      return { success: true, bytesWritten: (sessions as any).length };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: error instanceof Error ? error : new Error(String(error as any)),
       };
     }
   }
@@ -178,15 +178,14 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const result = await this.drizzleDb
+      const result = await (this.drizzleDb
         .select()
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id))
-        .limit(1);
+        .where(eq(sessionsTable.session, id)) as any).limit(1);
 
-      return (result[0] as TEntity) || null;
+      return ((result as any)[0] as TEntity) || null;
     } catch (error) {
-      const errorMessage = getErrorMessage(error);
+      const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
       return null as any;
     }
@@ -198,41 +197,41 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      let query = this.drizzleDb.select().from(sessionsTable);
+      let query = (this.drizzleDb.select() as any).from(sessionsTable);
 
       // Apply filters if provided
       if (options) {
         const conditions: any[] = [];
 
-        if (options.taskId) {
+        if ((options as any).taskId) {
           // Normalize taskId by removing # prefix if present
-          const normalizedTaskId = options.taskId.replace(/^#/, "");
+          const normalizedTaskId = (options.taskId as any).replace(/^#/, "");
           // BUGFIX: Use SQL to handle null values properly
           // This finds sessions where taskId (without #) equals normalizedTaskId
           // and excludes sessions with null taskId
           conditions.push(
-            sql`TRIM(${sessionsTable.taskId}, '#') = ${normalizedTaskId} AND ${sessionsTable.taskId} IS NOT NULL`
+            sql`TRIM(${(sessionsTable as any).taskId}, '#') = ${normalizedTaskId} AND ${(sessionsTable as any).taskId} IS NOT NULL`
           );
         }
 
-        if (options.repoName) {
-          conditions.push(eq(sessionsTable.repoName, options.repoName));
+        if ((options as any).repoName) {
+          conditions.push(eq((sessionsTable as any).repoName, (options as any).repoName));
         }
 
-        if (options.branch) {
-          conditions.push(eq(sessionsTable.branch, options.branch));
+        if ((options as any).branch) {
+          conditions.push(eq((sessionsTable as any).branch, (options as any).branch));
         }
 
         // Apply WHERE conditions if any exist
-        if (conditions.length > 0) {
-          query = query.where(and(...conditions)) as any;
+        if ((conditions as any).length > 0) {
+          query = (query as any).where(and(...conditions)) as any;
         }
       }
 
       const sessions = await query;
       return sessions as TEntity[];
     } catch (error) {
-      const errorMessage = getErrorMessage(error);
+      const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get sessions: ${errorMessage}`);
       return [];
     }
@@ -245,20 +244,20 @@ implements DatabaseStorage<TEntity, TState>
 
     try {
       const sessionRecord: NewSessionRecord = {
-        session: entity.session,
-        repoName: entity.repoName,
-        repoUrl: entity.repoUrl || null,
-        createdAt: entity.createdAt,
-        taskId: entity.taskId || null,
-        branch: entity.branch || null,
-        repoPath: entity.repoPath || null,
+        session: (entity as any).session,
+        repoName: (entity as any).repoName,
+        repoUrl: (entity as any).repoUrl || null,
+        createdAt: (entity as any).createdAt,
+        taskId: (entity as any).taskId || null,
+        branch: (entity as any).branch || null,
+        repoPath: (entity as any).repoPath || null,
       };
 
-      await this.drizzleDb.insert(sessionsTable).values(sessionRecord);
+      await (this.drizzleDb.insert(sessionsTable) as any).values(sessionRecord);
       return entity;
     } catch (error) {
-      const errorMessage = getErrorMessage(error);
-      log.debug(`Failed to create session '${entity.session}': ${errorMessage}`);
+      const errorMessage = getErrorMessage(error as any);
+      log.debug(`Failed to create session '${(entity as any).session}': ${errorMessage}`);
       throw error;
     }
   }
@@ -277,21 +276,20 @@ implements DatabaseStorage<TEntity, TState>
 
       // Prepare update data
       const updateData: Partial<NewSessionRecord> = {};
-      if (updates.repoName !== undefined) updateData.repoName = updates.repoName;
-      if (updates.repoUrl !== undefined) updateData.repoUrl = updates.repoUrl;
-      if (updates.createdAt !== undefined) updateData.createdAt = updates.createdAt;
-      if (updates.taskId !== undefined) updateData.taskId = updates.taskId;
-      if (updates.branch !== undefined) updateData.branch = updates.branch;
-      if (updates.repoPath !== undefined) updateData.repoPath = updates.repoPath;
+      if ((updates as any).repoName !== undefined) (updateData as any).repoName = (updates as any).repoName;
+      if ((updates as any).repoUrl !== undefined) (updateData as any).repoUrl = (updates as any).repoUrl;
+      if ((updates as any).createdAt !== undefined) (updateData as any).createdAt = (updates as any).createdAt;
+      if ((updates as any).taskId !== undefined) (updateData as any).taskId = (updates as any).taskId;
+      if ((updates as any).branch !== undefined) (updateData as any).branch = (updates as any).branch;
+      if ((updates as any).repoPath !== undefined) (updateData as any).repoPath = (updates as any).repoPath;
 
-      if (Object.keys(updateData).length === 0) {
+      if ((Object.keys(updateData) as any).length === 0) {
         return existing; // No updates needed
       }
 
-      await this.drizzleDb
+      await (this.drizzleDb
         .update(sessionsTable)
-        .set(updateData)
-        .where(eq(sessionsTable.session, id));
+        .set(updateData) as any).where(eq((sessionsTable as any).session, id));
 
       // Return updated entity
       return { ...existing, ...updates };
@@ -307,7 +305,7 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      await this.drizzleDb.delete(sessionsTable).where(eq(sessionsTable.session, id));
+      await (this.drizzleDb.delete(sessionsTable) as any).where(eq((sessionsTable as any).session, id));
 
       // Since Drizzle doesn't return changes count, we'll check if the entity existed
       const entityExists = await this.entityExists(id);
@@ -324,13 +322,12 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const result = await this.drizzleDb
+      const result = await (this.drizzleDb
         .select({ count: sessionsTable.session })
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id))
-        .limit(1);
+        .where(eq(sessionsTable.session, id)) as any).limit(1);
 
-      return result.length > 0 as any;
+      return (result as any).length > 0 as any;
     } catch (error) {
       log.error("Failed to check entity existence in SQLite", { error, id });
       return false;
@@ -358,5 +355,5 @@ implements DatabaseStorage<TEntity, TState>
 export function createSqliteStorage<TEntity extends Record<string, any>, TState>(
   config: SqliteStorageConfig
 ): DatabaseStorage<TEntity, TState> {
-  return new SqliteStorage<TEntity, TState>(config);
+  return new SqliteStorage<TEntity, TState>(config as any);
 }

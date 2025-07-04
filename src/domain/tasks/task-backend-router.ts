@@ -50,10 +50,10 @@ export class TaskBackendRouter {
    * Auto-detect backend category based on type and configuration
    */
   private autoDetectBackendCategory(backend: TaskBackend): BackendRoutingInfo {
-    const constructorName = backend.constructor.name.toLowerCase();
+    const constructorName = (backend.constructor.name as any).toLowerCase();
 
     // Markdown backends - always in-tree
-    if (backend instanceof MarkdownTaskBackend || constructorName.includes("markdowntaskbackend")) {
+    if (backend instanceof MarkdownTaskBackend || (constructorName as any).includes("markdowntaskbackend")) {
       return {
         category: "in-tree",
         requiresSpecialWorkspace: true,
@@ -62,7 +62,7 @@ export class TaskBackendRouter {
     }
 
     // JSON file backends - depends on file location
-    if (backend instanceof JsonFileTaskBackend || constructorName.includes("jsonfiletaskbackend")) {
+    if (backend instanceof JsonFileTaskBackend || (constructorName as any).includes("jsonfiletaskbackend")) {
       return this.categorizeJsonBackend(backend as JsonFileTaskBackend);
     }
 
@@ -106,7 +106,7 @@ export class TaskBackendRouter {
       const filePath = this.getJsonBackendFilePath(backend);
       
       // Check if it's in the repository directory structure
-      if (filePath.includes("process/tasks.json") || filePath.includes("process/.minsky/")) {
+      if ((filePath as any).includes("process/tasks.json") || (filePath as any).includes("process/.minsky/")) {
         return {
           category: "in-tree",
           requiresSpecialWorkspace: true,
@@ -115,7 +115,7 @@ export class TaskBackendRouter {
       }
 
       // Check if it's in a local workspace directory
-      if (filePath.includes(".minsky/tasks.json")) {
+      if ((filePath as any).includes(".minsky/tasks.json")) {
         return {
           category: "in-tree",
           requiresSpecialWorkspace: true,
@@ -148,7 +148,7 @@ export class TaskBackendRouter {
       const dbPath = this.getSqliteBackendPath(backend);
       
       // Check if it's in the repository directory structure
-      if (dbPath.includes("process/") || dbPath.includes(".git/")) {
+      if ((dbPath as any).includes("process/") || (dbPath as any).includes(".git/")) {
         return {
           category: "in-tree",
           requiresSpecialWorkspace: true,
@@ -176,15 +176,15 @@ export class TaskBackendRouter {
    * Get the workspace path for in-tree operations
    */
   async getInTreeWorkspacePath(): Promise<string> {
-    if (!this.repoUrl) {
+    if (!(this as any).repoUrl) {
       throw new Error("Repository URL required for in-tree workspace operations");
     }
 
     if (!this.specialWorkspaceManager) {
-      this.specialWorkspaceManager = await SpecialWorkspaceManager.create(this.repoUrl);
+      this.specialWorkspaceManager = await (SpecialWorkspaceManager as any).create((this as any).repoUrl);
     }
 
-    return this.specialWorkspaceManager.getWorkspacePath();
+    return (this.specialWorkspaceManager as any).getWorkspacePath();
   }
 
   /**
@@ -200,16 +200,16 @@ export class TaskBackendRouter {
     if (routingInfo.requiresSpecialWorkspace) {
       // Use special workspace for in-tree backends
       if (!this.specialWorkspaceManager) {
-        if (!this.repoUrl) {
+        if (!(this as any).repoUrl) {
           throw new Error("Repository URL required for in-tree backend operations");
         }
-        this.specialWorkspaceManager = await SpecialWorkspaceManager.create(this.repoUrl);
+        this.specialWorkspaceManager = await (SpecialWorkspaceManager as any).create((this as any).repoUrl);
       }
 
-      return this.specialWorkspaceManager.performOperation(operation, callback);
+      return (this.specialWorkspaceManager as any).performOperation(operation, callback as any);
     } else {
       // Use current working directory for external backends
-      const currentDir = process.cwd();
+      const currentDir = (process as any).cwd();
       return callback(currentDir);
     }
   }
@@ -219,20 +219,20 @@ export class TaskBackendRouter {
    */
   private isGitHubBackend(backend: TaskBackend): boolean {
     // Check if backend constructor name or class indicates GitHub
-    return backend.constructor.name.toLowerCase().includes("github") ||
-           backend.name.toLowerCase().includes("github");
+    return (backend.constructor.name.toLowerCase() as any).includes("github") ||
+           (backend.name.toLowerCase() as any).includes("github");
   }
 
   private isSqliteBackend(backend: TaskBackend): boolean {
     // Check if backend constructor name or class indicates SQLite
-    return backend.constructor.name.toLowerCase().includes("sqlite") ||
-           backend.constructor.name.toLowerCase().includes("sql");
+    return (backend.constructor.name.toLowerCase() as any).includes("sqlite") ||
+           (backend.constructor.name.toLowerCase() as any).includes("sql");
   }
 
   private isPostgresBackend(backend: TaskBackend): boolean {
     // Check if backend constructor name or class indicates PostgreSQL
-    return backend.constructor.name.toLowerCase().includes("postgres") ||
-           backend.constructor.name.toLowerCase().includes("pg");
+    return (backend.constructor.name.toLowerCase() as any).includes("postgres") ||
+           (backend.constructor.name.toLowerCase() as any).includes("pg");
   }
 
   /**
@@ -254,7 +254,7 @@ export class TaskBackendRouter {
     }
 
     // Fallback: assume it's using standard location
-    return join(process.cwd(), ".minsky", "tasks.json");
+    return join((process as any).cwd(), ".minsky", "tasks.json");
   }
 
   /**

@@ -81,7 +81,7 @@ export function createNetworkError(
   host: string = "localhost"
 ): NetworkError {
   // Ensure we have an Error object
-  const originalError = error instanceof Error ? error : new Error(String(error));
+  const originalError = error instanceof Error ? error : new Error(String(error as any));
 
   // Check for specific error types
   const errorCode = (originalError as any).code || "";
@@ -92,7 +92,7 @@ export function createNetworkError(
   case "EACCES":
     return new NetworkPermissionError(port, host, originalError);
   default:
-    return new NetworkError(`Network error: ${originalError.message}`, errorCode, port, host, originalError);
+    return new NetworkError(`Network error: ${(originalError as any).message}`, errorCode, port, host, originalError);
   }
 }
 
@@ -115,7 +115,7 @@ export function isNetworkError(error: any): boolean {
     "EHOSTUNREACH",
   ];
 
-  return networkErrorCodes.includes((error as any).code || "");
+  return (networkErrorCodes as any).includes((error as any).code || "");
 }
 
 /**
@@ -131,10 +131,8 @@ export function formatNetworkErrorMessage(error: NetworkError, debug: boolean = 
   // Add suggestions if available
   if (error instanceof PortInUseError || error instanceof NetworkPermissionError) {
     message += "\nSuggestions:\n";
-    message += error
-      .getSuggestions()
-      .map((s) => `- ${s}`)
-      .join("\n");
+    message += ((error
+      .getSuggestions() as any).map((s) => `- ${s}`) as any).join("\n");
   }
 
   // Add debug hint
