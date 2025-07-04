@@ -35,4 +35,17 @@ clean:
 # Test the built binary
 test-binary: build
     ./minsky --version
-    ./minsky --help 
+    ./minsky --help
+
+# Test macOS binaries specifically (runs on macOS)
+test-macos-binaries: build-macos build-macos-arm64
+    @echo "Testing macOS x64 binary:"
+    ./minsky-macos-x64 --version
+    ./minsky-macos-x64 tasks --help > /dev/null
+    @echo "✅ macOS x64 binary working"
+    @echo "Testing macOS ARM64 binary:"
+    ./minsky-macos-arm64 --version
+    ./minsky-macos-arm64 tasks --help > /dev/null
+    @echo "✅ macOS ARM64 binary working"
+    @echo "Binary sizes:"
+    @ls -lah minsky-macos-* | awk '{print $9 ": " $5}' 
