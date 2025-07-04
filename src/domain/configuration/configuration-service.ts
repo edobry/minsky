@@ -45,7 +45,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     return {
       resolved: finalResolved,
       sources: result.sources,
-    };
+    } as any;
   }
 
   /**

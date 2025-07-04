@@ -35,13 +35,13 @@ export type {
  */
 export interface OutputOptions {
   json?: boolean;
-  formatter?: (_result: unknown) => void;
+  formatter?: (result: any) => void;
 }
 
 /**
  * Format and output command results
  */
-export function outputResult(result: unknown, options: OutputOptions = {}): void {
+export function outputResult(result: any, options: OutputOptions = {}): void {
   if (result === undefined) {
     return;
   }
@@ -56,52 +56,57 @@ export function outputResult(result: unknown, options: OutputOptions = {}): void
     } else {
       // Default output based on result type
       if (typeof result === "string") {
-        log.cli(_result);
+        log.cli(result);
       } else if (typeof result === "object" && result !== null) {
-        if (Array.isArray(_result)) {
+        if (Array.isArray(result)) {
           result.forEach((item) => {
             if (typeof item === "string") {
               log.cli(item);
             } else {
-              log.cli(JSON.stringify(_item, null, 2));
+              log.cli(JSON.stringify(item, null, 2));
             }
           });
         } else {
-          log.cli(JSON.stringify(__result, null, 2));
+          log.cli(JSON.stringify(result, null, 2));
         }
       } else {
-        log.cli(String(_result));
+        log.cli(String(result));
       }
     }
   } catch (error) {
-    log.cliError("Failed to format output:", error);
-    log.cli(String(_result));
+    log.cliError("Failed to format output");
+    log.cliError(String(error));
+    log.cli(String(result));
   }
 }
 
 /**
  * Handle CLI errors
  */
-export function handleCliError(error: unknown, options: { debug?: boolean } = {}): void {
+export function handleCliError(error: any, options: { debug?: boolean } = {}): void {
   const err = ensureError(error);
 
   if (options.debug) {
     // Detailed error in debug mode
-    log.cliError("Command execution failed:", err);
+    log.cliError("Command execution failed");
+    log.cliError(String(err));
     if (err.stack) {
       log.cliError(err.stack);
     }
   } else {
     // Simple error in regular mode
-    log.cliError(`Error: ${err.message}`);
+    log.cliError(`Error: ${(err as any).message}`);
   }
 
   // Set appropriate exit code based on error type
   if (err.name === "ValidationError") {
+    // @ts-expect-error - Bun supports process.exitCode at runtime, types incomplete
     process.exitCode = 2;
   } else if (err.name === "NotFoundError") {
+    // @ts-expect-error - Bun supports process.exitCode at runtime, types incomplete
     process.exitCode = 4;
   } else {
+    // @ts-expect-error - Bun supports process.exitCode at runtime, types incomplete
     process.exitCode = 1;
   }
 }

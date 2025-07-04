@@ -50,7 +50,7 @@ describe("sessionPrFromParams bodyPath file reading functionality", () => {
     const content = await readFile(filePath, "utf-8");
     
     expect(content).toBe("");
-    expect(content.trim()).toBe("");
+    expect((content).toString().trim()).toBe("");
   });
 
   test("should work with relative paths correctly", async () => {

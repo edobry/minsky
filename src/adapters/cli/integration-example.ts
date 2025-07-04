@@ -39,7 +39,7 @@ export function createIntegratedCliProgram(): Command {
   registerRulesCommands();
 
   // Bridge the commands to CLI
-  registerCategorizedCliCommands(__program,
+  registerCategorizedCliCommands(program,
     [CommandCategory.GIT, CommandCategory.TASKS, CommandCategory.SESSION, CommandCategory.RULES],
     true // Create subcommands for categories
   );

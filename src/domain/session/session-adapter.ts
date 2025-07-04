@@ -32,37 +32,37 @@ export interface LocalSessionProviderInterface {
   /**
    * Get a specific session by name
    */
-  getSession(__session: string): Promise<SessionRecord | null>;
+  getSession(session: string): Promise<SessionRecord | null>;
 
   /**
    * Get a specific session by task ID
    */
-  getSessionByTaskId(__taskId: string): Promise<SessionRecord | null>;
+  getSessionByTaskId(_taskId: string): Promise<SessionRecord | null>;
 
   /**
    * Add a new session to the database
    */
-  addSession(__record: SessionRecord): Promise<void>;
+  addSession(_record: SessionRecord): Promise<void>;
 
   /**
    * Update an existing session
    */
-  updateSession(__session: string, _updates: Partial<Omit<"session">>): Promise<void>;
+  updateSession(session: string, _updates: Partial<Omit<"session">>): Promise<void>;
 
   /**
    * Delete a session by name
    */
-  deleteSession(__session: string): Promise<boolean>;
+  deleteSession(session: string): Promise<boolean>;
 
   /**
    * Get the repository path for a session
    */
-  getRepoPath(__record: SessionRecord): Promise<string>;
+  getRepoPath(_record: SessionRecord): Promise<string>;
 
   /**
    * Get the working directory for a session
    */
-  getSessionWorkdir(__sessionName: string): Promise<string | null>;
+  getSessionWorkdir(_sessionName: string): Promise<string | null>;
 }
 
 /**
@@ -129,7 +129,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Get a session by task ID
    */
-  async getSessionByTaskId(__taskId: string): Promise<SessionRecord | null> {
+  async getSessionByTaskId(_taskId: string): Promise<SessionRecord | null> {
     await this.readDb();
     return getSessionByTaskIdFn(this.state, _taskId);
   }
@@ -137,7 +137,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Add a new session
    */
-  async addSession(__record: SessionRecord): Promise<void> {
+  async addSession(_record: SessionRecord): Promise<void> {
     await this.readDb();
     const newState = addSessionFn(this.state, _record);
     await this.writeDb(newState.sessions);
@@ -146,19 +146,19 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Update an existing session
    */
-  async updateSession(__session: string, _updates: Partial<Omit<"session">>): Promise<void> {
+  async updateSession(session: string, _updates: Partial<Omit<"session">>): Promise<void> {
     await this.readDb();
-    const newState = updateSessionFn(this.state, _session, _updates);
+    const newState = updateSessionFn(this.state, session, _updates);
     await this.writeDb(newState.sessions);
   }
 
   /**
    * Delete a session
    */
-  async deleteSession(__session: string): Promise<boolean> {
+  async deleteSession(session: string): Promise<boolean> {
     await this.readDb();
     const originalLength = this.state.sessions.length;
-    const newState = deleteSessionFn(this.state, _session);
+    const newState = deleteSessionFn(this.state, session);
 
     // If no change occurred (session not found)
     if (newState.sessions.length === originalLength) {
@@ -172,7 +172,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Get the repository path for a session
    */
-  async getRepoPath(__record: SessionRecord): Promise<string> {
+  async getRepoPath(_record: SessionRecord): Promise<string> {
     await this.readDb();
     return getRepoPathFn(this.state, _record);
   }
@@ -180,7 +180,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Get the working directory for a session
    */
-  async getSessionWorkdir(__sessionName: string): Promise<string | null> {
+  async getSessionWorkdir(_sessionName: string): Promise<string | null> {
     await this.readDb();
     return getSessionWorkdirFn(this.state, _sessionName);
   }

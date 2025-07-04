@@ -106,7 +106,7 @@ export class SessionPathResolver {
       
       // Return null if path is outside session boundaries
       if (relativePath.startsWith("..") || relativePath === "..") {
-        return null;
+        return null as any;
       }
       
       // Return "." for the session root
@@ -117,7 +117,7 @@ export class SessionPathResolver {
         absolutePath,
         error: getErrorMessage(error),
       });
-      return null;
+      return null as any;
     }
   }
 
@@ -160,7 +160,7 @@ export class SessionPathResolver {
         validatedPaths.push(validatedPath);
       } catch (error) {
         if (error instanceof InvalidPathError) {
-          errors.push(`${userPath}: ${error.message}`);
+          errors.push(`${userPath}: ${(error as any).message}`);
         } else {
           errors.push(`${userPath}: Unexpected error during validation`);
         }

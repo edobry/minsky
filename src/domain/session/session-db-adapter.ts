@@ -51,9 +51,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
         log.debug("Session database configuration is missing or invalid, using defaults");
         sessionDbConfig = {
           backend: "json",
-          baseDir: null,
-          dbPath: null,
-          connectionString: null,
+          baseDir: null as any,
+          dbPath: null as any,
+          connectionString: null as any,
         };
       }
 
@@ -105,7 +105,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       return await storage.getEntity(session);
     } catch (error) {
       log.error(`Error getting session: ${getErrorMessage(error)}`);
-      return null;
+      return null as any;
     }
   }
 
@@ -115,11 +115,11 @@ export class SessionDbAdapter implements SessionProviderInterface {
       // Normalize taskId for consistent searching
       const normalizedTaskId = taskId.replace(/^#/, "");
       const sessions = await storage.getEntities({ taskId: normalizedTaskId });
-      const session = sessions.length > 0 ? sessions[0] : null;
+      const session = sessions.length > 0 ? sessions[0] : null as any;
       return session || null;
     } catch (error) {
       log.error(`Error getting session by task ID: ${getErrorMessage(error)}`);
-      return null;
+      return null as any;
     }
   }
 
@@ -199,7 +199,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const result = await storage.readState();
 
       if (result.success && result.data) {
-        return result.data;
+        return result.data as any;
       }
 
       // Return initialized state if read fails

@@ -37,7 +37,7 @@ function getAllTsFiles(dir: string): string[] {
 function fixFile(filePath: string): Fix[] {
   const fixes: Fix[] = [];
   const content = readFileSync(filePath, "utf8") as string;
-  const lines = content.split("\n");
+  const lines = (content).toString().split("\n");
   let modified = false;
 
   for (let i = 0; i < lines.length; i++) {

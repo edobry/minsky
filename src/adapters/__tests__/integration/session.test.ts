@@ -101,11 +101,11 @@ describe("Session Domain Methods", () => {
       const params = { name: "test-session" };
 
       // Act
-      const _result = await mockGetSessionFromParams(params);
+      const result = await mockGetSessionFromParams(params);
 
       // Assert
       expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(sessionData);
+      expect(result).toEqual(sessionData);
     });
 
     test("gets session by task ID", async () => {
@@ -115,11 +115,11 @@ describe("Session Domain Methods", () => {
       const params = { task: "TEST_VALUE" };
 
       // Act
-      const _result = await mockGetSessionFromParams(params);
+      const result = await mockGetSessionFromParams(params);
 
       // Assert
       expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toEqual(sessionData);
+      expect(result).toEqual(sessionData);
     });
 
     test("returns null when no session is found", async () => {
@@ -128,11 +128,11 @@ describe("Session Domain Methods", () => {
       const params = { name: "non-existent" };
 
       // Act
-      const _result = await mockGetSessionFromParams(params);
+      const result = await mockGetSessionFromParams(params);
 
       // Assert
       expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toBeNull();
+      expect(result).toBeNull();
     });
   });
 
@@ -168,11 +168,11 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockDeleteSessionFromParams(params);
+      const result = await mockDeleteSessionFromParams(params);
 
       // Assert
       expect(mockDeleteSessionFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toBe(true);
+      expect(result).toBe(true);
     });
 
     test("throws error when session not found", async () => {
@@ -363,11 +363,11 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockGetSessionDirFromParams(params);
+      const result = await mockGetSessionDirFromParams(params);
 
       // Assert
       expect(mockGetSessionDirFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toBe(expectedPath);
+      expect(result).toBe(expectedPath);
     });
 
     test("resolves directory path for a session with task ID", async () => {
@@ -379,11 +379,11 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const _result = await mockGetSessionDirFromParams(params);
+      const result = await mockGetSessionDirFromParams(params);
 
       // Assert
       expect(mockGetSessionDirFromParams).toHaveBeenCalledWith(params);
-      expect(_result).toBe(expectedPath);
+      expect(result).toBe(expectedPath);
     });
 
     test("throws error when session not found", async () => {

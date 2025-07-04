@@ -25,7 +25,7 @@ export function createConfigListCommand(): Command {
           backendConfig: config.get("backendConfig"),
           credentials: config.get("credentials"),
           sessiondb: config.get("sessiondb"),
-          ai: config.has("ai") ? config.get("ai") : undefined,
+          ai: config.has("ai") ? config.get("ai") : undefined as any,
         };
 
         if (options.json) {
@@ -37,7 +37,7 @@ export function createConfigListCommand(): Command {
               parsed: source.parsed
             }))
           };
-          // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
+            // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
           process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
         } else {
           displayConfigurationSources(resolved, sources);
@@ -47,7 +47,7 @@ export function createConfigListCommand(): Command {
         process.stderr.write(`Failed to load configuration: ${error}\n`);
         exit(1);
       }
-    });
+    }) as any;
 }
 
 function displayConfigurationSources(resolved: any, sources: any[]) {

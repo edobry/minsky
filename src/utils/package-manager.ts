@@ -33,7 +33,7 @@ export function detectPackageManager(repoPath: string): PackageManager {
   if (existsSync(join(repoPath, "package.json"))) {
     return "npm"; // Default to npm if only package.json exists
   }
-  return undefined; // Not a Node.js/Bun project
+  return undefined as any; // Not a Node.js/Bun project
 }
 
 /**
@@ -52,7 +52,7 @@ export function getInstallCommand(packageManager: PackageManager): string | unde
   case "pnpm":
     return "pnpm install";
   default:
-    return undefined;
+    return undefined as any;
   }
 }
 
@@ -98,7 +98,7 @@ export async function installDependencies(
     const result = execSync(installCmd, {
       cwd: repoPath,
       stdio: options.quiet ? "ignore" : "inherit",
-    });
+    }) as any;
 
     // Handle the case where execSync returns null when stdio is "ignore"
     const output = result?.toString() || "";
