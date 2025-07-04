@@ -263,7 +263,7 @@ export async function startSessionFromParams(
     }
 
     if (!sessionName) {
-      throw new ValidationError("Either session name or task ID must be provided");
+      throw new ValidationError("Session name could not be determined from task ID");
     }
 
     // Check if session already exists
