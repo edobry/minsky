@@ -147,12 +147,12 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
   formatJson(error: Error, context: CommandExecutionContext): object {
     const result = {
       success: false,
-      error: error.message,
-    };
+      error: error.message as any,
+    } as any;
 
     // Add stack trace in debug mode
     if (context.debug && error.stack) {
-      result.stack = error.stack;
+      result.stack = error.stack as any;
     }
 
     return result;
@@ -288,7 +288,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
           const value = String(row[col] || "");
           return value.padEnd(columnWidths[col]);
         })
-        .join(" | ");
+        .join(" | ") as any;
 
       output += `${dataRow}\n`;
     });

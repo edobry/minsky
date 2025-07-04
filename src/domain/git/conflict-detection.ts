@@ -552,7 +552,7 @@ export class ConflictDetectionService {
         
         const conflictRegions = fileStatus === FileConflictStatus.MODIFIED_BOTH 
           ? await this.analyzeConflictRegions(repoPath, filePath)
-          : undefined;
+          : undefined as any;
         
         conflictFiles.push({
           path: filePath,

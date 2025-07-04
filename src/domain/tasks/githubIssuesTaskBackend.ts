@@ -95,13 +95,13 @@ function extractGitHubRepoFromRemote(
       };
     }
 
-    return null;
+    return null as any;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
       error: getErrorMessage(error),
     });
-    return null;
+    return null as any;
   }
 }
 
@@ -176,7 +176,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       });
 
       // Convert issues to a format that can be parsed by parseTasks
-      const issueData = JSON.stringify(issues);
+      const issueData = JSON.stringify(issues) as any;
 
       return {
         success: true,
@@ -217,9 +217,9 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       const response = await this.octokit.rest.issues.listForRepo({
         owner: this.owner,
         repo: this.repo,
-        labels: Object.values(this.statusLabels).join(","),
+        labels: Object.values(this.statusLabels).join(",") as any,
         state: "all",
-      });
+      }) as any;
 
       const issue = response.data.find((issue) => {
         // Look for issue with matching task ID in title or body

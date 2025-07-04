@@ -14,7 +14,7 @@ export { MinskyError, ensureError };
  * Replaces the common pattern: error instanceof Error ? error.message : String(error)
  */
 export function getErrorMessage(error: any): string {
-  return error instanceof Error ? error.message : String(error);
+  return error instanceof Error ? error.message as any : String(error) as any;
 }
 
 /**

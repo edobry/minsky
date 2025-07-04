@@ -224,7 +224,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         message: result.success 
           ? `Task ${result.taskId} deleted successfully`
           : `Failed to delete task ${result.taskId}`,
-      };
+      } as any;
     }
   );
 }

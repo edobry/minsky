@@ -601,7 +601,7 @@ export function registerSessionCommands(): void {
           task: params.task,
           repo: params.repo,
           json: params.json,
-        });
+        }) as any;
 
         return {
           success: true,
@@ -641,7 +641,7 @@ export function registerSessionCommands(): void {
           skipUpdate: params.skipUpdate,
           autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
           skipConflictCheck: params.skipConflictCheck,
-        });
+        }) as any;
 
         return {
           success: true,

@@ -97,7 +97,7 @@ export class JsonFileTaskBackend implements TaskBackend {
           success: false,
           error: result.error,
           filePath: this.storage.getStorageLocation(),
-        };
+        } as any;
       }
 
       // Convert state to a tasks.md-like format for compatibility
@@ -146,7 +146,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       const data = JSON.parse(content) as any;
       if (data.tasks && Array.isArray(data.tasks)) {
-        return data.tasks;
+        return data.tasks as any;
       }
     } catch (error) {
       // If JSON parsing fails, fall back to markdown parsing
@@ -243,7 +243,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         error: result.error,
         bytesWritten: result.bytesWritten,
         filePath: this.storage.getStorageLocation(),
-      };
+      } as any;
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
@@ -371,7 +371,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         id,
         error: getErrorMessage(error),
       });
-      return null;
+      return null as any;
     }
   }
 

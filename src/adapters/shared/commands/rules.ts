@@ -374,7 +374,7 @@ export function registerRulesCommands(): void {
         const globs = parseGlobs(typedParams.globs);
         const tags = typedParams.tags
           ? typedParams.tags.split(",").map((tag: string) => tag.trim())
-          : undefined;
+          : undefined as any;
 
         // Prepare metadata
         const meta = {
@@ -427,13 +427,13 @@ export function registerRulesCommands(): void {
         // Process content if provided (could be file path)
         const content = typedParams.content
           ? await readContentFromFileIfExists(typedParams.content)
-          : undefined;
+          : undefined as any;
 
         // Process globs and tags
-        const globs = typedParams.globs ? parseGlobs(typedParams.globs) : undefined;
+        const globs = typedParams.globs ? parseGlobs(typedParams.globs) : undefined as any;
         const tags = typedParams.tags
           ? typedParams.tags.split(",").map((tag: any) => tag.trim())
-          : undefined;
+          : undefined as any;
 
         // Prepare metadata updates
         const meta: Record<string, any> = {};
@@ -451,7 +451,7 @@ export function registerRulesCommands(): void {
           typedParams.id,
           {
             content,
-            meta: Object.keys(meta).length > 0 ? meta : undefined,
+            meta: Object.keys(meta).length > 0 ? meta : undefined as any,
           },
           {
             format,

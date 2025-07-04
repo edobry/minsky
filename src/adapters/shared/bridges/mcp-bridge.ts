@@ -149,7 +149,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
         ensuredError.constructor.name !== "Object"
           ? ensuredError.constructor.name
           : "MCP_EXECUTION_ERROR",
-      stack: request.debug ? ensuredError.stack : undefined,
+      stack: request.debug ? ensuredError.stack : undefined as any,
       details: (ensuredError as any)?.details || (ensuredError as any)?.cause || undefined,
     };
 

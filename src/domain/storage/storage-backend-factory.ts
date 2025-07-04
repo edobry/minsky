@@ -69,7 +69,7 @@ export function getDefaultStorageConfig(): StorageConfig {
       maxConnections: 10,
       connectTimeout: 30,
       idleTimeout: 600,
-    },
+    } as any,
   };
 }
 
@@ -87,12 +87,12 @@ export function loadStorageConfig(overrides?: Partial<StorageConfig>): StorageCo
 
   // Override SQLite path from environment
   if (process.env.MINSKY_SQLITE_PATH) {
-    defaults.sqlite!.dbPath = process.env.MINSKY_SQLITE_PATH;
+    defaults.sqlite!.dbPath = process.env.MINSKY_SQLITE_PATH as any;
   }
 
   // Override PostgreSQL URL from environment
   if (process.env.MINSKY_POSTGRES_URL) {
-    defaults.postgres!.connectionUrl = process.env.MINSKY_POSTGRES_URL;
+    defaults.postgres!.connectionUrl = process.env.MINSKY_POSTGRES_URL as any;
   }
 
   // Apply any additional overrides

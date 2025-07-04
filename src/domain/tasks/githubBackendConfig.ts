@@ -47,13 +47,13 @@ function extractGitHubRepoFromRemote(
       };
     }
 
-    return null;
+    return null as any;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
       error: getErrorMessage(error),
     });
-    return null;
+    return null as any;
   }
 }
 
@@ -73,7 +73,7 @@ export function getGitHubBackendConfig(
     if (logErrors) {
       log.error("GitHub token not found in environment. Set GITHUB_TOKEN or GH_TOKEN in .env file");
     }
-    return null;
+    return null as any;
   }
 
   // Try to auto-detect repository from git remote
@@ -83,7 +83,7 @@ export function getGitHubBackendConfig(
     if (logErrors) {
       log.error("Could not detect GitHub repository from git remote");
     }
-    return null;
+    return null as any;
   }
 
   return {

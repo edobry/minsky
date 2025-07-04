@@ -192,9 +192,9 @@ export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
   ],
   sessiondb: {
     backend: "json",
-    baseDir: undefined,
-    dbPath: undefined,
-    connectionString: undefined,
+    baseDir: undefined as any,
+    dbPath: undefined as any,
+    connectionString: undefined as any,
   },
 };
 

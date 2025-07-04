@@ -615,7 +615,7 @@ export async function updateSessionFromParams(
             : "local-minsky";
 
           // Extract task ID from session name - simpler and more reliable approach
-          const taskId = sessionName.startsWith("task#") ? sessionName : undefined;
+          const taskId = sessionName.startsWith("task#") ? sessionName : undefined as any;
 
           // Create session record
           const newSessionRecord: SessionRecord = {
@@ -1080,7 +1080,7 @@ Need help? Run 'git status' to see what files have changed.
       task: params.task,
       bodyPath: params.bodyPath,
       error: getErrorMessage(error),
-      stack: error instanceof Error ? error?.stack : undefined,
+      stack: error instanceof Error ? error?.stack : undefined as any,
     });
     throw error;
   }
