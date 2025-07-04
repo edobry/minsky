@@ -320,19 +320,19 @@ Repository: ${(this as any).repoUrl}
             return {
               success: false,
               message: "Git authentication failed. Check your credentials or SSH key.",
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           } else if ((error as any).message.includes("[rejected]")) {
             return {
               success: false,
               message: "Push rejected. Try pulling changes first or use force push if appropriate.",
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           } else {
             return {
               success: false,
               message: `Failed to push to remote repository: ${(error as any).message}`,
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           }
         }
@@ -343,10 +343,10 @@ Repository: ${(this as any).repoUrl}
         message: "Successfully pushed changes to remote repository",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
-        message: `Failed to push to remote repository: ${(normalizedError as any).message}`,
+        message: `Failed to push to remote repository: ${normalizedError.message}`,
         error: normalizedError,
       };
     }
@@ -398,19 +398,19 @@ Repository: ${(this as any).repoUrl}
             return {
               success: false,
               message: "Git authentication failed. Check your credentials or SSH key.",
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           } else if ((error as any).message.includes("conflict")) {
             return {
               success: false,
               message: "Pull failed due to conflicts. Resolve conflicts manually.",
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           } else {
             return {
               success: false,
               message: `Failed to pull from remote repository: ${(error as any).message}`,
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           }
         }
@@ -421,10 +421,10 @@ Repository: ${(this as any).repoUrl}
         message: "Successfully pulled changes from remote repository",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
-        message: `Failed to pull from remote repository: ${(normalizedError as any).message}`,
+        message: `Failed to pull from remote repository: ${normalizedError.message}`,
         error: normalizedError,
       };
     }
