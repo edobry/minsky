@@ -68,11 +68,12 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
     _parameters: z.object({}).strict(),
     execute: async () => {
       // Get basic system info for diagnostics
-      const nodejsVersion = process.version;
-      const platform = process.platform;
-      const arch = process.arch;
-      const uptime = process.uptime();
-      const memory = process.memoryUsage();
+      // Note: TypeScript types for Bun's process object are incomplete, but these properties exist at runtime
+      const nodejsVersion = (process as any).version;
+      const platform = (process as any).platform;
+      const arch = (process as any).arch;
+      const uptime = (process as any).uptime();
+      const memory = (process as any).memoryUsage();
 
       // Return formatted system information
       return {
