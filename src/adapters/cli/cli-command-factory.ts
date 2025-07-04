@@ -371,7 +371,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         useFirstRequiredParamAsArgument: false,
         parameters: {
           title: {
-            description: "Title for the PR (required)",
+            description: "Title for the PR (optional for existing PRs)",
           },
           body: {
             description: "Body text for the PR",
