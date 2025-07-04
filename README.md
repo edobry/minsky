@@ -52,6 +52,8 @@ For detailed documentation on Minsky concepts and their relationships, see [src/
 - TypeScript 5.0+ (peer dependency)
 - **Optional**: SQLite or PostgreSQL for advanced SessionDB backends
 
+> 🚀 **Recommended**: Configure [Bun optimization for disk space savings](./docs/bun-optimization-setup.md) to reduce session workspace storage by 60-90%.
+
 ### Quick Start
 
 ```bash
