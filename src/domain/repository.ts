@@ -358,8 +358,8 @@ export async function createRepositoryBackend(
         const workdir = gitService.getSessionWorkdir(sessionName);
 
         await gitService.push({
-          _session,
-          _repoPath: workdir,
+          session: sessionName,
+          repoPath: workdir,
         });
       },
 
@@ -457,8 +457,8 @@ export async function resolveRepository(
   }
   // 2. Try to resolve from session
   else if (session) {
-    const sessionDb = new SessionDB();
-    const sessionRecord = await sessionDb.getSession(_session);
+    const sessionDb = new (await import("./session.js")).SessionDB();
+    const sessionRecord = await sessionDb.getSession(session);
     if (!sessionRecord) {
       throw new ValidationError(`Session not found: ${session}`);
     }
@@ -467,9 +467,9 @@ export async function resolveRepository(
       (sessionRecord.backendType as RepositoryBackendType) || RepositoryBackendType.LOCAL;
   }
   // 3. Try to resolve from task ID
-  else if (_taskId) {
+  else if (taskId) {
     const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
-    const sessionDb = new SessionDB();
+    const sessionDb = new (await import("./session.js")).SessionDB();
     const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
     if (!sessionRecord) {
       throw new ValidationError(`No session found for task: ${taskId}`);
@@ -488,7 +488,7 @@ export async function resolveRepository(
   // DEFAULT_RETRY_COUNT. No resolution method available
   else {
     throw new ValidationError(
-      "Cannot resolve repository: no URI, _session, or task ID provided, and auto-detection is disabled"
+      "Cannot resolve repository: no URI, session, or task ID provided, and auto-detection is disabled"
     );
   }
 
