@@ -424,6 +424,6 @@
 
 - [+] Exclude CLOSED tasks from default tasks list output [#228](process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)
 
-- [ ] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
+- [-] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
 
 - [+] Test auto-creation of task from description [#230](process/tasks/230-test-auto-creation-of-task-from-description.md)
