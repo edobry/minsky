@@ -83,7 +83,7 @@ export class StorageError extends Error {
   toJSON(): object {
     return {
       message: (this as any).message,
-      type: (this as any).type,
+      type: (this).type,
       severity: this.severity,
       context: this.context,
       recoveryActions: this.recoveryActions,
@@ -144,8 +144,8 @@ export class StorageErrorClassifier {
     // Generic error fallback
     return {
       message: `Unclassified storage error: ${(error as any).message}`,
-      type: (StorageErrorType as any).UNKNOWN,
-      severity: (StorageErrorSeverity as any).MEDIUM,
+      type: (StorageErrorType).UNKNOWN,
+      severity: (StorageErrorSeverity).MEDIUM,
       recoveryActions: [
         {
           type: "RETRY",
@@ -166,8 +166,8 @@ export class StorageErrorClassifier {
     if ((errorMessage as any).includes("enoent") || (errorMessage as any).includes("no such file")) {
       return {
         message: "Session database file not found - database may need initialization",
-        type: (StorageErrorType as any).RESOURCE,
-        severity: (StorageErrorSeverity as any).HIGH,
+        type: (StorageErrorType).RESOURCE,
+        severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
             type: "REPAIR",
@@ -184,8 +184,8 @@ export class StorageErrorClassifier {
     if ((errorMessage as any).includes("eacces") || (errorMessage as any).includes("permission denied")) {
       return {
         message: "Insufficient permissions to access session database file",
-        type: (StorageErrorType as any).PERMISSION,
-        severity: (StorageErrorSeverity as any).HIGH,
+        type: (StorageErrorType).PERMISSION,
+        severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
             type: "MANUAL",
@@ -201,8 +201,8 @@ export class StorageErrorClassifier {
     if ((errorMessage as any).includes("syntaxerror") || (errorMessage as any).includes("unexpected token")) {
       return {
         message: "Session database file is corrupted or contains invalid JSON",
-        type: (StorageErrorType as any).CORRUPTION,
-        severity: (StorageErrorSeverity as any).CRITICAL,
+        type: (StorageErrorType).CORRUPTION,
+        severity: (StorageErrorSeverity).CRITICAL,
         recoveryActions: [
           {
             type: "FALLBACK",
@@ -226,8 +226,8 @@ export class StorageErrorClassifier {
     if ((errorMessage as any).includes("enospc") || (errorMessage as any).includes("no space left")) {
       return {
         message: "Insufficient disk space for session database operations",
-        type: (StorageErrorType as any).RESOURCE,
-        severity: (StorageErrorSeverity as any).HIGH,
+        type: (StorageErrorType).RESOURCE,
+        severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
             type: "MANUAL",
@@ -241,8 +241,8 @@ export class StorageErrorClassifier {
 
     return {
       message: `JSON backend error: ${(error as any).message}`,
-      type: (StorageErrorType as any).UNKNOWN,
-      severity: (StorageErrorSeverity as any).MEDIUM,
+      type: (StorageErrorType).UNKNOWN,
+      severity: (StorageErrorSeverity).MEDIUM,
       recoveryActions: [],
     };
   }
@@ -252,8 +252,8 @@ export class StorageErrorClassifier {
     if ((errorMessage as any).includes("sqlite_busy") || (errorMessage as any).includes("database is locked")) {
       return {
         message: "SQLite database is locked by another process",
-        type: (StorageErrorType as any).RESOURCE,
-        severity: (StorageErrorSeverity as any).MEDIUM,
+        type: (StorageErrorType).RESOURCE,
+        severity: (StorageErrorSeverity).MEDIUM,
         recoveryActions: [
           {
             type: "RETRY",
@@ -275,8 +275,8 @@ export class StorageErrorClassifier {
     if ((errorMessage as any).includes("sqlite_corrupt") || (errorMessage as any).includes("malformed")) {
       return {
         message: "SQLite database is corrupted",
-        type: (StorageErrorType as any).CORRUPTION,
-        severity: (StorageErrorSeverity as any).CRITICAL,
+        type: (StorageErrorType).CORRUPTION,
+        severity: (StorageErrorSeverity).CRITICAL,
         recoveryActions: [
           {
             type: "REPAIR",
@@ -299,8 +299,8 @@ export class StorageErrorClassifier {
     if ((errorMessage as any).includes("sqlite_readonly") || (errorMessage as any).includes("readonly")) {
       return {
         message: "SQLite database is in read-only mode",
-        type: (StorageErrorType as any).PERMISSION,
-        severity: (StorageErrorSeverity as any).HIGH,
+        type: (StorageErrorType).PERMISSION,
+        severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
             type: "MANUAL",
@@ -316,8 +316,8 @@ export class StorageErrorClassifier {
     if ((errorMessage as any).includes("sqlite_cantopen") || (errorMessage as any).includes("unable to open")) {
       return {
         message: "Cannot open SQLite database file",
-        type: (StorageErrorType as any).RESOURCE,
-        severity: (StorageErrorSeverity as any).HIGH,
+        type: (StorageErrorType).RESOURCE,
+        severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
             type: "REPAIR",
@@ -331,8 +331,8 @@ export class StorageErrorClassifier {
 
     return {
       message: `SQLite backend error: ${(error as any).message}`,
-      type: (StorageErrorType as any).UNKNOWN,
-      severity: (StorageErrorSeverity as any).MEDIUM,
+      type: (StorageErrorType).UNKNOWN,
+      severity: (StorageErrorSeverity).MEDIUM,
       recoveryActions: [],
     };
   }
@@ -344,8 +344,8 @@ export class StorageErrorClassifier {
     if ((errorMessage as any).includes("econnrefused") || (errorMessage as any).includes("connection refused")) {
       return {
         message: "Cannot connect to PostgreSQL server",
-        type: (StorageErrorType as any).CONNECTION,
-        severity: (StorageErrorSeverity as any).HIGH,
+        type: (StorageErrorType).CONNECTION,
+        severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
             type: "RETRY",
@@ -367,8 +367,8 @@ export class StorageErrorClassifier {
     if ((pgError as any).code === "28P01" || (errorMessage as any).includes("authentication failed")) {
       return {
         message: "PostgreSQL authentication failed",
-        type: (StorageErrorType as any).PERMISSION,
-        severity: (StorageErrorSeverity as any).HIGH,
+        type: (StorageErrorType).PERMISSION,
+        severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
             type: "MANUAL",
@@ -384,8 +384,8 @@ export class StorageErrorClassifier {
     if ((pgError as any).code === "3D000" || (errorMessage as any).includes("database") && (errorMessage as any).includes("does not exist")) {
       return {
         message: "PostgreSQL database does not exist",
-        type: (StorageErrorType as any).RESOURCE,
-        severity: (StorageErrorSeverity as any).HIGH,
+        type: (StorageErrorType).RESOURCE,
+        severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
             type: "MANUAL",
@@ -401,8 +401,8 @@ export class StorageErrorClassifier {
     if ((pgError as any).code === "42P01" || (errorMessage as any).includes("relation") && (errorMessage as any).includes("does not exist")) {
       return {
         message: "PostgreSQL schema not initialized",
-        type: (StorageErrorType as any).RESOURCE,
-        severity: (StorageErrorSeverity as any).HIGH,
+        type: (StorageErrorType).RESOURCE,
+        severity: (StorageErrorSeverity).HIGH,
         recoveryActions: [
           {
             type: "REPAIR",
@@ -418,8 +418,8 @@ export class StorageErrorClassifier {
     if ((pgError as any).code === "53300" || (errorMessage as any).includes("too many connections")) {
       return {
         message: "PostgreSQL connection limit exceeded",
-        type: (StorageErrorType as any).RESOURCE,
-        severity: (StorageErrorSeverity as any).MEDIUM,
+        type: (StorageErrorType).RESOURCE,
+        severity: (StorageErrorSeverity).MEDIUM,
         recoveryActions: [
           {
             type: "RETRY",
@@ -440,8 +440,8 @@ export class StorageErrorClassifier {
     if ((errorMessage as any).includes("timeout") || (errorMessage as any).includes("etimedout")) {
       return {
         message: "PostgreSQL operation timed out",
-        type: (StorageErrorType as any).TIMEOUT,
-        severity: (StorageErrorSeverity as any).MEDIUM,
+        type: (StorageErrorType).TIMEOUT,
+        severity: (StorageErrorSeverity).MEDIUM,
         recoveryActions: [
           {
             type: "RETRY",
@@ -454,8 +454,8 @@ export class StorageErrorClassifier {
 
     return {
       message: `PostgreSQL backend error: ${(error as any).message}`,
-      type: (StorageErrorType as any).UNKNOWN,
-      severity: (StorageErrorSeverity as any).MEDIUM,
+      type: (StorageErrorType).UNKNOWN,
+      severity: (StorageErrorSeverity).MEDIUM,
       recoveryActions: [],
     };
   }
@@ -571,8 +571,8 @@ export class StorageErrorMonitor {
     // Log error with context
     log.error("Storage error recorded", {
       backend: (error.context as any).backend as any,
-      type: (error as any).type as any,
-      severity: (error as any).severity as any,
+      type: (error).type as any,
+      severity: (error).severity as any,
       operation: (error.context as any).operation as any,
       count: currentCount + 1,
       message: (error as any).message as any,
@@ -622,7 +622,7 @@ export class StorageErrorMonitor {
       log.error("Critical storage error detected", {
         errorKey: key,
         message: (lastError as any).message,
-        recoveryActions: lastError.recoveryActions,
+        recoveryActions: lastError?.recoveryActions,
       });
     }
   }

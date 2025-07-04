@@ -198,7 +198,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     // Resolve GitHub credentials if needed
     if (
       ((config as any).backend === "github-issues" || (config.github as any).credentials) &&
-      !(config.github?.credentials as any).token
+      !(config?.github?.credentials as any).token
     ) {
       const githubToken = await (this.credentialManager as any).getCredential("github");
       if (githubToken) {
