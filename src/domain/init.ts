@@ -11,6 +11,7 @@ export const initializeProjectParamsSchema = z.object({
   mcp: z
     .object({
       enabled: (z.boolean().optional() as any).default(true),
+      transport: (params.mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
       port: (z.number() as any).optional(),
       host: z.string().optional(),
     })
