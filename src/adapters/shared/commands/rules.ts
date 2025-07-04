@@ -319,6 +319,8 @@ export function registerRulesCommands(): void {
     parameters: rulesGetCommandParams,
     execute: async (params: unknown) => {
       log.debug("Executing rules.get command", { params });
+      
+      const typedParams = params as RulesGetParams;
 
       try {
         // Resolve workspace path
@@ -326,12 +328,12 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Convert parameters
-        const format = params.format as RuleFormat | undefined;
+        const format = typedParams.format as RuleFormat | undefined;
 
         // Call domain function
-        const rule = await ruleService.getRule(params.id, {
+        const rule = await ruleService.getRule(typedParams.id, {
           format,
-          debug: params.debug,
+          debug: typedParams.debug,
         });
 
         return {
@@ -341,7 +343,7 @@ export function registerRulesCommands(): void {
       } catch (error) {
         log.error("Failed to get rule", {
           error: getErrorMessage(error),
-          id: params.id,
+          id: typedParams.id,
         });
         throw error;
       }
@@ -357,6 +359,8 @@ export function registerRulesCommands(): void {
     parameters: rulesCreateCommandParams,
     execute: async (params: unknown) => {
       log.debug("Executing rules.create command", { params });
+      
+      const typedParams = params as RulesCreateParams;
 
       try {
         // Resolve workspace path
@@ -364,29 +368,29 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Process content (could be file path)
-        const content = await readContentFromFileIfExists(params.content);
+        const content = await readContentFromFileIfExists(typedParams.content);
 
         // Process globs and tags
-        const globs = parseGlobs(params.globs);
-        const tags = params.tags
-          ? params.tags.split(",").map((tag: unknown) => tag.trim())
+        const globs = parseGlobs(typedParams.globs);
+        const tags = typedParams.tags
+          ? typedParams.tags.split(",").map((tag: string) => tag.trim())
           : undefined;
 
         // Prepare metadata
         const meta = {
-          name: params.name || params.id,
-          description: params.description,
+          name: typedParams.name || typedParams.id,
+          description: typedParams.description,
           globs,
           tags,
         };
 
         // Convert format
-        const format = params.format as RuleFormat | undefined;
+        const format = typedParams.format as RuleFormat | undefined;
 
         // Call domain function
-        const rule = await ruleService.createRule(params.id, content, meta, {
+        const rule = await ruleService.createRule(typedParams.id, content, meta, {
           format,
-          overwrite: params.overwrite,
+          overwrite: typedParams.overwrite,
         });
 
         return {
@@ -396,7 +400,7 @@ export function registerRulesCommands(): void {
       } catch (error) {
         log.error("Failed to create rule", {
           error: getErrorMessage(error),
-          id: params.id,
+          id: typedParams.id,
         });
         throw error;
       }
@@ -412,6 +416,8 @@ export function registerRulesCommands(): void {
     parameters: rulesUpdateCommandParams,
     execute: async (params: unknown) => {
       log.debug("Executing rules.update command", { params });
+      
+      const typedParams = params as RulesUpdateParams;
 
       try {
         // Resolve workspace path

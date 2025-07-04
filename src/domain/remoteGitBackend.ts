@@ -305,7 +305,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       return {
         workdir: this.localPath,
-        _branch: name,
+        branch: name,
       };
     } catch (error) {
       throw new RepositoryError(

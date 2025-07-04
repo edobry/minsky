@@ -400,7 +400,7 @@ describe("Workspace Utils", () => {
       mockSessionProvider = createMockSessionProvider({
         getSession: async (sessionName: unknown) =>
           Promise.resolve({
-            _session: sessionName,
+            session: sessionName,
             repoUrl: "/path/to/main/workspace",
             repoName: "workspace",
             createdAt: new Date().toISOString(),

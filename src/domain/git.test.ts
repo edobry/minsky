@@ -164,7 +164,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
         getSession: createMock(() =>
           Promise.resolve({
-            _session: "test-session",
+            session: "test-session",
             repoName: "test-repo",
             repoUrl: "https://github.com/user/repo.git",
           })
