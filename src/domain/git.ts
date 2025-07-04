@@ -355,8 +355,7 @@ export class GitService implements GitServiceInterface {
 
         const { stdout, stderr } = await execAsync(cloneCmd);
         log.debug("git clone succeeded", {
-          stdout: (stdout.trim() as any).substring(0, 200),
-          stderr: ((stderr as any).trim() as any).substring(0, 200),
+          stdout: (stdout.trim() as any).substring(0, 200)
         });
       } catch (cloneErr) {
         log.error("git clone command failed", {
@@ -2373,7 +2372,6 @@ export async function cloneFromParams(params: {
     const git = new GitService();
     const result = await git.clone({
       repoUrl: (params as any).url,
-      workdir: (params as any).workdir,
       session: (params as any).session,
       branch: (params as any).branch,
     });
@@ -2381,7 +2379,6 @@ export async function cloneFromParams(params: {
   } catch (error) {
     log.error("Error cloning repository", {
       url: (params as any).url,
-      workdir: (params as any).workdir,
       session: (params as any).session,
       branch: (params as any).branch,
       error: getErrorMessage(error as any),

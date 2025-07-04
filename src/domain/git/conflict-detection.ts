@@ -334,7 +334,6 @@ export class ConflictDetectionService {
 
         if ((prediction as any).hasConflicts && (options as any).dryRun) {
           return {
-            workdir: repoPath,
             merged: false,
             conflicts: true,
             conflictDetails: (prediction as any).userGuidance,
@@ -363,7 +362,6 @@ export class ConflictDetectionService {
           const merged = (beforeHash as any).trim() !== (afterHash as any).trim();
 
           return {
-            workdir: repoPath,
             merged,
             conflicts: false,
             prediction,
@@ -376,7 +374,6 @@ export class ConflictDetectionService {
 
           if (hasConflicts) {
             return {
-              workdir: repoPath,
               merged: false,
               conflicts: true,
               conflictDetails: (prediction as any).userGuidance || "Merge conflicts detected",
@@ -390,7 +387,6 @@ export class ConflictDetectionService {
 
       // Dry run result
       return {
-        workdir: repoPath,
         merged: false,
         conflicts: (prediction as any).hasConflicts || false,
         conflictDetails: (prediction as any).userGuidance,
@@ -424,7 +420,6 @@ export class ConflictDetectionService {
       // Check if we should skip update
       if ((options as any).skipIfAlreadyMerged && (divergence as any).sessionChangesInBase) {
         return {
-          workdir: repoPath,
           updated: false,
           skipped: true,
           reason: "Session changes already in base branch",
@@ -435,7 +430,6 @@ export class ConflictDetectionService {
       // If no update needed
       if ((divergence as any).divergenceType === "none" || (divergence as any).divergenceType === "ahead") {
         return {
-          workdir: repoPath,
           updated: false,
           skipped: true,
           reason: "No update needed - session is current or ahead",
@@ -450,7 +444,6 @@ export class ConflictDetectionService {
         await execAsync(`git -C ${repoPath} merge --ff-only ${remoteBranch}`);
 
         return {
-          workdir: repoPath,
           updated: true,
           skipped: false,
           reason: "Fast-forward update completed",
@@ -466,7 +459,6 @@ export class ConflictDetectionService {
         );
 
         return {
-          workdir: repoPath,
           updated: (mergeResult as any).merged,
           skipped: false,
           reason: (mergeResult as any).conflicts

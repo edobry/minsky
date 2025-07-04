@@ -114,15 +114,15 @@ export class MinskyMCPServer {
     this.options = {
       name: (options as any).name || "Minsky MCP Server",
       version: (options as any).version || "1.0.0", // Should be dynamically pulled from package.json
-      transportType: (options as any).transportType || "stdio",
+      /* TODO: Verify if transportType is valid property */ transportType: (options as any).transportType || "stdio",
       projectContext: this.projectContext,
       sse: {
-        endpoint: (options.sse as any).endpoint || "/sse",
+        /* TODO: Verify if endpoint is valid property */ endpoint: (options.sse as any).endpoint || "/sse",
         port: (options.sse as any).port || 8080,
         host: (options.sse as any).host || "localhost",
         path: (options.sse as any).path || "/sse",
       },
-      httpStream: {
+      /* TODO: Verify if httpStream is valid property */ httpStream: {
         endpoint: (options.httpStream as any).endpoint || "/mcp",
         port: (options.httpStream as any).port || 8080,
       },
@@ -156,14 +156,12 @@ export class MinskyMCPServer {
     // Listen for client connections
     (this.server as any).on("connect", () => {
       log.agent("Client connected to Minsky MCP Server", {
-        transport: (this.options as any).transportType,
       });
     });
 
     // Listen for client disconnections
     (this.server as any).on("disconnect", () => {
       log.agent("Client disconnected from Minsky MCP Server", {
-        transport: (this.options as any).transportType,
       });
     });
 
@@ -204,7 +202,6 @@ export class MinskyMCPServer {
 
       // Log server started message with structured information for monitoring
       log.agent("Minsky MCP Server started", {
-        transport: (this.options as any).transportType,
         serverName: (this.options as any).name,
         version: (this.options as any).version,
         repositoryPath: (this.projectContext as any).repositoryPath,
@@ -232,8 +229,7 @@ export class MinskyMCPServer {
       // Log error with full details (for structured logging/debugging)
       log.error("Failed to start Minsky MCP Server", {
         error: getErrorMessage(error as any),
-        stack: error instanceof Error ? (error as any).stack as any : undefined as any,
-        transport: (this.options as any).transportType,
+        stack: error instanceof Error ? (error as any).stack as any : undefined as any
       });
 
       // Always rethrow the error - the caller is responsible for user-friendly handling

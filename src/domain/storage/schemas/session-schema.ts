@@ -23,8 +23,7 @@ export const sqliteSessions = sqliteTable("sessions", {
   repoUrl: (text("repo_url") as any).notNull(),
   createdAt: (text("created_at") as any).notNull(),
   taskId: (text("task_id") as any).notNull(),
-  branch: (text("branch") as any).notNull(),
-  repoPath: text("repo_path"),
+  branch: (text("branch") as any).notNull()
 });
 
 // PostgreSQL Schema
@@ -34,8 +33,7 @@ export const postgresSessions = pgTable("sessions", {
   repoUrl: (varchar("repo_url", { length: 1000 }) as any).notNull(),
   createdAt: (timestamp("created_at", { withTimezone: true }) as any).notNull(),
   taskId: (varchar("task_id", { length: 100 }) as any).notNull(),
-  branch: (varchar("branch", { length: 255 }) as any).notNull(),
-  repoPath: varchar("repo_path", { length: 1000 }),
+  branch: (varchar("branch", { length: 255 }) as any).notNull()
 });
 
 // Type exports for better type inference

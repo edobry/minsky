@@ -119,11 +119,6 @@ const cloneCommandParams: CommandParameterMap = {
     description: SESSION_DESCRIPTION,
     required: false,
   },
-  destination: {
-    schema: z.string(),
-    description: "Target directory for the clone",
-    required: false,
-  },
   branch: {
     schema: z.string(),
     description: GIT_BRANCH_DESCRIPTION,

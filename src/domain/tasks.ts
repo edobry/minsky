@@ -199,7 +199,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     const canonicalId = (task as any).id;
     const idNum = canonicalId.startsWith("#") ? (canonicalId as any).slice(1) : canonicalId;
 
-    const content = await fs.readFile(this.filePath, "utf-8");
+    const content = String(await fs.readFile(this.filePath, "utf-8"));
     const newStatusChar = TASK_STATUS_CHECKBOX[status];
     const lines = (((content) as any).toString() as any).split("\n");
     let inCodeBlock = false;
@@ -245,7 +245,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   private async parseTasks(): Promise<Task[]> {
     try {
-      const content = await fs.readFile(this.filePath, "utf-8");
+      const content = String(await fs.readFile(this.filePath, "utf-8"));
       // Split into lines and track code block state
       const lines = (((content) as any).toString() as any).split("\n");
       const tasks: Task[] = [];
@@ -302,7 +302,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     // Read and parse the spec file
-    const specContent = await fs.readFile(fullSpecPath, "utf-8");
+    const specContent = String(await fs.readFile(fullSpecPath, "utf-8"));
     const lines = (specContent as any).split("\n");
 
     // Extract title from the first heading
@@ -441,7 +441,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     };
 
     // Add the task to tasks.md
-    const content = await fs.readFile(this.filePath, "utf-8");
+    const content = String(await fs.readFile(this.filePath, "utf-8"));
     const taskEntry = `- [ ] ${title} [${taskId}](${newSpecPath})\n`;
     const tasksFileContent = `${content}\n${taskEntry}`;
     await fs.writeFile(this.filePath, tasksFileContent, "utf-8");
@@ -471,7 +471,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     try {
       // Read the spec file
-      const fileContent = await fs.readFile(specFilePath, "utf-8");
+      const fileContent = String(await fs.readFile(specFilePath, "utf-8"));
 
       // Parse the file with frontmatter
       const parsed = matter(fileContent);
@@ -513,7 +513,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     try {
       // Remove task from tasks.md
-      const content = await fs.readFile(this.filePath, "utf-8");
+      const content = String(await fs.readFile(this.filePath, "utf-8"));
       const lines = (((content) as any).toString() as any).split("\n");
       let inCodeBlock = false;
       let removed = false;

@@ -109,7 +109,7 @@ export function createMCPCommand(): Command {
           host: (options as any).host,
           path: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
         },
-        httpStream: {
+        /* TODO: Verify if httpStream is valid property */ httpStream: {
           port: transportType === "httpStream" ? port : 8080,
           endpoint: "/mcp",
         },

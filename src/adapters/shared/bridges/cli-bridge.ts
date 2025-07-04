@@ -281,7 +281,7 @@ export class CliCommandBridge {
         // Simple command - add directly to category
         const subcommand = this.generateCommand((commandDef as any).id!, context as any);
         if (subcommand) {
-          (categoryCommand as any).addCommand(subcommand);
+          (categoryCommand as any).addCommand(subcommand!);
         }
       } else if ((nameParts as any).length === 2) {
         // Nested command - create/get the parent command and add as subcommand
@@ -306,14 +306,14 @@ export class CliCommandBridge {
         if (childCommand) {
           // Update the child command name to just the child part
           (childCommand as any).name(childName);
-          (parentCommand as any).addCommand(childCommand);
+          (parentCommand as any).addCommand(childCommand!);
         }
       } else {
         // More complex nesting - handle it recursively or warn
         log.warn(`Complex command nesting not yet supported: ${(commandDef as any).name}`);
         const subcommand = this.generateCommand((commandDef as any).id!, context as any);
         if (subcommand) {
-          (categoryCommand as any).addCommand(subcommand);
+          (categoryCommand as any).addCommand(subcommand!);
         }
       }
     });
@@ -345,7 +345,7 @@ export class CliCommandBridge {
     (categories as any).forEach((category) => {
       const categoryCommand = this.generateCategoryCommand(category, context as any);
       if (categoryCommand) {
-        program.addCommand(categoryCommand);
+        program.addCommand(categoryCommand!);
       }
     });
   }
@@ -668,7 +668,7 @@ export function registerCategorizedCliCommands(
     (categories as any).forEach((category) => {
       const categoryCommand = (cliBridge as any).generateCategoryCommand(category);
       if (categoryCommand) {
-        program.addCommand(categoryCommand);
+        program.addCommand(categoryCommand!);
       }
     });
   } else {

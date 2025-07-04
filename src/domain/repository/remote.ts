@@ -206,7 +206,6 @@ Repository: ${(this as any).repoUrl}
         behind,
         dirty,
         remotes,
-        workdir: workdir,
         defaultBranch: this.defaultBranch,
         clean: !dirty,
         changes: [],

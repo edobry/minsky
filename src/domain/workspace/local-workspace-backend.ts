@@ -91,7 +91,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         );
       }
       
-      const content = (await fs.readFile(fullPath, { encoding: "utf8" })) as string;
+      const content = (String(await fs.readFile(fullPath, { encoding: "utf8" }))) as string;
       
       log.debug("Read file from workspace", {
         workspaceDir,

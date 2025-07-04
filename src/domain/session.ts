@@ -365,8 +365,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       // First clone the repo
       const gitCloneResult = await (deps.gitService as any).clone({
         repoUrl,
-        session: sessionName,
-        workdir: sessionDir, // Explicit workdir path computed by SessionDB
+        session: sessionName // Explicit workdir path computed by SessionDB
       });
 
       // Create a branch based on the session name - use branchWithoutSession
