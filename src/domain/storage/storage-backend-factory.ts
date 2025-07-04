@@ -13,6 +13,7 @@ import { JsonFileStorage } from "./backends/json-file-storage";
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
 import { createSqliteStorage, type SqliteStorageConfig } from "./backends/sqlite-storage";
 import type { DatabaseStorage } from "./database-storage";
+import { createBackendDetectionErrorMessage } from "../../errors/enhanced-error-templates";
 
 /**
  * Available storage backend types
@@ -129,14 +130,27 @@ export function createStorageBackend(
     return createSqliteStorage(sqliteConfig);
   }
 
-  case "postgres":
+  case "postgres": {
     if (!storageConfig.postgres?.connectionUrl) {
-      throw new Error("PostgreSQL connection URL is required for postgres backend");
+      const errorMessage = createBackendDetectionErrorMessage(
+        "postgres",
+        ["json", "sqlite", "postgres"],
+        {
+          "postgres": ["PostgreSQL connection URL"]
+        }
+      );
+      throw new Error(errorMessage);
     }
     return createPostgresStorage(storageConfig.postgres);
+  }
 
-  default:
-    throw new Error(`Unsupported storage backend: ${storageConfig.backend}`);
+  default: {
+    const errorMessage = createBackendDetectionErrorMessage(
+      storageConfig.backend,
+      ["json", "sqlite", "postgres"]
+    );
+    throw new Error(errorMessage);
+  }
   }
 }
 

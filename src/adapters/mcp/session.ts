@@ -24,6 +24,7 @@ import {
   deleteSessionFromParams,
   getSessionDirFromParams,
   updateSessionFromParams,
+  createSessionProvider,
 } from "../../domain/index.js";
 
 /**
@@ -35,7 +36,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "list",
     "List all sessions",
     z.object({}),
-    async (args): Promise<Record<string, any>> => {
+    async (args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
@@ -55,7 +56,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       name: z.string().optional().describe("Name of the session to retrieve"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, any>> => {
+    async (args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
@@ -95,7 +96,7 @@ Need help? Run: minsky sessions --help
       }
 
       // Convert session to Record<string, unknown> safely
-      return { ...session } as Record<string, any>;
+      return { ...session } as Record<string, unknown>;
     }
   );
 
@@ -106,11 +107,33 @@ Need help? Run: minsky sessions --help
     z.object({
       name: z.string().optional().describe("Name for the new session"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
+      description: z.string().optional().describe("Description for auto-created task"),
       repo: z.string().optional().describe(REPO_DESCRIPTION),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       quiet: z.boolean().optional().describe(SESSION_QUIET_DESCRIPTION).default(true),
     }),
-    async (args): Promise<Record<string, any>> => {
+    async (args): Promise<Record<string, unknown>> => {
+      // Validate that either task or description is provided
+      if (!args.task && !args.description) {
+        throw new Error(`
+🚫 Task Association Required
+
+To start a session, you must provide either:
+
+🎯 Associate with existing task:
+   --task "123"
+
+📝 Create new task automatically:
+   --description "Brief description of the work"
+
+Examples:
+   minsky session start --task "123"
+   minsky session start --description "Fix login issue" --name "my-session"
+
+💡 Task association is required for proper tracking and project management.
+`);
+      }
+
       // Always set quiet to true as required by project rules
       const params = {
         ...args,
@@ -121,11 +144,16 @@ Need help? Run: minsky sessions --help
 
       const session = await startSessionFromParams(params);
 
+      // Get the repo path using the session provider
+      const sessionProvider = createSessionProvider();
+      const sessionRecord = await sessionProvider.getSession(session.session);
+      const repoPath = sessionRecord ? await sessionProvider.getRepoPath(sessionRecord) : undefined;
+
       // Format response for MCP
       return {
         success: true,
         session: session.session,
-        directory: session.repoUrl,
+        directory: repoPath,
         taskId: session.taskId,
         repoName: session.repoName,
       };
@@ -141,7 +169,7 @@ Need help? Run: minsky sessions --help
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, any>> => {
+    async (args): Promise<Record<string, unknown>> => {
       // Must provide either name or task
       if (!args.name && !args.task) {
         throw new Error(`
@@ -225,7 +253,7 @@ Example commands:
       name: z.string().optional().describe("Name of the session"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, any>> => {
+    async (args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         json: true,
@@ -254,7 +282,7 @@ Example commands:
       noPush: z.boolean().optional().describe("Skip pushing changes to remote after update"),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, any>> => {
+    async (args): Promise<Record<string, unknown>> => {
       // Must provide either name or task
       if (!args.name && !args.task) {
         throw new Error(`
@@ -306,7 +334,6 @@ Example commands:
         session: updatedSession.session,
         branch: updatedSession.branch,
         taskId: updatedSession.taskId,
-        repoUrl: updatedSession.repoUrl,
         message: `Session ${updatedSession.session} updated successfully.`,
       };
     }

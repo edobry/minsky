@@ -329,6 +329,45 @@ describe("ConflictDetectionService", () => {
   });
 
   describe("smartSessionUpdate", () => {
+    it("should compare against origin/baseBranch instead of local baseBranch", async () => {
+      // This test verifies the bug fix for task #231
+      // BUG: smartSessionUpdate was comparing against local 'main' instead of 'origin/main'
+      // causing incorrect divergence analysis when local main was behind origin/main
+      
+      const sessionBranch = "task#231";
+      const baseBranch = "main";
+      
+      // Setup mock responses for behind-only scenario (should trigger fast-forward)
+      mockExecAsync
+        .mockResolvedValueOnce({ stdout: "2\t0", stderr: "" }) // behind=2, ahead=0 (fast-forward needed)
+        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // merge-base origin/main task#231
+        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkSessionChangesInBase: no session commits
+        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // cat-file session tree
+        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // cat-file base tree (different)
+        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // fetch origin main
+        .mockResolvedValueOnce({ stdout: "", stderr: "" }); // merge --ff-only origin/main
+
+      const result = await ConflictDetectionService.smartSessionUpdate(
+        testRepoPath, sessionBranch, baseBranch
+      );
+
+      // Verify the key fix: commands should be called with origin/main instead of just main
+      // Check that the first call (analyzeBranchDivergence) used origin/main
+      expect(mockExecAsync).toHaveBeenCalledWith(
+        expect.stringContaining("rev-list --left-right --count origin/main...task#231")
+      );
+      
+      // Check that merge-base was called with origin/main
+      expect(mockExecAsync).toHaveBeenCalledWith(
+        expect.stringContaining("merge-base origin/main task#231")
+      );
+
+      // Verify the update was performed correctly (fast-forward scenario)
+      expect(result.updated).toBe(true);
+      expect(result.skipped).toBe(false);
+      expect(result.reason).toContain("Fast-forward update completed");
+    });
+
     it("should skip update when session changes already in base", async () => {
       // Setup: session changes already merged with skipIfAlreadyMerged option
       mockExecAsync

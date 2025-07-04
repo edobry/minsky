@@ -14,11 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Task #216: Created task to implement core agent loop for independent Minsky operation, enabling Minsky to work outside of Cursor's agent loop and support multiple AI providers
 - Task 182: AI-powered rule suggestion MVP - `minsky context suggest-rules` command for intelligent rule selection based on natural language queries
 - Task 183: Rule suggestion evaluation and optimization - Advanced features including confidence scoring, model optimization, and evaluation integration
-- Strategic analysis for evaluating mandatory task-session associations (#229)
-  - Comprehensive investigation of current session-task relationships
-  - Analysis of workflow patterns and use cases
-  - UX and system design implications assessment
-  - Recommendations for flexible policy-based approach
+- **Task #229: Implement Mandatory Task-Session Association**
+  - Implemented mandatory task association for all session creation operations
+  - Added `--description` parameter for automatic task creation from session descriptions
+  - Enhanced session start schema to require either `--task` or `--description` parameter
+  - Created comprehensive auto-task creation functionality using session templates
+  - Developed migration tools for existing taskless sessions with zero data loss
+  - Successfully migrated 13 taskless sessions to achieve 100% task association compliance
+  - Added comprehensive test coverage (15 passing tests) for session consistency and auto-task creation
+  - Updated CLI help text to clearly indicate mandatory task requirement
+  - Maintained backward compatibility for existing session operations (get, delete, update)
+  - Enabled proper task tracking and workflow management for all sessions
+
+_See: SpecStory history [2025-01-28_task-229-mandatory-session-task-association](mdc:.specstory/history/2025-01-28_task-229-mandatory-session-task-association.md) for implementation details._
 
 ### Changed
 
@@ -120,6 +128,16 @@ _See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specst
 _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
 
 ### Fixed
+
+- **Session PR Commit Message Bug Fix**
+
+  - Fixed critical bug where session PR branches would use incorrect commit messages from unrelated tasks
+  - Issue: PR branches were getting commit messages from arbitrary previous commits (e.g., task #166 messages appearing in task #229 PRs)
+  - Root cause: Git merge process was not reliably using the specified commit message file (-F flag)
+  - Solution: Replaced `-F commitMsgFile` with direct `-m "message"` approach with proper quote escaping
+  - Added commit message verification to detect and log when git applies wrong messages
+  - Enhanced error handling and debugging capabilities for merge commit creation
+  - Verified fix works correctly with proper task-specific PR titles in commit messages
 
 - **Task #167: Fix Task Creation CLI Bug - "status is not defined" Error**
 
@@ -601,6 +619,7 @@ _See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specs
   - Fixed `filterTasks` function to correctly handle task IDs with numeric equivalence (e.g., "2" vs "#002")
   - Updated shared command tests to use Bun-compatible test assertions instead of Jest-style matchers
   - Removed dependency on custom `arrayContaining` and `objectContaining` matchers
+  - Fixed mock implementations in rules and session test files
   - Ensured consistent testing patterns across the codebase
 
 _See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/history/2025-06-26_fix-tests-after-merge.md) for debugging session._

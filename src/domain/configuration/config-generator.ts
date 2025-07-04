@@ -10,6 +10,7 @@ import { dirname, join } from "path";
 import { stringify as stringifyYaml } from "yaml";
 import { RepositoryConfig, GlobalUserConfig, CONFIG_PATHS } from "./types";
 import { homedir } from "os";
+import { createBackendDetectionErrorMessage } from "../../errors/enhanced-error-templates";
 
 export interface RepositoryConfigOptions {
   backend: "markdown" | "json-file" | "github-issues";
@@ -38,7 +39,18 @@ export class ConfigurationGenerator {
     // Add GitHub-specific configuration
     if (options.backend === "github-issues") {
       if (!options.githubOwner || !options.githubRepo) {
-        throw new Error("GitHub owner and repo are required for github-issues backend");
+        const errorMessage = createBackendDetectionErrorMessage(
+          "github-issues",
+          ["markdown", "json-file", "github-issues"],
+          {
+            "github-issues": [
+              ...(options.githubOwner ? [] : ["GitHub owner"]),
+              ...(options.githubRepo ? [] : ["GitHub repository"])
+            ]
+          },
+          workingDir
+        );
+        throw new Error(errorMessage);
       }
       config.backends!["github-issues"] = {
         owner: options.githubOwner,

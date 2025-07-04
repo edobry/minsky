@@ -66,6 +66,7 @@ export const sessionStartParamsSchema = z
     name: sessionNameSchema.optional().describe("Name for the new session"),
     repo: repoPathSchema.optional().describe("Repository to start the session in"),
     task: taskIdSchema.optional().describe("Task ID to associate with the session"),
+    description: z.string().min(1).optional().describe("Description for auto-created task"),
     branch: z.string().optional().describe("Branch name to create"),
     quiet: flagSchema("Suppress output except for the session directory path"),
     noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task"),
@@ -75,7 +76,20 @@ export const sessionStartParamsSchema = z
       .optional()
       .describe("Override the detected package manager"),
   })
-  .merge(commonCommandOptionsSchema);
+  .merge(commonCommandOptionsSchema)
+  .refine(
+    (data) => {
+      // Phase 2: Task association is required
+      if (!data.task && !data.description) {
+        return false;
+      }
+      // Either name or task or description must be provided
+      return data.name || data.task || data.description;
+    },
+    {
+      message: "Task association is required. Please provide --task <id> or --description <text>",
+    }
+  );
 
 /**
  * Type for session start parameters
@@ -172,7 +186,7 @@ export const sessionPrParamsSchema = z
   .object({
     name: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
-    title: z.string().min(1).describe("PR title (required)"),
+    title: z.string().min(1).optional().describe("PR title (optional for existing PRs)"),
     body: z.string().optional().describe("PR body text"),
     bodyPath: z.string().optional().describe("Path to file containing PR body text"),
     baseBranch: z.string().optional().describe("Base branch for PR (defaults to main)"),
@@ -183,10 +197,6 @@ export const sessionPrParamsSchema = z
     skipConflictCheck: flagSchema("Skip proactive conflict detection during update"),
   })
   .merge(commonCommandOptionsSchema)
-  .refine((data) => data.body || data.bodyPath, {
-    message: "Either 'body' or 'bodyPath' must be provided",
-    path: ["body"],
-  })
   .refine((data) => !(data.body && data.bodyPath), {
     message: "Cannot provide both 'body' and 'bodyPath' - use one or the other",
     path: ["body"],
