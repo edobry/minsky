@@ -118,7 +118,7 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
  * @param id Task ID to normalize
  * @returns Normalized task ID or null if invalid
  */
-export function normalizeTaskId(id: string): string | null {
+export function normalizeTaskId(id: string): string | undefined {
   if (!id) return null as any;
 
   // If already in #XXX format, validate and return
@@ -398,8 +398,6 @@ export function formatTaskStateToMarkdown(state: TaskStatus): string {
  * @returns Task state object
  */
 export function parseMarkdownToTaskState(content: string): TaskStatus {
-  return {
-    tasks: parseTasksFromMarkdown(content),
-    lastUpdated: (new Date() as any).toISOString(),
-  };
+  // Fixed return type - should return TaskData[] not TaskStatus
+  return parseTasksFromMarkdown(content);
 }

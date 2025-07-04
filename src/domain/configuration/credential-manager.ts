@@ -17,7 +17,7 @@ export class DefaultCredentialManager implements CredentialManager {
   /**
    * Get credential from available sources in order of precedence
    */
-  async getCredential(service: "github"): Promise<string | null> {
+  async getCredential(service: "github"): Promise<string | undefined> {
     switch (service) {
     case "github":
       return this.getGitHubCredential();
@@ -58,7 +58,7 @@ export class DefaultCredentialManager implements CredentialManager {
   /**
    * Get GitHub credential from multiple sources
    */
-  private async getGitHubCredential(): Promise<string | null> {
+  private async getGitHubCredential(): Promise<string | undefined> {
     // 1. Check environment variable first
     const envToken = (process as any).env[ENV_VARS.GITHUB_TOKEN];
     if (envToken) {

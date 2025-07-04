@@ -62,7 +62,7 @@ export interface LocalSessionProviderInterface {
   /**
    * Get the working directory for a session
    */
-  getSessionWorkdir(_sessionName: string): Promise<string | null>;
+  getSessionWorkdir(_sessionName: string): Promise<string | undefined>;
 }
 
 /**
@@ -180,7 +180,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Get the working directory for a session
    */
-  async getSessionWorkdir(_sessionName: string): Promise<string | null> {
+  async getSessionWorkdir(_sessionName: string): Promise<string | undefined> {
     await this.readDb();
     return getSessionWorkdirFn(this.state, _sessionName);
   }

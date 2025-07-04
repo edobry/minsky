@@ -177,7 +177,7 @@ export function validateRepositoryURI(uri: string): URIValidationResult {
  * @param targetType Target URI type
  * @returns Converted URI or null if conversion is not possible
  */
-export function convertRepositoryURI(uri: string, targetType: RepositoryURIType): string | null {
+export function convertRepositoryURI(uri: string, targetType: RepositoryURIType): string | undefined {
   try {
     // Map our RepositoryURIType to UriFormat
     const targetFormat = targetType as any as UriFormat;
@@ -229,7 +229,7 @@ export function getRepositoryName(uri: string): string {
 export function expandGitHubShorthand(
   shorthand: string,
   format: "https" | "ssh" = "https"
-): string | null {
+): string | undefined {
   try {
     const targetFormat = format === "https" ? UriFormat.HTTPS : UriFormat.SSH;
     return convertRepositoryUri(shorthand, targetFormat);

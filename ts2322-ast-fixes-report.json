@@ -1,0 +1,12 @@
+{
+  "timestamp": "2025-07-04T22:44:07.101Z",
+  "totalChanges": 0,
+  "totalFiles": 143,
+  "fixes": [],
+  "summary": {
+    "successful": 0,
+    "failed": 0,
+    "filesProcessed": 143,
+    "approach": "AST-based transformations with ts-morph"
+  }
+}

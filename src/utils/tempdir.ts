@@ -14,7 +14,7 @@ import { log } from "./logger";
 export function createRobustTempDir(
   prefix = "minsky-test-",
   opts?: { softFail?: boolean }
-): string | null {
+): string | undefined {
   const locations = [
     "/tmp/minsky-test-tmp",
     (process.env as any).SESSION_WORKSPACE ? path.join((process.env as any).SESSION_WORKSPACE, "test-tmp") : null as any,

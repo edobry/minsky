@@ -237,7 +237,7 @@ export async function getCurrentSession(
   cwd: string = (process as any).cwd(),
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride?: SessionProviderInterface
-): Promise<string | null> {
+): Promise<string | undefined> {
   const sessionInfo = await getSessionFromWorkspace(cwd, execAsyncFn, sessionDbOverride);
   return sessionInfo ? (sessionInfo as any).session : null as any;
 }
@@ -261,7 +261,7 @@ export async function getCurrentSessionContext(
 } | null> {
   const { execAsyncFn, sessionDbOverride, getCurrentSessionFn = getCurrentSession } = dependencies;
 
-  let sessionId: string | null = null;
+  let sessionId: string | undefined = undefined;
   try {
     // Get the session name from the current working directory
     sessionId = await getCurrentSessionFn(cwd, execAsyncFn, sessionDbOverride);
@@ -327,14 +327,14 @@ export interface WorkspaceUtilsInterface {
    * @param repoPath The repository path
    * @returns The session name or null if not in a session
    */
-  getCurrentSession(repoPath: string): Promise<string | null>;
+  getCurrentSession(repoPath: string): Promise<string | undefined>;
 
   /**
    * Get session information from a workspace path
    * @param workspacePath The workspace path
    * @returns The session name or null if not in a session
    */
-  getSessionFromWorkspace(workspacePath: string): Promise<string | null>;
+  getSessionFromWorkspace(workspacePath: string): Promise<string | undefined>;
 
   /**
    * Resolve the workspace path for operations
@@ -359,11 +359,11 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
       }
     },
     isSessionWorkspace,
-    getCurrentSession: async (repoPath: string): Promise<string | null> => {
+    getCurrentSession: async (repoPath: string): Promise<string | undefined> => {
       const sessionInfo = await getSessionFromRepo(repoPath);
       return sessionInfo ? (sessionInfo as any).session : null as any;
     },
-    getSessionFromWorkspace: async (workspacePath: string): Promise<string | null> => {
+    getSessionFromWorkspace: async (workspacePath: string): Promise<string | undefined> => {
       const sessionInfo = await getSessionFromWorkspace(workspacePath);
       return sessionInfo ? (sessionInfo as any).session : null as any;
     },
@@ -400,7 +400,7 @@ export async function getWorkspaceSession(workspacePath: string): Promise<Worksp
 export class WorkspaceUtils {
   constructor(private execAsyncFn: typeof execAsync) {}
 
-  async getCurrentSession(workspacePath: string): Promise<string | null> {
+  async getCurrentSession(workspacePath: string): Promise<string | undefined> {
     return getCurrentSession(workspacePath, this.execAsyncFn);
   }
 }
