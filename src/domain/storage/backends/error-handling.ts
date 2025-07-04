@@ -41,7 +41,7 @@ export interface RecoveryAction {
 }
 
 export class StorageError extends Error {
-  public readonly type: StorageErrorType;
+  public readonly type!: StorageErrorType;
   public readonly severity: StorageErrorSeverity;
   public readonly context: StorageErrorContext;
   public readonly recoveryActions: RecoveryAction[];

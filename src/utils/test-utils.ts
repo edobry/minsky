@@ -37,9 +37,9 @@ export const createTempTestDir: (prefix?: string) => string | null = createRobus
  * Returns the created spies for use in assertions
  */
 export function setupConsoleSpy() {
-  const consoleLogSpy = spyOn(_console, "log").mockImplementation(() => {});
-  const consoleErrorSpy = spyOn(_console, "error").mockImplementation(() => {});
-  const processExitSpy = spyOn(_process, "exit").mockImplementation(() => {
+  const consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
+  const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+  const processExitSpy = spyOn(process, "exit").mockImplementation(() => {
     throw new Error("process.exit called");
   });
 

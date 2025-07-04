@@ -30,8 +30,8 @@ const execAsync = promisify(exec);
  */
 export class RemoteGitBackend implements RepositoryBackend {
   private readonly baseDir: string;
-  private readonly repoUrl: string;
-  private readonly repoName: string;
+  private readonly repoUrl!: string;
+  private readonly repoName!: string;
   private readonly defaultBranch?: string;
   private sessionDb: SessionProviderInterface;
 
