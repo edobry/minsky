@@ -143,7 +143,7 @@ export class StorageErrorClassifier {
 
     // Generic error fallback
     return {
-      message: `Unclassified storage error: ${error.message}`,
+      message: `Unclassified storage error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [
@@ -240,7 +240,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `JSON backend error: ${error.message}`,
+      message: `JSON backend error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -330,7 +330,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `SQLite backend error: ${error.message}`,
+      message: `SQLite backend error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -453,7 +453,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `PostgreSQL backend error: ${error.message}`,
+      message: `PostgreSQL backend error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -570,12 +570,12 @@ export class StorageErrorMonitor {
 
     // Log error with context
     log.error("Storage error recorded", {
-      backend: error.context.backend,
-      type: error.type,
-      severity: error.severity,
-      operation: error.context.operation,
+      backend: error.context.backend as any,
+      type: error.type as any,
+      severity: error.severity as any,
+      operation: error.context.operation as any,
       count: currentCount + 1,
-      message: error.message,
+      message: error.message as any,
     });
 
     // Check for error patterns that need attention

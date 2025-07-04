@@ -15,11 +15,11 @@ const TEST_VALUE = 123;
  */
 import { mock, afterEach } from "bun:test"; // Import mock from bun:test
 
-type MockFnType = <T extends (..._args: unknown[]) => any>(implementation?: T) => any;
+type MockFnType = <T extends (...args: unknown[]) => any>(implementation?: T) => any;
 
 // Define a MockFunction type to replace jest.Mock
 export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
-  (..._args: TArgs): TReturn;
+  (...args: TArgs): TReturn;
   mock: {
     calls: TArgs[];
     results: Array<{
@@ -27,9 +27,9 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
       value: TReturn | Error;
     }>;
   };
-  mockImplementation: (fn: (..._args: unknown[]) => TReturn) => MockFunction<TReturn, TArgs>;
-  mockReturnValue: (_value: unknown) => MockFunction<TReturn, TArgs>;
-  mockResolvedValue: <U>(_value: unknown) => MockFunction<Promise<U>, TArgs>;
+  mockImplementation: (fn: (...args: unknown[]) => TReturn) => MockFunction<TReturn, TArgs>;
+  mockReturnValue: (value: unknown) => MockFunction<TReturn, TArgs>;
+  mockResolvedValue: <U>(value: unknown) => MockFunction<Promise<U>, TArgs>;
   mockRejectedValue: (_reason: unknown) => MockFunction<Promise<never>, TArgs>;
 }
 
@@ -47,7 +47,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  * const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
  * const _result = mockGreet("World"); // TypeScript knows this returns string
  */
-export function mockFunction<T extends (..._args: unknown[]) => any>(implementation?: T) {
+export function mockFunction<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Cast to unknown first to avoid TypeScript errors
   return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
 }
@@ -77,7 +77,7 @@ export function mockFunction<T extends (..._args: unknown[]) => any>(implementat
  * mockFn.mockImplementation(() => "new result");
  * expect(mockFn()).toBe("new result");
  */
-export function createMock<T extends (..._args: unknown[]) => any>(implementation?: T) {
+export function createMock<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Use Bun's mock directly instead of trying to access mock.fn
   return implementation ? mock(implementation) : mock(() => {});
 }
@@ -242,7 +242,7 @@ function resetSharedState(): void {
  */
 export function createMockObject<T extends string>(
   methods: T[],
-  implementations: Partial<Record<T, (..._args: unknown[]) => any>> = {}
+  implementations: Partial<Record<T, (...args: unknown[]) => any>> = {}
 ): Record<T, ReturnType<typeof createMock>> {
   return methods.reduce(
     (obj, method) => {
@@ -285,7 +285,7 @@ export function createMockExecSync(
   return createMock((command: unknown) => {
     // Find the first matching command pattern
     for (const [pattern, response] of Object.entries(commandResponses)) {
-      if (command.includes(pattern)) {
+      if ((command as string).includes(pattern)) {
         return response;
       }
     }
@@ -361,15 +361,15 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     // Sync methods
     existsSync: createMock((path: unknown) => files.has(path) || directories.has(path)),
     readFileSync: createMock((path: unknown) => {
-      if (!files.has(path)) {
+      if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
-      return files.get(path);
+      return files.get(path as string);
     }),
     writeFileSync: createMock((path: unknown, data: unknown) => {
       files.set(path as string, data as string);
       // Add parent directories
-      const parts = path.split("/");
+      const parts = (path as string).split("/");
       for (let i = 1; i < parts.length; i++) {
         directories.add(parts.slice(0, i).join("/"));
       }
@@ -382,9 +382,9 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     }),
     rmSync: createMock((path: unknown) => {
       // Remove the path and any files/directories under it
-      files.delete(path);
-      directories.delete(path);
-      const pathPrefix = `${path}/`;
+      files.delete(path as string);
+      directories.delete(path as string);
+      const pathPrefix = `${path as string}/`;
       for (const filePath of files.keys()) {
         if (filePath.startsWith(pathPrefix)) {
           files.delete(filePath);
@@ -399,7 +399,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
 
     // Async methods (fs/promises)
     readFile: createMock(async (path: unknown) => {
-      if (!files.has(path)) {
+      if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
       return files.get(path);
@@ -407,16 +407,16 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     writeFile: createMock(async (path: unknown, data: unknown) => {
       files.set(path as string, data as string);
       // Add parent directories
-      const parts = path.split("/");
+      const parts = (path as string).split("/");
       for (let i = 1; i < parts.length; i++) {
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
     mkdir: createMock(async (path: unknown, options?: { recursive?: boolean }) => {
-      directories.add(path);
+      directories.add(path as string);
       // If recursive option, add all parent directories
       if (options?.recursive) {
-        const parts = path.split("/");
+        const parts = (path as string).split("/");
         for (let i = 1; i <= parts.length; i++) {
           directories.add(parts.slice(0, i).join("/"));
         }

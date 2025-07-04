@@ -107,7 +107,7 @@ export function registerInitCommands() {
           mcp = {
             enabled: params.mcp === undefined ? true : params.mcp === true || params.mcp === "true",
             transport: params.mcpTransport || "stdio",
-            port: params.mcpPort ? Number(params.mcpPort) : undefined,
+            port: params.mcpPort ? Number(params.mcpPort) : undefined as any,
             host: params.mcpHost,
           };
         }
@@ -120,7 +120,7 @@ export function registerInitCommands() {
           overwrite,
         });
         return { success: true, message: "Project initialized successfully." };
-      } catch (error: unknown) {
+      } catch (error: any) {
         log.error("Error initializing project", { error });
         throw error instanceof ValidationError
           ? error

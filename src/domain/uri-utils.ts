@@ -275,6 +275,6 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
     return stdout.trim();
   } catch (_error) {
     // Not in a Git repository
-    return undefined;
+    return undefined as any;
   }
 }
