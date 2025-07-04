@@ -67,7 +67,7 @@ describe("sessionReviewFromParams", () => {
 
   // Mock the TaskServiceInterface with getTaskSpecData
   const mockTaskService: TaskServiceInterface & {
-    getTaskSpecData: (_taskId: unknown) => Promise<string>;
+    getTaskSpecData: (taskId: unknown) => Promise<string>;
   } = {
     getTaskSpecData: mock(() => Promise.resolve("# Task Specification\n\nThis is a test task")),
     getTask: mock(() => Promise.resolve(null)),

@@ -155,13 +155,13 @@ export interface BranchResult {
 export interface RepositoryBackend {
   getType(): string;
   clone(__session: string): Promise<CloneResult>;
-  branch(__session: string, _branch: string): Promise<BranchResult>;
+  branch(__session: string, branch: string): Promise<BranchResult>;
   getStatus(session?: string): Promise<any>;
   getPath(session?: string): string | Promise<string>;
   validate(): Promise<any>;
-  push(_branch?: string): Promise<any>;
-  pull(_branch?: string): Promise<any>;
-  checkout?(_branch: string): Promise<void>;
+  push(branch?: string): Promise<any>;
+  pull(branch?: string): Promise<any>;
+  checkout?(branch: string): Promise<void>;
   getConfig?(): RepositoryBackendConfig;
 }
 

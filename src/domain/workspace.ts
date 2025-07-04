@@ -209,7 +209,7 @@ export async function resolveWorkspacePath(
       const processDir = join(options.workspace, "process");
       await access(processDir);
       return options.workspace;
-    } catch (_error) {
+    } catch (error) {
       throw new Error(
         `Invalid workspace path: ${options.workspace}. Path must be a valid Minsky workspace.`
       );
@@ -353,7 +353,7 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
       try {
         await fs.access(join(path, "process"));
         return true;
-      } catch (_error) {
+      } catch (error) {
         return false;
       }
     },

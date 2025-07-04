@@ -52,7 +52,7 @@ export function parseGlobs(globsStr?: string): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (_error) {
+  } catch (error) {
     // If JSON parsing fails, fall back to comma-separated string
   }
 

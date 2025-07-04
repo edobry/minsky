@@ -281,7 +281,7 @@ mock.module("fs", () => {
       },
     },
     // Add sync versions too for readFileSync used in tests
-    mkdtempSync: (_prefix: unknown) => prefix + Date.now(),
+    mkdtempSync: (prefix: unknown) => prefix + Date.now(),
     mkdirSync: (path: unknown) => {
       mockDirs.add(path.toString());
     },

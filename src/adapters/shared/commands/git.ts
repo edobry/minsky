@@ -11,6 +11,7 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../command-registry";
 import {
   commitChangesFromParams,

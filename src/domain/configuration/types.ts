@@ -169,7 +169,7 @@ export interface CredentialManager {
   getCredential(_service: "github"): Promise<string | null>;
   setGlobalCredential(
     _service: "github",
-    _source: CredentialSource,
+    source: CredentialSource,
     _value?: string
   ): Promise<void>;
   promptForCredential(_service: "github"): Promise<string>;

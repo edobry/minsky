@@ -53,14 +53,14 @@ function createMockBackend(): TaskBackend {
         .join("\n");
     }),
 
-    parseTaskSpec: mock((_content: unknown) => ({
+    parseTaskSpec: mock((content: unknown) => ({
       id: "#TEST_VALUE",
       title: "Test Task",
       description: "Description.",
     })),
 
     formatTaskSpec: mock(
-      (_spec) => `# Task ${spec.id}: ${spec.title}\n\n## Context\n\n${spec.description}`
+      (spec) => `# Task ${spec.id}: ${spec.title}\n\n## Context\n\n${spec.description}`
     ),
 
     // Mock side effect methods
@@ -127,8 +127,8 @@ describe("TaskService", () => {
         })
       );
 
-      const _tasks = await taskService.listTasks();
-      expect(_tasks).toEqual([]);
+      const tasks = await taskService.listTasks();
+      expect(tasks).toEqual([]);
     });
   });
 
@@ -156,13 +156,13 @@ describe("TaskService", () => {
 
   describe("getTaskStatus", () => {
     test("should get a task's status", async () => {
-      const _status = await taskService.getTaskStatus("#002");
-      expect(_status).toBe("IN-PROGRESS");
+      const status = await taskService.getTaskStatus("#002");
+      expect(status).toBe("IN-PROGRESS");
     });
 
     test("should return null if task not found", async () => {
-      const _status = await taskService.getTaskStatus("#999");
-      expect(_status).toBeNull();
+      const status = await taskService.getTaskStatus("#999");
+      expect(status).toBeNull();
     });
   });
 
@@ -182,7 +182,7 @@ describe("TaskService", () => {
 
       // Verify tasks passed to formatTasks had the updated status
       const updatedTasks = formatTasksSpy.mock.calls[0][0];
-      const updatedTask = updatedTasks.find((_t: unknown) => t.id === "#001");
+      const updatedTask = updatedTasks.find((t: unknown) => t.id === "#001");
       expect(updatedTask?._status).toBe("DONE");
     });
 

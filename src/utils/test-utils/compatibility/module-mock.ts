@@ -97,7 +97,7 @@ export function mockModule(
 
         const originalModule = require(modulePath);
         originalModules.set(modulePath, originalModule);
-      } catch (_error) {
+      } catch (error) {
         // If we can't load the module, just store undefined
         originalModules.set(modulePath, undefined);
       }
@@ -175,7 +175,7 @@ export function getMockModule(modulePath: string): unknown {
  * @param mockImplementation The mock implementation of the function
  */
 export function mockModuleFunction(
-  _modulePath: string,
+  modulePath: string,
   exportName: string,
   mockImplementation: (..._args: unknown[]) => any
 ): void {
@@ -183,7 +183,7 @@ export function mockModuleFunction(
   const originalModule = originalModules.get(modulePath);
 
   // Create a factory that returns a module with the specified function mocked
-  mockModule(_modulePath, () => {
+  mockModule(modulePath, () => {
     const mockModule = originalModule ? { ...originalModule } : {};
     mockModule[exportName] = createCompatMock(mockImplementation);
     return mockModule;
@@ -195,11 +195,11 @@ export function mockModuleFunction(
  */
 export function createJestMock() {
   return function jestMock(
-    _modulePath: string,
+    modulePath: string,
     factory?: () => any,
     options?: MockModuleOptions
   ): void {
-    mockModule(_modulePath, factory, _options);
+    mockModule(modulePath, factory, _options);
   };
 }
 

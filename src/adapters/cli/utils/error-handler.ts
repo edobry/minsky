@@ -125,7 +125,7 @@ export function handleCliError(error: unknown): never {
  */
 export function outputResult<T>(
   result: T,
-  options: { json?: boolean; formatter?: (_result: unknown) => void }
+  options: { json?: boolean; formatter?: (result: unknown) => void }
 ): void {
   if (options.json) {
     // For JSON output, use agent logger to ensure it goes to stdout

@@ -136,7 +136,7 @@ export interface CommandRegistry {
    * @param category Command category
    * @returns Array of command definitions
    */
-  getCommandsByCategory(_category: CommandCategory): SharedCommand[];
+  getCommandsByCategory(category: CommandCategory): SharedCommand[];
 
   /**
    * List all registered commands
@@ -186,8 +186,8 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param category Command category
    * @returns Array of command definitions
    */
-  getCommandsByCategory(_category: CommandCategory): SharedCommand[] {
-    return Array.from(this.commands.values()).filter((cmd) => cmd.category === _category);
+  getCommandsByCategory(category: CommandCategory): SharedCommand[] {
+    return Array.from(this.commands.values()).filter((cmd) => cmd.category === category);
   }
 
   /**
