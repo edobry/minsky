@@ -15,6 +15,9 @@ import {
 import { normalizeTaskId } from "./taskFunctions.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
 import { readFile } from "fs/promises";
+import { 
+  createTaskIdParsingErrorMessage 
+} from "../../errors/enhanced-error-templates.js";
 // Re-export task data types
 export type {} from "../../types/tasks/taskData.js";
 
@@ -123,9 +126,14 @@ export async function getTaskFromParams(
     // Normalize the taskId before validation
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
-      throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      const errorMessage = createTaskIdParsingErrorMessage(
+        params.taskId,
+        [
+          { label: "Operation", value: "get task" },
+          { label: "Input", value: params.taskId }
+        ]
       );
+      throw new ValidationError(errorMessage);
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
@@ -190,9 +198,14 @@ export async function getTaskStatusFromParams(
     // Normalize the taskId before validation
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
-      throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      const errorMessage = createTaskIdParsingErrorMessage(
+        params.taskId,
+        [
+          { label: "Operation", value: "get task status" },
+          { label: "Input", value: params.taskId }
+        ]
       );
+      throw new ValidationError(errorMessage);
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
@@ -260,9 +273,14 @@ export async function setTaskStatusFromParams(
     // Normalize the taskId before validation
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
-      throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      const errorMessage = createTaskIdParsingErrorMessage(
+        params.taskId,
+        [
+          { label: "Operation", value: "set task status" },
+          { label: "Input", value: params.taskId }
+        ]
       );
+      throw new ValidationError(errorMessage);
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
