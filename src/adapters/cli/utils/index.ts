@@ -99,12 +99,14 @@ export function handleCliError(error: unknown, options: { debug?: boolean } = {}
   }
 
   // Set appropriate exit code based on error type
-  // Note: TypeScript types for Bun's process object are incomplete, but these properties exist at runtime
   if (err.name === "ValidationError") {
-    (process as any).exitCode = 2;
+    // @ts-expect-error - Bun supports process.exitCode at runtime, types incomplete
+    process.exitCode = 2;
   } else if (err.name === "NotFoundError") {
-    (process as any).exitCode = 4;
+    // @ts-expect-error - Bun supports process.exitCode at runtime, types incomplete
+    process.exitCode = 4;
   } else {
-    (process as any).exitCode = 1;
+    // @ts-expect-error - Bun supports process.exitCode at runtime, types incomplete
+    process.exitCode = 1;
   }
 }
