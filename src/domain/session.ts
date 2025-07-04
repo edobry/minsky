@@ -34,6 +34,9 @@ import {
 } from "./workspace.js";
 import * as WorkspaceUtils from "./workspace.js";
 import { SessionDbAdapter } from "./session/session-db-adapter.js";
+import { 
+  createSessionPrBranchErrorMessage 
+} from "../errors/enhanced-error-templates.js";
 
 export interface SessionRecord {
   session: string;
@@ -863,9 +866,16 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
 
     // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* branch)
     if (currentBranch.startsWith("pr/")) {
-      throw new MinskyError(
-        `Cannot run session pr from PR branch '${currentBranch}'. Switch to your session branch first.`
+      // Enhanced error message with helpful suggestions
+      const errorMessage = createSessionPrBranchErrorMessage(
+        currentBranch,
+        undefined, // sessionName not available at this point
+        [
+          { label: "Current directory", value: currentDir },
+          { label: "Current branch", value: currentBranch }
+        ]
       );
+      throw new MinskyError(errorMessage);
     }
 
     // STEP 3: Verify we're in a session directory (no branch format restriction)

@@ -19,6 +19,7 @@ import {
   EnhancedMergeResult,
   SmartUpdateResult
 } from "./git/conflict-detection";
+import { execGitWithTimeout, gitFetchWithTimeout, gitMergeWithTimeout, gitPushWithTimeout } from "../utils/git-exec-enhanced";
 
 const execAsync = promisify(exec);
 
@@ -1885,11 +1886,24 @@ Session requested: "${options.session}"
       // Get current commit hash
       const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Try to merge the branch
+      // Try to merge the branch using enhanced git execution with timeout and conflict detection
       try {
-        await deps.execAsync(`git -C ${workdir} merge ${branch}`);
+        await gitMergeWithTimeout(branch, { 
+          workdir, 
+          timeout: 60000, // 60 second timeout for merge operations
+          context: [
+            { label: "Target branch", value: branch },
+            { label: "Working directory", value: workdir }
+          ]
+        });
       } catch (err) {
-        // Check if there are merge conflicts
+        // Enhanced git execution will throw MinskyError with detailed conflict information
+        if (err instanceof MinskyError && err.message.includes("Merge Conflicts Detected")) {
+          // The enhanced error message is already formatted, so we know there are conflicts
+          return { workdir, merged: false, conflicts: true };
+        }
+        
+        // Check if there are merge conflicts using traditional method as fallback
         const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
         if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
           // Abort the merge and report conflicts
@@ -1937,9 +1951,15 @@ Session requested: "${options.session}"
       // Get current commit hash before fetch
       const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Fetch latest changes from remote (don't pull current branch)
-      // This gets all refs from remote without merging anything
-      await deps.execAsync(`git -C ${workdir} fetch ${remote}`);
+      // Fetch latest changes from remote using enhanced git execution with timeout
+      await gitFetchWithTimeout(remote, undefined, { 
+        workdir,
+        timeout: 30000, // 30 second timeout for fetch operations
+        context: [
+          { label: "Remote", value: remote },
+          { label: "Working directory", value: workdir }
+        ]
+      });
 
       // Get commit hash after fetch (should be the same since we only fetched)
       const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
