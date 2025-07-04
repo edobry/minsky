@@ -96,7 +96,6 @@ export async function listTasksFromParams(
 
     return tasks;
   } catch (error) {
-    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for listing tasks", error.format(), error);
     }
@@ -168,7 +167,6 @@ export async function getTaskFromParams(
 
     return task;
   } catch (error) {
-    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for getting task", error.format(), error);
     }
@@ -240,7 +238,6 @@ export async function getTaskStatusFromParams(
 
     return task.status;
   } catch (error) {
-    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task status",
@@ -315,7 +312,6 @@ export async function setTaskStatusFromParams(
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
   } catch (error) {
-    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for setting task status",
@@ -371,7 +367,6 @@ export async function createTaskFromParams(
 
     return task;
   } catch (error) {
-    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for creating task", error.format(), error);
     }
@@ -436,7 +431,6 @@ export async function getTaskSpecContentFromParams(
     try {
       content = (await readFile(specPath, "utf8")) as string;
     } catch (error) {
-      console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
       throw new ResourceNotFoundError(
         `Could not read specification file at ${specPath}`,
         "file",
@@ -478,7 +472,6 @@ export async function getTaskSpecContentFromParams(
       section: validParams.section,
     };
   } catch (error) {
-    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task specification",
@@ -569,7 +562,6 @@ export async function createTaskFromTitleAndDescription(
 
     return task;
   } catch (error) {
-    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for creating task from title and description",
@@ -649,7 +641,6 @@ export async function deleteTaskFromParams(
       task: task,
     };
   } catch (error) {
-    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for deleting task", error.format(), error);
     }
