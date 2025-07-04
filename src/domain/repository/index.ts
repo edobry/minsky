@@ -33,7 +33,7 @@ export interface RepoStatus extends RepositoryStatus {
   behind: number;
   dirty: boolean;
   remotes: string[];
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 /**

@@ -43,7 +43,7 @@ export interface RuleMeta {
   globs?: string[];
   alwaysApply?: boolean;
   tags?: string[];
-  [key: string]: unknown; // Allow for additional custom fields
+  [key: string]: any; // Allow for additional custom fields
 }
 
 export type RuleFormat = "cursor" | "generic";

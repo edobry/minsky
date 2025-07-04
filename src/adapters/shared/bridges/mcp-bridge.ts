@@ -15,9 +15,9 @@ import { ensureError } from "../../../errors/index.js";
  */
 export interface McpCommandRequest {
   commandId: string;
-  parameters: Record<string, unknown>;
+  parameters: Record<string, any>;
   // MCP-specific _context, like user auth, request ID, etc.
-  mcpContext?: Record<string, unknown>;
+  mcpContext?: Record<string, any>;
   // Global options like debug or format might also be part of the MCP request payload
   debug?: boolean;
   format?: string;
@@ -28,11 +28,11 @@ export interface McpCommandRequest {
  */
 export interface McpCommandResponse {
   success: boolean;
-  result?: unknown;
+  result?: any;
   error?: {
     message: string;
     type?: string;
-    details?: unknown;
+    details?: any;
     stack?: string; // if debug is enabled
   };
 }
@@ -42,7 +42,7 @@ export interface McpCommandResponse {
  */
 export interface McpExecutionContext extends CommandExecutionContext {
   interface: "mcp";
-  mcpSpecificData?: Record<string, unknown>; // Placeholder for any MCP-specific data
+  mcpSpecificData?: Record<string, any>; // Placeholder for any MCP-specific data
 }
 
 /**
@@ -78,7 +78,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
 
     // Validate incoming parameters against the command's Zod schemas
     // This part is crucial and assumes commandDef.parameters is a Zod schema map
-    const parsedParams: Record<string, unknown> = {};
+    const parsedParams: Record<string, any> = {};
     const validationErrors: Record<string, string[]> = {};
 
     for (const paramName in commandDef.parameters) {
@@ -108,7 +108,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
         if (parseResult.error && parseResult.error.errors) {
           // Ensure array exists before pushing to it within the callback
           const errors = validationErrors[paramName];
-          parseResult.error.errors.forEach((validationIssue: unknown) => {
+          parseResult.error.errors.forEach((validationIssue: any) => {
             errors.push(validationIssue.message);
           });
         } else {
@@ -138,7 +138,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
       success: true,
       result: result,
     };
-  } catch (error: unknown) {
+  } catch (error: any) {
     const ensuredError = ensureError(error);
 
     const formattedMcpErrorResponse = {

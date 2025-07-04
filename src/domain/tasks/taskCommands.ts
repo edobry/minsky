@@ -378,7 +378,7 @@ export async function getTaskSpecContentFromParams(
     resolveMainWorkspacePath,
     createTaskService: (options) => createTaskServiceImpl(options as any),
   }
-): Promise<{ task: unknown; specPath: string; content: string; section?: string }> {
+): Promise<{ task: any; specPath: string; content: string; section?: string }> {
   try {
     // Validate params with Zod schema
     const validParams = taskSpecContentParamsSchema.parse(params as any);

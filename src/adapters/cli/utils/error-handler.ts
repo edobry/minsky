@@ -34,7 +34,7 @@ export const isDebugMode = (): boolean =>
  *
  * @param error Any error caught during command execution
  */
-export function handleCliError(error: unknown): never {
+export function handleCliError(error: any): never {
   const normalizedError = ensureError(error);
 
   // In human mode, use programLogger for all user-facing errors
@@ -126,7 +126,7 @@ export function handleCliError(error: unknown): never {
  */
 export function outputResult<T>(
   result: T,
-  options: { json?: boolean; formatter?: (result: unknown) => void }
+  options: { json?: boolean; formatter?: (result: any) => void }
 ): void {
   if (options.json) {
     // For JSON output, use agent logger to ensure it goes to stdout

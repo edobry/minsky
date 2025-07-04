@@ -35,7 +35,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "list",
     "List all sessions",
     z.object({}),
-    async (args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, any>> => {
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
@@ -55,7 +55,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       name: z.string().optional().describe("Name of the session to retrieve"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, any>> => {
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
@@ -95,7 +95,7 @@ Need help? Run: minsky sessions --help
       }
 
       // Convert session to Record<string, unknown> safely
-      return { ...session } as Record<string, unknown>;
+      return { ...session } as Record<string, any>;
     }
   );
 
@@ -110,7 +110,7 @@ Need help? Run: minsky sessions --help
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       quiet: z.boolean().optional().describe(SESSION_QUIET_DESCRIPTION).default(true),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, any>> => {
       // Always set quiet to true as required by project rules
       const params = {
         ...args,
@@ -141,7 +141,7 @@ Need help? Run: minsky sessions --help
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, any>> => {
       // Must provide either name or task
       if (!args.name && !args.task) {
         throw new Error(`
@@ -225,7 +225,7 @@ Example commands:
       name: z.string().optional().describe("Name of the session"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, any>> => {
       const params = {
         ...args,
         json: true,
@@ -254,7 +254,7 @@ Example commands:
       noPush: z.boolean().optional().describe("Skip pushing changes to remote after update"),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, any>> => {
       // Must provide either name or task
       if (!args.name && !args.task) {
         throw new Error(`

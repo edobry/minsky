@@ -33,7 +33,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     z.object({
       _session: z.string().describe("Session identifier"),
     }),
-    async (args: unknown) => {
+    async (args: any) => {
       try {
         // Execute the command
         const command = `minsky session get ${(args as any).session} --json`;

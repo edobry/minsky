@@ -317,7 +317,7 @@ export function registerRulesCommands(): void {
     name: "get",
     description: "Get a specific rule by ID",
     parameters: rulesGetCommandParams,
-    execute: async (params: unknown) => {
+    execute: async (params: any) => {
       log.debug("Executing rules.get command", { params });
       
       const typedParams = params as RulesGetParams;
@@ -357,7 +357,7 @@ export function registerRulesCommands(): void {
     name: "create",
     description: "Create a new rule",
     parameters: rulesCreateCommandParams,
-    execute: async (params: unknown) => {
+    execute: async (params: any) => {
       log.debug("Executing rules.create command", { params });
       
       const typedParams = params as RulesCreateParams;
@@ -414,7 +414,7 @@ export function registerRulesCommands(): void {
     name: "update",
     description: "Update an existing rule",
     parameters: rulesUpdateCommandParams,
-    execute: async (params: unknown) => {
+    execute: async (params: any) => {
       log.debug("Executing rules.update command", { params });
       
       const typedParams = params as RulesUpdateParams;
@@ -432,11 +432,11 @@ export function registerRulesCommands(): void {
         // Process globs and tags
         const globs = typedParams.globs ? parseGlobs(typedParams.globs) : undefined;
         const tags = typedParams.tags
-          ? typedParams.tags.split(",").map((tag: unknown) => tag.trim())
+          ? typedParams.tags.split(",").map((tag: any) => tag.trim())
           : undefined;
 
         // Prepare metadata updates
-        const meta: Record<string, unknown> = {};
+        const meta: Record<string, any> = {};
 
         if (typedParams.name !== undefined) meta.name = typedParams.name;
         if (typedParams.description !== undefined) meta.description = typedParams.description;
@@ -480,7 +480,7 @@ export function registerRulesCommands(): void {
     name: "search",
     description: "Search for rules by content or metadata",
     parameters: rulesSearchCommandParams,
-    execute: async (params: unknown) => {
+    execute: async (params: any) => {
       log.debug("Executing rules.search command", { params });
 
       try {

@@ -13,7 +13,7 @@ export { MinskyError, ensureError };
  * Safely extract error message from unknown error value
  * Replaces the common pattern: error instanceof Error ? error.message : String(error)
  */
-export function getErrorMessage(error: unknown): string {
+export function getErrorMessage(error: any): string {
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -23,8 +23,8 @@ export function getErrorMessage(error: unknown): string {
 export class ValidationError extends MinskyError {
   constructor(
     message: string,
-    public readonly errors?: unknown,
-    cause?: unknown
+    public readonly errors?: any,
+    cause?: any
   ) {
     super(message, cause);
   }
@@ -38,7 +38,7 @@ export class ResourceNotFoundError extends MinskyError {
     message: string,
     public readonly resourceType?: string,
     public readonly resourceId?: string,
-    cause?: unknown
+    cause?: any
   ) {
     super(message, cause);
   }
@@ -51,7 +51,7 @@ export class ServiceUnavailableError extends MinskyError {
   constructor(
     message: string,
     public readonly serviceName?: string,
-    cause?: unknown
+    cause?: any
   ) {
     super(message, cause);
   }
@@ -64,7 +64,7 @@ export class FileSystemError extends MinskyError {
   constructor(
     message: string,
     public readonly path?: string,
-    cause?: unknown
+    cause?: any
   ) {
     super(message, cause);
   }
@@ -77,7 +77,7 @@ export class ConfigurationError extends MinskyError {
   constructor(
     message: string,
     public readonly configKey?: string,
-    cause?: unknown
+    cause?: any
   ) {
     super(message, cause);
   }
@@ -90,7 +90,7 @@ export class GitOperationError extends MinskyError {
   constructor(
     message: string,
     public readonly command?: string,
-    cause?: unknown
+    cause?: any
   ) {
     super(message, cause);
   }

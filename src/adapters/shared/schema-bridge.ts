@@ -32,7 +32,7 @@ export interface CliOptionDetails {
   /** Option description */
   description: string;
   /** Default value if any */
-  defaultValue?: unknown;
+  defaultValue?: any;
 }
 
 /**
@@ -229,11 +229,11 @@ export function addOptionsToCommand(
  * @returns Validated object with parsed parameters
  */
 export function parseOptionsToParameters<T extends CommandParameterMap>(
-  options: Record<string, unknown>,
+  options: Record<string, any>,
   parameters: T
 ): { [K in keyof T]: z.infer<T[K]["schema"]> } {
   // Create result object
-  const result: Record<string, unknown> = {};
+  const result: Record<string, any> = {};
 
   // For each parameter, validate and convert the option
   Object.entries(parameters).forEach(([name, param]) => {

@@ -120,7 +120,7 @@ export function registerInitCommands() {
           overwrite,
         });
         return { success: true, message: "Project initialized successfully." };
-      } catch (error: unknown) {
+      } catch (error: any) {
         log.error("Error initializing project", { error });
         throw error instanceof ValidationError
           ? error

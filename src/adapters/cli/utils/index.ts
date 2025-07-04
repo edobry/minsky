@@ -35,13 +35,13 @@ export type {
  */
 export interface OutputOptions {
   json?: boolean;
-  formatter?: (result: unknown) => void;
+  formatter?: (result: any) => void;
 }
 
 /**
  * Format and output command results
  */
-export function outputResult(result: unknown, options: OutputOptions = {}): void {
+export function outputResult(result: any, options: OutputOptions = {}): void {
   if (result === undefined) {
     return;
   }
@@ -83,7 +83,7 @@ export function outputResult(result: unknown, options: OutputOptions = {}): void
 /**
  * Handle CLI errors
  */
-export function handleCliError(error: unknown, options: { debug?: boolean } = {}): void {
+export function handleCliError(error: any, options: { debug?: boolean } = {}): void {
   const err = ensureError(error);
 
   if (options.debug) {

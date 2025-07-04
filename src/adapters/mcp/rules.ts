@@ -77,7 +77,7 @@ function parseGlobs(globsStr?: string): string[] | undefined {
 }
 
 // Type guard for string
-function isString(value: unknown): value is string {
+function isString(value: any): value is string {
   return typeof value === "string";
 }
 
@@ -94,7 +94,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       tag: optionalString("Filter by tag"),
       debug: debugParam,
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
@@ -128,7 +128,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       format: ruleFormatParam,
       debug: debugParam,
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
@@ -170,7 +170,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       format: ruleFormatParam,
       overwrite: overwriteParam,
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
@@ -240,7 +240,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       tags: ruleTagsParam,
       format: ruleFormatParam,
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);
@@ -304,7 +304,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       tag: optionalString("Filter by tag"),
       debug: debugParam,
     }),
-    execute: async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, any>> => {
       // Resolve workspace path
       const _workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(_workspacePath);

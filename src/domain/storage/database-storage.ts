@@ -31,7 +31,7 @@ export interface DatabaseWriteResult {
  * Options for querying database entities
  */
 export interface DatabaseQueryOptions {
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 /**

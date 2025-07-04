@@ -504,7 +504,7 @@ export async function getSessionDirFromParams(
 
     sessionName = session.session;
   } else if (params?.name) {
-    sessionName = params?.name;
+    sessionName = (params as any).name;
   } else {
     throw new ResourceNotFoundError("You must provide either a session name or task ID");
   }

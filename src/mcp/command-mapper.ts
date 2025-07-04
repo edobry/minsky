@@ -78,7 +78,7 @@ export class CommandMapper {
     name: string;
     description: string;
     parameters?: T;
-    execute: (args: z.infer<T>) => Promise<string | Record<string, unknown>>;
+    execute: (args: z.infer<T>) => Promise<string | Record<string, any>>;
   }): void {
     // Normalize the method name for consistency and compatibility
     const normalizedName = this.normalizeMethodName(command.name);
@@ -225,7 +225,7 @@ export class CommandMapper {
     name: string,
     description: string,
     parameters: T,
-    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, unknown>>
+    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
   ): void {
     // Extend parameters to include optional repositoryPath if not already present
     const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
@@ -249,7 +249,7 @@ export class CommandMapper {
       parameters: extendedParameters,
       execute: executeFunction as (
         args: z.infer<typeof extendedParameters>
-      ) => Promise<string | Record<string, unknown>>,
+      ) => Promise<string | Record<string, any>>,
     });
   }
 
@@ -264,7 +264,7 @@ export class CommandMapper {
     name: string,
     description: string,
     parameters: T,
-    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, unknown>>
+    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
   ): void {
     // Extend parameters to include optional repositoryPath if not already present
     const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
@@ -287,7 +287,7 @@ export class CommandMapper {
       parameters: extendedParameters,
       execute: executeFunction as (
         args: z.infer<typeof extendedParameters>
-      ) => Promise<string | Record<string, unknown>>,
+      ) => Promise<string | Record<string, any>>,
     });
   }
 
@@ -302,7 +302,7 @@ export class CommandMapper {
     name: string,
     description: string,
     parameters: T,
-    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, unknown>>
+    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
   ): void {
     // Extend parameters to include optional repositoryPath if not already present
     const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
@@ -325,7 +325,7 @@ export class CommandMapper {
       parameters: extendedParameters,
       execute: executeFunction as (
         args: z.infer<typeof extendedParameters>
-      ) => Promise<string | Record<string, unknown>>,
+      ) => Promise<string | Record<string, any>>,
     });
   }
 
@@ -340,7 +340,7 @@ export class CommandMapper {
     name: string,
     description: string,
     parameters: T,
-    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, unknown>>
+    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
   ): void {
     // Extend parameters to include optional repositoryPath if not already present
     const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
@@ -363,7 +363,7 @@ export class CommandMapper {
       parameters: extendedParameters,
       execute: executeFunction as (
         args: z.infer<typeof extendedParameters>
-      ) => Promise<string | Record<string, unknown>>,
+      ) => Promise<string | Record<string, any>>,
     });
   }
 }
