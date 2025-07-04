@@ -418,7 +418,7 @@
 
 - [x] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
 
-- [ ] Investigate session workspace disk usage and optimize node_modules storage [#230](process/tasks/230-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
+- [x] Investigate session workspace disk usage and optimize node_modules storage [#230](process/tasks/230-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
 
 - [x] Implement session PR refresh functionality [#231](process/tasks/231-implement-session-pr-refresh-functionality.md)
 
