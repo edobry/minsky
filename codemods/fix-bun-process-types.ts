@@ -27,10 +27,17 @@ function fixBunProcessTypes() {
       
       // Check if this is process.exit or process.exitCode
       if (expression.getText() === "process" && (propertyName === "exit" || propertyName === "exitCode")) {
-        // Replace process with (process as any)
-        expression.replaceWithText("(process as any)");
-        fixCount++;
-        fixes.push(`Fixed process.${propertyName} → (process as any).${propertyName} in ${sourceFile.getBaseName()}:${propertyAccess.getStartLineNumber()}`);
+        // Get the statement containing this property access
+        const statement = propertyAccess.getFirstAncestorByKind(SyntaxKind.ExpressionStatement) ||
+                         propertyAccess.getFirstAncestorByKind(SyntaxKind.CallExpression);
+        
+        if (statement) {
+          // Add @ts-expect-error comment before the statement
+          const commentText = `// @ts-expect-error - Bun supports process.${propertyName} at runtime, types incomplete`;
+          statement.replaceWithText(`${commentText}\n${statement.getText()}`);
+          fixCount++;
+          fixes.push(`Added @ts-expect-error comment for process.${propertyName} in ${sourceFile.getBaseName()}:${propertyAccess.getStartLineNumber()}`);
+        }
       }
     });
   }

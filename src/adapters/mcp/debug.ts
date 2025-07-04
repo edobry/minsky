@@ -68,12 +68,16 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
     _parameters: z.object({}).strict(),
     execute: async () => {
       // Get basic system info for diagnostics
-      // Note: TypeScript types for Bun's process object are incomplete, but these properties exist at runtime
-      const nodejsVersion = (process as any).version;
-      const platform = (process as any).platform;
-      const arch = (process as any).arch;
-      const uptime = (process as any).uptime();
-      const memory = (process as any).memoryUsage();
+      // @ts-expect-error - Bun supports process.version at runtime, types incomplete
+      const nodejsVersion = process.version;
+      // @ts-expect-error - Bun supports process.platform at runtime, types incomplete
+      const platform = process.platform;
+      // @ts-expect-error - Bun supports process.arch at runtime, types incomplete
+      const arch = process.arch;
+      // @ts-expect-error - Bun supports process.uptime at runtime, types incomplete
+      const uptime = process.uptime();
+      // @ts-expect-error - Bun supports process.memoryUsage at runtime, types incomplete
+      const memory = process.memoryUsage();
 
       // Return formatted system information
       return {
