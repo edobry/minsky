@@ -12,8 +12,11 @@ import { log } from "../utils/logger.js";
 /**
  * Repository backend types supported by the system.
  */
-export enum RepositoryBackendType {}
-// Enum values removed as they are unused
+export enum RepositoryBackendType {
+  LOCAL = "local",
+  REMOTE = "remote", 
+  GITHUB = "github"
+}
 
 /**
  * Repository resolution options.

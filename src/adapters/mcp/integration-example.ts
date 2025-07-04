@@ -14,7 +14,7 @@ import {
   TASK_ID_DESCRIPTION,
   RULE_FORMAT_DESCRIPTION,
   RULE_TAGS_DESCRIPTION,
-} from "../../../utils/option-descriptions.js";
+} from "../../utils/option-descriptions.js";
 
 // Define local type for CommandSchema since @minsky/core isn't available in this context
 interface CommandSchema<_Params, Result> {
