@@ -372,7 +372,7 @@
 
 - [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#195](process/tasks/195-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
-- [ ] Task 171: Analyze and Modularize Overly Long Files [#199](process/tasks/199-task-171-analyze-and-modularize-overly-long-files.md)
+- [ ] Analyze and Modularize Overly Long Files [#199](process/tasks/199-analyze-and-modularize-overly-long-files.md)
 
 - [ ] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
 
@@ -416,7 +416,7 @@
 
 - [ ] Implement AI-Powered Session Review Workflow [#226](process/tasks/226-implement-ai-powered-session-review-workflow.md)
 
-- [ ] Extend conflict detection to comprehensive git workflow protection [#227](process/tasks/227-extend-conflict-detection-to-comprehensive-git-workflow-protection.md)
+- [+] Extend conflict detection to comprehensive git workflow protection [#227](process/tasks/227-extend-conflict-detection-to-comprehensive-git-workflow-protection.md)
 
 - [x] Exclude CLOSED tasks from default tasks list output [#228](process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)
 
