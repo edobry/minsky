@@ -54,7 +54,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    async (args: EditFileArgs): Promise<Record<string, unknown>> => {
+    async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -141,7 +141,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
       search: z.string().describe("Text to search for (must be unique in the file)"),
       replace: z.string().describe("Text to replace with"),
     }),
-    async (args: SearchReplaceArgs): Promise<Record<string, unknown>> => {
+    async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 

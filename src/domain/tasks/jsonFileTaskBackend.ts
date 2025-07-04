@@ -24,7 +24,7 @@ import { getErrorMessage } from "../../errors/index";
 interface TaskState {
   tasks: TaskData[];
   lastUpdated: string;
-  metadata: Record<string, unknown>;
+  metadata: Record<string, any>;
 }
 
 /**
@@ -144,7 +144,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   parseTasks(content: string): TaskData[] {
     // Try to parse as JSON first
     try {
-      const data = JSON.parse(content);
+      const data = JSON.parse(content) as any;
       if (data.tasks && Array.isArray(data.tasks)) {
         return data.tasks;
       }

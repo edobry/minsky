@@ -180,7 +180,7 @@ export function validateRepositoryURI(uri: string): URIValidationResult {
 export function convertRepositoryURI(uri: string, targetType: RepositoryURIType): string | null {
   try {
     // Map our RepositoryURIType to UriFormat
-    const targetFormat = targetType as unknown as UriFormat;
+    const targetFormat = targetType as any as UriFormat;
     return convertRepositoryUri(uri, targetFormat);
   } catch (error) {
     return null;

@@ -60,7 +60,7 @@ export interface ContextInfo {
 /**
  * Utility function to safely extract error message from unknown error
  */
-export function getErrorMessage(error: unknown): string {
+export function getErrorMessage(error: any): string {
   if (error instanceof Error) {
     return (error as any).message;
   }
@@ -202,7 +202,7 @@ export function createValidationErrorMessage(
  */
 export function createCommandFailureMessage(
   command: string,
-  error: unknown,
+  error: any,
   suggestions: CommandSuggestion[],
   context?: ContextInfo[]
 ): string {
@@ -350,7 +350,7 @@ export function createInvalidSessionMessage(
  */
 export function createGitErrorMessage(
   operation: string,
-  error: unknown,
+  error: any,
   workdir?: string,
   context?: ContextInfo[]
 ): string {

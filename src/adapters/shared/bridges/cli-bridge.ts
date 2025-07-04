@@ -53,7 +53,7 @@ export interface CliCommandOptions {
   /** Custom examples to show in help */
   examples?: string[];
   /** Custom output formatter */
-  outputFormatter?: (result: unknown) => void;
+  outputFormatter?: (result: any) => void;
 }
 
 /**
@@ -379,11 +379,11 @@ export class CliCommandBridge {
    * Extract raw parameters from CLI options and arguments
    */
   private extractRawParameters(
-    parameters: Record<string, unknown>,
-    options: Record<string, unknown>,
-    positionalArgs: unknown[],
+    parameters: Record<string, any>,
+    options: Record<string, any>,
+    positionalArgs: any[],
     mappings: ParameterMapping[]
-  ): Record<string, unknown> {
+  ): Record<string, any> {
     const result = { ...options };
 
     // Map positional arguments to parameter names
@@ -409,9 +409,9 @@ export class CliCommandBridge {
   /**
    * Get a default formatter for command results
    */
-  private getDefaultFormatter(commandDef: SharedCommand): (result: unknown) => void {
+  private getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
     // Very simple default formatter
-    return (result: unknown) => {
+    return (result: any) => {
       if (Array.isArray(result)) {
         // Handle arrays specifically
         if (result.length === 0) {
@@ -420,9 +420,9 @@ export class CliCommandBridge {
           result.forEach((item, index) => {
             if (typeof item === "object" && item !== null) {
               // For objects in arrays, try to display meaningful information
-              if (item.id && item.title) {
+              if ((item as any).id && item.title) {
                 // Looks like a task or similar entity
-                log.cli(`- ${item.id}: ${item.title}${item.status ? ` [${item.status}]` : ""}`);
+                log.cli(`- ${(item as any).id}: ${item.title}${(item as any).status ? ` [${(item as any).status}]` : ""}`);
               } else {
                 // Generic object display
                 log.cli(`${index + 1}. ${JSON.stringify(item)}`);
@@ -435,15 +435,15 @@ export class CliCommandBridge {
       } else if (typeof result === "object" && result !== null) {
         // Special handling for session get command results
         if (commandDef.id === "session.get" && "session" in result) {
-          this.formatSessionDetails(result.session as Record<string, unknown>);
+          this.formatSessionDetails(result.session as Record<string, any>);
         } else if (commandDef.id === "session.dir" && "directory" in result) {
           log.cli(`${result.directory}`);
         } else if (commandDef.id === "session.list" && "sessions" in result) {
           // Handle session list results
-          const sessions = result.sessions as unknown[];
+          const sessions = result.sessions as any[];
           if (Array.isArray(sessions) && sessions.length > 0) {
-            sessions.forEach((session: unknown) => {
-              this.formatSessionSummary(session as Record<string, unknown>);
+            sessions.forEach((session: any) => {
+              this.formatSessionSummary(session as Record<string, any>);
             });
           } else {
             log.cli("No sessions found.");
@@ -455,8 +455,8 @@ export class CliCommandBridge {
           // Handle rules list results
           if (Array.isArray(result.rules)) {
             if (result.rules.length > 0) {
-              result.rules.forEach((rule: unknown) => {
-                this.formatRuleSummary(rule as Record<string, unknown>);
+              result.rules.forEach((rule: any) => {
+                this.formatRuleSummary(rule as Record<string, any>);
               });
             } else {
               log.cli("No rules found.");
@@ -464,16 +464,16 @@ export class CliCommandBridge {
           }
         } else if (commandDef.id === "rules.get" && "rule" in result) {
           // Handle rules get results
-          this.formatRuleDetails(result.rule as Record<string, unknown>);
+          this.formatRuleDetails(result.rule as Record<string, any>);
         } else if (commandDef.id === "tasks.status.get") {
           // Handle tasks status get results with friendly formatting
-          const resultObj = result as Record<string, unknown>;
+          const resultObj = result as Record<string, any>;
           const taskId = String(resultObj.taskId || "unknown");
           const status = String(resultObj.status || "unknown");
           log.cli(`Task ${taskId} is ${status.toLowerCase()}`);
         } else if (commandDef.id === "tasks.status.set") {
           // Handle tasks status set results with friendly formatting
-          const resultObj = result as Record<string, unknown>;
+          const resultObj = result as Record<string, any>;
           const taskId = String(resultObj.taskId || "unknown");
           const status = String(resultObj.status || "unknown");
           const previousStatus = String(resultObj.previousStatus || "unknown");
@@ -487,7 +487,7 @@ export class CliCommandBridge {
         } else {
           // Special handling for delete command - check if this is a user-friendly result
           if (commandDef.id === "tasks.delete") {
-            const resultObj = result as Record<string, unknown>;
+            const resultObj = result as Record<string, any>;
             // If json flag is false/undefined, just show the message
             if (!resultObj.json) {
               log.cli(String(resultObj.message || "Task deleted successfully"));
@@ -521,7 +521,7 @@ export class CliCommandBridge {
               } else {
                 // For complex objects, try to show a meaningful summary
                 if (key === "session" && value && typeof value === "object") {
-                  this.formatSessionDetails(value as Record<string, unknown>);
+                  this.formatSessionDetails(value as Record<string, any>);
                 } else {
                   log.cli(`${key}: ${JSON.stringify(value)}`);
                 }
@@ -539,7 +539,7 @@ export class CliCommandBridge {
   /**
    * Format session details for human-readable output
    */
-  private formatSessionDetails(session: Record<string, unknown>): void {
+  private formatSessionDetails(session: Record<string, any>): void {
     if (!session) return;
 
     // Display session information in a user-friendly format
@@ -558,7 +558,7 @@ export class CliCommandBridge {
   /**
    * Format session summary for list views
    */
-  private formatSessionSummary(session: Record<string, unknown>): void {
+  private formatSessionSummary(session: Record<string, any>): void {
     if (!session) return;
 
     const sessionName = session.session || "unknown";
@@ -571,7 +571,7 @@ export class CliCommandBridge {
   /**
    * Format session pr details for human-readable output
    */
-  private formatSessionPrDetails(result: Record<string, unknown>): void {
+  private formatSessionPrDetails(result: Record<string, any>): void {
     if (!result) return;
 
     const prBranch = result.prBranch || "unknown";
@@ -619,7 +619,7 @@ export class CliCommandBridge {
   /**
    * Format rule details for human-readable output
    */
-  private formatRuleDetails(rule: Record<string, unknown>): void {
+  private formatRuleDetails(rule: Record<string, any>): void {
     if (!rule) return;
 
     // Display rule information in a user-friendly format
@@ -638,7 +638,7 @@ export class CliCommandBridge {
   /**
    * Format rule summary for list views
    */
-  private formatRuleSummary(rule: Record<string, unknown>): void {
+  private formatRuleSummary(rule: Record<string, any>): void {
     if (!rule) return;
 
     const ruleId = rule.id || "unknown";

@@ -27,7 +27,7 @@ export interface ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, options?: ErrorHandlingOptions): never;
+  handleError(error: any, options?: ErrorHandlingOptions): never;
 }
 
 /**
@@ -51,10 +51,10 @@ export class SharedErrorHandler {
    * @param debug Whether to include debug information
    * @returns A structured error object with consistent properties
    */
-  static formatError(error: unknown, debug: boolean = false): Record<string, unknown> {
+  static formatError(error: any, debug: boolean = false): Record<string, any> {
     const normalizedError = ensureError(error);
     let errorType = "UNKNOWN_ERROR";
-    const result: Record<string, unknown> = {
+    const result: Record<string, any> = {
       message: normalizedError.message,
     };
 
@@ -122,7 +122,7 @@ export class SharedErrorHandler {
    * @param error The error to get a prefix for
    * @returns A human-readable error prefix
    */
-  static getErrorPrefix(error: unknown): string {
+  static getErrorPrefix(error: any): string {
     if (error instanceof ValidationError) {
       return "Validation error";
     } else if (error instanceof ResourceNotFoundError) {
@@ -161,7 +161,7 @@ export class SharedErrorHandler {
    * @param options Error handling options
    * @returns Never returns, process exits
    */
-  static handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
+  static handleError(error: any, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error);
 
@@ -188,7 +188,7 @@ export class CliErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
+  handleError(error: any, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error);
 
@@ -257,7 +257,7 @@ export class McpErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
+  handleError(error: any, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
 
     // Format error for MCP response

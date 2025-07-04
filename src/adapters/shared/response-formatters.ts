@@ -21,7 +21,7 @@ export enum OutputFormat {
 /**
  * Base interface for response formatters
  */
-export interface ResponseFormatter<T = unknown> {
+export interface ResponseFormatter<T = any> {
   /**
    * Format a response for output
    *
@@ -38,14 +38,14 @@ export interface ResponseFormatter<T = unknown> {
  * @param data Response data
  * @returns JSON formatted string
  */
-export function formatAsJson(data: unknown): string {
+export function formatAsJson(data: any): string {
   return JSON.stringify(data, null, 2);
 }
 
 /**
  * Base class for response formatters that support multiple output formats
  */
-export abstract class BaseResponseFormatter<T = unknown> implements ResponseFormatter<T> {
+export abstract class BaseResponseFormatter<T = any> implements ResponseFormatter<T> {
   /**
    * Format a response based on the requested format
    *
@@ -83,7 +83,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @returns JSON-serializable object
    */
   formatJson(data: T, context: CommandExecutionContext): object {
-    return data as unknown as object;
+    return data as any as object;
   }
 }
 
@@ -162,9 +162,9 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
 /**
  * Format a list of items
  */
-export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
+export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
   constructor(
-    private itemFormatter?: (item: unknown) => string,
+    private itemFormatter?: (item: any) => string,
     private title?: string
   ) {
     super();
@@ -219,7 +219,7 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
 /**
  * Format a table of data
  */
-export class TableFormatter<T extends Record<string, unknown>> extends BaseResponseFormatter<T[]> {
+export class TableFormatter<T extends Record<string, any>> extends BaseResponseFormatter<T[]> {
   constructor(
     private columns: Array<keyof T>,
     private headers: Record<keyof T, string>,
@@ -336,7 +336,7 @@ export function createErrorFormatter(): ErrorFormatter {
  * @returns A new list formatter
  */
 export function createListFormatter<T>(
-  itemFormatter?: (item: unknown) => string,
+  itemFormatter?: (item: any) => string,
   title?: string
 ): ListFormatter<T> {
   return new ListFormatter<T>(itemFormatter, title);
@@ -350,7 +350,7 @@ export function createListFormatter<T>(
  * @param title Optional title for the table
  * @returns A new table formatter
  */
-export function createTableFormatter<T extends Record<string, unknown>>(
+export function createTableFormatter<T extends Record<string, any>>(
   columns: Array<keyof T>,
   headers: Record<keyof T, string>,
   title?: string
