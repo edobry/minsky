@@ -232,8 +232,8 @@ Examples:
 # Start a session with existing task
 minsky session start --task 123
 
-# Start a session with auto-created task
-minsky session start --description "Implement user authentication" auth-feature
+# Start a session with auto-created task (session name auto-generated from task ID)
+minsky session start --description "Implement user authentication"
 
 # Start a session with custom name and existing task
 minsky session start my-session --task 456
@@ -745,8 +745,8 @@ minsky session start shallow-clone --backend remote \
 ```bash
 # Start a new session (requires task association)
 minsky session start --task 123 feature-session
-# OR create new task automatically
-minsky session start --description "Implement user authentication" auth-feature
+# OR create new task automatically (session name auto-generated)
+minsky session start --description "Implement user authentication"
 
 # Get session directory
 cd $(minsky session dir feature-session)
@@ -770,9 +770,9 @@ minsky session start --task 124 auth-api
 # Agent 2: Frontend integration
 minsky session start --task 125 auth-ui
 
-# OR create tasks automatically
-minsky session start --description "Implement OAuth backend" auth-api
-minsky session start --description "Add login UI components" auth-ui
+# OR create tasks automatically (session names auto-generated)
+minsky session start --description "Implement OAuth backend"
+minsky session start --description "Add login UI components"
 ```
 
 Each agent works in its own isolated environment and can generate PR documents to share their changes. Tasks can be listed and updated per session or repo.
@@ -784,8 +784,8 @@ Each agent works in its own isolated environment and can generate PR documents t
 minsky session start --task 126 github-feature --backend github \
   --github-owner octocat --github-repo hello-world
 
-# OR create task automatically
-minsky session start --description "Add GitHub integration" github-feature \
+# OR create task automatically (session name auto-generated from task ID)
+minsky session start --description "Add GitHub integration" \
   --backend github --github-owner octocat --github-repo hello-world
 
 # Work in the session

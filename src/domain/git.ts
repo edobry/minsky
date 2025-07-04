@@ -10,16 +10,26 @@ import {
   type SessionProviderInterface,
 } from "./session";
 import { TaskService, TASK_STATUS } from "./tasks";
-import { MinskyError, createSessionNotFoundMessage, createErrorContext, getErrorMessage } from "../errors/index";
+import {
+  MinskyError,
+  createSessionNotFoundMessage,
+  createErrorContext,
+  getErrorMessage,
+} from "../errors/index";
 import { log } from "../utils/logger";
-import { 
-  ConflictDetectionService, 
-  ConflictPrediction, 
+import {
+  ConflictDetectionService,
+  ConflictPrediction,
   BranchDivergenceAnalysis,
   EnhancedMergeResult,
-  SmartUpdateResult
+  SmartUpdateResult,
 } from "./git/conflict-detection";
-import { execGitWithTimeout, gitFetchWithTimeout, gitMergeWithTimeout, gitPushWithTimeout } from "../utils/git-exec-enhanced";
+import {
+  execGitWithTimeout,
+  gitFetchWithTimeout,
+  gitMergeWithTimeout,
+  gitPushWithTimeout,
+} from "../utils/git-exec-enhanced";
 
 const execAsync = promisify(exec);
 
@@ -410,9 +420,7 @@ export class GitService implements GitServiceInterface {
         repoUrl: options.repoUrl,
         workdir,
       });
-      throw new MinskyError(
-        `Failed to clone git repository: ${getErrorMessage(error)}`
-      );
+      throw new MinskyError(`Failed to clone git repository: ${getErrorMessage(error)}`);
     }
   }
 
@@ -501,17 +509,13 @@ export class GitService implements GitServiceInterface {
           }
         } catch (error) {
           if (options.debug) {
-            log.debug(
-              `Failed to update task status: ${getErrorMessage(error)}`
-            );
+            log.debug(`Failed to update task status: ${getErrorMessage(error)}`);
           }
         }
       }
     } catch (error) {
       if (options.debug) {
-        log.debug(
-          `Task status update skipped: ${getErrorMessage(error)}`
-        );
+        log.debug(`Task status update skipped: ${getErrorMessage(error)}`);
       }
     }
 
@@ -600,10 +604,8 @@ You need to specify one of these options to identify the target repository:
 
     const session = await deps.getSession(sessionName);
     if (!session) {
-      const context = createErrorContext()
-        .addCommand("minsky git pr")
-        .build();
-      
+      const context = createErrorContext().addCommand("minsky git pr").build();
+
       throw new MinskyError(createSessionNotFoundMessage(sessionName, context));
     }
     const workdir = deps.getSessionWorkdir(sessionName);
@@ -1099,9 +1101,7 @@ You need to specify one of these options to identify the target repository:
       await execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
       return { workdir, stashed: true };
     } catch (err) {
-      throw new Error(
-        `Failed to stash changes: ${getErrorMessage(err)}`
-      );
+      throw new Error(`Failed to stash changes: ${getErrorMessage(err)}`);
     }
   }
 
@@ -1139,9 +1139,7 @@ You need to specify one of these options to identify the target repository:
       // For session updates, the subsequent merge step will show if changes were applied
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
-      throw new Error(
-        `Failed to pull latest changes: ${getErrorMessage(err)}`
-      );
+      throw new Error(`Failed to pull latest changes: ${getErrorMessage(err)}`);
     }
   }
 
@@ -1203,9 +1201,7 @@ You need to specify one of these options to identify the target repository:
         workdir,
         branch,
       });
-      throw new Error(
-        `Failed to merge branch ${branch}: ${getErrorMessage(err)}`
-      );
+      throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err)}`);
     }
   }
 
@@ -1333,9 +1329,7 @@ You need to specify one of these options to identify the target repository:
         command,
         workdir,
       });
-      throw new MinskyError(
-        `Failed to execute command in repository: ${getErrorMessage(error)}`
-      );
+      throw new MinskyError(`Failed to execute command in repository: ${getErrorMessage(error)}`);
     }
   }
 
@@ -1613,16 +1607,16 @@ Session requested: "${options.session}"
       }
 
       // Fix for origin/origin/main bug: Don't prepend origin/ if baseBranch already has it
-      const remoteBaseBranch = baseBranch.startsWith("origin/") ? baseBranch : `origin/${baseBranch}`;
-      
+      const remoteBaseBranch = baseBranch.startsWith("origin/")
+        ? baseBranch
+        : `origin/${baseBranch}`;
+
       // Create PR branch FROM base branch WITHOUT checking it out (Task #025 specification)
       // Use git branch instead of git switch to avoid checking out the PR branch
       await execAsync(`git -C ${workdir} branch ${prBranch} ${remoteBaseBranch}`);
       log.debug(`Created PR branch ${prBranch} from ${remoteBaseBranch} without checking it out`);
     } catch (err) {
-      throw new MinskyError(
-        `Failed to create PR branch: ${getErrorMessage(err)}`
-      );
+      throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err)}`);
     }
 
     // Create commit message file for merge commit (Task #025)
@@ -1638,7 +1632,7 @@ Session requested: "${options.session}"
       // Use fs.writeFile instead of echo to avoid shell parsing issues
       const fs = await import("fs/promises");
       await fs.writeFile(commitMsgFile, commitMessage, "utf8");
-      
+
       // VERIFICATION: Read back the commit message file to ensure it was written correctly
       const writtenMessage = await fs.readFile(commitMsgFile, "utf8");
       if (writtenMessage !== commitMessage) {
@@ -1660,16 +1654,19 @@ Session requested: "${options.session}"
 
       // CRITICAL BUG FIX: Use explicit commit message format and verify the merge
       // Use -m instead of -F to avoid potential file reading issues
-      const escapedCommitMessage = commitMessage.replace(/"/g, String.fromCharCode(92) + String.fromCharCode(34));
+      const escapedCommitMessage = commitMessage.replace(
+        /"/g,
+        String.fromCharCode(92) + String.fromCharCode(34)
+      );
       await execAsync(
         `git -C ${workdir} merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`
       );
-      
+
       // VERIFICATION: Check that the merge commit has the correct message
       const actualCommitMessage = await execAsync(`git -C ${workdir} log -1 --pretty=format:%B`);
       const actualTitle = actualCommitMessage.stdout.trim().split("\n")[0];
       const expectedTitle = commitMessage.split("\n")[0];
-      
+
       if (actualTitle !== expectedTitle) {
         log.warn("Commit message mismatch detected", {
           expected: expectedTitle,
@@ -1727,9 +1724,7 @@ Session requested: "${options.session}"
       await execAsync(`git -C ${workdir} switch ${sourceBranch}`);
       log.debug(`✅ Switched back to session branch ${sourceBranch} after creating PR branch`);
     } catch (err) {
-      log.warn(
-        `Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err)}`
-      );
+      log.warn(`Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err)}`);
     }
 
     return {
@@ -1899,9 +1894,7 @@ Session requested: "${options.session}"
       await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
       return { workdir, stashed: true };
     } catch (err) {
-      throw new Error(
-        `Failed to stash changes: ${getErrorMessage(err)}`
-      );
+      throw new Error(`Failed to stash changes: ${getErrorMessage(err)}`);
     }
   }
 
@@ -1942,13 +1935,13 @@ Session requested: "${options.session}"
 
       // Try to merge the branch using enhanced git execution with timeout and conflict detection
       try {
-        await gitMergeWithTimeout(branch, { 
-          workdir, 
+        await gitMergeWithTimeout(branch, {
+          workdir,
           timeout: 60000, // 60 second timeout for merge operations
           context: [
             { label: "Target branch", value: branch },
-            { label: "Working directory", value: workdir }
-          ]
+            { label: "Working directory", value: workdir },
+          ],
         });
       } catch (err) {
         // Enhanced git execution will throw MinskyError with detailed conflict information
@@ -1956,7 +1949,7 @@ Session requested: "${options.session}"
           // The enhanced error message is already formatted, so we know there are conflicts
           return { workdir, merged: false, conflicts: true };
         }
-        
+
         // Check if there are merge conflicts using traditional method as fallback
         const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
         if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
@@ -1973,9 +1966,7 @@ Session requested: "${options.session}"
       // Return whether any changes were merged
       return { workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
     } catch (err) {
-      throw new Error(
-        `Failed to merge branch ${branch}: ${getErrorMessage(err)}`
-      );
+      throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err)}`);
     }
   }
 
@@ -2006,13 +1997,13 @@ Session requested: "${options.session}"
       const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
       // Fetch latest changes from remote using enhanced git execution with timeout
-      await gitFetchWithTimeout(remote, undefined, { 
+      await gitFetchWithTimeout(remote, undefined, {
         workdir,
         timeout: 30000, // 30 second timeout for fetch operations
         context: [
           { label: "Remote", value: remote },
-          { label: "Working directory", value: workdir }
-        ]
+          { label: "Working directory", value: workdir },
+        ],
       });
 
       // Get commit hash after fetch (should be the same since we only fetched)
@@ -2023,9 +2014,7 @@ Session requested: "${options.session}"
       // For session updates, the subsequent merge step will show if changes were applied
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
-      throw new Error(
-        `Failed to pull latest changes: ${getErrorMessage(err)}`
-      );
+      throw new Error(`Failed to pull latest changes: ${getErrorMessage(err)}`);
     }
   }
 
@@ -2078,9 +2067,7 @@ Session requested: "${options.session}"
 
       return { workdir, session };
     } catch (error) {
-      throw new Error(
-        `Failed to clone git repository: ${getErrorMessage(error)}`
-      );
+      throw new Error(`Failed to clone git repository: ${getErrorMessage(error)}`);
     }
   }
 
@@ -2225,7 +2212,12 @@ Session requested: "${options.session}"
       dryRun?: boolean;
     }
   ): Promise<EnhancedMergeResult> {
-    return ConflictDetectionService.mergeWithConflictPrevention(repoPath, sourceBranch, targetBranch, options);
+    return ConflictDetectionService.mergeWithConflictPrevention(
+      repoPath,
+      sourceBranch,
+      targetBranch,
+      options
+    );
   }
 
   /**
@@ -2240,7 +2232,12 @@ Session requested: "${options.session}"
       autoResolveConflicts?: boolean;
     }
   ): Promise<SmartUpdateResult> {
-    return ConflictDetectionService.smartSessionUpdate(repoPath, sessionBranch, baseBranch, options);
+    return ConflictDetectionService.smartSessionUpdate(
+      repoPath,
+      sessionBranch,
+      baseBranch,
+      options
+    );
   }
 }
 
