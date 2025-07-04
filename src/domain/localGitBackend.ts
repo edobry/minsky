@@ -281,7 +281,6 @@ export class LocalGitBackend implements RepositoryBackend {
       (this.cache as any).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
 
       return {
-        workdir: this.localPath,
         branch: name,
       };
     } catch (error) {

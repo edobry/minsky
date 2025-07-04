@@ -310,7 +310,7 @@ export class SpecialWorkspaceManager {
         // Check if lock file exists
         if (existsSync(this.lockPath)) {
           const lockContent = await fs.readFile(this.lockPath, "utf8");
-          const lockInfo: LockInfo = JSON.parse(lockContent);
+          const lockInfo: LockInfo = JSON.parse(String(lockContent));
 
           // Check if lock is stale
           if ((Date as any).now() - (lockInfo as any).timestamp > this.lockTimeoutMs) {

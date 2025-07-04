@@ -26,7 +26,6 @@ export class NodeConfigAdapter implements ConfigurationService {
     const resolved: ResolvedConfig = {
       backend: (config as any).get("backend"),
       backendConfig: (config as any).get("backendConfig"),
-      credentials: (config as any).get("credentials"),
       detectionRules: (config as any).get("detectionRules"),
       sessiondb: (config as any).get("sessiondb"),
       ai: (config as any).has("ai") ? (config as any).get("ai") : undefined as any,
@@ -94,7 +93,6 @@ export class NodeConfigAdapter implements ConfigurationService {
     return {
       backend: "json-file",
       backendConfig: {},
-      credentials: {},
       detectionRules: [
         { condition: "tasks_md_exists", backend: "markdown" },
         { condition: "json_file_exists", backend: "json-file" },

@@ -37,14 +37,14 @@ export class MinskyMCPServer {
     this.options = {
       name: (options as any).name ?? "Minsky MCP Server",
       version: (options as any).version ?? "1.0.0",
-      transportType: (options as any).transportType ?? "stdio",
+      /* TODO: Verify if transportType is valid property */ transportType: (options as any).transportType ?? "stdio",
       projectContext: (options as any).projectContext ?? createProjectContextFromCwd(),
       sse: {
         port: (options.sse as any).port ?? 3000,
         host: (options.sse as any).host ?? "localhost",
         path: (options.sse as any).path ?? "/sse",
       },
-      httpStream: {
+      /* TODO: Verify if httpStream is valid property */ httpStream: {
         endpoint: (options.httpStream as any).endpoint ?? "/mcp",
         port: (options.httpStream as any).port ?? 8080,
       },
@@ -84,7 +84,6 @@ export class MinskyMCPServer {
       log.agent("MCP Server started with stdio transport");
     } else if ((this.options as any).transportType === "sse") {
       await this.fastmcp.start({
-        transport: "sse",
         port: (this.options.sse as any).port,
         host: (this.options.sse as any).host,
         path: (this.options.sse as any).path,
@@ -94,7 +93,6 @@ export class MinskyMCPServer {
       );
     } else if ((this.options as any).transportType === "httpStream") {
       await this.fastmcp.start({
-        transport: "httpStream",
         port: (this.options.httpStream as any).port,
         endpoint: (this.options.httpStream as any).endpoint,
       });

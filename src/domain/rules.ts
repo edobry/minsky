@@ -169,7 +169,7 @@ export class RuleService {
         }
 
         // File exists in requested format, read and parse it
-        const content = await fs.readFile(filePath, "utf-8") as string;
+        const content = String(await fs.readFile(filePath, "utf-8")) as string;
 
         try {
           // FIXED: Added try/catch block around matter parsing to handle YAML parsing errors
@@ -258,7 +258,7 @@ export class RuleService {
         }
 
         // File exists, read and parse it
-        const content = await fs.readFile(filePath, "utf-8") as string;
+        const content = String(await fs.readFile(filePath, "utf-8")) as string;
 
         try {
           // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats

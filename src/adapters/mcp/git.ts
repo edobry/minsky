@@ -36,7 +36,6 @@ export function registerGitTools(commandMapper: CommandMapper): void {
     z.object({
       url: (z.string() as any).url().describe("URL of the Git repository to clone"),
       session: z.string().optional().describe(SESSION_DESCRIPTION),
-      destination: z.string().optional().describe("Target directory for the clone"),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
     }),
     async (args) => {
@@ -48,7 +47,6 @@ export function registerGitTools(commandMapper: CommandMapper): void {
 
       return {
         success: true,
-        workdir: (result as any).workdir,
         session: (result as any).session,
       } as any;
     }
@@ -71,7 +69,6 @@ export function registerGitTools(commandMapper: CommandMapper): void {
 
       return {
         success: true,
-        workdir: (result as any).workdir,
         branch: (result as any).branch,
       } as any;
     }
@@ -97,7 +94,6 @@ export function registerGitTools(commandMapper: CommandMapper): void {
 
       return {
         success: true,
-        workdir: (result as any).workdir,
         pushed: (result as any).pushed,
       } as any;
     });
