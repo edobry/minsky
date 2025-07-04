@@ -30,6 +30,13 @@ import {
 /**
  * Parameters for the rules list command
  */
+type RulesListParams = {
+  format?: "cursor" | "generic";
+  tag?: string;
+  json?: boolean;
+  debug?: boolean;
+};
+
 const rulesListCommandParams: CommandParameterMap = {
   format: {
     schema: z.enum(["cursor", "generic"]).optional(),
@@ -58,6 +65,13 @@ const rulesListCommandParams: CommandParameterMap = {
 /**
  * Parameters for the rules get command
  */
+type RulesGetParams = {
+  id: string;
+  format?: "cursor" | "generic";
+  json?: boolean;
+  debug?: boolean;
+};
+
 const rulesGetCommandParams: CommandParameterMap = {
   id: {
     schema: z.string().min(1),
@@ -86,6 +100,18 @@ const rulesGetCommandParams: CommandParameterMap = {
 /**
  * Parameters for the rules create command
  */
+type RulesCreateParams = {
+  id: string;
+  content: string;
+  description?: string;
+  name?: string;
+  globs?: string;
+  tags?: string;
+  format?: "cursor" | "generic";
+  overwrite?: boolean;
+  json?: boolean;
+};
+
 const rulesCreateCommandParams: CommandParameterMap = {
   id: {
     schema: z.string().min(1),
@@ -139,6 +165,18 @@ const rulesCreateCommandParams: CommandParameterMap = {
 /**
  * Parameters for the rules update command
  */
+type RulesUpdateParams = {
+  id: string;
+  content?: string;
+  description?: string;
+  name?: string;
+  globs?: string;
+  tags?: string;
+  format?: "cursor" | "generic";
+  json?: boolean;
+  debug?: boolean;
+};
+
 const rulesUpdateCommandParams: CommandParameterMap = {
   id: {
     schema: z.string().min(1),
@@ -192,6 +230,14 @@ const rulesUpdateCommandParams: CommandParameterMap = {
 /**
  * Parameters for the rules search command
  */
+type RulesSearchParams = {
+  query?: string;
+  tag?: string;
+  format?: "cursor" | "generic";
+  json?: boolean;
+  debug?: boolean;
+};
+
 const rulesSearchCommandParams: CommandParameterMap = {
   query: {
     schema: z.string().optional(),
@@ -233,7 +279,7 @@ export function registerRulesCommands(): void {
     name: "list",
     description: "List all rules in the workspace",
     parameters: rulesListCommandParams,
-    execute: async (params: unknown) => {
+    execute: async (params: RulesListParams) => {
       log.debug("Executing rules.list command", { params });
 
       try {
