@@ -22,6 +22,7 @@ export function registerInitTools(commandMapper: CommandMapper): void {
       mcp: z
         .object({
           enabled: z.boolean().optional(),
+          transport: (params.mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
           port: z.number().optional(),
           host: z.string().optional(),
         })

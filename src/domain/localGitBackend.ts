@@ -157,6 +157,7 @@ export class LocalGitBackend implements RepositoryBackend {
           }
 
           return {
+            workdir: this.localPath!,
             clean: statusOutput === "",
             changes: (statusOutput as any).split("\n").filter((line) => line !== ""),
             branch: branchOutput,
@@ -281,6 +282,7 @@ export class LocalGitBackend implements RepositoryBackend {
       (this.cache as any).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
 
       return {
+        workdir: this.localPath!,
         branch: name,
       };
     } catch (error) {

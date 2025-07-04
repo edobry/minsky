@@ -106,6 +106,7 @@ export function registerInitCommands() {
         if (params.mcp !== undefined || params.mcpTransport || params.mcpPort || params.mcpHost) {
           mcp = {
             enabled: params.mcp === undefined ? true : params.mcp === true || params.mcp === "true",
+            transport: (params.mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
             port: params.mcpPort ? Number(params.mcpPort) : undefined,
             host: params.mcpHost,
           };
