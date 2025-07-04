@@ -610,12 +610,12 @@ Examples:
       log.debug("Executing session.approve command", { params, context });
 
       try {
-        const result = await approveSessionFromParams({
+        const result = (await approveSessionFromParams({
           session: params.name,
           task: params.task,
           repo: params.repo,
           json: params.json,
-        }) as any;
+        })) as any;
 
         return {
           success: true,
@@ -642,8 +642,20 @@ Examples:
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
+      // Validate that either body or bodyPath is provided
+      if (!params.body && !params.bodyPath) {
+        throw new Error(`PR description is required for meaningful pull requests.
+Please provide one of:
+  --body <text>       Direct PR body text
+  --body-path <path>  Path to file containing PR body
+
+Example:
+  minsky session pr --title "feat: Add new feature" --body "This PR adds..."
+  minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
+      }
+
       try {
-        const result = await sessionPrFromParams({
+        const result = (await sessionPrFromParams({
           title: params.title,
           body: params.body,
           bodyPath: params.bodyPath,
@@ -655,7 +667,7 @@ Examples:
           skipUpdate: params.skipUpdate,
           autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
           skipConflictCheck: params.skipConflictCheck,
-        }) as any;
+        })) as any;
 
         return {
           success: true,
@@ -664,12 +676,12 @@ Examples:
       } catch (error) {
         // Instead of just logging and rethrowing, provide user-friendly error messages
         const errorMessage = getErrorMessage(error);
-        
+
         // Handle specific error types with friendly messages
         if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
           throw new MinskyError(
             `🔥 Git merge conflict detected while creating PR branch.
-            
+
 This usually happens when:
 • The PR branch already exists with different content
 • There are conflicting changes between your session and the base branch
@@ -683,7 +695,7 @@ Technical details: ${errorMessage}`
         } else if (errorMessage.includes("Failed to create prepared merge commit")) {
           throw new MinskyError(
             `❌ Failed to create PR branch merge commit.
-            
+
 This could be due to:
 • Merge conflicts between your session branch and base branch
 • Remote PR branch already exists with different content
@@ -696,10 +708,13 @@ This could be due to:
 
 Technical details: ${errorMessage}`
           );
-        } else if (errorMessage.includes("Permission denied") || errorMessage.includes("authentication")) {
+        } else if (
+          errorMessage.includes("Permission denied") ||
+          errorMessage.includes("authentication")
+        ) {
           throw new MinskyError(
             `🔐 Git authentication error.
-            
+
 Please check:
 • Your SSH keys are properly configured
 • You have push access to the repository
@@ -710,7 +725,7 @@ Technical details: ${errorMessage}`
         } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
           throw new MinskyError(
             `🔍 Session not found.
-            
+
 The session '${params.name || params.task}' could not be located.
 
 💡 Try:
@@ -724,7 +739,7 @@ Technical details: ${errorMessage}`
           // For other errors, provide a general helpful message
           throw new MinskyError(
             `❌ Failed to create session PR.
-            
+
 The operation failed with: ${errorMessage}
 
 💡 Troubleshooting:
