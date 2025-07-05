@@ -28,46 +28,46 @@ export function createConfigShowCommand(): Command {
       };
 
       if ((options as any).json) {
-        (process.stdout as any).write(`${JSON.stringify(resolved)}\n`);
+        await Bun.write(Bun.stdout, `${JSON.stringify(resolved)}\n`);
       } else {
-        displayResolvedConfiguration(resolved);
+        await displayResolvedConfiguration(resolved);
       }
     } catch (error) {
-      (process.stderr as any).write(`Failed to load configuration: ${error}\n`);
+      await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
       exit(1);
     }
   }) as any;
 }
 
-function displayResolvedConfiguration(resolved: any) {
-  (process.stdout as any).write("RESOLVED CONFIGURATION\n");
-  (process.stdout as any).write(`${"=".repeat(40)}\n`);
+async function displayResolvedConfiguration(resolved: any) {
+  await Bun.write(Bun.stdout, "RESOLVED CONFIGURATION\n");
+  await Bun.write(Bun.stdout, `${"=".repeat(40)}\n`);
 
-  (process.stdout as any).write(`Backend: ${(resolved as any).backend}\n`);
+  await Bun.write(Bun.stdout, `Backend: ${(resolved as any).backend}\n`);
 
   if ((Object.keys(resolved.backendConfig) as any).length > 0) {
-    (process.stdout as any).write("\nBackend Configuration:\n");
+    await Bun.write(Bun.stdout, "\nBackend Configuration:\n");
     for (const [backend, config] of (Object as any).entries((resolved as any).backendConfig)) {
       if (config && typeof config === "object" && (Object as any).keys(config as object).length > 0) {
-        (process.stdout as any).write(`  ${backend}:\n`);
+        await Bun.write(Bun.stdout, `  ${backend}:\n`);
         for (const [key, value] of (Object as any).entries(config as object)) {
-          (process.stdout as any).write(`    ${key}: ${value}\n`);
+          await Bun.write(Bun.stdout, `    ${key}: ${value}\n`);
         }
       }
     }
   }
 
   if ((Object.keys(resolved.credentials) as any).length > 0) {
-    (process.stdout as any).write("\nCredentials:\n");
+    await Bun.write(Bun.stdout, "\nCredentials:\n");
     for (const [service, creds] of (Object as any).entries((resolved as any).credentials)) {
       if (creds && typeof creds === "object") {
-        (process.stdout as any).write(`  ${service}:\n`);
+        await Bun.write(Bun.stdout, `  ${service}:\n`);
         const credsObj = creds as any;
         if ((credsObj as any).source) {
-          (process.stdout as any).write(`    Source: ${(credsObj as any).source}\n`);
+          await Bun.write(Bun.stdout, `    Source: ${(credsObj as any).source}\n`);
         }
         if ((credsObj as any).token) {
-          (process.stdout as any).write(`    Token: ${"*".repeat(20)} (hidden)\n`);
+          await Bun.write(Bun.stdout, `    Token: ${"*".repeat(20)} (hidden)\n`);
         }
       }
     }

@@ -143,6 +143,8 @@ export interface ValidationResult {
   warnings: ValidationWarning[];
 }
 
+export interface CredentialConfig {}
+
 export interface ValidationError {
   field: string;
   message: string;

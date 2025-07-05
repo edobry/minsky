@@ -534,24 +534,23 @@ export class SessionDbHealthMonitor {
     errorRate: number;
     avgResponseTime: number;
   }> {
-    const performance = this.analyzePerformance();
-    const totalOperations = (this.metrics as any).length;
-
-    // Simple uptime calculation (time since first metric)
+    const totalOps = (this.metrics as any).length;
+    const errors = (this.metrics as any).filter(m => !m.success).length;
+    const avgResponse = totalOps > 0 ? (this.metrics as any).reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
     const uptime =
-      (this.metrics as any).length > 0 ? (Date as any).now() - (new Date(this.metrics[0].timestamp) as any).getTime() : 0;
+      this.metrics && this.metrics[0]
+        ? (Date as any).now() - new Date(this.metrics[0].timestamp).getTime()
+        : 0;
 
     return {
-      status:
-        (performance as any).successRate < 0.9
-          ? "unhealthy"
-          : (performance as any).successRate < 0.98
-            ? "degraded"
-            : "healthy",
+      status: this.determineOverallHealth(
+        { healthy: true, backend: "test", responseTime: 0, timestamp: (new Date() as any).toISOString() },
+        { averageResponseTime: avgResponse, successRate: 1 - errors / totalOps, recentErrors: errors }
+      ),
       uptime,
-      totalOperations,
-      errorRate: 1 - (performance as any).successRate,
-      avgResponseTime: (performance as any).averageResponseTime,
+      totalOperations: totalOps,
+      errorRate: 1 - (this.metrics as any).filter(m => m.success).length / totalOps,
+      avgResponseTime: avgResponse,
     };
   }
 }

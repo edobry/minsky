@@ -9,7 +9,13 @@ import { getErrorMessage } from "../../errors/index.js";
 // @ts-ignore - matter is a third-party library
 import matter from "gray-matter";
 
-import type { TaskBackend } from "./taskBackend.js";
+import type { 
+  TaskBackend, 
+  Task, 
+  TaskListOptions, 
+  CreateTaskOptions, 
+  DeleteTaskOptions 
+} from "../tasks.js";
 import type {
   TaskData,
   TaskSpecData,
@@ -54,78 +60,94 @@ export class MarkdownTaskBackend implements TaskBackend {
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
   }
 
-  // ---- Data Retrieval ----
+  // ---- Required TaskBackend Interface Methods ----
 
-  async getTasksData(): Promise<TaskReadOperationResult> {
-    return readTasksFile(this.tasksFilePath);
-  }
-
-  async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
-    return readTaskSpecFile(fullPath);
-  }
-
-  // ---- Pure Operations ----
-
-  parseTasks(content: string): TaskData[] {
-    const tasks = parseTasksFromMarkdown(content);
-
-    // Process tasks to ensure they have spec paths if available
-    // This is done synchronously to match the interface
-    for (const task of tasks) {
-      if (!task.specPath) {
-        // Use a default spec path pattern
-        const id = (task as any).id.startsWith("#") ? (task as any).id.slice(1) : (task as any).id;
-        const normalizedTitle = (task.title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
-        task.specPath = join("process", "tasks", `${id}-${normalizedTitle}.md`);
-      }
+  async listTasks(options?: TaskListOptions): Promise<Task[]> {
+    const result = await this.getTasksData();
+    if (!result.success || !result.content) {
+      return [];
     }
-
+    
+    const tasks = this.parseTasks(result.content);
+    
+    if (options?.status) {
+      return tasks.filter(task => task.status === options.status);
+    }
+    
     return tasks;
   }
 
-  formatTasks(tasks: TaskData[]): string {
-    return formatTasksToMarkdown(tasks);
+  async getTask(id: string): Promise<Task | null> {
+    const tasks = await this.listTasks();
+    return tasks.find(task => task.id === id) || null;
   }
 
-  parseTaskSpec(content: string): TaskSpecData {
-    // First use matter to extract frontmatter
-    const { data, content: markdownContent } = matter(content);
-
-    // Then parse the markdown content
-    const spec = parseTaskSpecFromMarkdown(markdownContent);
-
-    // Combine with any metadata from frontmatter
-    return {
-      ...spec,
-      metadata: data || {},
-    };
+  async getTaskStatus(id: string): Promise<string | undefined> {
+    const task = await this.getTask(id);
+    return task?.status;
   }
 
-  formatTaskSpec(spec: TaskSpecData): string {
-    // First format the markdown content
-    const markdownContent = formatTaskSpecToMarkdown(spec);
-
-    // Then add any metadata as frontmatter
-    if ((spec as any).metadata && (Object.keys(spec.metadata) as any).length > 0) {
-      return (matter as any).stringify(markdownContent, (spec as any).metadata);
+  async setTaskStatus(id: string, status: string): Promise<void> {
+    const result = await this.getTasksData();
+    if (!result.success || !result.content) {
+      throw new Error("Failed to read tasks data");
     }
-
-    return markdownContent;
+    
+    const tasks = this.parseTasks(result.content);
+    const taskIndex = tasks.findIndex(task => task.id === id);
+    
+    if (taskIndex === -1) {
+      throw new Error(`Task ${id} not found`);
+    }
+    
+    tasks[taskIndex].status = status;
+    const updatedContent = this.formatTasks(tasks);
+    
+    const saveResult = await this.saveTasksData(updatedContent);
+    if (!saveResult.success) {
+      throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
+    }
   }
 
-  // ---- Side Effects ----
-
-  async saveTasksData(content: string): Promise<TaskWriteOperationResult> {
-    return writeTasksFile(this.tasksFilePath, content);
+  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+    // Read and parse the spec file
+    const specResult = await this.getTaskSpecData(specPath);
+    if (!specResult.success || !specResult.content) {
+      throw new Error(`Failed to read spec file: ${specPath}`);
+    }
+    
+    const spec = this.parseTaskSpec(specResult.content);
+    
+    // Get existing tasks to determine new ID
+    const tasks = await this.listTasks();
+    const maxId = tasks.reduce((max, task) => {
+      const id = parseInt(task.id.slice(1), 10);
+      return id > max ? id : max;
+    }, 0);
+    
+    const newId = `#${maxId + 1}`;
+    
+    const newTask: Task = {
+      id: newId,
+      title: spec.title,
+      description: spec.description,
+      status: "TODO",
+      specPath
+    };
+    
+    // Add the new task to the list
+    tasks.push(newTask);
+    const updatedContent = this.formatTasks(tasks);
+    
+    const saveResult = await this.saveTasksData(updatedContent);
+    if (!saveResult.success) {
+      throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
+    }
+    
+    return newTask;
   }
 
-  async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
-    const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
-    return writeTaskSpecFile(fullPath, content);
-  }
-
-  async deleteTask(id: string, options?: { force?: boolean }): Promise<boolean> {
+  async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
     try {
       // Get all tasks first
       const tasksResult = await this.getTasksData();
@@ -183,6 +205,77 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
   }
 
+  // ---- Data Retrieval ----
+
+  async getTasksData(): Promise<TaskReadOperationResult> {
+    return readTasksFile(this.tasksFilePath);
+  }
+
+  async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
+    const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    return readTaskSpecFile(fullPath);
+  }
+
+  // ---- Pure Operations ----
+
+  parseTasks(content: string): TaskData[] {
+    const tasks = parseTasksFromMarkdown(content);
+
+    // Process tasks to ensure they have spec paths if available
+    // This is done synchronously to match the interface
+    for (const task of tasks) {
+      if (!task.specPath) {
+        // Use a default spec path pattern
+        const id = (task as any).id.startsWith("#") ? (task as any).id.slice(1) : (task as any).id;
+        const normalizedTitle = (task.title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
+        task.specPath = join("process", "tasks", `${id}-${normalizedTitle}.md`);
+      }
+    }
+
+    return tasks;
+  }
+
+  formatTasks(tasks: TaskData[]): string {
+    return formatTasksToMarkdown(tasks);
+  }
+
+  parseTaskSpec(content: string): TaskSpecData {
+    // First use matter to extract frontmatter
+    const { data, content: markdownContent } = matter(content);
+
+    // Then parse the markdown content
+    const spec = parseTaskSpecFromMarkdown(markdownContent);
+
+    // Combine with any metadata from frontmatter
+    return {
+      ...spec,
+      metadata: data || {},
+    };
+  }
+
+  formatTaskSpec(spec: TaskSpecData): string {
+    // First format the markdown content
+    const markdownContent = formatTaskSpecToMarkdown(spec);
+
+    // Then add any metadata as frontmatter
+    if (spec.metadata && Object.keys(spec.metadata).length > 0) {
+      return (matter as any).stringify(markdownContent, (spec as any).metadata);
+    }
+
+    return markdownContent;
+  }
+
+  // ---- Side Effects ----
+
+  async saveTasksData(content: string): Promise<TaskWriteOperationResult> {
+    return writeTasksFile(this.tasksFilePath, content);
+  }
+
+  async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
+    const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    return writeTaskSpecFile(fullPath, content);
+  }
+
   // ---- Helper Methods ----
 
   getWorkspacePath(): string {
@@ -231,5 +324,5 @@ export class MarkdownTaskBackend implements TaskBackend {
  * @returns MarkdownTaskBackend instance
  */
 export function createMarkdownTaskBackend(config: TaskBackendConfig): TaskBackend {
-  return new MarkdownTaskBackend(config as any);
+  return new MarkdownTaskBackend(config);
 }

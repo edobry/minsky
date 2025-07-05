@@ -175,9 +175,6 @@ export function createMCPCommand(): Command {
 
       log.cli("Press Ctrl+C to stop");
 
-      // Keep the process running
-      (process.stdin as any).resume();
-
       // Handle termination signals
       (process as any).on("SIGINT", () => {
         log.cli("\nStopping Minsky MCP Server...");

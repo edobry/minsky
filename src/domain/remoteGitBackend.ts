@@ -32,7 +32,7 @@ const execAsync = promisify(exec);
  * RemoteGitBackend implements the RepositoryBackend interface for remote Git repositories.
  */
 export class RemoteGitBackend implements RepositoryBackend {
-  protected config: RemoteGitConfig;
+  private config: RemoteGitConfig;
   private readonly baseDir: string;
   private readonly sessionDb: any;
   private localPath: string = "";
@@ -43,17 +43,17 @@ export class RemoteGitBackend implements RepositoryBackend {
    *
    * @param config Repository configuration
    */
-  constructor(__config: RepositoryConfig) {
+  constructor(config: RemoteGitConfig) {
     // Validate config has required fields for remote
-    if (!(config as any).url) {
+    if (!config.url) {
       throw new RepositoryError("URL is required for remote Git repository");
     }
 
     this.config = {
       ...config,
-      type: (RepositoryBackendType as any).REMOTE,
-      url: (config as any).url,
-    } as RemoteGitConfig;
+      type: RepositoryBackendType.REMOTE,
+      url: config.url,
+    };
 
     this.baseDir = getMinskyStateDir();
     this.sessionDb = createSessionProvider();
@@ -107,18 +107,18 @@ export class RemoteGitBackend implements RepositoryBackend {
   async clone(session: string): Promise<CloneResult> {
     try {
       // Normalize the repository name
-      const repoName = normalizeRepoName((this.config as any).url);
+      const repoName = normalizeRepoName(this.config.url);
 
       // Create the destination directory
       const workdir = this.getSessionWorkdir(session);
       await mkdir(dirname(workdir), { recursive: true });
 
       // Clone options
-      const cloneArgs = ["clone", (this.config as any).url, workdir];
+      const cloneArgs = ["clone", this.config.url, workdir];
 
       // Add specific branch if provided
-      if ((this.config as any)._branch) {
-        (cloneArgs as any).push("--_branch", (this.config as any)._branch);
+      if (this.config.branch) {
+        cloneArgs.push("--branch", this.config.branch);
       }
 
       // Clone the repository (uses system git config for authentication)
@@ -134,7 +134,7 @@ export class RemoteGitBackend implements RepositoryBackend {
       };
     } catch (error) {
       throw new RepositoryError(
-        `Failed to clone remote repository from ${(this.config as any).url}`,
+        `Failed to clone remote repository from ${this.config.url}`,
         error instanceof Error ? error : undefined as any
       );
     }
@@ -203,36 +203,37 @@ export class RemoteGitBackend implements RepositoryBackend {
     const issues: string[] = [];
 
     // Check if URL is provided
-    if (!(this.config as any).url) {
-      (issues as any).push("Repository URL is required for remote Git backend");
+    if (!this.config.url) {
+      issues.push("Repository URL is required for remote Git backend");
       return { valid: false, issues };
     }
 
     // Test URL accessibility using ls-remote (only contacts the remote, doesn't clone)
     try {
-      await this.execGit(["ls-remote", "--exit-code", (this.config as any).url] as any[]);
+      await this.execGit(["ls-remote", "--exit-code", this.config.url]);
     } catch (error) {
-      (issues as any).push(`Cannot access remote repository: ${(this.config as any).url}`);
+      issues.push(`Cannot access remote repository: ${this.config.url}`);
       return { valid: false, issues };
     }
 
     // Validate specific branch if provided
-    if ((this.config as any)._branch) {
+    if (this.config.branch) {
       try {
         const output = await this.execGit([
           "ls-remote",
           "--exit-code",
-          (this.config as any).url,
-          `refs/heads/${(this.config as any)._branch}`,
-        ]) as any;
+          this.config.url,
+          `refs/heads/${this.config.branch}`,
+        ]);
         if (!output) {
-          (issues as any).push(`Branch '${(this.config as any)._branch}' not found in remote repository`);
+          issues.push(`Branch '${this.config.branch}' not found in remote repository`);
         }
       } catch (error) {
-        (issues as any).push(`Cannot verify _branch '${(this.config as any)._branch}' in remote repository`);
+        issues.push(`Cannot verify branch '${this.config.branch}' in remote repository`);
       }
     }
 
+    // If there are any issues, validation fails
     return { valid: (issues as any).length === 0, issues: (issues as any).length > 0 ? issues : undefined as any };
   }
 

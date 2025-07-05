@@ -184,8 +184,8 @@ export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
     let output = "";
 
     // Add title if provided
-    if ((this as any).title) {
-      output += `${chalk.bold(this._title)}\n\n`;
+    if (this.title) {
+      output += `${chalk.bold(this.title)}\n\n`;
     }
 
     // Format each item
@@ -242,8 +242,8 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
     let output = "";
 
     // Add title if provided
-    if ((this as any).title) {
-      output += `${chalk.bold(this._title)}\n\n`;
+    if (this.title) {
+      output += `${chalk.bold(this.title)}\n\n`;
     }
 
     // Calculate column widths

@@ -12,13 +12,19 @@ const TEST_VALUE = 123;
 import { join, dirname } from "path";
 import type { TaskSpecData, TaskBackendConfig, TaskData } from "../../types/tasks/taskData";
 import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
-import type { TaskBackend } from "./taskBackend";
-import type { DeleteTaskOptions } from "../tasks";
+import type { 
+  TaskBackend, 
+  Task, 
+  TaskListOptions, 
+  CreateTaskOptions, 
+  DeleteTaskOptions 
+} from "../tasks";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";
+import { TASK_STATUS, TaskStatus } from "./taskConstants";
 
 // Define TaskState interface
 interface TaskState {
@@ -212,6 +218,58 @@ export class JsonFileTaskBackend implements TaskBackend {
   formatTaskSpec(spec: TaskSpecData): string {
     // Create markdown content
     return `# ${(spec as any).title}\n\n## Context\n\n${(spec as any).description}\n`;
+  }
+
+  // ---- Public API ----
+
+  async listTasks(options?: TaskListOptions): Promise<Task[]> {
+    const tasks = await this.getAllTasks();
+    
+    if (options?.status) {
+      return tasks.filter(task => task.status === options.status);
+    }
+    
+    return tasks;
+  }
+
+  async getTask(id: string): Promise<Task | null> {
+    return this.getTaskById(id);
+  }
+
+  async getTaskStatus(id: string): Promise<string | undefined> {
+    const task = await this.getTaskById(id);
+    return task?.status;
+  }
+
+  async setTaskStatus(id: string, status: string): Promise<void> {
+    await this.updateTaskData(id, { status: status as TaskStatus });
+  }
+
+  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+    // Read and parse the task specification
+    const specDataResult = await this.getTaskSpecData(specPath);
+    if (!specDataResult.success) {
+      throw new Error(`Failed to read task spec from ${specPath}: ${specDataResult.error?.message}`);
+    }
+    const spec = this.parseTaskSpec(specDataResult.content || "");
+
+    // Get all existing tasks to determine the new task's ID
+    const tasks = await this.getAllTasks();
+    const newId = `#${tasks.length + 1}`;
+
+    // Create the new task data
+    const newTask: TaskData = {
+      id: newId,
+      title: spec.title,
+      description: spec.description,
+      status: TASK_STATUS.TODO,
+      specPath: specPath,
+    };
+
+    // Add the new task to the database
+    const createdTask = await this.createTaskData(newTask);
+
+    return createdTask;
   }
 
   // ---- Side Effects ----
@@ -494,5 +552,6 @@ export class JsonFileTaskBackend implements TaskBackend {
  * @returns JsonFileTaskBackend instance
  */
 export function createJsonFileTaskBackend(config: JsonFileTaskBackendOptions): TaskBackend {
+  // Simply return the instance since JsonFileTaskBackend already implements TaskBackend
   return new JsonFileTaskBackend(config as any);
 }
