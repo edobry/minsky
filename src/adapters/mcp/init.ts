@@ -22,7 +22,7 @@ export function registerInitTools(commandMapper: CommandMapper): void {
       mcp: z
         .object({
           enabled: z.boolean().optional(),
-          transport: (params.mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
+          transport: z.enum(["stdio", "sse", "httpStream"]).optional().default("stdio"),
           port: z.number().optional(),
           host: z.string().optional(),
         })
@@ -33,7 +33,7 @@ export function registerInitTools(commandMapper: CommandMapper): void {
     execute: async (params: any) => {
       // Set default values
       const initParams = {
-        repoPath: params.repoPath || process.cwd(),
+        repoPath: params._repoPath || process.cwd(),
         backend: params.backend || "tasks.md",
         ruleFormat: params.ruleFormat || "cursor",
         mcp: params.mcp,

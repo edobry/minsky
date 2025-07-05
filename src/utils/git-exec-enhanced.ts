@@ -129,7 +129,7 @@ function extractConflictFiles(stdout: string, stderr: string): string[] {
   }) as any).filter(Boolean) as string[];
 
   // Remove duplicates
-  return [...new Set(files as any)];
+  return [...new Set(files)];
 }
 
 /**
