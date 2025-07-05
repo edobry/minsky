@@ -42,7 +42,7 @@ import { log } from "../../utils/logger.js";
 // In a real implementation, this would be imported from the MCP adapter bridge
 const mcpBridge = {
   registerSharedCommands: (categories: any) => {
-    log.debug(`Registering MCP commands for categories: ${categories.join(", ")}`);
+    log.debug(`Registering MCP commands for categories: ${(categories as any).join(", ")}`);
     // Implementation would:
     // 1. Get commands from shared registry for the specified categories
     // 2. Create MCP command schemas from them
@@ -80,11 +80,11 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP git.commit called with params:", params);
+    log.debug("MCP git.commit called with params:", params as any);
     return {
       success: true,
       commitHash: "example-hash",
-      message: params.message,
+      message: (params as any).message,
     };
   },
 };
@@ -114,10 +114,10 @@ const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP tasks.status.get called with params:", params);
+    log.debug("MCP tasks.status.get called with params:", params as any);
     return {
       success: true,
-      taskId: params.taskId,
+      taskId: (params as any).taskId,
       _status: "TODO", // Example _status
     };
   },
@@ -138,7 +138,7 @@ const sessionListCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP session.list called with params:", params);
+    log.debug("MCP session.list called with params:", params as any);
     return {
       success: true,
       sessions: [
@@ -179,7 +179,7 @@ const rulesListCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP rules.list called with params:", params);
+    log.debug("MCP rules.list called with params:", params as any);
     return {
       success: true,
       rules: [
@@ -220,11 +220,11 @@ export function setupMcpWithSharedCommands(): void {
   registerRulesCommands();
 
   // Bridge the commands to MCP
-  mcpBridge.registerSharedCommands([
-    CommandCategory.GIT,
-    CommandCategory.TASKS,
-    CommandCategory.SESSION,
-    CommandCategory.RULES,
+  (mcpBridge as any).registerSharedCommands([
+    (CommandCategory as any).GIT,
+    (CommandCategory as any).TASKS,
+    (CommandCategory as any).SESSION,
+    (CommandCategory as any).RULES,
   ]);
 
   log.debug("MCP setup complete with shared commands");

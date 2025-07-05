@@ -30,18 +30,16 @@ export const TEST_TIMESTAMPS = {
  * Creates a temporary directory for test file operations
  * Provides isolation between tests and automatic cleanup
  */
-export const createTempTestDir: (prefix?: string) => string | null = createRobustTempDir;
+export const createTempTestDir: (prefix?: string) => string | undefined = createRobustTempDir;
 
 /**
  * Sets up console spies for capturing and testing output
  * Returns the created spies for use in assertions
  */
 export function setupConsoleSpy() {
-  const consoleLogSpy = spyOn(_console, "log").mockImplementation(() => {});
-  const consoleErrorSpy = spyOn(_console, "error").mockImplementation(() => {});
-  const processExitSpy = spyOn(_process, "exit").mockImplementation(() => {
-    throw new Error("process.exit called");
-  });
+  const consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
+  const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+  const processExitSpy = spyOn(process, "exit" as any).mockImplementation(() => { throw new Error("process.exit called"); });
 
   return { consoleLogSpy, consoleErrorSpy, processExitSpy };
 }

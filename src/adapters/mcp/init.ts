@@ -16,37 +16,30 @@ export function registerInitTools(commandMapper: CommandMapper): void {
     name: "init",
     description: "Initialize a project for Minsky",
     parameters: z.object({
-      _repoPath: z.string().optional().describe("Repository path (defaults to current directory)"),
-      backend: z.enum(["tasks.md", "tasks.csv"]).optional().describe("Task backend type"),
-      ruleFormat: z.enum(["cursor", "generic"]).optional().describe("Rule format"),
+      repoPath: z.string().optional(),
+      backend: z.string().optional(),
+      ruleFormat: z.string().optional(),
       mcp: z
         .object({
-          enabled: z.boolean().optional().describe("Enable MCP configuration"),
-          transport: z
-            .enum(["stdio", "sse", "httpStream"])
-            .optional()
-            .describe("MCP transport type"),
-          port: z.number().optional().describe("Port for MCP network transports"),
-          host: z.string().optional().describe("Host for MCP network transports"),
+          enabled: z.boolean().optional(),
+          transport: z.enum(["stdio", "sse", "httpStream"]).optional().default("stdio"),
+          port: z.number().optional(),
+          host: z.string().optional(),
         })
-        .optional()
-        .describe("MCP configuration _options"),
-      mcpOnly: z
-        .boolean()
-        .optional()
-        .describe("Only configure MCP, skip other initialization steps"),
-      overwrite: z.boolean().optional().describe("Overwrite existing files"),
+        .optional(),
+      mcpOnly: z.boolean().optional(),
+      overwrite: z.boolean().optional(),
     }),
-    execute: async (params) => {
+    execute: async (params: any) => {
       // Set default values
       const initParams = {
-        repoPath: params.repoPath || process.cwd(),
+        repoPath: params._repoPath || process.cwd(),
         backend: params.backend || "tasks.md",
         ruleFormat: params.ruleFormat || "cursor",
         mcp: params.mcp,
         mcpOnly: params.mcpOnly || false,
         overwrite: params.overwrite || false,
-      } as any;
+      };
 
       // Call the domain function
       await initializeProjectFromParams(initParams);

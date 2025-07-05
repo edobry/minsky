@@ -47,7 +47,7 @@ export interface CliFactoryConfig {
 class CliCommandFactory {
   private initialized = false;
   private config: CliFactoryConfig = {
-    enableDevWarnings: process.env.NODE_ENV !== "production" as any,
+    enableDevWarnings: (process.env as any).NODE_ENV !== "production" as any,
     strictValidation: true,
   };
 
@@ -67,7 +67,7 @@ class CliCommandFactory {
    */
   customizeCommand(commandId: ValidCommandId, options: CliCommandOptions): void {
     this.ensureInitialized();
-    cliBridge.registerCommandCustomization(commandId, options);
+    (cliBridge as any).registerCommandCustomization(commandId!, options as any);
   }
 
   /**
@@ -78,7 +78,7 @@ class CliCommandFactory {
    */
   customizeCategory(category: CommandCategory, options: CategoryCommandOptions): void {
     this.ensureInitialized();
-    cliBridge.registerCategoryCustomization(category, options);
+    (cliBridge as any).registerCategoryCustomization(category, options as any);
   }
 
   /**
@@ -89,7 +89,7 @@ class CliCommandFactory {
    */
   createCommand(commandId: ValidCommandId): Command | null {
     this.ensureInitialized();
-    return cliBridge.generateCommand(commandId);
+    return (cliBridge as any).generateCommand(commandId);
   }
 
   /**
@@ -100,7 +100,7 @@ class CliCommandFactory {
    */
   createCategoryCommand(category: CommandCategory): Command | null {
     this.ensureInitialized();
-    return cliBridge.generateCategoryCommand(category, { viaFactory: true });
+    return (cliBridge as any).generateCategoryCommand(category, { viaFactory: true });
   }
 
   /**
@@ -110,7 +110,7 @@ class CliCommandFactory {
    */
   registerAllCommands(program: Command): void {
     this.ensureInitialized();
-    cliBridge.generateAllCategoryCommands(program, { viaFactory: true });
+    (cliBridge as any).generateAllCategoryCommands(program, { viaFactory: true });
   }
 
   /**
@@ -139,7 +139,7 @@ const cliFactory = new CliCommandFactory();
  * @deprecated Use cliFactory.customizeCommand() instead
  */
 export function customizeCommand(commandId: string, options: CliCommandOptions): void {
-  cliFactory.customizeCommand(commandId, options);
+  cliFactory.customizeCommand(commandId!, options as any);
 }
 
 /**
@@ -150,7 +150,7 @@ export function customizeCategory(
   category: CommandCategory,
   options: CategoryCommandOptions
 ): void {
-  cliFactory.customizeCategory(category, options);
+  cliFactory.customizeCategory(category, options as any);
 }
 
 /**
@@ -188,7 +188,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   }
 
   // Task commands customization
-  cliFactory.customizeCategory(CommandCategory.TASKS, {
+  cliFactory.customizeCategory((CommandCategory as any).TASKS, {
     aliases: ["task"],
     commandOptions: {
       "tasks.list": {
@@ -265,7 +265,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   });
 
   // Git commands customization
-  cliFactory.customizeCategory(CommandCategory.GIT, {
+  cliFactory.customizeCategory((CommandCategory as any).GIT, {
     commandOptions: {
       "git.commit": {
         parameters: {
@@ -278,7 +278,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   });
 
   // Session commands customization
-  cliFactory.customizeCategory(CommandCategory.SESSION, {
+  cliFactory.customizeCategory((CommandCategory as any).SESSION, {
     aliases: ["sess"],
     commandOptions: {
       "session.list": {
@@ -401,61 +401,61 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   });
 
   // Config/SessionDB commands customization
-  cliFactory.customizeCategory(CommandCategory.CONFIG, {
+  cliFactory.customizeCategory((CommandCategory as any).CONFIG, {
     commandOptions: {
       "config.list": {
         outputFormatter: (result: any) => {
           // Check if JSON output was requested
-          if (result.json) {
+          if ((result as any).json) {
             // For JSON output, return flattened key-value pairs (matching normal output)
-            const flattened = flattenObjectToKeyValue(result.resolved);
+            const flattened = flattenObjectToKeyValue((result as any).resolved);
             log.cli(JSON.stringify(flattened, null, 2));
             return;
           }
 
-          if (result.success && result.resolved) {
+          if ((result as any).success && (result as any).resolved) {
             let output = "";
 
             // Show sources if explicitly requested
-            if (result.showSources && result.sources) {
-              output += formatConfigurationSources(result.resolved, result.sources);
+            if ((result as any).showSources && (result as any).sources) {
+              output += formatConfigurationSources((result as any).resolved, (result as any).sources);
             } else {
               // For config list, show flattened key=value pairs
-              output += formatFlattenedConfiguration(result.resolved);
+              output += formatFlattenedConfiguration((result as any).resolved);
             }
 
-            log.cli(output);
-          } else if (result.error) {
-            log.cli(`Failed to load configuration: ${result.error}`);
+            log.cli(output as any);
+          } else if ((result as any).error) {
+            log.cli(`Failed to load configuration: ${(result as any).error}`);
           } else {
-            log.cli(JSON.stringify(result, null, 2));
+            log.cli(JSON.stringify(result as any, null, 2));
           }
         },
       },
       "config.show": {
         outputFormatter: (result: any) => {
           // Check if JSON output was requested
-          if (result.json) {
-            log.cli(JSON.stringify(result, null, 2));
+          if ((result as any).json) {
+            log.cli(JSON.stringify(result as any, null, 2));
             return;
           }
 
-          if (result.success && result.configuration) {
+          if ((result as any).success && (result as any).configuration) {
             let output = "";
 
             // Show sources if explicitly requested
-            if (result.showSources && result.sources) {
-              output += formatConfigurationSources(result.configuration, result.sources);
+            if ((result as any).showSources && (result as any).sources) {
+              output += formatConfigurationSources((result as any).configuration, (result as any).sources);
             } else {
               // Default human-friendly structured view
-              output += formatResolvedConfiguration(result.configuration);
+              output += formatResolvedConfiguration((result as any).configuration);
             }
 
-            log.cli(output);
-          } else if (result.error) {
-            log.cli(`Failed to load configuration: ${result.error}`);
+            log.cli(output as any);
+          } else if ((result as any).error) {
+            log.cli(`Failed to load configuration: ${(result as any).error}`);
           } else {
-            log.cli(JSON.stringify(result, null, 2));
+            log.cli(JSON.stringify(result as any, null, 2));
           }
         },
       },
@@ -498,8 +498,8 @@ function formatConfigurationSources(resolved: any, sources: any[]): string {
 
   // Show source precedence
   output += "Source Precedence (highest to lowest):\n";
-  sources.forEach((source, index) => {
-    output += `  ${index + 1}. ${source.name}\n`;
+  (sources as any).forEach((source, index) => {
+    output += `  ${index + 1}. ${(source as any).name}\n`;
   });
 
   output += "\n📋 RESOLVED CONFIGURATION\n";
@@ -514,38 +514,38 @@ function formatResolvedConfiguration(resolved: any): string {
   let output = "📋 CURRENT CONFIGURATION\n";
 
   // Task Storage
-  output += `📁 Task Storage: ${getBackendDisplayName(resolved.backend)}`;
-  if (resolved.backend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
-    const github = resolved.backendConfig["github-issues"];
+  output += `📁 Task Storage: ${getBackendDisplayName((resolved as any).backend)}`;
+  if ((resolved as any).backend === "github-issues" && (resolved as any).backendConfig?.["github-issues"]) {
+    const github = (resolved as any).backendConfig["github-issues"];
     output += ` (${github.owner}/${github.repo})`;
   }
 
   // Authentication
-  if (Object.keys(resolved.credentials).length > 0) {
+  if ((Object.keys(resolved.credentials) as any).length > 0) {
     output += "\n🔐 Authentication: ";
     const authServices = [];
-    for (const [service, creds] of Object.entries(resolved.credentials)) {
+    for (const [service, creds] of (Object as any).entries((resolved as any).credentials)) {
       if (creds && typeof creds === "object") {
         const credsObj = creds as any;
         const serviceName = service === "github" ? "GitHub" : service;
-        const source = credsObj.source === "environment" ? "env" : credsObj.source;
-        authServices.push(`${serviceName} (${source})`);
+        const source = (credsObj as any).source === "environment" ? "env" : (credsObj as any).source;
+        (authServices as any).push(`${serviceName} (${source})`);
       }
     }
-    output += authServices.join(", ");
+    output += (authServices as any).join(", ");
   }
 
   // Session Storage
-  if (resolved.sessiondb) {
-    const sessionBackend = resolved.sessiondb.backend || "json";
+  if ((resolved as any).sessiondb) {
+    const sessionBackend = (resolved.sessiondb as any).backend || "json";
     output += `\n💾 Session Storage: ${getSessionBackendDisplayName(sessionBackend)}`;
 
-    if (sessionBackend === "sqlite" && resolved.sessiondb.dbPath) {
-      output += ` (${resolved.sessiondb.dbPath})`;
-    } else if (sessionBackend === "postgres" && resolved.sessiondb.connectionString) {
+    if (sessionBackend === "sqlite" && (resolved.sessiondb as any).dbPath) {
+      output += ` (${(resolved.sessiondb as any).dbPath})`;
+    } else if (sessionBackend === "postgres" && (resolved.sessiondb as any).connectionString) {
       output += " (configured)";
-    } else if (sessionBackend === "json" && resolved.sessiondb.baseDir) {
-      output += ` (${resolved.sessiondb.baseDir})`;
+    } else if (sessionBackend === "json" && (resolved.sessiondb as any).baseDir) {
+      output += ` (${(resolved.sessiondb as any).baseDir})`;
     }
   }
 
@@ -592,24 +592,24 @@ function formatDetectionCondition(condition: string): string {
 }
 
 function formatConfigSection(config: any): string {
-  if (!config || Object.keys(config).length === 0) {
+  if (!config || (Object as any).keys(config as any).length === 0) {
     return "  (empty)";
   }
 
   let output = "";
-  for (const [key, value] of Object.entries(config)) {
-    if (Array.isArray(value)) {
-      output += `  ${key}: (${value.length} items)\n`;
-      value.forEach((item, index) => {
+  for (const [key, value] of (Object as any).entries(config as any)) {
+    if (Array.isArray(value as any)) {
+      output += `  ${key}: (${(value as any).length} items)\n`;
+      (value as any).forEach((item, index) => {
         if (typeof item === "object" && item !== null) {
-          output += `    ${index}: ${JSON.stringify(item)}\n`;
+          output += `    ${index}: ${JSON.stringify(item as any)}\n`;
         } else {
           output += `    ${index}: ${item}\n`;
         }
       });
     } else if (typeof value === "object" && value !== null) {
       output += `  ${key}:\n`;
-      for (const [subKey, subValue] of Object.entries(value)) {
+      for (const [subKey, subValue] of (Object as any).entries(value as any)) {
         if (typeof subValue === "object" && subValue !== null) {
           // Special handling for credentials
           if (key === "credentials") {
@@ -627,7 +627,7 @@ function formatConfigSection(config: any): string {
     }
   }
 
-  return output.trimEnd();
+  return (output as any).trimEnd();
 }
 
 function sanitizeCredentials(creds: any): any {
@@ -636,8 +636,8 @@ function sanitizeCredentials(creds: any): any {
   }
 
   const sanitized = { ...creds };
-  if (sanitized.token) {
-    sanitized.token = `${"*".repeat(20)} (hidden)`;
+  if ((sanitized as any).token) {
+    (sanitized as any).token = `${"*".repeat(20)} (hidden)`;
   }
 
   return sanitized;
@@ -647,34 +647,34 @@ function formatFlattenedConfiguration(resolved: any): string {
   const flatten = (obj: any, prefix = ""): string[] => {
     const result: string[] = [];
 
-    for (const [key, value] of Object.entries(obj)) {
+    for (const [key, value] of (Object as any).entries(obj as any)) {
       const fullKey = prefix ? `${prefix}.${key}` : key;
 
       if (value === null || value === undefined) {
-        result.push(`${fullKey}=(null)`);
-      } else if (typeof value === "object" && !Array.isArray(value)) {
+        (result as any).push(`${fullKey}=(null)`);
+      } else if (typeof value === "object" && !Array.isArray(value as any)) {
         // Recursively flatten objects
-        result.push(...flatten(value, fullKey));
-      } else if (Array.isArray(value)) {
-        if (value.length === 0) {
-          result.push(`${fullKey}=(empty array)`);
+        (result as any).push(...flatten(value as any, fullKey));
+      } else if (Array.isArray(value as any)) {
+        if ((value as any).length === 0) {
+          (result as any).push(`${fullKey}=(empty array)`);
         } else {
-          value.forEach((item, index) => {
+          (value as any).forEach((item, index) => {
             if (typeof item === "object") {
-              result.push(...flatten(item, `${fullKey}[${index}]`));
+              (result as any).push(...flatten(item as any, `${fullKey}[${index}]`));
             } else {
-              result.push(`${fullKey}[${index}]=${item}`);
+              (result as any).push(`${fullKey}[${index}]=${item}`);
             }
           });
         }
       } else if (
         typeof value === "string" &&
-        (fullKey.includes("token") || fullKey.includes("password"))
+        ((fullKey as any).includes("token") || (fullKey as any).includes("password"))
       ) {
         // Hide sensitive values
-        result.push(`${fullKey}=*** (hidden)`);
+        (result as any).push(`${fullKey}=*** (hidden)`);
       } else {
-        result.push(`${fullKey}=${value}`);
+        (result as any).push(`${fullKey}=${value}`);
       }
     }
 
@@ -682,7 +682,7 @@ function formatFlattenedConfiguration(resolved: any): string {
   };
 
   const flatEntries = flatten(resolved);
-  return flatEntries.join("\n");
+  return (flatEntries as any).join("\n");
 }
 
 function flattenObjectToKeyValue(obj: any): any {
@@ -690,11 +690,11 @@ function flattenObjectToKeyValue(obj: any): any {
 
   function flatten(current: any, prefix = ""): void {
     if (typeof current === "object" && current !== null) {
-      const keys = Object.keys(current);
+      const keys = (Object as any).keys(current);
       for (const key of keys) {
         const fullKey = prefix ? `${prefix}.${key}` : key;
         if (typeof current[key] === "object" && current[key] !== null) {
-          flatten(current[key], fullKey);
+          flatten((current as any)[key], fullKey);
         } else {
           flattened[fullKey] = current[key];
         }
@@ -702,7 +702,7 @@ function flattenObjectToKeyValue(obj: any): any {
     }
   }
 
-  flatten(obj);
+  flatten(obj as any);
   return flattened;
 }
 
@@ -713,7 +713,7 @@ function flattenObjectToKeyValue(obj: any): any {
  */
 export function initializeCliCommands(program: Command, config?: Partial<CliFactoryConfig>): void {
   // Initialize the factory
-  cliFactory.initialize(config);
+  cliFactory.initialize(config as any);
 
   // Setup common customizations
   setupCommonCommandCustomizations(program);

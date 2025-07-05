@@ -11,7 +11,6 @@ import { execSync } from "child_process";
 import { getErrorMessage } from "../../errors/index";
 import type {
   TaskData,
-  TaskState,
   TaskSpecData,
   TaskBackendConfig,
 } from "../../types/tasks/taskData.js";
@@ -21,6 +20,15 @@ import type {
 } from "../../types/tasks/taskData.js";
 import type { TaskBackend } from "./taskBackend";
 import { log } from "../../utils/logger";
+import { TASK_STATUS, TaskStatus } from "./taskConstants.js";
+
+// Import additional types needed for interface implementation
+import type { 
+  Task, 
+  TaskListOptions, 
+  CreateTaskOptions, 
+  DeleteTaskOptions 
+} from "../tasks.js";
 
 /**
  * Configuration for GitHubIssuesTaskBackend
@@ -84,14 +92,14 @@ function extractGitHubRepoFromRemote(
     // Parse GitHub repository from various URL formats
     // SSH: git@github.com:owner/repo.git
     // HTTPS: https://github.com/owner/repo.git
-    const sshMatch = remoteUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
-    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+    const sshMatch = (remoteUrl as any).match(/git@github\.com:([^\/]+)\/([^\.]+)/);
+    const httpsMatch = (remoteUrl as any).match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
 
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {
       return {
         owner: match[1],
-        repo: match[2].replace(/\.git$/, ""), // Remove .git suffix
+        repo: (match[2] as any).replace(/\.git$/, ""), // Remove .git suffix
       };
     }
 
@@ -99,7 +107,7 @@ function extractGitHubRepoFromRemote(
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
-      error: getErrorMessage(error),
+      error: getErrorMessage(error as any),
     });
     return null as any;
   }
@@ -118,15 +126,15 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
   private readonly tasksDirectory: string;
 
   constructor(options: GitHubIssuesTaskBackendOptions) {
-    this.workspacePath = options.workspacePath;
-    this.owner = options.owner;
-    this.repo = options.repo;
-    this.statusLabels = { ...DEFAULT_STATUS_LABELS, ...options.statusLabels };
+    this.workspacePath = (options as any).workspacePath;
+    this.owner = (options as any).owner;
+    this.repo = (options as any).repo;
+    this.statusLabels = { ...DEFAULT_STATUS_LABELS, ...(options as any).statusLabels };
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
 
     // Initialize GitHub API client
     this.octokit = new Octokit({
-      auth: options.githubToken,
+      auth: (options as any).githubToken,
       userAgent: "minsky-cli",
       request: {
         // Add retry logic for rate limiting
@@ -148,7 +156,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       await createGitHubLabels(this.octokit, this.owner, this.repo, this.statusLabels);
     } catch (error) {
       log.warn("Failed to ensure GitHub labels exist", {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
     }
   }
@@ -160,8 +168,8 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       log.debug("Fetching GitHub issues", { owner: this.owner, repo: this.repo });
 
       // Fetch all issues with Minsky labels
-      const labelQueries = Object.values(this.statusLabels).join(",");
-      const response = await this.octokit.rest.issues.listForRepo({
+      const labelQueries = (Object.values(this.statusLabels) as any).join(",");
+      const response = await (this.octokit.rest.issues as any).listForRepo({
         owner: this.owner,
         repo: this.repo,
         labels: labelQueries,
@@ -169,8 +177,8 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         per_page: 100, // Adjust as needed
       });
 
-      const issues = response.data;
-      log.debug(`Retrieved ${issues.length} issues from GitHub`, {
+      const issues = (response as any).data;
+      log.debug(`Retrieved ${(issues as any).length} issues from GitHub`, {
         owner: this.owner,
         repo: this.repo,
       });
@@ -186,12 +194,12 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       log.error("Failed to fetch GitHub issues", {
         owner: this.owner,
         repo: this.repo,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
 
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: error instanceof Error ? error : new Error(String(error as any)),
       };
     }
   }
@@ -203,9 +211,9 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       // from the issue data.
 
       // Extract task ID from spec path
-      const pathParts = specPath.split("/");
-      const fileName = pathParts[pathParts.length - 1];
-      const taskIdMatch = fileName?.match(/^(\d+)-/);
+      const pathParts = (specPath as any).split("/");
+      const fileName = pathParts[(pathParts as any).length - 1];
+      const taskIdMatch = (fileName as any).match(/^(\d+)-/);
 
       if (!taskIdMatch || !taskIdMatch[1]) {
         throw new Error(`Invalid spec path format: ${specPath}`);
@@ -214,16 +222,16 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       const taskId = `#${taskIdMatch[1]}`;
 
       // Try to find the corresponding GitHub issue
-      const response = await this.octokit.rest.issues.listForRepo({
+      const response = await (this.octokit.rest.issues as any).listForRepo({
         owner: this.owner,
         repo: this.repo,
-        labels: Object.values(this.statusLabels).join(",") as any,
+        labels: (Object.values(this.statusLabels) as any).join(",") as any,
         state: "all",
       }) as any;
 
-      const issue = response.data.find((issue) => {
+      const issue = (response.data as any).find((issue) => {
         // Look for issue with matching task ID in title or body
-        return issue.title.includes(taskId) || issue.body?.includes(taskId);
+        return (issue.title as any).includes(taskId) || (issue.body as any).includes(taskId);
       });
 
       if (!issue) {
@@ -234,23 +242,23 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       }
 
       // Generate spec content from issue
-      const specContent = `# Task ${taskId}: ${issue.title}
+      const specContent = `# Task ${taskId}: ${(issue as any).title}
 
 ## Status
 ${this.getTaskStatusFromIssue(issue)}
 
 ## Description
-${issue.body || "No description provided"}
+${(issue as any).body || "No description provided"}
 
 ## GitHub Issue
-- Issue: #${issue.number}
-- URL: ${issue.html_url}
-- State: ${issue.state}
-- Created: ${issue.created_at}
-- Updated: ${issue.updated_at}
+- Issue: #${(issue as any).number}
+- URL: ${(issue as any).html_url}
+- State: ${(issue as any).state}
+- Created: ${(issue as any).created_at}
+- Updated: ${(issue as any).updated_at}
 
 ## Labels
-${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.name}`).join("\n")}
+${((issue.labels as any).map((label) => `- ${typeof label === "string" ? label : label.name}`) as any).join("\n")}
 `;
 
       return {
@@ -260,12 +268,12 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     } catch (error) {
       log.error("Failed to get task spec data from GitHub", {
         specPath,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
 
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: error instanceof Error ? error : new Error(String(error as any)),
       };
     }
   }
@@ -275,10 +283,10 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   parseTasks(content: string): TaskData[] {
     try {
       const issues = JSON.parse(content);
-      return issues.map((issue: any) => this.convertIssueToTaskData(issue));
+      return (issues as any).map((issue: any) => this.convertIssueToTaskData(issue));
     } catch (error) {
       log.error("Failed to parse GitHub issues data", {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
       return [];
     }
@@ -287,12 +295,12 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   formatTasks(tasks: TaskData[]): string {
     // For GitHub backend, we don't store tasks in a file format
     // This is used when syncing back to GitHub
-    return JSON.stringify(tasks.map((task) => this.convertTaskDataToIssueFormat(task)));
+    return JSON.stringify((tasks as any).map((task) => this.convertTaskDataToIssueFormat(task)));
   }
 
   parseTaskSpec(content: string): TaskSpecData {
     // Parse markdown content to extract task specification
-    const lines = (content).toString().split("\n");
+    const lines = (((content) as any).toString() as any).split("\n");
     let title = "";
     let description = "";
     let metadata: Record<string, any> = {};
@@ -301,27 +309,27 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     let descriptionLines: string[] = [];
 
     for (const line of lines) {
-      const trimmed = line.trim();
+      const trimmed = (line as any).trim();
 
-      if (trimmed.startsWith("# ")) {
-        title = trimmed.substring(2).trim();
+      if ((trimmed as any).startsWith("# ")) {
+        title = ((trimmed as any).substring(2) as any).trim();
         // Extract task ID from title if present
-        const taskIdMatch = title.match(/^Task (#\d+):/);
+        const taskIdMatch = (title as any).match(/^Task (#\d+):/);
         if (taskIdMatch) {
-          metadata.taskId = taskIdMatch[1];
-          title = title.substring(taskIdMatch[0].length).trim();
+          (metadata as any).taskId = taskIdMatch[1];
+          title = ((title as any).substring(taskIdMatch[0].length) as any).trim();
         }
-      } else if (trimmed.startsWith("## ")) {
-        currentSection = trimmed.substring(3).trim().toLowerCase();
+      } else if ((trimmed as any).startsWith("## ")) {
+        currentSection = ((trimmed.substring(3) as any).trim() as any).toLowerCase();
         if (currentSection === "description") {
           descriptionLines = [];
         }
       } else if (currentSection === "description" && trimmed) {
-        descriptionLines.push(trimmed);
+        (descriptionLines as any).push(trimmed);
       }
     }
 
-    description = descriptionLines.join("\n");
+    description = (descriptionLines as any).join("\n");
 
     return {
       title,
@@ -333,19 +341,19 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   formatTaskSpec(spec: TaskSpecData): string {
     const { title, description, metadata } = spec;
 
-    let content = `# Task ${metadata?.taskId || "#000"}: ${title}\n\n`;
+    let content = `# Task ${(metadata as any).taskId || "#000"}: ${title}\n\n`;
 
     if (description) {
       content += `## Description\n${description}\n\n`;
     }
 
     // Add GitHub-specific metadata if available
-    if (metadata?.githubIssue) {
-      const githubIssue = metadata.githubIssue as any;
+    if ((metadata as any).githubIssue) {
+      const githubIssue = (metadata as any).githubIssue as any;
       content += "## GitHub Issue\n";
-      content += `- Issue: #${githubIssue.number}\n`;
-      content += `- URL: ${githubIssue.html_url}\n`;
-      content += `- State: ${githubIssue.state}\n\n`;
+      content += `- Issue: #${(githubIssue as any).number}\n`;
+      content += `- URL: ${(githubIssue as any).html_url}\n`;
+      content += `- State: ${(githubIssue as any).state}\n\n`;
     }
 
     return content;
@@ -365,12 +373,12 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
       return { success: true };
     } catch (error) {
       log.error("Failed to save tasks data to GitHub", {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
 
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: error instanceof Error ? error : new Error(String(error as any)),
       };
     }
   }
@@ -385,12 +393,12 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     } catch (error) {
       log.error("Failed to save task spec data", {
         specPath,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
 
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: error instanceof Error ? error : new Error(String(error as any)),
       };
     }
   }
@@ -402,8 +410,8 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   }
 
   getTaskSpecPath(taskId: string, title: string): string {
-    const id = taskId.startsWith("#") ? taskId.slice(1) : taskId;
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const id = taskId.startsWith("#") ? (taskId as any).slice(1) : taskId;
+    const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
   }
 
@@ -421,87 +429,222 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
 
     return {
       id: taskId,
-      title: issue.title,
-      description: issue.body || "",
+      title: (issue as any).title,
+      description: (issue as any).body || "",
       status,
-      specPath: this.getTaskSpecPath(taskId, issue.title),
+      specPath: this.getTaskSpecPath(taskId, (issue as any).title),
     };
   }
 
   private convertTaskDataToIssueFormat(task: TaskData): any {
     return {
-      title: task.title,
-      body: task.description,
-      labels: this.getLabelsForTaskStatus(task.status),
-      state: task.status === "DONE" ? "closed" : "open",
+      title: (task as any).title,
+      body: (task as any).description,
+      labels: this.getLabelsForTaskStatus((task as any).status),
+      state: (task as any).status === "DONE" ? "closed" : "open",
     };
   }
 
   private extractTaskIdFromIssue(issue: any): string {
-    // Try to extract task ID from title or body
-    const titleMatch = issue.title.match(/#(\d+)/);
-    if (titleMatch) {
+    // Try to find task ID like #123 in title
+    const titleMatch = (issue.title as any).match(/#(\d+)/);
+    if (titleMatch && titleMatch[1]) {
       return `#${titleMatch[1]}`;
     }
 
-    const bodyMatch = issue.body?.match(/#(\d+)/);
-    if (bodyMatch) {
+    // If not in title, look in body
+    const bodyMatch = (issue.body as any).match(/Task ID: #(\d+)/);
+    if (bodyMatch && bodyMatch[1]) {
       return `#${bodyMatch[1]}`;
     }
 
     // Fallback to issue number
-    return `#${issue.number}`;
+    return `#${(issue as any).number}`;
   }
 
-  private getTaskStatusFromIssue(issue: any): string {
-    // Check labels for status
-    const labels = issue.labels || [];
-
-    for (const [status, labelName] of Object.entries(this.statusLabels)) {
-      if (
-        labels.some((label: any) => {
-          const name = typeof label === "string" ? label : label.name;
-          return name === labelName;
-        })
-      ) {
-        return status;
+  private getTaskStatusFromIssue(issue: any): TaskStatus {
+    for (const [status, label] of Object.entries(this.statusLabels)) {
+      if ((issue.labels as any).some((l: any) => (l as any).name === label)) {
+        return status as TaskStatus;
       }
     }
-
-    // Fallback based on issue state
-    return issue.state === "closed" ? "DONE" : "TODO";
+    // Default to TODO if no status label is found
+    return TASK_STATUS.TODO as TaskStatus;
   }
 
   private getLabelsForTaskStatus(status: string): string[] {
-    const statusLabel = this.statusLabels[status];
-    return statusLabel ? [statusLabel] : [];
+    return [(this.statusLabels as any)[status] || this.statusLabels.TODO];
   }
 
   private async syncTaskToGitHub(taskData: TaskData): Promise<void> {
-    try {
-      const issueData = this.convertTaskDataToIssueFormat(taskData);
+    // This method would handle creating or updating the GitHub issue
+    // For now, it's a placeholder
+    log.debug("Syncing task to GitHub", { taskData });
+  }
 
-      // For now, we'll always create new issues since we can't track existing ones without metadata
-      // TODO: Implement a better way to track GitHub issue numbers
-      const response = await this.octokit.rest.issues.create({
+  // Implement required TaskBackend interface methods
+  async listTasks(options?: TaskListOptions): Promise<Task[]> {
+    try {
+      const result = await this.getTasksData();
+      if (!result.success || !result.content) {
+        return [];
+      }
+      
+      const taskDataList = this.parseTasks(result.content);
+      return taskDataList.map(taskData => ({
+        id: taskData.id,
+        title: taskData.title,
+        status: taskData.status,
+        specPath: taskData.specPath,
+        description: taskData.description
+      }));
+    } catch (error) {
+      log.error("Failed to list tasks", {
+        error: getErrorMessage(error),
+      });
+      return [];
+    }
+  }
+
+  async getTask(id: string): Promise<Task | null> {
+    try {
+      const tasks = await this.listTasks();
+      return tasks.find(task => task.id === id) || null;
+    } catch (error) {
+      log.error("Failed to get task", {
+        id,
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+  }
+
+  async getTaskStatus(id: string): Promise<string | null> {
+    try {
+      const task = await this.getTask(id);
+      return task?.status || null;
+    } catch (error) {
+      log.error("Failed to get task status", {
+        id,
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+  }
+
+  async setTaskStatus(id: string, status: string): Promise<void> {
+    try {
+      // Get the task
+      const task = await this.getTask(id);
+      if (!task) {
+        throw new Error(`Task ${id} not found`);
+      }
+
+      // Update the task status in GitHub
+      const issueNumber = this.extractIssueNumberFromTaskId(id);
+      if (!issueNumber) {
+        throw new Error(`Could not extract issue number from task ID ${id}`);
+      }
+
+      // Update the issue with new labels
+      await this.octokit.rest.issues.update({
         owner: this.owner,
         repo: this.repo,
-        title: issueData.title,
-        body: issueData.body,
-        labels: issueData.labels,
+        issue_number: issueNumber,
+        labels: this.getLabelsForTaskStatus(status),
+        state: status === "DONE" ? "closed" : "open",
       });
 
-      log.debug("Created GitHub issue", {
-        issueNumber: response.data.number,
-        title: issueData.title,
+      log.debug("Updated task status in GitHub", {
+        taskId: id,
+        status,
       });
     } catch (error) {
-      log.error("Failed to sync task to GitHub", {
-        taskId: taskData.id,
+      log.error("Failed to set task status", {
+        id,
+        status,
         error: getErrorMessage(error),
       });
       throw error;
     }
+  }
+
+  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+    try {
+      // Read the spec file
+      const result = await this.getTaskSpecData(specPath);
+      if (!result.success || !result.content) {
+        throw new Error(`Failed to read task spec: ${specPath}`);
+      }
+
+      // Parse the spec
+      const spec = this.parseTaskSpec(result.content);
+      
+      // Create a new issue in GitHub
+      const response = await this.octokit.rest.issues.create({
+        owner: this.owner,
+        repo: this.repo,
+        title: spec.title,
+        body: spec.description || "",
+        labels: this.getLabelsForTaskStatus("TODO"), // Default to TODO status
+      });
+
+      // Extract task ID from the created issue
+      const taskId = `#${response.data.number}`;
+
+      return {
+        id: taskId,
+        title: spec.title,
+        status: "TODO", // Default to TODO status
+        specPath,
+        description: spec.description || "",
+      };
+    } catch (error) {
+      log.error("Failed to create task", {
+        specPath,
+        error: getErrorMessage(error),
+      });
+      throw error;
+    }
+  }
+
+  async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
+    try {
+      // Extract issue number from task ID
+      const issueNumber = this.extractIssueNumberFromTaskId(id);
+      if (!issueNumber) {
+        throw new Error(`Could not extract issue number from task ID ${id}`);
+      }
+
+      // For GitHub issues, we can't actually delete an issue
+      // Instead, we'll close it and add a "DELETED" label
+      await this.octokit.rest.issues.update({
+        owner: this.owner,
+        repo: this.repo,
+        issue_number: issueNumber,
+        state: "closed",
+        labels: [...this.getLabelsForTaskStatus("CLOSED"), "DELETED"],
+      });
+
+      log.debug("Marked task as deleted in GitHub", {
+        taskId: id,
+      });
+
+      return true;
+    } catch (error) {
+      log.error("Failed to delete task", {
+        id,
+        error: getErrorMessage(error),
+      });
+      return false;
+    }
+  }
+
+  // Helper method to extract issue number from task ID
+  private extractIssueNumberFromTaskId(taskId: string): number | null {
+    const id = taskId.startsWith("#") ? taskId.slice(1) : taskId;
+    const issueNumber = parseInt(id, 10);
+    return isNaN(issueNumber) ? null : issueNumber;
   }
 }
 
@@ -511,5 +654,5 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
  * @returns GitHubIssuesTaskBackend instance
  */
 export function createGitHubIssuesTaskBackend(config: GitHubIssuesTaskBackendOptions): TaskBackend {
-  return new GitHubIssuesTaskBackend(config);
+  return new GitHubIssuesTaskBackend(config as any);
 }

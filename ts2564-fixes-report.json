@@ -1,0 +1,40 @@
+{
+  "timestamp": "2025-07-04T22:33:52.357Z",
+  "totalChanges": 4,
+  "totalFiles": 5,
+  "fixes": [
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/repository/local.ts",
+      "line": 33,
+      "column": 0,
+      "property": "LocalGitBackend.repoUrl",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/repository/local.ts",
+      "line": 34,
+      "column": 0,
+      "property": "LocalGitBackend.repoName",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/repository/remote.ts",
+      "line": 33,
+      "column": 0,
+      "property": "RemoteGitBackend.repoUrl",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/repository/remote.ts",
+      "line": 34,
+      "column": 0,
+      "property": "RemoteGitBackend.repoName",
+      "fixed": true
+    }
+  ],
+  "summary": {
+    "successful": 4,
+    "failed": 0,
+    "filesProcessed": 5
+  }
+}

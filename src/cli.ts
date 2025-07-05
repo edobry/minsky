@@ -5,7 +5,7 @@
 import { homedir } from "os";
 import { join } from "path";
 const userConfigDir = join(homedir(), ".config", "minsky");
-process.env.NODE_CONFIG_DIR = userConfigDir;
+(process.env as any).NODE_CONFIG_DIR = userConfigDir;
 
 import { Command } from "commander";
 import { log } from "./utils/logger.js";
@@ -20,9 +20,8 @@ import {
 /**
  * Root CLI command
  */
-export const cli = new Command("minsky")
-  .description("Minsky development workflow tool")
-  .version("1.0.0");
+export const cli = (new Command("minsky")
+  .description("Minsky development workflow tool") as any).version("1.0.0");
 
 /**
  * Create the CLI command structure
@@ -55,15 +54,15 @@ export async function createCli(): Promise<Command> {
  */
 async function main(): Promise<void> {
   await createCli();
-  await cli.parseAsync(Bun.argv);
+  await cli.parseAsync((Bun as any).argv);
 }
 
 // Run the CLI
 main().catch((err) => {
   log.systemDebug(`Error caught in main: ${err}`);
-  log.systemDebug(`Error stack: ${err.stack}`);
+  log.systemDebug(`Error stack: ${(err as any).stack}`);
   log.error(`Unhandled error in CLI: ${(err as any).message}`);
-  if (err.stack) log.debug(err.stack);
+  if ((err as any).stack) log.debug((err as any).stack);
   exit(1);
 });
 

@@ -88,10 +88,9 @@ export interface ForceOptions {
  * @returns The command with options added
  */
 export function addRepoOptions(command: Command): Command {
-  return command
+  return (command
     .option("--session <session>", SESSION_DESCRIPTION)
-    .option("--repo <repositoryUri>", REPO_DESCRIPTION)
-    .option("--upstream-repo <upstreamRepoUri>", UPSTREAM_REPO_DESCRIPTION);
+    .option("--repo <repositoryUri>", REPO_DESCRIPTION) as any).option("--upstream-repo <upstreamRepoUri>", UPSTREAM_REPO_DESCRIPTION);
 }
 
 /**
@@ -146,9 +145,9 @@ export function normalizeRepoOptions(options: RepoOptions): {
   workspace?: string;
 } {
   return {
-    session: options.session,
-    repo: options.repo,
-    workspace: options["upstream-repo"],
+    session: (options as any).session,
+    repo: (options as any).repo,
+    workspace: (options as any)["upstream-repo"],
   };
 }
 
@@ -163,8 +162,8 @@ export function normalizeOutputOptions(options: OutputOptions): {
   debug?: boolean;
 } {
   return {
-    json: options.json,
-    debug: options.debug,
+    json: (options as any).json,
+    debug: (options as any).debug,
   };
 }
 
@@ -179,7 +178,7 @@ export function normalizeTaskOptions(options: TaskOptions): {
 } {
   // If task ID is provided, normalize it
   // normalizeTaskId can return null, so handle that case
-  const taskId = options.task ? normalizeTaskId(options.task) : undefined as any;
+  const taskId = (options as any).task ? normalizeTaskId((options as any).task) : undefined as any;
 
   return {
     task: taskId || undefined,
@@ -202,9 +201,9 @@ export function normalizeTaskParams<T extends RepoOptions & OutputOptions & Back
   json?: boolean;
 } {
   return {
-    ...normalizeRepoOptions(options),
-    ...normalizeOutputOptions(options),
-    backend: options.backend,
+    ...normalizeRepoOptions(options as any),
+    ...normalizeOutputOptions(options as any),
+    backend: (options as any).backend,
   };
 }
 
@@ -224,8 +223,8 @@ export function normalizeSessionParams<T extends RepoOptions & OutputOptions & T
   json?: boolean;
 } {
   return {
-    ...normalizeRepoOptions(options),
-    ...normalizeOutputOptions(options),
-    ...normalizeTaskOptions(options),
+    ...normalizeRepoOptions(options as any),
+    ...normalizeOutputOptions(options as any),
+    ...normalizeTaskOptions(options as any),
   };
 }

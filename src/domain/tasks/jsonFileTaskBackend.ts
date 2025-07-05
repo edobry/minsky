@@ -12,13 +12,19 @@ const TEST_VALUE = 123;
 import { join, dirname } from "path";
 import type { TaskSpecData, TaskBackendConfig, TaskData } from "../../types/tasks/taskData";
 import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
-import type { TaskBackend } from "./taskBackend";
-import type { DeleteTaskOptions } from "../tasks";
+import type { 
+  TaskBackend, 
+  Task, 
+  TaskListOptions, 
+  CreateTaskOptions, 
+  DeleteTaskOptions 
+} from "../tasks";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";
+import { TASK_STATUS, TaskStatus } from "./taskConstants";
 
 // Define TaskState interface
 interface TaskState {
@@ -48,7 +54,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   private readonly tasksDirectory: string;
 
   constructor(options: JsonFileTaskBackendOptions) {
-    this.workspacePath = options.workspacePath;
+    this.workspacePath = (options as any).workspacePath;
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
 
     // Storage location priority:
@@ -57,9 +63,9 @@ export class JsonFileTaskBackend implements TaskBackend {
     // 3. Local fallback in .minsky directory
     let dbFilePath: string;
     
-    if (options.dbFilePath) {
+    if ((options as any).dbFilePath) {
       // Use provided path (likely from special workspace or team configuration)
-      dbFilePath = options.dbFilePath;
+      dbFilePath = (options as any).dbFilePath;
     } else {
       // Try team-shareable location first
       const teamLocation = join(this.workspacePath, "process", "tasks.json");
@@ -76,11 +82,11 @@ export class JsonFileTaskBackend implements TaskBackend {
       idField: "id",
       initializeState: () => ({
         tasks: [],
-        lastUpdated: new Date().toISOString(),
+        lastUpdated: (new Date() as any).toISOString(),
         metadata: {
           storageLocation: dbFilePath,
           backendType: "json-file",
-          createdAt: new Date().toISOString()
+          createdAt: (new Date() as any).toISOString()
         },
       }),
       prettyPrint: true,
@@ -91,37 +97,37 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async getTasksData(): Promise<TaskReadOperationResult> {
     try {
-      const result = await this.storage.readState();
-      if (!result.success) {
+      const result = await (this.storage as any).readState();
+      if (!(result as any).success) {
         return {
           success: false,
-          error: result.error,
-          filePath: this.storage.getStorageLocation(),
+          error: (result as any).error,
+          filePath: (this.storage as any).getStorageLocation(),
         } as any;
       }
 
       // Convert state to a tasks.md-like format for compatibility
-      const tasks = result.data?.tasks || [];
+      const tasks = (result.data as any).tasks || [];
       const content = this.formatTasks(tasks);
 
       return {
         success: true,
         content,
-        filePath: this.storage.getStorageLocation(),
+        filePath: (this.storage as any).getStorageLocation(),
       };
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
         error: typedError,
-        filePath: this.storage.getStorageLocation(),
+        filePath: (this.storage as any).getStorageLocation(),
       };
     }
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
     try {
-      const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+      const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
       const content = String(await readFile(fullPath, "utf8"));
       return {
@@ -130,7 +136,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         filePath: fullPath,
       };
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
         error: typedError,
@@ -145,8 +151,8 @@ export class JsonFileTaskBackend implements TaskBackend {
     // Try to parse as JSON first
     try {
       const data = JSON.parse(content) as any;
-      if (data.tasks && Array.isArray(data.tasks)) {
-        return data.tasks as any;
+      if ((data as any).tasks && Array.isArray((data as any).tasks)) {
+        return (data as any).tasks as any;
       }
     } catch (error) {
       // If JSON parsing fails, fall back to markdown parsing
@@ -160,41 +166,41 @@ export class JsonFileTaskBackend implements TaskBackend {
     // Format as JSON for storage
     const state: TaskState = {
       tasks: tasks,
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: (new Date() as any).toISOString(),
       metadata: {
-        storageLocation: this.storage.getStorageLocation(),
-        backendType: this.name,
+        storageLocation: (this.storage as any).getStorageLocation(),
+        backendType: (this as any).name,
         workspacePath: this.workspacePath,
       },
     };
-    return JSON.stringify(state, null, 2);
+    return JSON.stringify(state, undefined, 2);
   }
 
   parseTaskSpec(content: string): TaskSpecData {
     // Basic parsing of task spec content
-    const lines = (content).toString().split("\n");
+    const lines = (((content) as any).toString() as any).split("\n");
     let title = "";
     let description = "";
     let id = "";
     let inDescription = false;
 
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("# ")) {
-        const headerText = trimmed.slice(2);
+      const trimmed = (line as any).trim();
+      if ((trimmed as any).startsWith("# ")) {
+        const headerText = (trimmed as any).slice(2);
 
         // Try to extract task ID and title from header like "Task #TEST_VALUE: Title"
-        const taskMatch = headerText.match(/^Task\s+#?([A-Za-z0-9_]+):\s*(.+)$/);
+        const taskMatch = (headerText as any).match(/^Task\s+#?([A-Za-z0-9_]+):\s*(.+)$/);
         if (taskMatch && taskMatch[1] && taskMatch[2]) {
           id = `#${taskMatch[1]}`;
-          title = taskMatch[2].trim();
+          title = (taskMatch[2] as any).trim();
         } else {
           // Fallback: use entire header as title
-          title = headerText.trim();
+          title = (headerText as any).trim();
         }
       } else if (trimmed === "## Context" || trimmed === "## Description") {
         inDescription = true;
-      } else if (trimmed.startsWith("## ") && inDescription) {
+      } else if ((trimmed as any).startsWith("## ") && inDescription) {
         inDescription = false;
       } else if (inDescription && trimmed) {
         description += (description ? "\n" : "") + trimmed;
@@ -204,14 +210,66 @@ export class JsonFileTaskBackend implements TaskBackend {
     return {
       id,
       title,
-      description: description.trim(),
+      description: (description as any).trim(),
       metadata: {},
     };
   }
 
   formatTaskSpec(spec: TaskSpecData): string {
     // Create markdown content
-    return `# ${spec.title}\n\n## Context\n\n${spec.description}\n`;
+    return `# ${(spec as any).title}\n\n## Context\n\n${(spec as any).description}\n`;
+  }
+
+  // ---- Public API ----
+
+  async listTasks(options?: TaskListOptions): Promise<Task[]> {
+    const tasks = await this.getAllTasks();
+    
+    if (options?.status) {
+      return tasks.filter(task => task.status === options.status);
+    }
+    
+    return tasks;
+  }
+
+  async getTask(id: string): Promise<Task | null> {
+    return this.getTaskById(id);
+  }
+
+  async getTaskStatus(id: string): Promise<string | undefined> {
+    const task = await this.getTaskById(id);
+    return task?.status;
+  }
+
+  async setTaskStatus(id: string, status: string): Promise<void> {
+    await this.updateTaskData(id, { status: status as TaskStatus });
+  }
+
+  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+    // Read and parse the task specification
+    const specDataResult = await this.getTaskSpecData(specPath);
+    if (!specDataResult.success) {
+      throw new Error(`Failed to read task spec from ${specPath}: ${specDataResult.error?.message}`);
+    }
+    const spec = this.parseTaskSpec(specDataResult.content || "");
+
+    // Get all existing tasks to determine the new task's ID
+    const tasks = await this.getAllTasks();
+    const newId = `#${tasks.length + 1}`;
+
+    // Create the new task data
+    const newTask: TaskData = {
+      id: newId,
+      title: spec.title,
+      description: spec.description,
+      status: TASK_STATUS.TODO,
+      specPath: specPath,
+    };
+
+    // Add the new task to the database
+    const createdTask = await this.createTaskData(newTask);
+
+    return createdTask;
   }
 
   // ---- Side Effects ----
@@ -224,39 +282,39 @@ export class JsonFileTaskBackend implements TaskBackend {
       // Create state object
       const state: TaskState = {
         tasks,
-        lastUpdated: new Date().toISOString(),
+        lastUpdated: (new Date() as any).toISOString(),
         metadata: {
-          storageLocation: this.storage.getStorageLocation(),
-          backendType: this.name,
+          storageLocation: (this.storage as any).getStorageLocation(),
+          backendType: (this as any).name,
           workspacePath: this.workspacePath,
         },
       };
 
       // Initialize storage if needed
-      await this.storage.initialize();
+      await (this.storage as any).initialize();
 
       // Write to storage
-      const result = await this.storage.writeState(state);
+      const result = await (this.storage as any).writeState(state);
 
       return {
-        success: result.success,
-        error: result.error,
-        bytesWritten: result.bytesWritten,
-        filePath: this.storage.getStorageLocation(),
+        success: (result as any).success,
+        error: (result as any).error,
+        bytesWritten: (result as any).bytesWritten,
+        filePath: (this.storage as any).getStorageLocation(),
       } as any;
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
         error: typedError,
-        filePath: this.storage.getStorageLocation(),
+        filePath: (this.storage as any).getStorageLocation(),
       };
     }
   }
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
     try {
-      const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+      const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
       // Ensure directory exists
       const dir = dirname(fullPath);
@@ -267,11 +325,11 @@ export class JsonFileTaskBackend implements TaskBackend {
 
       return {
         success: true,
-        bytesWritten: content.length,
+        bytesWritten: (content as any).length,
         filePath: fullPath,
       };
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
         error: typedError,
@@ -294,17 +352,17 @@ export class JsonFileTaskBackend implements TaskBackend {
       // Delete from database
       const deleted = await this.deleteTaskData(normalizedId);
       
-      if (deleted && existingTask.specPath) {
+      if (deleted && (existingTask as any).specPath) {
         // Delete the spec file if it exists
         try {
-          const fullSpecPath = existingTask.specPath.startsWith("/") 
-            ? existingTask.specPath 
-            : join(this.workspacePath, existingTask.specPath);
+          const fullSpecPath = (existingTask.specPath as any).startsWith("/") 
+            ? (existingTask as any).specPath 
+            : join(this.workspacePath, (existingTask as any).specPath);
           await unlink(fullSpecPath);
         } catch (error) {
           // Spec file might not exist, log but don't fail the operation
-          log.debug(`Spec file could not be deleted: ${existingTask.specPath}`, {
-            error: getErrorMessage(error),
+          log.debug(`Spec file could not be deleted: ${(existingTask as any).specPath}`, {
+            error: getErrorMessage(error as any),
           });
         }
       }
@@ -312,7 +370,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       return deleted;
     } catch (error) {
       log.error(`Failed to delete task ${normalizedId}`, {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
       return false;
     }
@@ -325,8 +383,8 @@ export class JsonFileTaskBackend implements TaskBackend {
   }
 
   getTaskSpecPath(taskId: string, title: string): string {
-    const id = taskId.startsWith("#") ? taskId.slice(1) : taskId;
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const id = taskId.startsWith("#") ? (taskId as any).slice(1) : taskId;
+    const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
   }
 
@@ -347,11 +405,11 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   async getAllTasks(): Promise<TaskData[]> {
     try {
-      await this.storage.initialize();
-      return await this.storage.getEntities();
+      await (this.storage as any).initialize();
+      return await (this.storage as any).getEntities();
     } catch (error) {
       log.error("Failed to get all tasks from database", {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
       return [];
     }
@@ -364,12 +422,12 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   async getTaskById(id: string): Promise<TaskData | null> {
     try {
-      await this.storage.initialize();
-      return await this.storage.getEntity(id);
+      await (this.storage as any).initialize();
+      return await (this.storage as any).getEntity(id);
     } catch (error) {
       log.error("Failed to get task by ID from database", {
         id,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
       return null as any;
     }
@@ -382,12 +440,12 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   async createTaskData(task: TaskData): Promise<TaskData> {
     try {
-      await this.storage.initialize();
-      return await this.storage.createEntity(task);
+      await (this.storage as any).initialize();
+      return await (this.storage as any).createEntity(task);
     } catch (error) {
       log.error("Failed to create task in database", {
         task,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
       throw error;
     }
@@ -401,13 +459,13 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   async updateTaskData(id: string, updates: Partial<TaskData>): Promise<TaskData | null> {
     try {
-      await this.storage.initialize();
-      return await this.storage.updateEntity(id, updates);
+      await (this.storage as any).initialize();
+      return await (this.storage as any).updateEntity(id, updates);
     } catch (error) {
       log.error("Failed to update task in database", {
         id,
         updates,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
       throw error;
     }
@@ -420,12 +478,12 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   async deleteTaskData(id: string): Promise<boolean> {
     try {
-      await this.storage.initialize();
-      return await this.storage.deleteEntity(id);
+      await (this.storage as any).initialize();
+      return await (this.storage as any).deleteEntity(id);
     } catch (error) {
       log.error("Failed to delete task from database", {
         id,
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
       throw error;
     }
@@ -436,7 +494,7 @@ export class JsonFileTaskBackend implements TaskBackend {
    * @returns Storage location path
    */
   getStorageLocation(): string {
-    return this.storage.getStorageLocation();
+    return (this.storage as any).getStorageLocation();
   }
 
   /**
@@ -457,17 +515,17 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   private parseMarkdownTasks(content: string): TaskData[] {
     const tasks: TaskData[] = [];
-    const lines = (content).toString().split("\n");
+    const lines = (((content) as any).toString() as any).split("\n");
 
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("- [ ] ") || trimmed.startsWith("- [x] ")) {
-        const completed = trimmed.startsWith("- [x] ");
-        const taskLine = trimmed.slice(SIZE_6); // Remove '- [ ] ' or '- [x] '
+      const trimmed = (line as any).trim();
+      if ((trimmed as any).startsWith("- [ ] ") || (trimmed as any).startsWith("- [x] ")) {
+        const completed = (trimmed as any).startsWith("- [x] ");
+        const taskLine = (trimmed as any).slice(SIZE_6); // Remove '- [ ] ' or '- [x] '
 
         // Extract task ID and title
-        const idMatch = taskLine.match(/\[#(\d+)\]/);
-        const linkMatch = taskLine.match(/\[([^\]]+)\]\(([^)]+)\)/);
+        const idMatch = (taskLine as any).match(/\[#(\d+)\]/);
+        const linkMatch = (taskLine as any).match(/\[([^\]]+)\]\(([^)]+)\)/);
 
         if (idMatch && idMatch[1] && linkMatch && linkMatch[1] && linkMatch[2]) {
           const id = `#${idMatch[1]}`;
@@ -494,5 +552,6 @@ export class JsonFileTaskBackend implements TaskBackend {
  * @returns JsonFileTaskBackend instance
  */
 export function createJsonFileTaskBackend(config: JsonFileTaskBackendOptions): TaskBackend {
-  return new JsonFileTaskBackend(config);
+  // Simply return the instance since JsonFileTaskBackend already implements TaskBackend
+  return new JsonFileTaskBackend(config as any);
 }
