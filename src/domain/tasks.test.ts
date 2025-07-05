@@ -92,7 +92,7 @@ describe("MarkdownTaskBackend", () => {
     expect(task?.status).toBe("DONE");
     // Check file content
     const file = readFileSync(tasksPath, "utf-8");
-    expect(file).toMatch(/- \[-\] Third Task \[#003\]/);
+    expect(file).toMatch(/- \[x\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
@@ -107,7 +107,7 @@ describe("MarkdownTaskBackend", () => {
     expect(task?.status).toBe("IN-PROGRESS");
     // Check file content
     const file = readFileSync(tasksPath, "utf-8");
-    expect(file).toMatch(/- \[\-\] Third Task \[#003\]/);
+    expect(file).toMatch(/- \[\+\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
@@ -122,7 +122,7 @@ describe("MarkdownTaskBackend", () => {
     expect(task?.status).toBe("IN-REVIEW");
     // Check file content
     const file = readFileSync(tasksPath, "utf-8");
-    expect(file).toMatch(/- \[\+\] Third Task \[#003\]/);
+    expect(file).toMatch(/- \[\-\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
