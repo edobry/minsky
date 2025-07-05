@@ -49,7 +49,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  */
 export function mockFunction<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Cast to unknown first to avoid TypeScript errors
-  return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
+  return createMock(String(implementation)) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
 }
 
 /**
@@ -79,7 +79,7 @@ export function mockFunction<T extends (...args: unknown[]) => any>(implementati
  */
 export function createMock<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Use Bun's mock directly instead of trying to access mock.fn
-  return implementation ? mock(implementation) : mock(() => {});
+  return implementation ? mock(String(implementation)) : mock(() => {});
 }
 
 /**
@@ -90,7 +90,7 @@ export function createMock<T extends (...args: unknown[]) => any>(implementation
  * expect(someFunction()).toBe("mocked result");
  */
 export function mockModule(_modulePath: string, factory: () => any): void {
-  mock.module(_modulePath, factory); // Use mock.module for module mocking
+  mock.module(String(_modulePath), String(factory)); // Use mock.module for module mocking
 }
 
 /**
@@ -284,8 +284,8 @@ export function createMockExecSync(
 ): ReturnType<typeof createMock> {
   return createMock((command: unknown) => {
     // Find the first matching command pattern
-    for (const [pattern, response] of Object.entries(commandResponses)) {
-      if ((command as string).includes(pattern)) {
+    for (const [pattern, response] of Object.entries(String(commandResponses))) {
+      if ((command as string).includes(String(pattern))) {
         return response;
       }
     }
@@ -348,8 +348,8 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
   const directories = new Set<string>();
 
   // Initialize with provided files
-  Object.entries(initialFiles).forEach(([path, content]) => {
-    files.set(path, content);
+  Object.entries(String(initialFiles)).forEach(([path, content]) => {
+    files.set(String(path), String(content));
     // Also add all parent directories
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) {
@@ -359,7 +359,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
 
   const mockFs = {
     // Sync methods
-    existsSync: createMock((path: unknown) => files.has(path) || directories.has(path)),
+    existsSync: createMock((path: unknown) => files.has(String(path)) || directories.has(String(path))),
     readFileSync: createMock((path: unknown) => {
       if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
@@ -375,10 +375,10 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       }
     }),
     unlink: createMock((path: unknown) => {
-      files.delete(path);
+      files.delete(String(path));
     }),
     mkdirSync: createMock((path: unknown) => {
-      directories.add(path);
+      directories.add(String(path));
     }),
     rmSync: createMock((path: unknown) => {
       // Remove the path and any files/directories under it
@@ -386,13 +386,13 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       directories.delete(path as string);
       const pathPrefix = `${path as string}/`;
       for (const filePath of files.keys()) {
-        if (filePath.startsWith(pathPrefix)) {
-          files.delete(filePath);
+        if (filePath.startsWith(String(pathPrefix))) {
+          files.delete(String(filePath));
         }
       }
       for (const dirPath of directories) {
-        if (dirPath.startsWith(pathPrefix)) {
-          directories.delete(dirPath);
+        if (dirPath.startsWith(String(pathPrefix))) {
+          directories.delete(String(dirPath));
         }
       }
     }),
@@ -402,7 +402,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
-      return files.get(path);
+      return files.get(String(path));
     }),
     writeFile: createMock(async (path: unknown, data: unknown) => {
       files.set(path as string, data as string);
@@ -412,7 +412,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
-    mkdir: createMock(async (path: unknown, options?: { recursive?: boolean }) => {
+    mkdir: createMock(async (path: unknown, ...args: unknown[]) => {
       directories.add(path as string);
       // If recursive option, add all parent directories
       if (options?.recursive) {
@@ -507,7 +507,7 @@ export function mockReadonlyProperty<T extends object, K extends keyof T>(
   mockValue: any
 ): void {
   // Use Object.defineProperty to override the property
-  Object.defineProperty(obj, propName, {
+  Object.defineProperty(String(obj), String(propName), {
     configurable: true,
     get: () => mockValue,
   });
@@ -537,12 +537,12 @@ export function createSpyOn<T extends object, M extends keyof T>(
   const original = obj[method];
 
   if (typeof original !== "function") {
-    throw new Error(`Cannot spy on ${String(method)} because it is not a function`);
+    throw new Error(`Cannot spy on ${String(String(method))} because it is not a function`);
   }
 
   // Create a mock function that calls the original
   const mockFn = mock((...args: unknown[]) => {
-    return (original as Function).apply(obj, args);
+    return (original as Function).apply(String(obj), String(args));
   });
 
   // Replace the original method with our mock
@@ -657,7 +657,7 @@ export function withCleanup(cleanupFn: () => void | Promise<void>): void {
       "withCleanup called outside of a test context. Make sure to call beforeEachTest in a beforeEach hook."
     );
   }
-  currentTestContext.registerCleanup(cleanupFn);
+  currentTestContext.registerCleanup(String(cleanupFn));
 }
 
 /**
