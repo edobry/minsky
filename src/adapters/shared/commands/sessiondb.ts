@@ -1,0 +1,299 @@
+/**
+ * Shared SessionDB Commands
+ *
+ * This module contains shared sessiondb command implementations for
+ * database migration and management operations.
+ */
+
+import { z } from "zod";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { dirname, join } from "path";
+import { getErrorMessage } from "../../../errors/index";
+import {
+  sharedCommandRegistry,
+  CommandCategory,
+  type CommandParameterMap,
+  type CommandExecutionContext,
+} from "../../shared/command-registry.js";
+import { createStorageBackend } from "../../../domain/storage/storage-backend-factory.js";
+import { log } from "../../../utils/logger.js";
+import type { SessionRecord } from "../../../domain/session/session-db.js";
+import type { StorageBackendType } from "../../../domain/storage/storage-backend-factory.js";
+
+/**
+ * Parameters for the sessiondb migrate command
+ */
+const sessiondbMigrateCommandParams = z.object({
+  to: z.enum(["json", "sqlite", "postgres"]).describe("Target backend type"),
+  from: z.string().optional().describe("Source file path (auto-detect if not provided)"),
+  sqlitePath: z.string().optional().describe("SQLite database path"),
+  connectionString: z.string().optional().describe("PostgreSQL connection string"),
+  backup: z.boolean().optional().describe("Create backup before migration"),
+  dryRun: z.boolean().optional().describe("Show what would be migrated without doing it"),
+});
+
+/**
+ * Parameters for the sessiondb check command
+ */
+const sessiondbCheckCommandParams = z.object({
+  file: z.string().optional().describe("Path to database file to check"),
+  backend: z.enum(["json", "sqlite", "postgres"]).optional().describe("Expected backend type"),
+  fix: z.boolean().optional().describe("Automatically fix issues when possible"),
+  report: z.boolean().optional().describe("Show detailed integrity report"),
+});
+
+// Register sessiondb migrate command
+sharedCommandRegistry.registerCommand({
+  id: "sessiondb.migrate",
+  category: CommandCategory.SESSIONDB,
+  name: "migrate",
+  description: "Migrate session database between backends",
+  parameters: sessiondbMigrateCommandParams,
+  async execute(context: CommandExecutionContext) {
+    const { to, from, sqlitePath, connectionString, backup, dryRun } =
+      context.parameters as z.infer<typeof sessiondbMigrateCommandParams>;
+
+    try {
+      // Read source data
+      let sourceData: Record<string, any> = {};
+      let sourceCount = 0;
+
+      if (from && existsSync(from)) {
+        // Read from specific file
+        const fileContent = readFileSync(from, "utf8");
+        sourceData = JSON.parse(fileContent);
+        sourceCount = Object.keys(sourceData).length;
+        log.info(`Reading from backup file: ${from} (${sourceCount} sessions)`);
+      } else {
+        // Auto-detect current backend
+        const homeDir = process.env.HOME || "";
+        const jsonPath = join(homeDir, ".local/state/minsky/session-db.json");
+        const currentSqlitePath = join(homeDir, ".local/state/minsky/sessions.db");
+
+        if (existsSync(jsonPath)) {
+          const fileContent = readFileSync(jsonPath, "utf8");
+          sourceData = JSON.parse(fileContent);
+          sourceCount = Object.keys(sourceData).length;
+          log.info(`Reading from JSON backend: ${jsonPath} (${sourceCount} sessions)`);
+        } else if (existsSync(currentSqlitePath)) {
+          // Read from SQLite
+          const sourceStorage = createStorageBackend({ backend: "sqlite" });
+          await sourceStorage.initialize();
+          const readResult = await sourceStorage.readState();
+          if (readResult.success && readResult.data) {
+            sourceData = readResult.data;
+            sourceCount = (readResult.data as any).sessions?.length || 0;
+            log.info(`Reading from SQLite backend: ${currentSqlitePath} (${sourceCount} sessions)`);
+          }
+        } else {
+          throw new Error("No source database found. Use --from to specify a backup file.");
+        }
+      }
+
+      if (dryRun) {
+        log.info("DRY RUN - No changes will be made");
+        log.info(`Would migrate ${sourceCount} sessions from source to ${to} backend`);
+        return {
+          success: true,
+          dryRun: true,
+          sourceCount,
+          targetBackend: to,
+        };
+      }
+
+      // Create backup if requested
+      let backupPath: string | undefined;
+      if (backup) {
+        backupPath = join(
+          process.env.HOME || "",
+          ".local/state/minsky",
+          `session-backup-${Date.now()}.json`
+        );
+        const backupDir = dirname(backupPath);
+        if (!existsSync(backupDir)) {
+          mkdirSync(backupDir, { recursive: true });
+        }
+        writeFileSync(backupPath, JSON.stringify(sourceData, null, 2));
+        log.info(`Backup created: ${backupPath}`);
+      }
+
+      // Create target storage
+      const targetConfig: any = { backend: to };
+
+      if (to === "sqlite") {
+        targetConfig.sqlite = {
+          dbPath: sqlitePath || join(process.env.HOME || "", ".local/state/minsky/sessions.db"),
+        };
+      } else if (to === "postgres") {
+        if (!connectionString) {
+          throw new Error("PostgreSQL connection string required for postgres backend");
+        }
+        targetConfig.postgres = { connectionUrl: connectionString };
+      } else if (to === "json") {
+        targetConfig.json = {
+          filePath: join(process.env.HOME || "", ".local/state/minsky/session-db.json"),
+        };
+      }
+
+      const targetStorage = createStorageBackend(targetConfig);
+      await targetStorage.initialize();
+
+      // Migrate sessions
+      const sessionRecords: SessionRecord[] = [];
+      if (Array.isArray((sourceData as any).sessions)) {
+        sessionRecords.push(...(sourceData as any).sessions);
+      } else if (typeof sourceData === "object" && sourceData !== null) {
+        // Handle sessions stored as key-value pairs
+        for (const [sessionId, sessionData] of Object.entries(sourceData)) {
+          if (typeof sessionData === "object" && sessionData !== null) {
+            sessionRecords.push({
+              session: sessionId,
+              ...(sessionData as any),
+            });
+          }
+        }
+      }
+
+      // Write to target backend
+      const targetState = {
+        sessions: sessionRecords,
+        baseDir: join(process.env.HOME || "", ".local/state/minsky"),
+      };
+
+      const writeResult = await targetStorage.writeState(targetState);
+      if (!writeResult.success) {
+        throw new Error(
+          `Failed to write to target backend: ${writeResult.error?.message || "Unknown error"}`
+        );
+      }
+
+      const targetCount = sessionRecords.length;
+      log.info(
+        `Migration completed: ${sourceCount} source sessions -> ${targetCount} target sessions`
+      );
+
+      const result = {
+        success: true,
+        sourceCount,
+        targetCount,
+        targetBackend: to,
+        backupPath,
+        errors: [] as string[],
+      };
+
+      // Format human-readable output
+      if (context.outputFormat === "human") {
+        let output = `Migration ${result.success ? "completed" : "failed"}\n`;
+        output += `Source sessions: ${result.sourceCount}\n`;
+        output += `Target sessions: ${result.targetCount}\n`;
+        if (result.backupPath) {
+          output += `Backup created: ${result.backupPath}\n`;
+        }
+        if (result.errors && result.errors.length > 0) {
+          output += `Errors: ${result.errors.length}\n`;
+          result.errors.forEach((error) => {
+            output += `  - ${error}\n`;
+          });
+        }
+        return output;
+      }
+
+      return result;
+    } catch (error) {
+      log.error("Migration failed", { error: getErrorMessage(error) });
+      throw error;
+    }
+  },
+});
+
+// Register sessiondb check command
+sharedCommandRegistry.registerCommand({
+  id: "sessiondb.check",
+  category: CommandCategory.SESSIONDB,
+  name: "check",
+  description: "Check database integrity and detect issues",
+  parameters: sessiondbCheckCommandParams,
+  async execute(context: CommandExecutionContext) {
+    const { file, backend, fix, report } = context.parameters as z.infer<
+      typeof sessiondbCheckCommandParams
+    >;
+
+    try {
+      // Import integrity checker
+      const { DatabaseIntegrityChecker } = await import(
+        "../../../domain/storage/database-integrity-checker"
+      );
+      const { loadStorageConfig } = await import("../../../domain/storage/storage-backend-factory");
+
+      // Determine file path and backend
+      let filePath: string;
+      let expectedBackend: StorageBackendType;
+
+      if (file && backend) {
+        filePath = file;
+        expectedBackend = backend;
+      } else {
+        // Auto-detect from current configuration
+        const config = loadStorageConfig();
+        expectedBackend = config.backend;
+
+        if (config.backend === "json") {
+          filePath = config.json?.filePath || "session-db.json";
+        } else if (config.backend === "sqlite") {
+          filePath = config.sqlite?.dbPath || "sessions.db";
+        } else {
+          throw new Error("PostgreSQL databases do not support file-based integrity checking");
+        }
+      }
+
+      // Run integrity check
+      const integrityResult = await DatabaseIntegrityChecker.checkIntegrity(
+        expectedBackend,
+        filePath
+      );
+
+      // Show results
+      if (report || !integrityResult.isValid) {
+        const reportText = DatabaseIntegrityChecker.formatIntegrityReport(integrityResult);
+        log.cli(reportText);
+      }
+
+      // Auto-fix if requested
+      if (fix && integrityResult.suggestedActions.length > 0) {
+        const autoFixableActions = integrityResult.suggestedActions.filter(
+          (action) => action.autoExecutable && action.type === "migrate"
+        );
+
+        if (autoFixableActions.length > 0) {
+          const action = autoFixableActions[0];
+          log.cli(`\n🔧 Auto-fixing: ${action.description}`);
+
+          if (action.command) {
+            log.cli(`Would execute: ${action.command}`);
+            log.cli("(Auto-fix implementation would go here)");
+          }
+        } else {
+          log.cli("\n⚠️  No auto-fixable issues found. Manual intervention required.");
+        }
+      }
+
+      return {
+        success: integrityResult.isValid,
+        integrityResult,
+        filePath,
+        expectedBackend,
+      };
+    } catch (error) {
+      log.error("Database integrity check failed", { error: getErrorMessage(error) });
+      throw error;
+    }
+  },
+});
+
+/**
+ * Register all sessiondb commands
+ */
+export function registerSessiondbCommands(): void {
+  // Commands are registered above when this module is imported
+  log.debug("SessionDB commands registered");
+}
