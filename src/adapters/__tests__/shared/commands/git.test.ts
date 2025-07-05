@@ -19,7 +19,7 @@ import {
 } from "../../../../utils/test-utils/assertions.js";
 import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
 
-const EXPECTED_GIT_COMMANDS_COUNT = TEST_ARRAY_SIZE;
+const EXPECTED_GIT_COMMANDS_COUNT = 8;
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -41,7 +41,7 @@ describe("Shared Git Commands", () => {
     pushSpy = spyOn(gitDomain, "pushFromParams").mockImplementation(() =>
       Promise.resolve({
         pushed: true,
-        _workdir: "/mocked/workdir",
+        workdir: "/mocked/workdir",
       })
     );
 
@@ -101,7 +101,7 @@ describe("Shared Git Commands", () => {
       repo: "/test/repo",
       amend: undefined,
       noStage: undefined,
-      _session: undefined,
+      session: undefined,
     });
 
     // Verify result
@@ -134,14 +134,14 @@ describe("Shared Git Commands", () => {
       repo: "/test/repo",
       force: true,
       remote: undefined,
-      _session: undefined,
+      session: undefined,
       debug: undefined,
     });
 
     // Verify result
     expect(_result).toEqual({
       success: true,
-      _workdir: "/mocked/workdir",
+      workdir: "/mocked/workdir",
     });
   });
 });

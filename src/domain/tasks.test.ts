@@ -77,7 +77,7 @@ describe("MarkdownTaskBackend", () => {
   it("gets a task by id", async () => {
     const task = await backend.getTask("#001");
     expect(task).toBeTruthy();
-    expect(task?._title).toBe("First Task");
+    expect(task?.title).toBe("First Task");
     expect(task?.description).toContain("first task description");
   });
 
@@ -89,14 +89,14 @@ describe("MarkdownTaskBackend", () => {
   it("sets a task status and persists the change", async () => {
     await backend.setTaskStatus("#003", "DONE");
     let task = await backend.getTask("#003");
-    expect(task?._status).toBe("DONE");
+    expect(task?.status).toBe("DONE");
     // Check file content
     const file = readFileSync(tasksPath, "utf-8");
     expect(file).toMatch(/- \[x\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
-    expect(task?._status).toBe("TODO");
+    expect(task?.status).toBe("TODO");
     const file2 = readFileSync(tasksPath, "utf-8");
     expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
   });
@@ -104,14 +104,14 @@ describe("MarkdownTaskBackend", () => {
   it("sets a task status to IN-PROGRESS and persists the change", async () => {
     await backend.setTaskStatus("#003", "IN-PROGRESS");
     let task = await backend.getTask("#003");
-    expect(task?._status).toBe("IN-PROGRESS");
+    expect(task?.status).toBe("IN-PROGRESS");
     // Check file content
     const file = readFileSync(tasksPath, "utf-8");
-    expect(file).toMatch(/- \[-\] Third Task \[#003\]/);
+    expect(file).toMatch(/- \[\+\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
-    expect(task?._status).toBe("TODO");
+    expect(task?.status).toBe("TODO");
     const file2 = readFileSync(tasksPath, "utf-8");
     expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
   });
@@ -119,14 +119,14 @@ describe("MarkdownTaskBackend", () => {
   it("sets a task status to IN-REVIEW and persists the change", async () => {
     await backend.setTaskStatus("#003", "IN-REVIEW");
     let task = await backend.getTask("#003");
-    expect(task?._status).toBe("IN-REVIEW");
+    expect(task?.status).toBe("IN-REVIEW");
     // Check file content
     const file = readFileSync(tasksPath, "utf-8");
-    expect(file).toMatch(/- \[\+\] Third Task \[#003\]/);
+    expect(file).toMatch(/- \[\-\] Third Task \[#003\]/);
     // Set back to TODO
     await backend.setTaskStatus("#003", "TODO");
     task = await backend.getTask("#003");
-    expect(task?._status).toBe("TODO");
+    expect(task?.status).toBe("TODO");
     const file2 = readFileSync(tasksPath, "utf-8");
     expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
   });
@@ -196,7 +196,7 @@ describe("TaskService", () => {
       join(tasksDir, "003-third.md"),
       "# Task #003: Third Task\n\n## Context\n\nThis is the third task description."
     );
-    service = new TaskService({ _workspacePath: tmpDir });
+    service = new TaskService({ workspacePath: tmpDir });
   });
 
   afterEach(() => {
@@ -215,7 +215,7 @@ describe("TaskService", () => {
   });
 
   it("throws if backend is not found", () => {
-    expect(() => new TaskService({ _workspacePath: tmpDir, backend: "notreal" })).toThrow();
+    expect(() => new TaskService({ workspacePath: tmpDir, backend: "notreal" })).toThrow();
   });
 });
 
@@ -253,7 +253,7 @@ mock.module("fs", () => {
         }
         return "";
       },
-      writeFile: async (path: unknown) => {
+      writeFile: async (path: unknown, content: unknown) => {
         mockFileSystem.set(path, content);
       },
       mkdir: async (path: unknown) => {
@@ -286,18 +286,19 @@ mock.module("fs", () => {
       mockDirs.add(path.toString());
     },
     rmSync: () => {},
-    writeFileSync: (path: unknown) => {
-      mockFileSystem.set(path.toString(), content.toString());
+    writeFileSync: (path: unknown, content: unknown) => {
+      mockFileSystem.set(path.toString(), content?.toString() || "");
     },
     readFileSync: (path: unknown) => {
-      if (mockFileSystem.has(path.toString())) {
-        return mockFileSystem.get(path.toString());
+      const pathStr = path?.toString() || "";
+      if (mockFileSystem.has(pathStr)) {
+        return mockFileSystem.get(pathStr);
       }
       // Default content same as async version
-      if (path.toString().endsWith("tasks.md")) {
+      if (pathStr.endsWith("tasks.md")) {
         const content =
           "# Tasks\n\n- [ ] First Task [#001](process/tasks/001-first.md)\n- [x] Second Task [#002](process/tasks/002-second.md)\n- [ ] Third Task [#003](process/tasks/003-third.md)\n";
-        mockFileSystem.set(path.toString(), content);
+        mockFileSystem.set(pathStr, content);
         return content;
       }
       return "";
@@ -307,20 +308,20 @@ mock.module("fs", () => {
 
 // Add createTask tests
 describe("createTask", () => {
-  const _workspacePath = "/test/workspace";
+  const workspacePath = "/test/workspace";
   let taskBackend: MarkdownTaskBackend;
   let taskService: TaskService;
 
   beforeEach(() => {
-    taskBackend = new MarkdownTaskBackend(_workspacePath);
-    taskService = new TaskService({ _workspacePath });
+    taskBackend = new MarkdownTaskBackend(workspacePath);
+    taskService = new TaskService({ workspacePath: workspacePath });
     // Reset mock filesystem
     mockFileSystem.clear();
     mockDirs.clear();
   });
 
   it("should parse spec file and create a new task", async () => {
-    const _specPath = path.join(_workspacePath, "process/tasks/spec.md");
+    const specPath = path.join(workspacePath, "process/tasks/spec.md");
 
     // Mock parseTasks to return tasks with ID 001
     spyOn(taskBackend, "parseTasks").mockImplementation(async () => [
@@ -329,7 +330,7 @@ describe("createTask", () => {
         title: "First Task",
         description: "",
         status: TASK_STATUS.TODO,
-        _specPath: "process/tasks/001-first.md",
+        specPath: "process/tasks/001-first.md",
       },
     ]);
 
@@ -339,7 +340,7 @@ describe("createTask", () => {
         readFile: async () =>
           "# Task #002: Test Task\n\n## Context\n\nThis is a test task context.\n\n## Requirements\n\n- Do something\n",
         access: async () => {},
-        writeFile: async (path: unknown) => {
+        writeFile: async (path: unknown, content: unknown) => {
           mockFileSystem.set(path, content);
         },
         mkdir: async () => {},
@@ -351,14 +352,14 @@ describe("createTask", () => {
     // Mock getTask to return null (no existing task with this ID)
     spyOn(taskBackend, "getTask").mockImplementation(async () => null);
 
-    const task = await taskBackend.createTask(_specPath);
+    const task = await taskBackend.createTask(specPath);
 
     expect(task).toBeDefined();
     expect(task.id).toBe("#002");
-    expect(task._title).toBe("Test Task");
-    expect(task._status).toBe(TASK_STATUS.TODO);
+    expect(task.title).toBe("Test Task");
+    expect(task.status).toBe(TASK_STATUS.TODO);
     expect(task.description).toBeTruthy();
-    expect(task._specPath).toBe("process/tasks/002-test-task.md");
+    expect(task.specPath).toBe("process/tasks/002-test-task.md");
   });
 
   it("should throw error if spec file does not exist", async () => {
@@ -377,7 +378,7 @@ describe("createTask", () => {
   });
 
   it("should throw error if spec file has invalid format", async () => {
-    const _specPath = path.join(_workspacePath, "process/tasks/invalid-spec.md");
+    const specPath = path.join(workspacePath, "process/tasks/invalid-spec.md");
 
     // Mock fs.readFile to return invalid content
     mock.module("fs", () => ({
@@ -387,12 +388,12 @@ describe("createTask", () => {
       },
     }));
 
-    await expect(taskBackend.createTask(_specPath)).rejects.toThrow("Invalid spec file");
+    await expect(taskBackend.createTask(specPath)).rejects.toThrow("Invalid spec file");
   });
 
   it("should support spec file with \"# Task: Title\" format", async () => {
-    const _specPath = path.join(_workspacePath, "process/tasks/no-id-spec.md");
-    const newSpecPath = path.join(_workspacePath, "process/tasks/003-new-feature.md");
+    const specPath = path.join(workspacePath, "process/tasks/no-id-spec.md");
+    const newSpecPath = path.join(workspacePath, "process/tasks/003-new-feature.md");
 
     // Mock fs.readFile to return content without task ID
     mock.module("fs", () => ({
@@ -400,7 +401,7 @@ describe("createTask", () => {
         readFile: async () =>
           "# Task: New Feature\n\n## Context\n\nThis is a new feature without ID.\n",
         access: async () => {},
-        writeFile: async (path: unknown) => {
+        writeFile: async (path: unknown, content: unknown) => {
           mockFileSystem.set(path, content);
         },
         mkdir: async () => {},
@@ -415,25 +416,25 @@ describe("createTask", () => {
       { id: "#002", title: "Second Task", description: "", status: TASK_STATUS.TODO },
     ]);
 
-    const task = await taskBackend.createTask(_specPath);
+    const task = await taskBackend.createTask(specPath);
 
     expect(task).toBeDefined();
     expect(task.id).toBe("#003"); // Should get next available ID
-    expect(task._title).toBe("New Feature");
-    expect(task._status).toBe(TASK_STATUS.TODO);
+    expect(task.title).toBe("New Feature");
+    expect(task.status).toBe(TASK_STATUS.TODO);
 
-    // Check that the title was updated in the file
+    // Check that the title was updated to clean format
     const updatedContent = mockFileSystem.get(newSpecPath);
     expect(updatedContent).toBeDefined();
     expect(typeof updatedContent === "string").toBe(true);
     if (updatedContent && typeof updatedContent === "string") {
-      expect(updatedContent.includes("# Task #003: New Feature")).toBe(true);
+      expect(updatedContent.includes("# New Feature")).toBe(true);
     }
   });
 
   it("should support spec file with \"# Task #XXX: Title\" format", async () => {
-    const _specPath = path.join(_workspacePath, "process/tasks/with-id-spec.md");
-    const newSpecPath = path.join(_workspacePath, "process/tasks/042-existing-id-feature.md");
+    const specPath = path.join(workspacePath, "process/tasks/with-id-spec.md");
+    const newSpecPath = path.join(workspacePath, "process/tasks/042-existing-id-feature.md");
 
     // Mock fs.readFile to return content with task ID
     mock.module("fs", () => ({
@@ -441,7 +442,7 @@ describe("createTask", () => {
         readFile: async () =>
           "# Task #042: Existing ID Feature\n\n## Context\n\nThis is a feature with existing ID.\n",
         access: async () => {},
-        writeFile: async (path: unknown) => {
+        writeFile: async (path: unknown, content: unknown) => {
           mockFileSystem.set(path, content);
         },
         mkdir: async () => {},
@@ -459,24 +460,24 @@ describe("createTask", () => {
     // Mock getTask to return null (no existing task with this ID)
     spyOn(taskBackend, "getTask").mockImplementation(async () => null);
 
-    const task = await taskBackend.createTask(_specPath);
+    const task = await taskBackend.createTask(specPath);
 
     expect(task).toBeDefined();
     expect(task.id).toBe("#042"); // Should keep the specified ID
     expect(task.title).toBe("Existing ID Feature");
     expect(task.status).toBe(TASK_STATUS.TODO);
 
-    // Check that the title was not modified in the file
+    // Check that the title was converted to clean format
     const updatedContent = mockFileSystem.get(newSpecPath);
     expect(updatedContent).toBeDefined();
     expect(typeof updatedContent === "string").toBe(true);
     if (updatedContent && typeof updatedContent === "string") {
-      expect(updatedContent.includes("# Task #042: Existing ID Feature")).toBe(true);
+      expect(updatedContent.includes("# Existing ID Feature")).toBe(true);
     }
   });
 
   it("should throw error if task ID already exists", async () => {
-    const _specPath = path.join(_workspacePath, "process/tasks/duplicate-id-spec.md");
+    const specPath = path.join(workspacePath, "process/tasks/duplicate-id-spec.md");
 
     // Mock fs.readFile to return content with task ID
     mock.module("fs", () => ({
@@ -495,11 +496,11 @@ describe("createTask", () => {
       status: TASK_STATUS.TODO,
     }));
 
-    await expect(taskBackend.createTask(_specPath)).rejects.toThrow("Task #001 already exists");
+    await expect(taskBackend.createTask(specPath)).rejects.toThrow("Task #001 already exists");
   });
 
   it("should allow force creation even if task ID already exists", async () => {
-    const _specPath = path.join(_workspacePath, "process/tasks/force-duplicate-spec.md");
+    const specPath = path.join(workspacePath, "process/tasks/force-duplicate-spec.md");
 
     // Mock fs.readFile to return content with task ID
     mock.module("fs", () => ({
@@ -522,10 +523,10 @@ describe("createTask", () => {
       status: TASK_STATUS.TODO,
     }));
 
-    const task = await taskBackend.createTask(_specPath, { force: true });
+    const task = await taskBackend.createTask(specPath, { force: true });
 
     expect(task).toBeDefined();
     expect(task.id).toBe("#001"); // Should keep the specified ID despite conflict
-    expect(task._title).toBe("Force Duplicate");
+    expect(task.title).toBe("Force Duplicate");
   });
 });
