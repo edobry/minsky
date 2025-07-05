@@ -11,6 +11,7 @@ import { registerSessionCommands } from "./session";
 import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
 import { registerConfigCommands } from "./config";
+import { registerDebugCommands } from "./debug";
 
 /**
  * Register all shared commands in the shared command registry
@@ -34,6 +35,9 @@ export function registerAllSharedCommands(): void {
   // Register config commands
   registerConfigCommands();
 
+  // Register debug commands
+  registerDebugCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -46,4 +50,5 @@ export {
   registerRulesCommands,
   registerInitCommands,
   registerConfigCommands,
+  registerDebugCommands,
 };

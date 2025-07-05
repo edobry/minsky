@@ -106,9 +106,9 @@ describe("Shared Tasks Commands", () => {
 
     // Verify result
     expect(_result).toEqual({
+      status: "TODO",
       success: true,
       taskId: "#TEST_VALUE",
-      _status: "TODO",
     });
   });
 
@@ -132,11 +132,11 @@ describe("Shared Tasks Commands", () => {
     // Verify domain function was called to get previous status
     expectToHaveBeenCalled(getTaskStatusSpy);
     expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "#TEST_VALUE",
-      repo: undefined,
-      workspace: undefined,
-      _session: "test-session",
+      session: "test-session",
       backend: undefined,
+      repo: undefined,
+      taskId: "#TEST_VALUE",
+      workspace: undefined,
     });
 
     // Verify domain function was called to set status
