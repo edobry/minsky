@@ -454,7 +454,7 @@ ${((issue.labels as any).map((label) => `- ${typeof label === "string" ? label :
     return `#${(issue as any).number}`;
   }
 
-  private getTaskStatusFromIssue(issue: any): string {
+  private getTaskStatusFromIssue(issue: any): TaskStatus {
     // Check labels for status
     const labels = (issue as any).labels || [];
 

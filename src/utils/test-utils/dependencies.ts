@@ -103,9 +103,9 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
 
   // Create default task service mock using createPartialMock
   const taskService = createPartialMock<TaskServiceInterface>({
-    getTask: () => Promise.resolve(null),
+    getTask: () => Promise.resolve(undefined),
     setTaskStatus: () => Promise.resolve(),
-    getTaskStatus: () => Promise.resolve(null),
+    getTaskStatus: () => Promise.resolve(undefined),
     getBackendForTask: (taskId: unknown) => Promise.resolve("markdown"),
     listTasks: () => Promise.resolve([]),
     createTask: () =>
@@ -144,9 +144,9 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
  */
 export function createTaskTestDeps(overrides: Partial<TaskDependencies> = {}): TaskDependencies {
   const taskService = createPartialMock<TaskServiceInterface>({
-    getTask: () => Promise.resolve(null),
+    getTask: () => Promise.resolve(undefined),
     setTaskStatus: () => Promise.resolve(),
-    getTaskStatus: () => Promise.resolve(null),
+    getTaskStatus: () => Promise.resolve(undefined),
     getBackendForTask: (taskId: unknown) => Promise.resolve("markdown"),
     listTasks: () => Promise.resolve([]),
     createTask: () =>
