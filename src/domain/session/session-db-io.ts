@@ -23,9 +23,10 @@ export interface SessionDbFileOptions {
  * Read sessions from the database file
  */
 export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDbState {
-  const xdgStateHome = (process.env as any).XDGSTATE_HOME || join((process.env as any).HOME || "", ".local/state");
-  const dbPath = (options as any).dbPath || join(xdgStateHome, "minsky", "session-db.json");
-  const baseDir = (options as any).baseDir || join(xdgStateHome, "minsky");
+  const xdgStateHome =
+    (process.env as any).XDGSTATE_HOME || join((process.env as any).HOME || "", ".local/state");
+  const dbPath = options?.dbPath || join(xdgStateHome, "minsky", "session-db.json");
+  const baseDir = options?.baseDir || join(xdgStateHome, "minsky");
 
   try {
     if (!existsSync(dbPath)) {
@@ -52,8 +53,9 @@ export function writeSessionDbFile(
   state: SessionDbState,
   options: SessionDbFileOptions = {}
 ): boolean {
-  const xdgStateHome = (process.env as any).XDGSTATE_HOME || join((process.env as any).HOME || "", ".local/state");
-  const dbPath = (options as any).dbPath || join(xdgStateHome, "minsky", "session-db.json");
+  const xdgStateHome =
+    (process.env as any).XDGSTATE_HOME || join((process.env as any).HOME || "", ".local/state");
+  const dbPath = options?.dbPath || join(xdgStateHome, "minsky", "session-db.json");
 
   try {
     // Ensure directory exists
