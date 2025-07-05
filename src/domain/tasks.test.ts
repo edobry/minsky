@@ -77,7 +77,7 @@ describe("MarkdownTaskBackend", () => {
   it("gets a task by id", async () => {
     const task = await backend.getTask("#001");
     expect(task).toBeTruthy();
-    expect(task?._title).toBe("First Task");
+    expect(task?.title).toBe("First Task");
     expect(task?.description).toContain("first task description");
   });
 
@@ -196,7 +196,7 @@ describe("TaskService", () => {
       join(tasksDir, "003-third.md"),
       "# Task #003: Third Task\n\n## Context\n\nThis is the third task description."
     );
-    service = new TaskService({ _workspacePath: tmpDir });
+    service = new TaskService({ workspacePath: tmpDir });
   });
 
   afterEach(() => {
@@ -215,7 +215,7 @@ describe("TaskService", () => {
   });
 
   it("throws if backend is not found", () => {
-    expect(() => new TaskService({ _workspacePath: tmpDir, backend: "notreal" })).toThrow();
+    expect(() => new TaskService({ workspacePath: tmpDir, backend: "notreal" })).toThrow();
   });
 });
 
@@ -253,7 +253,7 @@ mock.module("fs", () => {
         }
         return "";
       },
-      writeFile: async (path: unknown) => {
+      writeFile: async (path: unknown, content: unknown) => {
         mockFileSystem.set(path, content);
       },
       mkdir: async (path: unknown) => {
@@ -286,18 +286,19 @@ mock.module("fs", () => {
       mockDirs.add(path.toString());
     },
     rmSync: () => {},
-    writeFileSync: (path: unknown) => {
-      mockFileSystem.set(path.toString(), content.toString());
+    writeFileSync: (path: unknown, content: unknown) => {
+      mockFileSystem.set(path.toString(), content?.toString() || "");
     },
     readFileSync: (path: unknown) => {
-      if (mockFileSystem.has(path.toString())) {
-        return mockFileSystem.get(path.toString());
+      const pathStr = path?.toString() || "";
+      if (mockFileSystem.has(pathStr)) {
+        return mockFileSystem.get(pathStr);
       }
       // Default content same as async version
-      if (path.toString().endsWith("tasks.md")) {
+      if (pathStr.endsWith("tasks.md")) {
         const content =
           "# Tasks\n\n- [ ] First Task [#001](process/tasks/001-first.md)\n- [x] Second Task [#002](process/tasks/002-second.md)\n- [ ] Third Task [#003](process/tasks/003-third.md)\n";
-        mockFileSystem.set(path.toString(), content);
+        mockFileSystem.set(pathStr, content);
         return content;
       }
       return "";
@@ -313,7 +314,7 @@ describe("createTask", () => {
 
   beforeEach(() => {
     taskBackend = new MarkdownTaskBackend(_workspacePath);
-    taskService = new TaskService({ _workspacePath });
+    taskService = new TaskService({ workspacePath: _workspacePath });
     // Reset mock filesystem
     mockFileSystem.clear();
     mockDirs.clear();
@@ -339,7 +340,7 @@ describe("createTask", () => {
         readFile: async () =>
           "# Task #002: Test Task\n\n## Context\n\nThis is a test task context.\n\n## Requirements\n\n- Do something\n",
         access: async () => {},
-        writeFile: async (path: unknown) => {
+        writeFile: async (path: unknown, content: unknown) => {
           mockFileSystem.set(path, content);
         },
         mkdir: async () => {},
@@ -355,8 +356,8 @@ describe("createTask", () => {
 
     expect(task).toBeDefined();
     expect(task.id).toBe("#002");
-    expect(task._title).toBe("Test Task");
-    expect(task._status).toBe(TASK_STATUS.TODO);
+    expect(task.title).toBe("Test Task");
+    expect(task.status).toBe(TASK_STATUS.TODO);
     expect(task.description).toBeTruthy();
     expect(task._specPath).toBe("process/tasks/002-test-task.md");
   });
@@ -400,7 +401,7 @@ describe("createTask", () => {
         readFile: async () =>
           "# Task: New Feature\n\n## Context\n\nThis is a new feature without ID.\n",
         access: async () => {},
-        writeFile: async (path: unknown) => {
+        writeFile: async (path: unknown, content: unknown) => {
           mockFileSystem.set(path, content);
         },
         mkdir: async () => {},
@@ -419,8 +420,8 @@ describe("createTask", () => {
 
     expect(task).toBeDefined();
     expect(task.id).toBe("#003"); // Should get next available ID
-    expect(task._title).toBe("New Feature");
-    expect(task._status).toBe(TASK_STATUS.TODO);
+    expect(task.title).toBe("New Feature");
+    expect(task.status).toBe(TASK_STATUS.TODO);
 
     // Check that the title was updated in the file
     const updatedContent = mockFileSystem.get(newSpecPath);
@@ -441,7 +442,7 @@ describe("createTask", () => {
         readFile: async () =>
           "# Task #042: Existing ID Feature\n\n## Context\n\nThis is a feature with existing ID.\n",
         access: async () => {},
-        writeFile: async (path: unknown) => {
+        writeFile: async (path: unknown, content: unknown) => {
           mockFileSystem.set(path, content);
         },
         mkdir: async () => {},
@@ -526,6 +527,6 @@ describe("createTask", () => {
 
     expect(task).toBeDefined();
     expect(task.id).toBe("#001"); // Should keep the specified ID despite conflict
-    expect(task._title).toBe("Force Duplicate");
+    expect(task.title).toBe("Force Duplicate");
   });
 });
