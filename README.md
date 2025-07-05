@@ -52,6 +52,8 @@ For detailed documentation on Minsky concepts and their relationships, see [src/
 - TypeScript 5.0+ (peer dependency)
 - **Optional**: SQLite or PostgreSQL for advanced SessionDB backends
 
+> 🚀 **Recommended**: Configure [Bun optimization for disk space savings](./docs/bun-optimization-setup.md) to reduce session workspace storage by 60-90%.
+
 ### Quick Start
 
 ```bash
@@ -120,8 +122,8 @@ minsky --version
 mkdir test-minsky && cd test-minsky
 minsky init
 
-# Start a test session
-minsky session start test-session
+# Start a test session (requires task association)
+minsky session start --description "Test session setup"
 ```
 
 ## Configuration
@@ -211,10 +213,13 @@ For detailed migration guides, see [docs/sessiondb-migration-guide.md](./docs/se
 
 Start a new session with the given name. If no name is provided, a random one will be generated.
 
+**REQUIRED**: Either `--task` or `--description` must be provided for task association.
+
 Options:
 
 - `-r, --repo <repo-url>`: URL of the repository to clone (optional if in a git repository)
-- `-t, --task <task-id>`: Task ID to associate with this session
+- `-t, --task <task-id>`: Task ID to associate with this session (required if --description not provided)
+- `-d, --description <text>`: Description for auto-created task (required if --task not provided)
 - `--backend <type>`: Repository backend type (local, remote, github)
 - `--repo-url <url>`: Remote repository URL for remote/github backends
 - `--auth-method <method>`: Authentication method (ssh, https, token)
@@ -222,6 +227,19 @@ Options:
 - `--github-token <token>`: GitHub access token for authentication
 - `--github-owner <owner>`: GitHub repository owner/organization
 - `--github-repo <repo>`: GitHub repository name
+
+Examples:
+
+```bash
+# Start a session with existing task
+minsky session start --task 123
+
+# Start a session with auto-created task (session name auto-generated from task ID)
+minsky session start --description "Implement user authentication"
+
+# Start a session with custom name and existing task
+minsky session start my-session --task 456
+```
 
 #### `minsky session list [options]`
 
@@ -727,18 +745,20 @@ minsky session start shallow-clone --backend remote \
 ### Basic Development Flow
 
 ```bash
-# Start a new session
-minsky session start feature-123 --repo https://github.com/org/project.git
+# Start a new session (requires task association)
+minsky session start --task 123 feature-session
+# OR create new task automatically (session name auto-generated)
+minsky session start --description "Implement user authentication"
 
 # Get session directory
-cd $(minsky session dir feature-123)
+cd $(minsky session dir feature-session)
 
 # Work on code, then generate PR
 minsky session pr > PR.md
 
 # List and update tasks
-minsky tasks list --session feature-123
-minsky tasks status set --session feature-123 #001 DONE
+minsky tasks list --session feature-session
+minsky tasks status set --session feature-session #001 DONE
 ```
 
 ### Multi-Agent Collaboration
@@ -747,10 +767,14 @@ Multiple agents can work on related features in parallel:
 
 ```bash
 # Agent 1: Authentication backend
-minsky session start auth-api --repo https://github.com/org/project.git
+minsky session start --task 124 auth-api
 
 # Agent 2: Frontend integration
-minsky session start auth-ui --repo https://github.com/org/project.git
+minsky session start --task 125 auth-ui
+
+# OR create tasks automatically (session names auto-generated)
+minsky session start --description "Implement OAuth backend"
+minsky session start --description "Add login UI components"
 ```
 
 Each agent works in its own isolated environment and can generate PR documents to share their changes. Tasks can be listed and updated per session or repo.
@@ -758,9 +782,13 @@ Each agent works in its own isolated environment and can generate PR documents t
 ### Remote Repository Workflow
 
 ```bash
-# Start a session with a GitHub repository
-minsky session start github-feature --backend github \
+# Start a session with a GitHub repository (requires task association)
+minsky session start --task 126 github-feature --backend github \
   --github-owner octocat --github-repo hello-world
+
+# OR create task automatically (session name auto-generated from task ID)
+minsky session start --description "Add GitHub integration" \
+  --backend github --github-owner octocat --github-repo hello-world
 
 # Work in the session
 cd $(minsky session dir github-feature)

@@ -17,11 +17,11 @@ alwaysApply: false
 1. **Check for existing tasks first**: Run `minsky tasks list | grep "relevant-keywords"` to verify no duplicate exists
 2. **Create task with title and description**:
    ```bash
-   # Method 1: Inline description
+   # Method 1: Inline description (for short descriptions)
    minsky tasks create --title "Task Title" --description "Task description text"
-   
-   # Method 2: Description from file
-   minsky tasks create --title "Task Title" path/to/description.md
+
+   # Method 2: Description from file (for comprehensive descriptions)
+   minsky tasks create --title "Task Title" --description-path path/to/description.md
    ```
 3. The CLI will:
    - Assign the next available task ID
@@ -33,6 +33,42 @@ alwaysApply: false
 **Manual task creation is only allowed if the CLI is unavailable, and this must be noted in the commit message or task log.**
 
 > **This process is mandatory. Skipping the CLI or editing files directly is a process violation that can cause duplicate tasks and tracking inconsistencies.**
+
+## ⚠️ CRITICAL: Efficient Task Creation with Comprehensive Descriptions
+
+**NEVER use the two-step approach of creating minimal tasks then editing the spec file.**
+
+### For Comprehensive Task Descriptions:
+
+1. **Create a temporary description file** with the full task specification:
+   ```bash
+   # Create temporary file with complete description
+   cat > temp-task-desc.md << 'EOF'
+   ## Objectives
+   1. **Install and Configure semantic-release**
+      - Install semantic-release and necessary plugins
+      - Configure for GitHub releases only
+   [... full comprehensive description ...]
+   EOF
+   ```
+
+2. **Use --description-path flag** to create the complete task in one operation:
+   ```bash
+   minsky tasks create --title "Setup semantic-release..." --description-path temp-task-desc.md
+   ```
+
+3. **Clean up temporary file**:
+   ```bash
+   rm temp-task-desc.md
+   ```
+
+### When to Use Each Method:
+
+- **Use --description flag**: For simple, one-line descriptions
+- **Use --description-path flag**: For comprehensive task specifications with multiple sections
+- **NEVER**: Create minimal task then edit the spec file afterward
+
+**This eliminates unnecessary file editing and creates complete task specifications in one operation.**
 
 ### Legacy Interface (Deprecated)
 

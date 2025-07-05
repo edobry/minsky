@@ -1,8 +1,8 @@
----
-description: REQUIRED protocol for starting, re-entering, and managing Minsky sessions
-globs:
-alwaysApply: false
----
+# Minsky Session Management Protocol
+
+**NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
+
+This rule defines the procedures for creating, navigating, and managing Minsky sessions, which provide isolated workspaces for task implementation.
 # Minsky Session Management Protocol
 
 **NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
@@ -27,11 +27,11 @@ A Minsky session is an isolated workspace for implementing a specific task. It e
    ```
    Example: `minsky session start --task 067`
 
-2. **Alternatively, start a session with a custom name**:
+2. **Alternatively, start a session with auto-created task**:
    ```bash
-   minsky session start <session-name> --repo <repo-path>
+   minsky session start --description "<description>"
    ```
-   Example: `minsky session start my-feature --repo .`
+   Example: `minsky session start --description "Implement user authentication"`
 
 3. **Enter the session directory**:
    ```bash
@@ -43,7 +43,8 @@ A Minsky session is an isolated workspace for implementing a specific task. It e
 
 - **Do not create sessions from within existing sessions**
 - **Always verify the session was created successfully** before proceeding
-- **Ensure the session is associated with a task** for proper tracking
+- **Task association is mandatory** - either `--task` or `--description` must be provided
+- **Use `--description` to automatically create tasks** for new work items
 
 ## Session Navigation and Management
 

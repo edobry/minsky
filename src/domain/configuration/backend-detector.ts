@@ -64,7 +64,7 @@ export class DefaultBackendDetector implements BackendDetector {
   }
 
   // Legacy method - kept for backward compatibility but not used in new detection
-  async githubRemoteExists(_workingDir: string): Promise<boolean> {
+  async githubRemoteExists(workingDir: string): Promise<boolean> {
     return false; // Disabled - GitHub Issues requires explicit configuration
   }
 }

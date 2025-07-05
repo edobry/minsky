@@ -54,7 +54,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    async (args: EditFileArgs): Promise<Record<string, unknown>> => {
+    async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -72,7 +72,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         }
 
         // If file doesn't exist and we have existing code markers, that's an error
-        if (!fileExists && args.content.includes("// ... existing code ...")) {
+        if (!fileExists && (args.content).toString().includes("// ... existing code ...")) {
           throw new Error(
             `Cannot apply edits with existing code markers to non-existent file: ${args.path}`
           );
@@ -80,7 +80,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
 
         let finalContent: string;
 
-        if (fileExists && args.content.includes("// ... existing code ...")) {
+        if (fileExists && (args.content).toString().includes("// ... existing code ...")) {
           // Apply the edit pattern
           finalContent = applyEditPattern(originalContent, args.content);
         } else {
@@ -141,7 +141,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
       search: z.string().describe("Text to search for (must be unique in the file)"),
       replace: z.string().describe("Text to replace with"),
     }),
-    async (args: SearchReplaceArgs): Promise<Record<string, unknown>> => {
+    async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -165,7 +165,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         }
 
         // Perform replacement
-        const newContent = content.replace(args.search, args.replace);
+        const newContent = (content).toString().replace(args.search, args.replace);
 
         // Write back
         await writeFile(resolvedPath, newContent, "utf8");
@@ -301,7 +301,7 @@ function countOccurrences(content: string, search: string): number {
   let count = 0;
   let position = 0;
 
-  while ((position = content.indexOf(search, position)) !== -1) {
+  while ((position = (content).toString().indexOf(search, position)) !== -1) {
     count++;
     position += search.length;
   }

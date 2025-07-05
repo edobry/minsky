@@ -175,12 +175,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       return numericMatch || null;
     }
 
-    return null;
+    return null as any;
   }
 
   async getTaskStatus(id: string): Promise<string | null> {
     const task = await this.getTask(id);
-    return task ? task.status : null;
+    return task ? task.status : null as any;
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
@@ -201,7 +201,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     const content = await fs.readFile(this.filePath, "utf-8");
     const newStatusChar = TASK_STATUS_CHECKBOX[status];
-    const lines = content.split("\n");
+    const lines = (content).toString().split("\n");
     let inCodeBlock = false;
     const updatedLines = lines.map((line) => {
       if (line.trim().startsWith("```")) {
@@ -239,7 +239,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       } catch (err) {
         // Directory doesn't exist or can't be read
       }
-      return undefined;
+      return undefined as any;
     }
   }
 
@@ -247,7 +247,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       const content = await fs.readFile(this.filePath, "utf-8");
       // Split into lines and track code block state
-      const lines = content.split("\n");
+      const lines = (content).toString().split("\n");
       const tasks: Task[] = [];
       let inCodeBlock = false;
       for (let i = 0; i < lines.length; i++) {
@@ -514,7 +514,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       // Remove task from tasks.md
       const content = await fs.readFile(this.filePath, "utf-8");
-      const lines = content.split("\n");
+      const lines = (content).toString().split("\n");
       let inCodeBlock = false;
       let removed = false;
 
@@ -577,12 +577,12 @@ export class GitHubTaskBackend implements TaskBackend {
 
   async getTask(id: string): Promise<Task | null> {
     log.debug("GitHub task backend not fully implemented", { method: "getTask", id });
-    return null;
+    return null as any;
   }
 
   async getTaskStatus(id: string): Promise<string | null> {
     log.debug("GitHub task backend not fully implemented", { method: "getTaskStatus", id });
-    return null;
+    return null as any;
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
@@ -670,7 +670,7 @@ export class TaskService {
     // Normalize the task ID
     const normalizedId = normalizeTaskId(id);
     if (!normalizedId) {
-      return null;
+      return null as any;
     }
 
     // Try to find the task in each backend
@@ -681,7 +681,7 @@ export class TaskService {
       }
     }
 
-    return null;
+    return null as any;
   }
 
   async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {

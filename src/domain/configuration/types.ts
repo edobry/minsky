@@ -55,8 +55,8 @@ export interface RepositoryConfig {
       owner: string;
       repo: string;
     };
-    markdown?: Record<string, unknown>;
-    "json-file"?: Record<string, unknown>;
+    markdown?: Record<string, any>;
+    "json-file"?: Record<string, any>;
   };
   repository?: {
     auto_detect_backend?: boolean;
@@ -111,8 +111,8 @@ export interface BackendConfig {
     owner: string;
     repo: string;
   };
-  markdown?: Record<string, unknown>;
-  "json-file"?: Record<string, unknown>;
+  markdown?: Record<string, any>;
+  "json-file"?: Record<string, any>;
 }
 
 export interface SessionDbConfig {
@@ -169,7 +169,7 @@ export interface CredentialManager {
   getCredential(_service: "github"): Promise<string | null>;
   setGlobalCredential(
     _service: "github",
-    _source: CredentialSource,
+    source: CredentialSource,
     _value?: string
   ): Promise<void>;
   promptForCredential(_service: "github"): Promise<string>;
@@ -192,9 +192,9 @@ export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
   ],
   sessiondb: {
     backend: "json",
-    baseDir: undefined,
-    dbPath: undefined,
-    connectionString: undefined,
+    baseDir: undefined as any,
+    dbPath: undefined as any,
+    connectionString: undefined as any,
   },
 };
 

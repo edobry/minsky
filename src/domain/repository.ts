@@ -12,8 +12,11 @@ import { log } from "../utils/logger.js";
 /**
  * Repository backend types supported by the system.
  */
-export enum RepositoryBackendType {}
-// Enum values removed as they are unused
+export enum RepositoryBackendType {
+  LOCAL = "local",
+  REMOTE = "remote", 
+  GITHUB = "github"
+}
 
 /**
  * Repository resolution options.
@@ -95,7 +98,7 @@ export interface RepositoryStatus {
   dirty?: boolean;
   remotes?: string[];
   modifiedFiles?: Array<{ status: string; file: string }>;
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 /**
@@ -165,7 +168,7 @@ export interface RepositoryBackend {
    * @param session Session identifier
    * @returns CloneResult with working directory information
    */
-  clone(__session: string): Promise<CloneResult>;
+  clone(session: string): Promise<CloneResult>;
 
   /**
    * Get the status of the repository.
@@ -192,14 +195,14 @@ export interface RepositoryBackend {
    * @param branch Branch to push (defaults to current _branch)
    * @returns Result of the operation (may be void or a more detailed result)
    */
-  push(_branch?: string): Promise<any>;
+  push(branch?: string): Promise<any>;
 
   /**
    * Pull changes from the remote repository.
    * @param branch Branch to pull (defaults to current _branch)
    * @returns Result of the operation (may be void or a more detailed result)
    */
-  pull(_branch?: string): Promise<any>;
+  pull(branch?: string): Promise<any>;
 
   /**
    * Create a new branch and switch to it.
@@ -207,7 +210,7 @@ export interface RepositoryBackend {
    * @param name Branch name to create
    * @returns BranchResult with working directory and branch information
    */
-  branch(__session: string, name: string): Promise<BranchResult>;
+  branch(session: string, name: string): Promise<BranchResult>;
 
   /**
    * Checkout an existing branch.
@@ -237,7 +240,7 @@ export type RepositoryBackendConfig = RepositoryConfig;
 export async function createRepositoryBackend(
   config: RepositoryConfig
 ): Promise<RepositoryBackend> {
-  switch (config.type) {
+  switch ((config as any).type) {
   case RepositoryBackendType.LOCAL: {
     const { LocalGitBackend } = await import("./localGitBackend.js");
     return new LocalGitBackend(config);
@@ -252,15 +255,12 @@ export async function createRepositoryBackend(
 
     // Create an adapter using GitService that conforms to RepositoryBackend interface
     return {
-      clone: async (_session: string): Promise<CloneResult> => {
+      clone: async (session: string): Promise<CloneResult> => {
+        const workdir = gitService.getSessionWorkdir(session);
         return await gitService.clone({
           repoUrl: config.url || "",
-          _session,
-          github: {
-            token: (config as GitHubConfig).token,
-            owner: (config as GitHubConfig).owner,
-            repo: (config as GitHubConfig).repo,
-          },
+          session,
+          workdir,
         });
       },
 
@@ -343,7 +343,7 @@ export async function createRepositoryBackend(
         };
       },
 
-      push: async (_branch?: string): Promise<void> => {
+      push: async (branch?: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
@@ -358,12 +358,12 @@ export async function createRepositoryBackend(
         const workdir = gitService.getSessionWorkdir(sessionName);
 
         await gitService.push({
-          _session,
-          _repoPath: workdir,
+          session: sessionName,
+          repoPath: workdir,
         });
       },
 
-      pull: async (_branch?: string): Promise<void> => {
+      pull: async (branch?: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
@@ -393,7 +393,7 @@ export async function createRepositoryBackend(
         };
       },
 
-      checkout: async (_branch: string): Promise<void> => {
+      checkout: async (branch: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
@@ -424,7 +424,7 @@ export async function createRepositoryBackend(
     };
   }
   default: {
-    throw new Error(`Unsupported repository backend type: ${config.type}`);
+    throw new Error(`Unsupported repository backend type: ${(config as any).type}`);
   }
   }
 }
@@ -457,8 +457,8 @@ export async function resolveRepository(
   }
   // 2. Try to resolve from session
   else if (session) {
-    const sessionDb = new SessionDB();
-    const sessionRecord = await sessionDb.getSession(_session);
+    const sessionDb = new (await import("./session.js")).SessionDB();
+    const sessionRecord = await sessionDb.getSession(session);
     if (!sessionRecord) {
       throw new ValidationError(`Session not found: ${session}`);
     }
@@ -467,9 +467,9 @@ export async function resolveRepository(
       (sessionRecord.backendType as RepositoryBackendType) || RepositoryBackendType.LOCAL;
   }
   // 3. Try to resolve from task ID
-  else if (_taskId) {
+  else if (taskId) {
     const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
-    const sessionDb = new SessionDB();
+    const sessionDb = new (await import("./session.js")).SessionDB();
     const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
     if (!sessionRecord) {
       throw new ValidationError(`No session found for task: ${taskId}`);
@@ -488,7 +488,7 @@ export async function resolveRepository(
   // DEFAULT_RETRY_COUNT. No resolution method available
   else {
     throw new ValidationError(
-      "Cannot resolve repository: no URI, _session, or task ID provided, and auto-detection is disabled"
+      "Cannot resolve repository: no URI, session, or task ID provided, and auto-detection is disabled"
     );
   }
 
@@ -520,7 +520,7 @@ export async function resolveRepository(
 
     return {
       uri: normalized.uri,
-      name: normalized.name,
+      name: normalized?.name,
       isLocal: normalized.isLocal,
       path,
       backendType,
@@ -559,7 +559,7 @@ export async function resolveRepoPath(options: {
     }
   } catch (error) {
     throw new MinskyError(
-      `Failed to resolve repository _path: ${getErrorMessage(error)}`
+      `Failed to resolve repository _path: ${getErrorMessage(error as any)}`
     );
   }
 }
