@@ -148,7 +148,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     const tasks = await this.parseTasks();
 
-    if ((options as any).status) {
+    if (options && (options as any).status) {
       return tasks.filter((task) => (task as any).status === (options as any).status);
     }
 
@@ -271,11 +271,54 @@ export class MarkdownTaskBackend implements TaskBackend {
 
         const specPath = await this.validateSpecPath(id, title);
 
+        // Collect description from indented lines following this task
+        let description: string | undefined = undefined;
+        const descriptionLines: string[] = [];
+        
+        // Look at the next lines to see if they contain indented description content
+        for (let j = i + 1; j < lines.length; j++) {
+          const nextLine = lines[j] ?? "";
+          
+          // Stop if we hit a code block marker
+          if (nextLine.trim().startsWith("```")) {
+            break;
+          }
+          
+          // Stop if we hit another task line (not indented)
+          if (TASK_PARSING_UTILS.parseTaskLine(nextLine)) {
+            break;
+          }
+          
+          // Stop if we hit an empty line
+          if (nextLine.trim() === "") {
+            break;
+          }
+          
+          // Check if this is an indented description line (starts with spaces/tabs and has content)
+          if (nextLine.match(/^\s+- (.+)/) || nextLine.match(/^\s+(.+)/)) {
+            const trimmedLine = nextLine.trim();
+            if (trimmedLine.startsWith("- ")) {
+              // Remove the bullet point from description lines
+              descriptionLines.push(trimmedLine.substring(2));
+            } else {
+              descriptionLines.push(trimmedLine);
+            }
+          } else {
+            // Non-indented line that's not a task - stop collecting
+            break;
+          }
+        }
+        
+        if (descriptionLines.length > 0) {
+          description = descriptionLines.join(" ");
+        }
+
         (tasks as any).push({
           id,
           title,
           status,
           specPath,
+          description,
         });
       }
       return tasks;
