@@ -25,7 +25,7 @@ export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
 /**
  * Array of all valid task status values for use in schemas
  */
-export const TASK_STATUS_VALUES = Object.values(TASK_STATUS);
+export const TASK_STATUS_VALUES = (Object as any).values(TASK_STATUS);
 
 /**
  * Mapping from task status to markdown checkbox representation
@@ -68,7 +68,7 @@ export const STATUS_TO_CHECKBOX: Record<string, string> = {
  * Status validation helper
  */
 export function isValidTaskStatus(status: string): status is TaskStatus {
-  return Object.values(TASK_STATUS).includes(status as TaskStatus);
+  return (Object.values(TASK_STATUS) as any).includes(status as TaskStatus);
 }
 
 // ============================================================================
@@ -81,12 +81,10 @@ export function isValidTaskStatus(status: string): status is TaskStatus {
  */
 function generateCheckboxPattern(): string {
   const specialRegexChars = ["+", "-", "*", "?", "^", "$", "(", ")", "[", "]", "{", "}", "|", "\\"];
-  const checkboxChars = Object.keys(CHECKBOX_TO_STATUS)
-    .map((char) => {
-      if (char === " ") return " ";
-      return specialRegexChars.includes(char) ? `\\${char}` : char;
-    })
-    .join("|");
+  const checkboxChars = ((Object.keys(CHECKBOX_TO_STATUS) as any).map((char) => {
+    if (char === " ") return " ";
+    return specialRegexChars.includes(char) ? `\\${char}` : char;
+  }) as any).join("|");
   return checkboxChars;
 }
 
@@ -132,7 +130,7 @@ export const TASK_PARSING_UTILS = {
 
     return {
       checkbox: checkbox,
-      title: title.trim(),
+      title: (title as any).trim(),
       id: `#${idNum}`,
     };
   },
@@ -145,7 +143,7 @@ export const TASK_PARSING_UTILS = {
    */
   replaceCheckboxStatus(line: string, newStatus: TaskStatus): string {
     const newCheckbox = TASK_STATUS_CHECKBOX[newStatus];
-    return line.replace(TASK_REGEX_PATTERNS.CHECKBOX_REPLACE, `$1${newCheckbox}$3`);
+    return (line as any).replace(TASK_REGEX_PATTERNS.CHECKBOX_REPLACE, `$1${newCheckbox}$3`);
   },
 
   /**

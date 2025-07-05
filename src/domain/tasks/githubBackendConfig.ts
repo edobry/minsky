@@ -13,7 +13,7 @@ import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
 import { getErrorMessage } from "../../errors/index";
 
 // Load environment variables from .env file only if it exists
-const envPath = join(process.cwd(), ".env");
+const envPath = join((process as any).cwd(), ".env");
 if (existsSync(envPath)) {
   config({ quiet: true });
 }
@@ -26,24 +26,22 @@ function extractGitHubRepoFromRemote(
 ): { owner: string; repo: string } | null {
   try {
     // Get the origin remote URL
-    const remoteUrl = execSync("git remote get-url origin", {
+    const remoteUrl = ((execSync("git remote get-url origin", {
       cwd: workspacePath,
       encoding: "utf8",
-    })
-      .toString()
-      .trim();
+    }) as any).toString() as any).trim();
 
     // Parse GitHub repository from various URL formats
     // SSH: git@github.com:owner/repo.git
     // HTTPS: https://github.com/owner/repo.git
-    const sshMatch = remoteUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
-    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+    const sshMatch = (remoteUrl as any).match(/git@github\.com:([^\/]+)\/([^\.]+)/);
+    const httpsMatch = (remoteUrl as any).match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
 
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {
       return {
         owner: match[1],
-        repo: match[2].replace(/\.git$/, ""), // Remove .git suffix
+        repo: (match[2] as any).replace(/\.git$/, ""), // Remove .git suffix
       };
     }
 
@@ -51,7 +49,7 @@ function extractGitHubRepoFromRemote(
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
-      error: getErrorMessage(error),
+      error: getErrorMessage(error as any),
     });
     return null as any;
   }
@@ -67,7 +65,7 @@ export function getGitHubBackendConfig(
   const { logErrors = false } = options || {};
 
   // Check for GitHub token in environment
-  const githubToken = process.env.GITHUBTOKEN || process.env.GH_TOKEN;
+  const githubToken = (process.env as any).GITHUBTOKEN || (process.env as any).GH_TOKEN;
 
   if (!githubToken) {
     if (logErrors) {
@@ -90,8 +88,8 @@ export function getGitHubBackendConfig(
     name: "github-issues",
     workspacePath,
     githubToken,
-    owner: repoInfo.owner,
-    repo: repoInfo.repo,
+    owner: (repoInfo as any).owner,
+    repo: (repoInfo as any).repo,
   };
 }
 
@@ -104,11 +102,11 @@ export async function createGitHubLabels(
   repo: string,
   labels: Record<string, string>
 ): Promise<void> {
-  for (const [status, labelName] of Object.entries(labels)) {
+  for (const [status, labelName] of (Object as any).entries(labels)) {
     try {
       // Check if label already exists
       try {
-        await octokit.rest.issues.getLabel({
+        await (octokit.rest.issues as any).getLabel({
           owner,
           repo,
           name: labelName,
@@ -117,13 +115,13 @@ export async function createGitHubLabels(
         continue;
       } catch (error: any) {
         // Label doesn't exist, continue to create it
-        if (error.status !== HTTP_NOT_FOUND) {
+        if ((error as any).status !== HTTP_NOT_FOUND) {
           throw error;
         }
       }
 
       // Create the label
-      await octokit.rest.issues.createLabel({
+      await (octokit.rest.issues as any).createLabel({
         owner,
         repo,
         name: labelName,
@@ -134,7 +132,7 @@ export async function createGitHubLabels(
       log.debug(`Created GitHub label: ${labelName}`);
     } catch (error) {
       log.error(`Failed to create GitHub label: ${labelName}`, {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
       });
     }
   }

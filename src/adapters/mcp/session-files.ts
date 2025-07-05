@@ -24,12 +24,12 @@ export class SessionPathResolver {
    * Resolve session workspace path for a given session
    */
   async getSessionWorkspacePath(sessionId: string): Promise<string> {
-    const session = await this.sessionDB.getSession(sessionId);
+    const session = await (this.sessionDB as any).getSession(sessionId);
     if (!session) {
       throw new Error(`Session "${sessionId}" not found`);
     }
 
-    return await this.sessionDB.getRepoPath(session);
+    return await (this.sessionDB as any).getRepoPath(session);
   }
 
   /**
@@ -54,7 +54,7 @@ export class SessionPathResolver {
 
     // Security check: ensure the resolved path is within the session workspace
     if (
-      !normalizedPath.startsWith(`${normalizedWorkspace}/`) &&
+      !(normalizedPath as any).startsWith(`${normalizedWorkspace}/`) &&
       normalizedPath !== normalizedWorkspace
     ) {
       throw new Error(
@@ -92,7 +92,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   const pathResolver = createPathResolver();
 
   // Session read file tool
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "session_read_file",
     description: "Read a file within a session workspace",
     parameters: z.object({
@@ -101,63 +101,62 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     }),
     execute: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
-        await pathResolver.validatePathExists(resolvedPath);
+        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
+        await (pathResolver as any).validatePathExists(resolvedPath);
 
         const content = await readFile(resolvedPath, "utf8");
 
         log.debug("Session file read successful", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           resolvedPath,
-          contentLength: content.length,
+          contentLength: (content as any).length,
         });
 
         return {
           success: true,
           content,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
           resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.session),
+            await (pathResolver as any).getSessionWorkspacePath((args as any).session),
             resolvedPath
           ),
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorMessage = getErrorMessage(error as any);
         log.error("Session file read failed", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
         };
       }
     },
   });
 
   // Session write file tool
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "session_write_file",
     description: "Write content to a file within a session workspace",
     parameters: z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
       content: z.string().describe("Content to write to the file"),
-      createDirs: z
+      createDirs: (z
         .boolean()
         .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
+        .default(true) as any).describe("Create parent directories if they don't exist"),
     }),
     execute: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
+        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
 
         // Create parent directories if requested and they don't exist
         if (args.createDirs) {
@@ -165,66 +164,63 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           await mkdir(parentDir, { recursive: true });
         }
 
-        await writeFile(resolvedPath, args.content, "utf8");
+        await writeFile(resolvedPath, (args as any).content, "utf8");
 
         log.debug("Session file write successful", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           resolvedPath,
-          contentLength: args.content.length,
+          contentLength: (args.content as any).length,
           createdDirs: args.createDirs,
         });
 
         return {
           success: true,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
           resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.session),
+            await (pathResolver as any).getSessionWorkspacePath((args as any).session),
             resolvedPath
           ),
-          // @ts-expect-error - Bun supports Buffer.byteLength at runtime, types incomplete
-          bytesWritten: Buffer.byteLength(args.content, "utf8"),
+          bytesWritten: (Buffer as any).byteLength((args as any).content, "utf8"),
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorMessage = getErrorMessage(error as any);
         log.error("Session file write failed", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
         };
       }
     },
   });
 
   // Session list directory tool
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "session_list_directory",
     description: "List contents of a directory within a session workspace",
     parameters: z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
-      path: z
+      path: (z
         .string()
         .optional()
-        .default(".")
-        .describe("Path to the directory within the session workspace"),
-      showHidden: z
+        .default(".") as any).describe("Path to the directory within the session workspace"),
+      showHidden: (z
         .boolean()
         .optional()
-        .default(false)
-        .describe("Include hidden files (starting with .)"),
+        .default(false) as any).describe("Include hidden files (starting with .)"),
     }),
     execute: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
-        await pathResolver.validatePathExists(resolvedPath);
+        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
+        await (pathResolver as any).validatePathExists(resolvedPath);
 
         const entries = await readdir(resolvedPath, { withFileTypes: true });
 
@@ -233,57 +229,57 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
 
         for (const entry of entries) {
           // Skip hidden files unless explicitly requested
-          if (!args.showHidden && entry.name.startsWith(".")) {
+          if (!args.showHidden && (entry.name as any).startsWith(".")) {
             continue;
           }
 
-          if (entry.isDirectory()) {
-            directories.push(entry.name);
+          if ((entry as any).isDirectory()) {
+            (directories as any).push((entry as any).name);
           } else {
-            files.push(entry.name);
+            (files as any).push((entry as any).name);
           }
         }
 
         log.debug("Session directory list successful", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           resolvedPath,
-          fileCount: files.length,
-          directoryCount: directories.length,
+          fileCount: (files as any).length,
+          directoryCount: (directories as any).length,
         });
 
         return {
           success: true,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
           resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.session),
+            await (pathResolver as any).getSessionWorkspacePath((args as any).session),
             resolvedPath
           ),
-          files: files.sort(),
-          directories: directories.sort(),
-          totalEntries: files.length + directories.length,
+          files: (files as any).sort(),
+          directories: (directories as any).sort(),
+          totalEntries: (files as any).length + (directories as any).length,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorMessage = getErrorMessage(error as any);
         log.error("Session directory list failed", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
         };
       }
     },
   });
 
   // Session file exists tool
-  commandMapper.addTool(
+  (commandMapper as any).addTool(
     "session_file_exists",
     "Check if a file or directory exists within a session workspace",
     z.object({
@@ -292,7 +288,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     }),
     async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
+        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
 
         let exists = false;
         let isFile = false;
@@ -304,15 +300,15 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           exists = true;
           isFile = stats.isFile();
           isDirectory = stats.isDirectory();
-          size = stats.size;
+          size = (stats as any).size;
         } catch (error) {
           // File doesn't exist - that's fine, not an error
           exists = false;
         }
 
         log.debug("Session file exists check", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           resolvedPath,
           exists,
           isFile,
@@ -321,10 +317,10 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
 
         return {
           success: true,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
           resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.session),
+            await (pathResolver as any).getSessionWorkspacePath((args as any).session),
             resolvedPath
           ),
           exists,
@@ -333,25 +329,25 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           size,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorMessage = getErrorMessage(error as any);
         log.error("Session file exists check failed", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
         };
       }
     }
   );
 
   // Session delete file tool
-  commandMapper.addTool(
+  (commandMapper as any).addTool(
     "session_delete_file",
     "Delete a file within a session workspace",
     z.object({
@@ -360,103 +356,102 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     }),
     async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
-        await pathResolver.validatePathExists(resolvedPath);
+        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
+        await (pathResolver as any).validatePathExists(resolvedPath);
 
         // Additional safety check - ensure it's a file, not a directory
         const stats = await stat(resolvedPath);
         if (!stats.isFile()) {
           throw new Error(
-            `Path "${args.path}" is not a file - use appropriate directory deletion tools`
+            `Path "${(args as any).path}" is not a file - use appropriate directory deletion tools`
           );
         }
 
         await unlink(resolvedPath);
 
         log.debug("Session file delete successful", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           resolvedPath,
         });
 
         return {
           success: true,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
           resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.session),
+            await (pathResolver as any).getSessionWorkspacePath((args as any).session),
             resolvedPath
           ),
           deleted: true,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorMessage = getErrorMessage(error as any);
         log.error("Session file delete failed", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
         };
       }
     }
   );
 
   // Session create directory tool
-  commandMapper.addTool(
+  (commandMapper as any).addTool(
     "session_create_directory",
     "Create a directory within a session workspace",
     z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the directory to create within the session workspace"),
-      recursive: z
+      recursive: (z
         .boolean()
         .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
+        .default(true) as any).describe("Create parent directories if they don't exist"),
     }),
     async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
+        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
 
         await mkdir(resolvedPath, { recursive: args.recursive });
 
         log.debug("Session directory create successful", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           resolvedPath,
           recursive: args.recursive,
         });
 
         return {
           success: true,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
           resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.session),
+            await (pathResolver as any).getSessionWorkspacePath((args as any).session),
             resolvedPath
           ),
           created: true,
           recursive: args.recursive,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorMessage = getErrorMessage(error as any);
         log.error("Session directory create failed", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
         };
       }
     }

@@ -18,9 +18,9 @@ export class DefaultBackendDetector implements BackendDetector {
    */
   async detectBackend(workingDir: string, rules: DetectionRule[]): Promise<string> {
     for (const rule of rules) {
-      const matches = await this.checkCondition(workingDir, rule.condition);
+      const matches = await this.checkCondition(workingDir, (rule as any).condition);
       if (matches) {
-        return rule.backend;
+        return (rule as any).backend;
       }
     }
 

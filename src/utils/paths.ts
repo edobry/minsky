@@ -16,14 +16,14 @@ export const APP_NAME = "minsky";
  * Get the XDG state home directory
  */
 export function getXdgStateHome(): string {
-  return process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  return (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
 }
 
 /**
  * Get the XDG config home directory
  */
 export function getXdgConfigHome(): string {
-  return process.env.XDG_CONFIG_HOME || join(process.env.HOME || "", ".config");
+  return (process.env as any).XDG_CONFIG_HOME || join((process.env as any).HOME || "", ".config");
 }
 
 /**

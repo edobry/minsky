@@ -5,14 +5,11 @@
  * It supports both SQLite and PostgreSQL databases with identical schemas.
  */
 
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import {
   pgTable,
   varchar,
-  text as pgText,
   timestamp,
-  uuid,
-  integer as pgInteger,
 } from "drizzle-orm/pg-core";
 import type { SessionRecord } from "../../session/session-db";
 
@@ -24,7 +21,6 @@ export const sqliteSessions = sqliteTable("sessions", {
   createdAt: text("created_at").notNull(),
   taskId: text("task_id").notNull(),
   branch: text("branch").notNull(),
-  repoPath: text("repo_path"),
 });
 
 // PostgreSQL Schema
@@ -35,7 +31,6 @@ export const postgresSessions = pgTable("sessions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   taskId: varchar("task_id", { length: 100 }).notNull(),
   branch: varchar("branch", { length: 255 }).notNull(),
-  repoPath: varchar("repo_path", { length: 1000 }),
 });
 
 // Type exports for better type inference
@@ -55,7 +50,6 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
     createdAt: record.createdAt,
     taskId: record.taskId,
     branch: record.branch,
-    repoPath: record.repoPath || null,
   };
 }
 
@@ -70,7 +64,6 @@ export function fromSqliteSelect(record: SqliteSessionRecord): SessionRecord {
     createdAt: record.createdAt,
     taskId: record.taskId,
     branch: record.branch,
-    repoPath: record.repoPath || undefined,
   };
 }
 
@@ -85,7 +78,6 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
     createdAt: new Date(record.createdAt),
     taskId: record.taskId,
     branch: record.branch,
-    repoPath: record.repoPath || null,
   };
 }
 
@@ -100,6 +92,5 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     createdAt: record.createdAt.toISOString(),
     taskId: record.taskId,
     branch: record.branch,
-    repoPath: record.repoPath || undefined,
   };
 }

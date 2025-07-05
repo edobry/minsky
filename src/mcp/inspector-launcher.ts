@@ -69,7 +69,7 @@ export function isInspectorAvailable(): boolean {
     const { existsSync } = require("fs");
     const { join } = require("path");
 
-    const binPath = join(process.cwd(), "node_modules", ".bin", "mcp-inspector");
+    const binPath = join((process as any).cwd(), "node_modules", ".bin", "mcp-inspector");
     return existsSync(binPath);
   } catch (error) {
     return false;
@@ -96,18 +96,18 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     // For the new MCP inspector, we use the client start script
     // and configure it to connect to our existing server
     const env: Record<string, string | undefined> = {
-      ...process.env,
-      CLIENT_PORT: port.toString(),
-      SERVER_PORT: (port + 3).toString(), // Use a different port for the inspector server
+      ...(process as any).env,
+      CLIENT_PORT: (port as any).toString(),
+      SERVER_PORT: ((port + 3) as any).toString(), // Use a different port for the inspector server
     };
 
     // Configure auto-open based on openBrowser option
     if (!openBrowser) {
-      env.MCP_AUTO_OPEN_ENABLED = "false";
+      (env as any).MCP_AUTO_OPEN_ENABLED = "false";
     }
 
     // For security, we'll need to set this for auto-open to work
-    env.DANGEROUSLY_OMIT_AUTH = "true";
+    (env as any).DANGEROUSLY_OMIT_AUTH = "true";
 
     log.debug("Launching MCP Inspector", {
       clientPort: port,
@@ -130,7 +130,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     );
 
     // Check for immediate launch errors
-    if (!inspectorProcess.pid) {
+    if (!(inspectorProcess as any).pid) {
       return {
         success: false,
         error: "Failed to start MCP Inspector process",
@@ -138,18 +138,18 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     }
 
     // Handle process events
-    inspectorProcess.on("error", (error) => {
+    (inspectorProcess as any).on("error", (error) => {
       log.error("MCP Inspector process error", {
-        error: error.message as any,
-        stack: error.stack as any,
+        error: (error as any).message as any,
+        stack: (error as any).stack as any,
       });
     });
 
-    inspectorProcess.stderr.on("data", (data) => {
-      log.error(`MCP Inspector stderr: ${data.toString()}`);
+    (inspectorProcess.stderr as any).on("data", (data) => {
+      log.error(`MCP Inspector stderr: ${(data as any).toString()}`);
     });
 
-    inspectorProcess.on("exit", (code, signal) => {
+    (inspectorProcess as any).on("exit", (code, signal) => {
       log.debug("MCP Inspector process exited", { code, signal });
     });
 
@@ -162,13 +162,13 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
   } catch (error) {
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack as any : undefined as any,
+      error: getErrorMessage(error as any),
+      stack: error instanceof Error ? (error as any).stack as any : undefined as any,
     });
 
     return {
       success: false,
-      error: error instanceof Error ? error.message as any : "Unknown error launching MCP Inspector" as any,
+      error: error instanceof Error ? (error as any).message as any : "Unknown error launching MCP Inspector" as any,
     };
   }
 }

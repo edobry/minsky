@@ -64,29 +64,24 @@ export function getErrorMessage(error: any): string {
   if (error instanceof Error) {
     return (error as any).message;
   }
-  return String(error);
+  return String(error as any);
 }
 
 /**
  * Format command suggestions with consistent styling
  */
 export function formatCommandSuggestions(suggestions: CommandSuggestion[]): string {
-  return suggestions
-    .map(({ description, command, emoji = ErrorEmojis.COMMAND }) => 
-      `${emoji} ${description}:\n   ${command}`
-    )
-    .join("\n\n");
+  return ((suggestions as any).map(({ description, command, emoji = ErrorEmojis.COMMAND }) => 
+    `${emoji} ${description}:\n   ${command}`) as any).join("\n\n");
 }
 
 /**
  * Format context information for error messages
  */
 export function formatContextInfo(contexts: ContextInfo[]): string {
-  if (contexts.length === 0) return "";
+  if ((contexts as any).length === 0) return "";
   
-  const formatted = contexts
-    .map(({ label, value }) => `${label}: ${value}`)
-    .join("\n");
+  const formatted = ((contexts as any).map(({ label, value }) => `${label}: ${value}`) as any).join("\n");
     
   return `\n${formatted}`;
 }
@@ -98,31 +93,31 @@ export function buildErrorMessage(template: ErrorTemplate, context?: ContextInfo
   const parts: string[] = [];
   
   // Add title
-  parts.push(template.title);
+  parts.push((template as any).title);
   
   // Add description if provided
-  if (template.description) {
-    parts.push("");
-    parts.push(template.description);
+  if ((template as any).description) {
+    (parts as any).push("");
+    parts.push((template as any).description);
   }
   
   // Add sections
-  template.sections.forEach(section => {
-    parts.push("");
+  (template.sections as any).forEach(section => {
+    (parts as any).push("");
     
-    if (section.title) {
-      const title = section.emoji ? `${section.emoji} ${section.title}` : section.title;
-      parts.push(title);
-      parts.push("");
+    if ((section as any).title) {
+      const title = (section as any).emoji ? `${(section as any).emoji} ${(section as any).title}` : (section as any).title;
+      (parts as any).push(title);
+      (parts as any).push("");
     }
     
-    parts.push(section.content);
+    parts.push((section as any).content);
   });
   
   // Add context information if provided
-  if (context && context.length > 0) {
-    parts.push("");
-    parts.push(formatContextInfo(context));
+  if (context && (context as any).length > 0) {
+    (parts as any).push("");
+    parts.push(formatContextInfo(context as any));
   }
   
   return parts.join("\n");
@@ -139,7 +134,7 @@ export function createResourceNotFoundMessage(
 ): string {
   const template: ErrorTemplate = {
     title: `${ErrorEmojis.NOT_FOUND} ${resourceType} "${resourceId}" Not Found`,
-    description: `The ${resourceType.toLowerCase()} you're looking for doesn't exist or isn't accessible.`,
+    description: `The ${(resourceType as any).toLowerCase()} you're looking for doesn't exist or isn't accessible.`,
     sections: [
       {
         title: "What you can do:",
@@ -149,7 +144,7 @@ export function createResourceNotFoundMessage(
     ]
   };
   
-  return buildErrorMessage(template, context);
+  return buildErrorMessage(template, context as any);
 }
 
 /**
@@ -170,7 +165,7 @@ export function createMissingInfoMessage(
     ]
   };
   
-  return buildErrorMessage(template, context);
+  return buildErrorMessage(template, context as any);
 }
 
 /**
@@ -189,12 +184,12 @@ export function createValidationErrorMessage(
       {
         title: "Valid options:",
         emoji: ErrorEmojis.LIST,
-        content: validOptions.map(option => `• ${option}`).join("\n")
+        content: (validOptions as any).map(option => `• ${option}`).join("\n")
       }
     ]
   };
   
-  return buildErrorMessage(template, context);
+  return buildErrorMessage(template, context as any);
 }
 
 /**
@@ -208,7 +203,7 @@ export function createCommandFailureMessage(
 ): string {
   const template: ErrorTemplate = {
     title: `${ErrorEmojis.FAILED} Command Failed`,
-    description: `The command "${command}" failed with error: ${getErrorMessage(error)}`,
+    description: `The command "${command}" failed with error: ${getErrorMessage(error as any)}`,
     sections: [
       {
         title: "Try these alternatives:",
@@ -218,7 +213,7 @@ export function createCommandFailureMessage(
     ]
   };
   
-  return buildErrorMessage(template, context);
+  return buildErrorMessage(template, context as any);
 }
 
 /**
@@ -301,18 +296,18 @@ export function createSessionErrorMessage(
   
   const config = templates[errorType];
   const template: ErrorTemplate = {
-    title: config.title,
-    description: config.description,
+    title: (config as any).title,
+    description: (config as any).description,
     sections: [
       {
         title: "What you can do:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(config.suggestions)
+        content: formatCommandSuggestions((config as any).suggestions)
       }
     ]
   };
   
-  return buildErrorMessage(template, context);
+  return buildErrorMessage(template, context as any);
 }
 
 /**
@@ -322,7 +317,7 @@ export function createSessionNotFoundMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, SessionErrorType.NOT_FOUND, context);
+  return createSessionErrorMessage(sessionName, (SessionErrorType as any).NOT_FOUND, context as any);
 }
 
 /**
@@ -332,7 +327,7 @@ export function createSessionExistsMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, SessionErrorType.ALREADY_EXISTS, context);
+  return createSessionErrorMessage(sessionName, (SessionErrorType as any).ALREADY_EXISTS, context as any);
 }
 
 /**
@@ -342,7 +337,7 @@ export function createInvalidSessionMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, SessionErrorType.INVALID, context);
+  return createSessionErrorMessage(sessionName, (SessionErrorType as any).INVALID, context as any);
 }
 
 /**
@@ -354,8 +349,8 @@ export function createGitErrorMessage(
   workdir?: string,
   context?: ContextInfo[]
 ): string {
-  const errorMessage = getErrorMessage(error);
-  const isConflict = errorMessage.toLowerCase().includes("conflict");
+  const errorMessage = getErrorMessage(error as any);
+  const isConflict = (errorMessage.toLowerCase() as any).includes("conflict");
   
   const baseContext: ContextInfo[] = [
     ...(context || []),
@@ -451,7 +446,7 @@ export function createConfigErrorMessage(
     ]
   };
   
-  return buildErrorMessage(template, context);
+  return buildErrorMessage(template, context as any);
 }
 
 /**
@@ -461,15 +456,15 @@ export class ErrorContextBuilder {
   private contexts: ContextInfo[] = [];
   
   addCurrentDirectory(): this {
-    this.contexts.push({
+    (this.contexts as any).push({
       label: "Current directory",
-      value: process.cwd()
+      value: (process as any).cwd()
     });
     return this;
   }
   
   addSession(sessionName: string): this {
-    this.contexts.push({
+    (this.contexts as any).push({
       label: "Session",
       value: sessionName
     });
@@ -477,7 +472,7 @@ export class ErrorContextBuilder {
   }
   
   addRepository(repoPath: string): this {
-    this.contexts.push({
+    (this.contexts as any).push({
       label: "Repository",
       value: repoPath
     });
@@ -485,7 +480,7 @@ export class ErrorContextBuilder {
   }
   
   addTask(taskId: string): this {
-    this.contexts.push({
+    (this.contexts as any).push({
       label: "Task ID",
       value: taskId
     });
@@ -493,7 +488,7 @@ export class ErrorContextBuilder {
   }
   
   addCommand(command: string): this {
-    this.contexts.push({
+    (this.contexts as any).push({
       label: "Command",
       value: command
     });
@@ -501,7 +496,7 @@ export class ErrorContextBuilder {
   }
   
   addCustom(label: string, value: string): this {
-    this.contexts.push({ label, value });
+    (this.contexts as any).push({ label, value });
     return this;
   }
   
