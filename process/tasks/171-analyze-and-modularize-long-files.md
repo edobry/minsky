@@ -307,6 +307,100 @@ src/domain/git/commands/
 
 **Next Priority:** Session domain modularization (`src/domain/session.ts` - 1,751 lines)
 
+## SESSION LEARNINGS & PRINCIPLES ✅
+
+### Critical Discovery: Variable Naming Causes Infinite Loops
+
+**Major Issue Identified:**
+- Variable definition/usage mismatches caused tests to run for 4+ billion milliseconds (infinite loops)
+- Pattern: Variables defined with underscores (`const _title =`) but used without (`title.id`)
+- This is not just a compilation error - it creates infinite execution deadlocks
+
+**Performance Impact Evidence:**
+- JsonFileTaskBackend: 4,319,673,451ms → 241ms (99.999% improvement)
+- SessionPathResolver: 4,319,805,914ms → 143ms (99.999% improvement)
+
+**Root Cause:** Failure to follow variable-naming-protocol decision tree
+
+### Modularization Methodology Principles
+
+**1. Dependency Injection Over Direct Coupling**
+- All extracted methods use dependency injection pattern
+- Enables comprehensive testing and mocking
+- Maintains backward compatibility through interface design
+- Example: `mergeBranchImpl(workdir, branch, { execAsync })` vs direct execAsync calls
+
+**2. Static Imports Over Dynamic Imports**
+- User requirement: Never use dynamic imports in extracted modules
+- All imports must be static and at module top level
+- Prevents runtime import errors and improves bundling
+
+**3. Method Extraction Size Thresholds**
+- Target methods >50 lines for extraction
+- Prioritize methods with complex logic over simple parameter passing
+- Focus on methods that can be independently tested
+
+**4. Maintain Interface Compatibility**
+- Original service methods become thin wrappers calling extracted functions
+- No breaking changes to existing API surface
+- Gradual migration path without disrupting consumers
+
+**5. Test-First Verification**
+- Always run tests before and after extraction
+- Verify same pass/fail rate maintained
+- Address any new failures immediately
+
+### Architecture Patterns Applied
+
+**1. Command Pattern Foundation**
+- Individual command files for each major operation
+- Separation of validation, execution, and result formatting
+- Enables future command queuing and undo functionality
+
+**2. Clean Separation of Concerns**
+- Types extracted to dedicated modules
+- Business logic separated from infrastructure
+- Domain logic independent of framework concerns
+
+**3. Progressive Extraction Strategy**
+- Start with largest, most complex methods
+- Extract supporting types and utilities
+- Build foundation before tackling remaining complexity
+
+### Testing Insights
+
+**1. Variable Naming Protocol Critical**
+- Variable mismatches create infinite loops, not just compilation errors
+- Must use decision tree: definition with underscore → remove underscore from definition
+- Zero tolerance for variable naming violations
+
+**2. Test Stability During Refactoring**
+- Maintain same test pass rate throughout extraction
+- Use test results as regression detection
+- Fix any new failures immediately before continuing
+
+**3. Dependency Injection Enables Testing**
+- Extracted functions can be unit tested in isolation
+- Mock dependencies for focused testing
+- Reduces test complexity and execution time
+
+### File Size Reduction Strategy
+
+**1. Target Large Methods First**
+- preparePr (384 lines) provided biggest impact
+- clone (100 lines) established pattern
+- Smaller methods (40-60 lines) still provide value
+
+**2. Measure Progress Continuously**
+- Track line count reductions after each extraction
+- Document cumulative impact
+- Maintain momentum with visible progress
+
+**3. Architectural Integrity Over Just Size**
+- Focus on proper separation of concerns
+- Establish patterns that prevent future violations
+- Create foundation for remaining modularization work
+
 ## NEXT STEPS
 
 1. **Continue Phase 1:** Extract session commands to dedicated modules
