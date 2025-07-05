@@ -1,5 +1,3 @@
-# feat(#227): Extend conflict detection to comprehensive git workflow protection
-
 ## Summary
 
 This PR extends the ConflictDetectionService to provide comprehensive conflict prevention across all git operations in the Minsky workflow, not just session PR creation. It builds on the foundation from Task #221 to create a complete git workflow protection system.
