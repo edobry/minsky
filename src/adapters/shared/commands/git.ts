@@ -247,7 +247,6 @@ export function registerGitCommands(): void {
       const result = await cloneFromParams({
         url: (params as any).url,
         session: (params as any).session,
-        destination: (params as any).destination,
         branch: (params as any).branch,
       }) as any;
 
