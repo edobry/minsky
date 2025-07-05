@@ -406,7 +406,7 @@
 
 - [ ] Implement AI-Powered Session Review Workflow [#226](process/tasks/226-implement-ai-powered-session-review-workflow.md)
 
-- [+] Extend conflict detection to comprehensive git workflow protection [#227](process/tasks/227-extend-conflict-detection-to-comprehensive-git-workflow-protection.md)
+- [-] Extend conflict detection to comprehensive git workflow protection [#227](process/tasks/227-extend-conflict-detection-to-comprehensive-git-workflow-protection.md)
 
 - [x] Exclude CLOSED tasks from default tasks list output [#228](process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)
 
