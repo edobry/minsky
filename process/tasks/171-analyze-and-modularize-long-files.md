@@ -1,17 +1,17 @@
-# Task 171: Analyze and Modularize Overly Long Files
+# Task 171: Analyze and Modularize Long Files
 
 ## Overview
 
-Investigate files exceeding 400 lines, analyze their structure and purpose, and develop strategies to break them up into smaller, more maintainable modules.
+Investigate files exceeding 400 lines, analyze their underlying structural issues, and implement principled modularization to improve maintainability and architectural integrity.
 
 ## Background
 
-Large files (>400 lines) can become difficult to maintain, understand, and test. This task aims to:
+Large files (>400 lines) are symptoms of deeper architectural problems. This task aims to:
 
-1. Identify files that exceed the 400-line guideline
-2. Analyze why these files are large and their internal structure
-3. Develop modularization strategies
-4. Implement refactoring to improve code organization
+1. Identify the root causes of excessive file growth
+2. Apply principled modularization strategies
+3. Extract subcommands into proper module hierarchies
+4. Establish architectural patterns that prevent future violations
 
 ## DISCOVERY PHASE RESULTS ✅
 
@@ -30,245 +30,272 @@ Large files (>400 lines) can become difficult to maintain, understand, and test.
 
 **Lower Priority Files (400-600 lines):** 16. `src/domain/workspace.test.ts` - 571 lines 17. `src/domain/repository.ts` - 565 lines 18. `src/domain/init.ts` - 561 lines 19. `src/domain/storage/monitoring/health-monitor.ts` - 557 lines 20. `src/domain/tasks.test.ts` - 531 lines 21. `src/errors/message-templates.ts` - 518 lines 22. `src/domain/tasks/githubIssuesTaskBackend.ts` - 515 lines 23. `src/adapters/shared/commands/rules.ts` - 514 lines 24. `src/domain/rules.ts` - 508 lines 25. `src/domain/repository/github.ts` - 499 lines 26. `src/domain/tasks/jsonFileTaskBackend.ts` - 498 lines 27. `src/utils/__tests__/git-exec-enhanced.test.ts` - 485 lines 28. `src/utils/test-utils/enhanced-mocking.ts` - 483 lines 29. `src/domain/git/conflict-detection.test.ts` - 472 lines 30. `src/adapters/mcp/session-files.ts` - 466 lines 31. `src/adapters/mcp/session-workspace.ts` - 465 lines 32. `src/errors/__tests__/message-templates.test.ts` - 463 lines 33. `src/domain/__tests__/session-start-consistency.test.ts` - 461 lines 34. `src/adapters/__tests__/shared/commands/session.test.ts` - 457 lines 35. `src/adapters/__tests__/integration/workspace.test.ts` - 450 lines 36. `src/utils/test-utils/compatibility/matchers.ts` - 446 lines
 
-### Structural Analysis - COMPLETED
+## ROOT CAUSE ANALYSIS ✅
 
-#### 1. `src/domain/git.ts` (2,476 lines) - ANALYZED
+### Underlying Structural Issues
 
-**Structure:**
+**1. God Object Anti-Pattern**
 
-- **Interfaces & Types (lines 1-296):** 30+ interfaces defining service contracts
-- **GitService Class (lines 297-2247):** Main service implementation with 50+ methods
-- **Factory Functions (lines 2248-2477):** Wrapper functions for external API
+- `GitService` and `SessionService` handle all operations for their domains
+- Violates Single Responsibility Principle
+- Creates massive, unmaintainable classes
 
-**Primary Responsibilities:**
+**2. Command Handler Anti-Pattern**
 
-- Git repository operations (clone, branch, merge, push)
-- PR creation and management
-- Conflict detection integration
-- Session-based workflow management
+- Missing proper Command Pattern implementation
+- All commands implemented as methods on service classes
+- No separation of command validation, execution, and result formatting
 
-**Modularization Opportunities:**
+**3. Parameter Object Anti-Pattern**
 
-- **Extract Git Types:** Move all interfaces to `src/domain/git/types.ts`
-- **Extract PR Service:** Move PR-related functionality to `src/domain/git/pr-service.ts`
-- **Extract Basic Git Operations:** Move core git ops to `src/domain/git/basic-operations.ts`
-- **Extract Session Git Operations:** Move session-specific git ops to `src/domain/git/session-operations.ts`
-- **Extract Factory Functions:** Move to `src/domain/git/factory.ts`
+- Functions like `startSessionFromParams()`, `commitChangesFromParams()` take large parameter objects
+- Mixed concerns in single parameter structures
+- Violates Interface Segregation Principle
 
-#### 2. `src/domain/session.ts` (1,741 lines) - ANALYZED
+**4. Mixed Abstraction Levels**
 
-**Structure:**
+- Domain logic mixed with infrastructure concerns
+- Application services mixed with presentation logic
+- No clear layering or separation of concerns
 
-- **Interfaces (lines 1-100):** SessionRecord, Session, SessionProviderInterface
-- **Core Functions (lines 101-1450):** Various session operation functions
-- **Provider Factory (lines 1451-1500):** Session provider creation
-- **Review Functions (lines 1501-1742):** Session review and inspection
+**5. Factory Function Anti-Pattern**
 
-**Primary Responsibilities:**
+- `*FromParams` functions are factory + command execution
+- Unclear boundaries between object creation and business logic
+- Violates Command-Query Separation
 
-- Session lifecycle management
-- Session database operations
-- Session-based workspace management
-- PR and approval workflows
+**6. Missing Dependency Injection**
 
-**Modularization Opportunities:**
+- Hard-coded dependencies throughout
+- Difficult to test and extend
+- Violates Dependency Inversion Principle
 
-- **Extract Session Types:** Move interfaces to `src/domain/session/types.ts`
-- **Extract Session Provider:** Move provider logic to `src/domain/session/provider.ts`
-- **Extract Session Operations:** Move core ops to `src/domain/session/operations.ts`
-- **Extract Session Review:** Move review functionality to `src/domain/session/review.ts`
-- **Extract Session Factory:** Move factory functions to `src/domain/session/factory.ts`
+**7. Lack of Event-Driven Architecture**
 
-#### 3. `src/domain/git/conflict-detection.ts` (926 lines) - ANALYZED
+- No domain events for decoupling
+- Direct coupling between unrelated concerns
+- Missing publish-subscribe patterns
 
-**Structure:**
+**8. Repository Pattern Violations**
 
-- **Interfaces (lines 1-100):** ConflictPrediction, ConflictFile, etc.
-- **ConflictDetectionService Class (lines 101-926):** Main service implementation
-- **Private Methods:** Simulation, analysis, and resolution generation
+- Direct database access mixed with business logic
+- No clear data access layer
+- Violates persistence ignorance
 
-**Primary Responsibilities:**
+## PRINCIPLED MODULARIZATION STRATEGY
 
-- Merge conflict prediction
-- Branch divergence analysis
-- Conflict resolution strategies
-- Smart merge operations
+### 1. Command Pattern Implementation
 
-**Modularization Opportunities:**
+**Extract Commands to Dedicated Classes:**
 
-- **Extract Conflict Types:** Move interfaces to `src/domain/git/conflict-types.ts`
-- **Extract Conflict Analysis:** Move analysis methods to `src/domain/git/conflict-analyzer.ts`
-- **Extract Resolution Strategies:** Move to `src/domain/git/resolution-strategies.ts`
+- `src/domain/git/commands/` - Git command implementations
+- `src/domain/session/commands/` - Session command implementations
+- Each command: validation, execution, result formatting
+
+**Command Structure:**
+
+```
+src/domain/git/commands/
+├── clone-repository.command.ts
+├── create-branch.command.ts
+├── generate-pr.command.ts
+├── push-changes.command.ts
+└── index.ts
+```
+
+### 2. Subcommand Extraction
+
+**Git Subcommands** (from `src/adapters/shared/commands/git.ts`):
+
+- Extract to `src/domain/git/commands/subcommands/`
+- `commit.subcommand.ts`
+- `push.subcommand.ts`
+- `clone.subcommand.ts`
+- `branch.subcommand.ts`
+- `pr.subcommand.ts`
+
+**Session Subcommands** (from `src/adapters/shared/commands/session.ts`):
+
+- Extract to `src/domain/session/commands/subcommands/`
+- `start.subcommand.ts`
+- `list.subcommand.ts`
+- `get.subcommand.ts`
+- `update.subcommand.ts`
+- `delete.subcommand.ts`
+- `approve.subcommand.ts`
+
+### 3. Clean Architecture Layers
+
+**Domain Layer:**
+
+- `src/domain/git/` - Pure domain logic
+- `src/domain/session/` - Pure domain logic
+- No infrastructure dependencies
+
+**Application Layer:**
+
+- `src/application/git/` - Use cases and orchestration
+- `src/application/session/` - Use cases and orchestration
+- Command handlers and application services
+
+**Infrastructure Layer:**
+
+- `src/infrastructure/git/` - Git command execution
+- `src/infrastructure/session/` - Session persistence
+- External system integrations
+
+**Presentation Layer:**
+
+- `src/adapters/cli/` - CLI command adapters
+- `src/adapters/mcp/` - MCP tool adapters
+- Parameter validation and response formatting
+
+### 4. Dependency Injection Architecture
+
+**Service Container:**
+
+- `src/container/` - DI container configuration
+- Interface-based dependency injection
+- Service lifecycle management
+
+**Interface Segregation:**
+
+- Small, focused interfaces
+- No dependency on implementation details
+- Clear contract boundaries
 
 ## IMPLEMENTATION PLAN
 
-### Phase 1: Critical Priority Files (Week 1)
+### Phase 1: Command Pattern Foundation
 
-#### 1.1 Modularize `src/domain/git.ts` (2,476 lines → target: <400 lines)
+#### 1.1 Extract Git Commands
 
-**Step 1: Extract Types**
+- Create `src/domain/git/commands/` directory structure
+- Extract individual commands from `GitService`
+- Implement command validation and execution separation
 
-- Create `src/domain/git/types.ts` with all interfaces
-- Update imports across codebase
+#### 1.2 Extract Session Commands
 
-**Step 2: Extract PR Service**
+- Create `src/domain/session/commands/` directory structure
+- Extract individual commands from session functions
+- Implement command validation and execution separation
 
-- Create `src/domain/git/pr-service.ts` with PR-related methods
-- Move: `pr()`, `prWithDependencies()`, `preparePr()`, `mergePr()`, and helpers
+#### 1.3 Extract Subcommands
 
-**Step 3: Extract Basic Git Operations**
+- Move git subcommands from `src/adapters/shared/commands/git.ts`
+- Move session subcommands from `src/adapters/shared/commands/session.ts`
+- Create proper command hierarchies
 
-- Create `src/domain/git/basic-operations.ts`
-- Move: `clone()`, `branch()`, `stash()`, `pull()`, `push()`, `commit()`, `getStatus()`
+### Phase 2: Clean Architecture Implementation
 
-**Step 4: Extract Session Git Operations**
+#### 2.1 Domain Layer Refactoring
 
-- Create `src/domain/git/session-operations.ts`
-- Move: `branchWithoutSession()`, session-specific helpers
+- Extract pure domain logic from services
+- Create domain entities and value objects
+- Implement domain events
 
-**Step 5: Extract Factory Functions**
+#### 2.2 Application Layer Creation
 
-- Create `src/domain/git/factory.ts`
-- Move: `createPullRequestFromParams()`, `commitChangesFromParams()`, etc.
+- Create use case classes
+- Implement command handlers
+- Add application services for orchestration
 
-**Step 6: Create Main Service Orchestrator**
+#### 2.3 Infrastructure Layer Separation
 
-- Slim down main `git.ts` to <400 lines
-- Keep only GitService class with delegation to other services
+- Extract git command execution to infrastructure
+- Extract session persistence to infrastructure
+- Create repository implementations
 
-#### 1.2 Modularize `src/domain/session.ts` (1,741 lines → target: <400 lines)
+### Phase 3: Dependency Injection
 
-**Step 1: Extract Types**
+#### 3.1 Service Container Setup
 
-- Create `src/domain/session/types.ts` with all interfaces
+- Create DI container configuration
+- Define service interfaces
+- Implement service registration
 
-**Step 2: Extract Provider**
+#### 3.2 Interface Segregation
 
-- Create `src/domain/session/provider.ts` with SessionProviderInterface implementation
-
-**Step 3: Extract Core Operations**
-
-- Create `src/domain/session/operations.ts`
-- Move: `startSessionFromParams()`, `getSessionFromParams()`, `listSessionsFromParams()`
-
-**Step 4: Extract Review Operations**
-
-- Create `src/domain/session/review.ts`
-- Move: `sessionReviewFromParams()`, `inspectSessionFromParams()`
-
-**Step 5: Extract Factory Functions**
-
-- Create `src/domain/session/factory.ts`
-- Move: `createSessionProvider()`, other factory functions
-
-### Phase 2: High Priority Files (Week 2)
-
-#### 2.1 Modularize `src/domain/git/conflict-detection.ts` (926 lines → target: <400 lines)
-
-**Step 1: Extract Types**
-
-- Create `src/domain/git/conflict-types.ts`
-
-**Step 2: Extract Analysis Logic**
-
-- Create `src/domain/git/conflict-analyzer.ts`
-- Move: `simulateMerge()`, `analyzeConflictFiles()`, `analyzeBranchDivergence()`
-
-**Step 3: Extract Resolution Strategies**
-
-- Create `src/domain/git/resolution-strategies.ts`
-- Move: `generateResolutionStrategies()`, `generateUserGuidance()`, `generateRecoveryCommands()`
-
-#### 2.2 Modularize Other High Priority Files
-
-- `src/adapters/shared/commands/session.ts` (792 lines)
-- `src/adapters/cli/cli-command-factory.ts` (734 lines)
-
-### Phase 3: Medium Priority Files (Week 3)
-
-#### 3.1 Modularize Domain Files
-
-- `src/domain/tasks.ts` (690 lines)
-- `src/domain/tasks/taskCommands.ts` (650 lines)
-- `src/domain/tasks/taskService.ts` (625 lines)
-
-#### 3.2 Modularize Adapter Files
-
-- `src/adapters/shared/bridges/cli-bridge.ts` (690 lines)
-- `src/adapters/shared/commands/tasks.ts` (675 lines)
+- Create small, focused interfaces
+- Remove large, monolithic interfaces
+- Implement proper abstraction layers
 
 ### Phase 4: Testing and Validation
 
-#### 4.1 Test Suite Updates
+#### 4.1 Unit Testing
 
-- Update all tests to use new module structure
-- Ensure no functional regressions
-- Validate import/export correctness
+- Test each command in isolation
+- Test domain logic without infrastructure
+- Test application services with mocks
 
-#### 4.2 Documentation Updates
+#### 4.2 Integration Testing
 
-- Update module documentation
-- Create architectural decision records
-- Update code organization guidelines
+- Test command execution end-to-end
+- Test infrastructure integrations
+- Test API boundaries
 
-## MODULARIZATION STRATEGY
+## ARCHITECTURAL PATTERNS TO APPLY
 
-### 1. Domain-Oriented Modules
+### 1. Command Pattern
 
-- Group by business capability (git, session, tasks)
-- Separate types, operations, and services
-- Maintain clear boundaries between domains
+- Encapsulate commands as objects
+- Support undo/redo operations
+- Enable command queuing and logging
 
-### 2. Layer Separation
+### 2. Repository Pattern
 
-- **Types:** Interface definitions and data structures
-- **Operations:** Pure functions and business logic
-- **Services:** Stateful classes and orchestration
-- **Factories:** Creation and configuration logic
+- Abstract data access layer
+- Support multiple storage backends
+- Enable testing with in-memory implementations
 
-### 3. Dependency Direction
+### 3. Dependency Injection
 
-- Types ← Operations ← Services ← Factories
-- No circular dependencies
-- Clear import hierarchy
+- Invert dependencies
+- Enable easy testing and extension
+- Support configuration-based service selection
 
-### 4. File Size Targets
+### 4. Event-Driven Architecture
 
-- **Types files:** <200 lines
-- **Operation files:** <400 lines
-- **Service files:** <400 lines
-- **Factory files:** <300 lines
+- Decouple components through events
+- Enable audit logging and monitoring
+- Support eventual consistency patterns
+
+### 5. Clean Architecture
+
+- Separate concerns across layers
+- Maintain dependency direction
+- Enable independent testing of layers
 
 ## SUCCESS CRITERIA
 
 - [x] **Discovery Phase Complete:** All files >400 lines identified and analyzed
-- [ ] **Phase 1 Complete:** git.ts and session.ts modularized (<400 lines each)
-- [ ] **Phase 2 Complete:** High priority files modularized
-- [ ] **Phase 3 Complete:** Medium priority files modularized
-- [ ] **All Tests Pass:** No functional regressions
-- [ ] **Documentation Updated:** Module structure documented
-- [ ] **Target Achievement:** No files >400 lines (with documented exceptions)
+- [x] **Root Cause Analysis Complete:** Structural issues identified and documented
+- [ ] **Command Pattern Implementation:** All commands extracted to dedicated classes
+- [ ] **Subcommand Extraction:** Git and session subcommands moved to proper modules
+- [ ] **Clean Architecture:** Layers properly separated with clear boundaries
+- [ ] **Dependency Injection:** Services properly injected and testable
+- [ ] **File Size Targets:** No files >400 lines (with documented exceptions)
+- [ ] **Test Coverage:** All new modules have comprehensive test coverage
+- [ ] **Documentation:** Architectural patterns and decisions documented
 
 ## NEXT STEPS
 
-1. **Begin Phase 1:** Start with git.ts modularization
-2. **Create branches:** Use feature branches for each major file
-3. **Incremental testing:** Test each module extraction
-4. **Update imports:** Systematically update all references
-5. **Document changes:** Record architectural decisions
+1. **Begin Phase 1:** Start with git command extraction
+2. **Extract Subcommands:** Move git/session subcommands to proper modules
+3. **Implement Command Pattern:** Create dedicated command classes
+4. **Apply Clean Architecture:** Separate concerns across layers
+5. **Add Dependency Injection:** Implement service container
+6. **Comprehensive Testing:** Ensure all changes are tested
+7. **Document Architecture:** Create ADRs for architectural decisions
 
 ## Priority
 
 Medium-High
 
-## Estimated Effort
-
-**Original:** 6-10 hours
-**Revised:** 12-16 hours (due to complexity discovered)
-
 ## Notes
 
-- The scope is larger than originally anticipated - 36 files exceed 400 lines
-- Two files (git.ts and session.ts) are extremely large and will require careful planning
-- Focus on maintaining existing functionality while improving structure
-- Consider creating a "before and after" comparison for major refactors
+- Focus on architectural integrity over just file size reduction
+- The goal is to establish patterns that prevent future violations
+- Consider this a foundational refactoring that will improve the entire codebase
+- Each extracted module should have a clear, single responsibility
+- Maintain backward compatibility during the transition
