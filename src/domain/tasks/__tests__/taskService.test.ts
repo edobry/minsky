@@ -192,9 +192,9 @@ describe("TaskService", () => {
       );
     });
 
-    test("should return silently if task not found", async () => {
-      // This should not throw an error
-      await expect(taskService.setTaskStatus("#999", "DONE")).resolves.toBeUndefined();
+    test("should throw error if task not found", async () => {
+      // This should throw an error for non-existent task
+      await expect(taskService.setTaskStatus("#999", "DONE")).rejects.toThrow("not found");
 
       // And saveTasksData should not have been called
       expect(mockBackend.saveTasksData).not.toHaveBeenCalled();

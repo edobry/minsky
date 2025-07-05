@@ -126,15 +126,15 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
   private readonly tasksDirectory: string;
 
   constructor(options: GitHubIssuesTaskBackendOptions) {
-    this.workspacePath = (options as any).workspacePath;
-    this.owner = (options as any).owner;
-    this.repo = (options as any).repo;
-    this.statusLabels = { ...DEFAULT_STATUS_LABELS, ...(options as any).statusLabels };
+    this.workspacePath = options.workspacePath;
+    this.owner = options.owner;
+    this.repo = options.repo;
+    this.statusLabels = { ...DEFAULT_STATUS_LABELS, ...options.statusLabels };
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
 
     // Initialize GitHub API client
     this.octokit = new Octokit({
-      auth: (options as any).githubToken,
+      auth: options.githubToken,
       userAgent: "minsky-cli",
       request: {
         // Add retry logic for rate limiting
