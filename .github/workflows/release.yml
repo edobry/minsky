@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: linux
+            output: minsky-linux-x64
+          - target: linux-arm64
+            output: minsky-linux-arm64
+          - target: macos
+            output: minsky-macos-x64
+          - target: macos-arm64
+            output: minsky-macos-arm64
+          - target: windows
+            output: minsky-windows-x64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install Just
+        uses: extractions/setup-just@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests
+        run: bun test
+
+      - name: Build binary
+        run: just build-${{ matrix.target }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: ${{ matrix.output }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            minsky-linux-x64/minsky-linux-x64
+            minsky-linux-arm64/minsky-linux-arm64
+            minsky-macos-x64/minsky-macos-x64
+            minsky-macos-arm64/minsky-macos-arm64
+            minsky-windows-x64.exe/minsky-windows-x64.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

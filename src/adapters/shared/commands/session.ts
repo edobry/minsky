@@ -26,6 +26,7 @@ import {
   inspectSessionFromParams,
 } from "../../../domain/session.js";
 import { log } from "../../../utils/logger.js";
+import { MinskyError } from "../../../errors/index.js";
 
 /**
  * Parameters for the session list command
@@ -303,8 +304,8 @@ const sessionApproveCommandParams: CommandParameterMap = {
 const sessionPrCommandParams: CommandParameterMap = {
   title: {
     schema: z.string().min(1),
-    description: "Title for the PR",
-    required: true,
+    description: "Title for the PR (optional for existing PRs)",
+    required: false,
   },
   body: {
     schema: z.string(),
@@ -609,12 +610,12 @@ Examples:
       log.debug("Executing session.approve command", { params, context });
 
       try {
-        const result = await approveSessionFromParams({
+        const result = (await approveSessionFromParams({
           session: params.name,
           task: params.task,
           repo: params.repo,
           json: params.json,
-        });
+        })) as any;
 
         return {
           success: true,
@@ -641,8 +642,20 @@ Examples:
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
+      // Validate that either body or bodyPath is provided
+      if (!params.body && !params.bodyPath) {
+        throw new Error(`PR description is required for meaningful pull requests.
+Please provide one of:
+  --body <text>       Direct PR body text
+  --body-path <path>  Path to file containing PR body
+
+Example:
+  minsky session pr --title "feat: Add new feature" --body "This PR adds..."
+  minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
+      }
+
       try {
-        const result = await sessionPrFromParams({
+        const result = (await sessionPrFromParams({
           title: params.title,
           body: params.body,
           bodyPath: params.bodyPath,
@@ -654,19 +667,90 @@ Examples:
           skipUpdate: params.skipUpdate,
           autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
           skipConflictCheck: params.skipConflictCheck,
-        });
+        })) as any;
 
         return {
           success: true,
           ...result,
         };
       } catch (error) {
-        log.error("Failed to create session PR", {
-          error: getErrorMessage(error),
-          session: params.name,
-          task: params.task,
-        });
-        throw error;
+        // Instead of just logging and rethrowing, provide user-friendly error messages
+        const errorMessage = getErrorMessage(error);
+
+        // Handle specific error types with friendly messages
+        if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
+          throw new MinskyError(
+            `🔥 Git merge conflict detected while creating PR branch.
+
+This usually happens when:
+• The PR branch already exists with different content
+• There are conflicting changes between your session and the base branch
+
+💡 Quick fixes:
+• Try with --skip-update to avoid session updates
+• Or manually resolve conflicts and retry
+
+Technical details: ${errorMessage}`
+          );
+        } else if (errorMessage.includes("Failed to create prepared merge commit")) {
+          throw new MinskyError(
+            `❌ Failed to create PR branch merge commit.
+
+This could be due to:
+• Merge conflicts between your session branch and base branch
+• Remote PR branch already exists with different content
+• Network issues with git operations
+
+💡 Try these solutions:
+• Run 'git status' to check for conflicts
+• Use --skip-update to bypass session updates
+• Check your git remote connection
+
+Technical details: ${errorMessage}`
+          );
+        } else if (
+          errorMessage.includes("Permission denied") ||
+          errorMessage.includes("authentication")
+        ) {
+          throw new MinskyError(
+            `🔐 Git authentication error.
+
+Please check:
+• Your SSH keys are properly configured
+• You have push access to the repository
+• Your git credentials are valid
+
+Technical details: ${errorMessage}`
+          );
+        } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
+          throw new MinskyError(
+            `🔍 Session not found.
+
+The session '${params.name || params.task}' could not be located.
+
+💡 Try:
+• Check available sessions: minsky session list
+• Verify you're in the correct directory
+• Use the correct session name or task ID
+
+Technical details: ${errorMessage}`
+          );
+        } else {
+          // For other errors, provide a general helpful message
+          throw new MinskyError(
+            `❌ Failed to create session PR.
+
+The operation failed with: ${errorMessage}
+
+💡 Troubleshooting:
+• Check that you're in a session workspace
+• Verify all files are committed
+• Try running with --debug for more details
+• Check 'minsky session list' to see available sessions
+
+Need help? Run the command with --debug for detailed error information.`
+          );
+        }
       }
     },
   });

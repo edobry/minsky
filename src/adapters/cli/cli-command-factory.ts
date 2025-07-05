@@ -47,7 +47,7 @@ export interface CliFactoryConfig {
 class CliCommandFactory {
   private initialized = false;
   private config: CliFactoryConfig = {
-    enableDevWarnings: process.env.NODE_ENV !== "production",
+    enableDevWarnings: process.env.NODE_ENV !== "production" as any,
     strictValidation: true,
   };
 
@@ -371,7 +371,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         useFirstRequiredParamAsArgument: false,
         parameters: {
           title: {
-            description: "Title for the PR (required)",
+            description: "Title for the PR (optional for existing PRs)",
           },
           body: {
             description: "Body text for the PR",

@@ -25,7 +25,7 @@ export function createConfigShowCommand(): Command {
           backendConfig: config.get("backendConfig"),
           credentials: config.get("credentials"),
           sessiondb: config.get("sessiondb"),
-          ai: config.has("ai") ? config.get("ai") : undefined,
+          ai: config.has("ai") ? config.get("ai") : undefined as any,
         };
 
         if (options.json) {
@@ -39,7 +39,7 @@ export function createConfigShowCommand(): Command {
         process.stderr.write(`Failed to load configuration: ${error}\n`);
         exit(1);
       }
-    });
+    }) as any;
 }
 
 function displayResolvedConfiguration(resolved: any) {

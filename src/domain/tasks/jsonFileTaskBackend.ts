@@ -24,7 +24,7 @@ import { getErrorMessage } from "../../errors/index";
 interface TaskState {
   tasks: TaskData[];
   lastUpdated: string;
-  metadata: Record<string, unknown>;
+  metadata: Record<string, any>;
 }
 
 /**
@@ -97,7 +97,7 @@ export class JsonFileTaskBackend implements TaskBackend {
           success: false,
           error: result.error,
           filePath: this.storage.getStorageLocation(),
-        };
+        } as any;
       }
 
       // Convert state to a tasks.md-like format for compatibility
@@ -144,9 +144,9 @@ export class JsonFileTaskBackend implements TaskBackend {
   parseTasks(content: string): TaskData[] {
     // Try to parse as JSON first
     try {
-      const data = JSON.parse(content);
+      const data = JSON.parse(content) as any;
       if (data.tasks && Array.isArray(data.tasks)) {
-        return data.tasks;
+        return data.tasks as any;
       }
     } catch (error) {
       // If JSON parsing fails, fall back to markdown parsing
@@ -172,7 +172,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   parseTaskSpec(content: string): TaskSpecData {
     // Basic parsing of task spec content
-    const lines = content.split("\n");
+    const lines = (content).toString().split("\n");
     let title = "";
     let description = "";
     let id = "";
@@ -243,7 +243,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         error: result.error,
         bytesWritten: result.bytesWritten,
         filePath: this.storage.getStorageLocation(),
-      };
+      } as any;
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
@@ -334,7 +334,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       await access(path);
       return true;
-    } catch (_error) {
+    } catch (error) {
       return false;
     }
   }
@@ -371,7 +371,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         id,
         error: getErrorMessage(error),
       });
-      return null;
+      return null as any;
     }
   }
 
@@ -457,7 +457,7 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   private parseMarkdownTasks(content: string): TaskData[] {
     const tasks: TaskData[] = [];
-    const lines = content.split("\n");
+    const lines = (content).toString().split("\n");
 
     for (const line of lines) {
       const trimmed = line.trim();
