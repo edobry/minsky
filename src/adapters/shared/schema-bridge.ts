@@ -43,7 +43,7 @@ export interface CliOptionDetails {
  */
 export function paramNameToFlag(name: string): string {
   // Convert camelCase to kebab-case
-  return name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
+  return ((name as any).replace(/([a-z])([A-Z])/g, "$1-$2") as any).toLowerCase();
 }
 
 /**
@@ -75,7 +75,7 @@ export function addValuePlaceholder(flag: string, schema: z.ZodTypeAny): string 
   // Determine if the parameter takes a value
   const isBooleanType =
     schema instanceof z.ZodBoolean ||
-    (schema instanceof z.ZodOptional && schema._def.innerType instanceof z.ZodBoolean);
+    (schema instanceof z.ZodOptional && (schema._def as any).innerType instanceof z.ZodBoolean);
 
   // Boolean options don't need a value placeholder
   if (isBooleanType) {
@@ -93,7 +93,7 @@ export function addValuePlaceholder(flag: string, schema: z.ZodTypeAny): string 
     placeholder = "enum";
   } else if (schema instanceof z.ZodOptional) {
     // Recurse to check the inner type
-    return addValuePlaceholder(flag, schema._def.innerType);
+    return addValuePlaceholder(flag, (schema._def as any).innerType);
   }
 
   return `${flag} <${placeholder}>`;
@@ -116,13 +116,13 @@ export function getSchemaDescription(
   // Check if we have a description in the schema
   if (
     "description" in schema &&
-    typeof schema.description === "string" &&
-    schema.description.length > 0
+    typeof (schema as any).description === "string" &&
+    (schema.description as any).length > 0
   ) {
-    description = schema.description;
-  } else if (schema instanceof z.ZodOptional && "description" in schema._def.innerType) {
-    const innerDesc = schema._def.innerType.description;
-    if (typeof innerDesc === "string" && innerDesc.length > 0) {
+    description = (schema as any).description;
+  } else if (schema instanceof z.ZodOptional && "description" in (schema._def as any).innerType) {
+    const innerDesc = (schema._def.innerType as any).description;
+    if (typeof innerDesc === "string" && (innerDesc as any).length > 0) {
       description = innerDesc;
     }
   }
@@ -137,7 +137,7 @@ export function getSchemaDescription(
  * @returns Array of enum values
  */
 export function getEnumValues(schema: z.ZodEnum<[string, ...string[]]>): string[] {
-  return schema._def.values;
+  return (schema._def as any).values;
 }
 
 /**
@@ -160,7 +160,7 @@ export function parameterToOptionFlag(
   flag = addValuePlaceholder(flag, param.schema);
 
   // Get description
-  const description = param.description || getSchemaDescription(param.schema);
+  const description = (param as any).description || getSchemaDescription(param.schema);
 
   let defaultValue = param.defaultValue;
   // Ensure defaultValue is compatible with Commander
@@ -203,11 +203,11 @@ export function addOptionsToCommand(
   shortFlags: Record<string, string> = {}
 ): Command {
   // For each parameter, add an option to the command
-  Object.entries(parameters).forEach(([name, param]) => {
+  (Object.entries(parameters) as any).forEach(([name, param]) => {
     const { flag, description, defaultValue } = parameterToOptionFlag(
       name,
       param,
-      shortFlags[name]
+      (shortFlags as any)[name]
     );
 
     // Add the option to the command
@@ -236,15 +236,15 @@ export function parseOptionsToParameters<T extends CommandParameterMap>(
   const result: Record<string, any> = {};
 
   // For each parameter, validate and convert the option
-  Object.entries(parameters).forEach(([name, param]) => {
-    const optionName = paramNameToFlag(name).replace(/-/g, "");
-    const value = options[optionName];
+  (Object.entries(parameters) as any).forEach(([name, param]) => {
+    const optionName = (paramNameToFlag(name) as any).replace(/-/g, "");
+    const value = (options as any)[optionName];
 
     // If value is present, validate and add to result
     if (value !== undefined) {
       // Use the schema to validate and transform
       try {
-        result[name] = param.schema.parse(value);
+        (result as any)[name] = (param.schema as any).parse(value as any);
       } catch (error) {
         // Re-throw with more context
         throw new Error(`Invalid value for parameter '${name}': ${error}`);
@@ -254,7 +254,7 @@ export function parseOptionsToParameters<T extends CommandParameterMap>(
       throw new Error(`Missing required parameter: ${name}`);
     } else if (param.defaultValue !== undefined) {
       // Use default value
-      result[name] = param.defaultValue;
+      (result as any)[name] = param.defaultValue;
     }
   });
 

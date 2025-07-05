@@ -35,6 +35,7 @@ import {
 import * as WorkspaceUtils from "./workspace.js";
 import { SessionDbAdapter } from "./session/session-db-adapter.js";
 import { createTaskFromDescription } from "./templates/session-templates.js";
+import { resolveSessionContextWithFeedback } from "./session/session-context-resolver.js";
 
 export interface SessionRecord {
   session: string;
@@ -123,6 +124,7 @@ export interface SessionProviderInterface {
 /**
  * Gets session details based on parameters
  * Using proper dependency injection for better testability
+ * Now includes auto-detection capabilities via unified session context resolver
  */
 export async function getSessionFromParams(
   params: SessionGetParams,
@@ -130,26 +132,34 @@ export async function getSessionFromParams(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<Session | null> {
-  const { name, task } = params;
+  const { name, task, repo } = params;
 
   // Set up dependencies with defaults
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
   };
 
-  // If task is provided but no name, find session by task ID
-  if (task && !name) {
-    const normalizedTaskId = taskIdSchema.parse(task);
-    return deps.sessionDB.getSessionByTaskId(normalizedTaskId);
-  }
+  try {
+    // Use unified session context resolver with auto-detection support
+    const resolvedContext = await resolveSessionContextWithFeedback({
+      session: name,
+      task: task,
+      repo: repo,
+      sessionProvider: deps.sessionDB,
+      allowAutoDetection: true,
+    });
 
-  // If name is provided, get by name
-  if (name) {
-    return deps.sessionDB.getSession(name);
+    // Get the session details using the resolved session name
+    return deps.sessionDB.getSession(resolvedContext.sessionName);
+  } catch (error) {
+    // If error is about missing session requirements, provide better user guidance
+    if (error instanceof ValidationError) {
+      throw new ResourceNotFoundError(
+        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+      );
+    }
+    throw error;
   }
-
-  // No name or task - error case
-  throw new ResourceNotFoundError("You must provide either a session name or task ID");
 }
 
 /**
@@ -484,31 +494,34 @@ export async function deleteSessionFromParams(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<boolean> {
-  const { name, task } = params;
+  const { name, task, repo } = params;
 
   // Set up dependencies with defaults
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
   };
 
-  if (task && !name) {
-    // Find session by task ID
-    const normalizedTaskId = taskIdSchema.parse(task);
-    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
+  try {
+    // Use unified session context resolver with auto-detection support
+    const resolvedContext = await resolveSessionContextWithFeedback({
+      session: name,
+      task: task,
+      repo: repo,
+      sessionProvider: deps.sessionDB,
+      allowAutoDetection: true,
+    });
 
-    if (!session) {
-      throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
+    // Delete the session using the resolved session name
+    return deps.sessionDB.deleteSession(resolvedContext.sessionName);
+  } catch (error) {
+    // If error is about missing session requirements, provide better user guidance
+    if (error instanceof ValidationError) {
+      throw new ResourceNotFoundError(
+        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
+      );
     }
-
-    // Delete by name
-    return deps.sessionDB.deleteSession(session.session);
+    throw error;
   }
-
-  if (!name) {
-    throw new ResourceNotFoundError("You must provide either a session name or task ID");
-  }
-
-  return deps.sessionDB.deleteSession(name);
 }
 
 /**
@@ -580,29 +593,26 @@ export async function updateSessionFromParams(
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
 
-  // Auto-detect session name if not provided
+  // Use unified session context resolver for consistent auto-detection
   let sessionName: string;
-  if (!name) {
-    log.debug("Session name not provided, attempting auto-detection from current directory");
-    const currentDir = process.cwd();
-    try {
-      const detectedSession = await deps.getCurrentSession(currentDir);
-      if (detectedSession) {
-        sessionName = detectedSession;
-        log.debug("Auto-detected session name", { sessionName, currentDir });
-      } else {
-        throw new ValidationError(
-          "Session name is required. Either provide a session name or run this command from within a session workspace."
-        );
-      }
-    } catch (error) {
-      log.debug("Failed to auto-detect session", { error, currentDir });
+  try {
+    const resolvedContext = await resolveSessionContextWithFeedback({
+      session: name,
+      task: params.task,
+      repo: params.repo,
+      sessionProvider: deps.sessionDB,
+      allowAutoDetection: !name, // Only allow auto-detection if no name provided
+    });
+    sessionName = resolvedContext.sessionName;
+    log.debug("Session resolved", { sessionName, resolvedBy: resolvedContext.resolvedBy });
+  } catch (error) {
+    log.debug("Failed to resolve session", { error, name, task: params.task });
+    if (error instanceof ValidationError) {
       throw new ValidationError(
-        "Session name is required. Either provide a session name or run this command from within a session workspace."
+        "Session name is required. Either provide a session name (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
-  } else {
-    sessionName = name;
+    throw error;
   }
 
   log.debug("Dependencies set up", {

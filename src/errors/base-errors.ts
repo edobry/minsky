@@ -20,7 +20,7 @@ export class MinskyError extends Error {
     public readonly cause?: any
   ) {
     super(message);
-    this.name = this.constructor.name;
+    (this as any).name = (this.constructor as any).name;
 
     // Capture stack trace, excluding constructor call from it
     if (Error.captureStackTrace) {
@@ -40,6 +40,6 @@ export function ensureError(error: any): Error {
   }
 
   return new MinskyError(
-    typeof error === "string" ? error : `Unknown error: ${JSON.stringify(error)}`
+    typeof error === "string" ? error : `Unknown error: ${JSON.stringify(error as any)}`
   );
 }

@@ -32,12 +32,12 @@ import type { TaskStatus } from "../../domain/tasks/taskConstants.js";
  */
 export function registerTaskTools(commandMapper: CommandMapper): void {
   // Task list command
-  commandMapper.addTaskCommand(
+  (commandMapper as any).addTaskCommand(
     "list",
     "List all tasks",
     z.object({
       filter: z.string().optional().describe(TASK_STATUS_FILTER_DESCRIPTION),
-      all: z.boolean().optional().describe(TASK_ALL_DESCRIPTION),
+      all: (z.boolean().optional() as any).describe(TASK_ALL_DESCRIPTION),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args: any) => {
@@ -56,13 +56,13 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       };
 
       // Return task array and cast to Record<string, unknown> to satisfy TypeScript
-      const tasks = await listTasksFromParams(params);
+      const tasks = await listTasksFromParams(params as any);
       return { tasks } as Record<string, any>;
     }
   );
 
   // Task get command
-  commandMapper.addTaskCommand(
+  (commandMapper as any).addTaskCommand(
     "get",
     "Get a task by ID",
     z.object({
@@ -84,13 +84,13 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       };
 
       // Return task as part of an object to satisfy TypeScript
-      const task = await getTaskFromParams(params);
+      const task = await getTaskFromParams(params as any);
       return { task } as Record<string, any>;
     }
   );
 
   // Task status get command
-  commandMapper.addTaskCommand(
+  (commandMapper as any).addTaskCommand(
     "status.get",
     "Get the status of a task",
     z.object({
@@ -111,18 +111,18 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
-      const status = await getTaskStatusFromParams(params);
+      const status = await getTaskStatusFromParams(params as any);
 
       // Format the response for MCP
       return {
-        taskId: args.taskId,
+        taskId: (args as any).taskId,
         status,
       };
     }
   );
 
   // Task status set command
-  commandMapper.addTaskCommand(
+  (commandMapper as any).addTaskCommand(
     "status.set",
     "Set the status of a task",
     z.object({
@@ -140,23 +140,23 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
 
       const params = {
         ...args,
-        status: args.status as TaskStatus, // Use proper type instead of hardcoded union
+        status: (args as any).status as TaskStatus, // Use proper type instead of hardcoded union
         repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
-      await setTaskStatusFromParams(params);
+      await setTaskStatusFromParams(params as any);
 
       // For MCP, return a success response
       return {
         success: true,
-        taskId: args.taskId,
-        status: args.status,
+        taskId: (args as any).taskId,
+        status: (args as any).status,
       };
     }
   );
 
   // Task create command
-  commandMapper.addTaskCommand(
+  (commandMapper as any).addTaskCommand(
     "create",
     "Create a new task with title and description or from a specification file",
     z.object({
@@ -164,7 +164,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       description: z.string().optional().describe("Description text for the task"),
       descriptionPath: z.string().optional().describe("Path to file containing task description"),
       specPath: z.string().optional().describe("Path to the task specification file (legacy)"),
-      force: z.boolean().optional().describe(FORCE_DESCRIPTION),
+      force: (z.boolean().optional() as any).describe(FORCE_DESCRIPTION),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args: any) => {
@@ -182,7 +182,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
-      const task = await createTaskFromParams(params);
+      const task = await createTaskFromParams(params as any);
 
       return {
         success: true,
@@ -192,12 +192,12 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
   );
 
   // Task delete command
-  commandMapper.addTaskCommand(
+  (commandMapper as any).addTaskCommand(
     "delete",
     "Delete a task by ID",
     z.object({
       taskId: z.string().describe("ID of the task to delete"),
-      force: z.boolean().optional().describe("Force deletion without confirmation"),
+      force: (z.boolean().optional() as any).describe("Force deletion without confirmation"),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args: any) => {
@@ -215,15 +215,15 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
-      const result = await deleteTaskFromParams(params);
+      const result = await deleteTaskFromParams(params as any);
 
       return {
-        success: result.success,
-        taskId: result.taskId,
-        task: result.task,
-        message: result.success 
-          ? `Task ${result.taskId} deleted successfully`
-          : `Failed to delete task ${result.taskId}`,
+        success: (result as any).success,
+        taskId: (result as any).taskId,
+        task: (result as any).task,
+        message: (result as any).success 
+          ? `Task ${(result as any).taskId} deleted successfully`
+          : `Failed to delete task ${(result as any).taskId}`,
       } as any;
     }
   );

@@ -24,7 +24,7 @@ const initParams: CommandParameterMap = {
     required: false,
   },
   backend: {
-    schema: z.enum(["markdown", "json-file", "github-issues"]).optional(),
+    schema: z.string().optional(),
     description: "Task backend type (markdown, json-file, github-issues)",
     required: false,
   },
@@ -87,7 +87,7 @@ export function registerInitCommands() {
     name: "init",
     description: "Initialize a project for Minsky",
     parameters: initParams,
-    execute: async (params, _ctx: CommandExecutionContext) => {
+    execute: async (params: any, _ctx: CommandExecutionContext) => {
       try {
         // Map CLI params to domain params
         const repoPath = params.repo || params.workspacePath || process.cwd();

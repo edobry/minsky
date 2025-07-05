@@ -40,7 +40,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
   const pathResolver = new SessionPathResolver();
 
   // Session edit file tool
-  commandMapper.addTool(
+  (commandMapper as any).addTool(
     "session_edit_file",
     "Edit a file within a session workspace using a diff-like format",
     z.object({
@@ -48,15 +48,14 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
       path: z.string().describe("Path to the file within the session workspace"),
       instructions: z.string().describe("Instructions describing the edit to make"),
       content: z.string().describe("The edit content with '// ... existing code ...' markers"),
-      createDirs: z
+      createDirs: (z
         .boolean()
         .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
+        .default(true) as any).describe("Create parent directories if they don't exist"),
     }),
     async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
+        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
 
         // Check if file exists
         let fileExists = false;
@@ -72,20 +71,20 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         }
 
         // If file doesn't exist and we have existing code markers, that's an error
-        if (!fileExists && (args.content).toString().includes("// ... existing code ...")) {
+        if (!fileExists && (((args.content) as any).toString() as any).includes("// ... existing code ...")) {
           throw new Error(
-            `Cannot apply edits with existing code markers to non-existent file: ${args.path}`
+            `Cannot apply edits with existing code markers to non-existent file: ${(args as any).path}`
           );
         }
 
         let finalContent: string;
 
-        if (fileExists && (args.content).toString().includes("// ... existing code ...")) {
+        if (fileExists && (((args.content) as any).toString() as any).includes("// ... existing code ...")) {
           // Apply the edit pattern
-          finalContent = applyEditPattern(originalContent, args.content);
+          finalContent = applyEditPattern(originalContent, (args as any).content);
         } else {
           // Direct write for new files or complete replacements
-          finalContent = args.content;
+          finalContent = (args as any).content;
         }
 
         // Create parent directories if needed
@@ -98,41 +97,41 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         await writeFile(resolvedPath, finalContent, "utf8");
 
         log.debug("Session file edit successful", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           resolvedPath,
           fileExisted: fileExists,
-          contentLength: finalContent.length,
+          contentLength: (finalContent as any).length,
         });
 
         return {
           success: true,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
           edited: true,
           created: !fileExists,
-          bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
+          bytesWritten: (Buffer.from(finalContent, "utf8") as any).byteLength,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorMessage = getErrorMessage(error as any);
         log.error("Session file edit failed", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
         };
       }
     }
   );
 
   // Session search replace tool
-  commandMapper.addTool(
+  (commandMapper as any).addTool(
     "session_search_replace",
     "Replace a single occurrence of text in a file within a session workspace",
     z.object({
@@ -143,10 +142,10 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
     }),
     async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
+        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
 
         // Validate file exists
-        await pathResolver.validatePathExists(resolvedPath);
+        await (pathResolver as any).validatePathExists(resolvedPath);
 
         // Read file content
         const content = (await readFile(resolvedPath, "utf8")) as string;
@@ -165,40 +164,40 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         }
 
         // Perform replacement
-        const newContent = (content).toString().replace(args.search, args.replace);
+        const newContent = (((content) as any).toString() as any).replace(args.search, (args as any).replace);
 
         // Write back
         await writeFile(resolvedPath, newContent, "utf8");
 
         log.debug("Session search replace successful", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           resolvedPath,
-          searchLength: args.search.length,
-          replaceLength: args.replace.length,
+          searchLength: (args.search as any).length,
+          replaceLength: (args.replace as any).length,
         });
 
         return {
           success: true,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
           replaced: true,
           searchText: args.search,
-          replaceText: args.replace,
+          replaceText: (args as any).replace,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorMessage = getErrorMessage(error as any);
         log.error("Session search replace failed", {
-          session: args.session,
-          path: args.path,
+          session: (args as any).session,
+          path: (args as any).path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: args.path,
-          session: args.session,
+          path: (args as any).path,
+          session: (args as any).session,
         };
       }
     }
@@ -213,54 +212,54 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
  */
 function applyEditPattern(originalContent: string, editContent: string): string {
   // If no existing code markers, return the edit content as-is
-  if (!editContent.includes("// ... existing code ...")) {
+  if (!(editContent as any).includes("// ... existing code ...")) {
     return editContent;
   }
 
   // Split the edit content by the existing code marker
   const marker = "// ... existing code ...";
-  const editParts = editContent.split(marker);
+  const editParts = (editContent as any).split(marker);
 
   // If we only have one part, something's wrong
-  if (editParts.length < 2) {
+  if ((editParts as any).length < 2) {
     throw new Error("Invalid edit format: existing code marker found but no content sections");
   }
 
   let result = originalContent;
 
   // Process each pair of before/after content around the markers
-  for (let i = 0; i < editParts.length - 1; i++) {
-    const beforeContent = editParts[i]?.trim() || "";
-    const afterContent = editParts[i + 1]?.trim() || "";
+  for (let i = 0; i < (editParts as any).length - 1; i++) {
+    const beforeContent = (editParts[i] as any).trim() || "";
+    const afterContent = (editParts[i + 1] as any).trim() || "";
 
     // Find where to apply this edit
     if (i === 0 && beforeContent) {
       // First section - match from the beginning
-      const startIndex = result.indexOf(beforeContent);
+      const startIndex = (result as any).indexOf(beforeContent);
       if (startIndex === -1) {
-        throw new Error(`Could not find content to match: "${beforeContent.substring(0, 50)}..."`);
+        throw new Error(`Could not find content to match: "${(beforeContent as any).substring(0, 50)}..."`);
       }
 
       // Find the end of the after content
-      let endIndex = result.length;
-      if (i < editParts.length - 2) {
+      let endIndex = (result as any).length;
+      if (i < (editParts as any).length - 2) {
         // There's another edit section, find where it starts
-        const nextBefore = editParts[i + 2]?.trim() || "";
-        const nextStart = result.indexOf(nextBefore, startIndex + beforeContent.length);
+        const nextBefore = (editParts[i + 2] as any).trim() || "";
+        const nextStart = (result as any).indexOf(nextBefore, startIndex + (beforeContent as any).length);
         if (nextStart !== -1) {
           endIndex = nextStart;
         }
       } else if (afterContent) {
         // Last section with after content
-        const afterIndex = result.lastIndexOf(afterContent);
+        const afterIndex = (result as any).lastIndexOf(afterContent);
         if (afterIndex !== -1) {
-          endIndex = afterIndex + afterContent.length;
+          endIndex = afterIndex + (afterContent as any).length;
         }
       }
 
       // Apply the edit
-      result = `${result.substring(0, startIndex) + beforeContent}\n${result.substring(endIndex)}`;
-    } else if (i === editParts.length - 2 && !afterContent) {
+      result = `${(result as any).substring(0, startIndex) + beforeContent}\n${(result as any).substring(endIndex)}`;
+    } else if (i === (editParts as any).length - 2 && !afterContent) {
       // Last section with no after content - append
       result = `${result}\n${beforeContent}`;
     } else {
@@ -271,22 +270,22 @@ function applyEditPattern(originalContent: string, editContent: string): string 
       const searchEnd = afterContent || "";
 
       if (searchStart) {
-        const startIdx = result.indexOf(searchStart);
+        const startIdx = (result as any).indexOf(searchStart);
         if (startIdx === -1) {
-          throw new Error(`Could not find content to match: "${searchStart.substring(0, 50)}..."`);
+          throw new Error(`Could not find content to match: "${(searchStart as any).substring(0, 50)}..."`);
         }
 
-        let endIdx = result.length;
+        let endIdx = (result as any).length;
         if (searchEnd) {
-          const tempEndIdx = result.indexOf(searchEnd, startIdx + searchStart.length);
+          const tempEndIdx = (result as any).indexOf(searchEnd, startIdx + (searchStart as any).length);
           if (tempEndIdx !== -1) {
-            endIdx = tempEndIdx + searchEnd.length;
+            endIdx = tempEndIdx + (searchEnd as any).length;
           }
         }
 
-        result = `${result.substring(0, startIdx) + searchStart}\n${
+        result = `${(result as any).substring(0, startIdx) + searchStart}\n${
           searchEnd
-        }${endIdx < result.length ? result.substring(endIdx) : ""}`;
+        }${endIdx < (result as any).length ? (result as any).substring(endIdx) : ""}`;
       }
     }
   }
@@ -301,9 +300,9 @@ function countOccurrences(content: string, search: string): number {
   let count = 0;
   let position = 0;
 
-  while ((position = (content).toString().indexOf(search, position)) !== -1) {
+  while ((position = (((content) as any).toString() as any).indexOf(search, position)) !== -1) {
     count++;
-    position += search.length;
+    position += (search as any).length;
   }
 
   return count;

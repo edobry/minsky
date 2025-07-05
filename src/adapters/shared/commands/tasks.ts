@@ -63,7 +63,7 @@ const tasksStatusGetParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -111,7 +111,7 @@ const tasksStatusSetParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -152,7 +152,7 @@ const tasksSpecParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -163,15 +163,15 @@ const tasksSpecParams: CommandParameterMap = {
  */
 const tasksStatusGetRegistration = {
   id: "tasks.status.get",
-  category: CommandCategory.TASKS,
+  category: (CommandCategory as any).TASKS,
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
   execute: async (params, ctx: CommandExecutionContext) => {
-    const normalizedTaskId = normalizeTaskId(params.taskId);
+    const normalizedTaskId = normalizeTaskId((params as any).taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${(params as any).taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const status = await getTaskStatusFromParams({
@@ -191,20 +191,20 @@ const tasksStatusGetRegistration = {
  */
 const tasksStatusSetRegistration = {
   id: "tasks.status.set",
-  category: CommandCategory.TASKS,
+  category: (CommandCategory as any).TASKS,
   name: "status set",
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
     log.debug("Starting tasks.status.set execution");
-    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!(params as any).taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Normalize and validate task ID first
     log.debug("About to normalize task ID");
-    const normalizedTaskId = normalizeTaskId(params.taskId);
+    const normalizedTaskId = normalizeTaskId((params as any).taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${(params as any).taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
 
@@ -213,19 +213,19 @@ const tasksStatusSetRegistration = {
     log.debug("About to get previous status");
     const previousStatus = await getTaskStatusFromParams({
       taskId: normalizedTaskId,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
-      backend: params.backend,
+      repo: (params as any).repo,
+      workspace: (params as any).workspace,
+      session: (params as any).session,
+      backend: (params as any).backend,
     });
     log.debug("Previous status retrieved successfully");
 
-    let status = params.status;
+    let status = (params as any).status;
 
     // If status is not provided, prompt for it interactively
     if (!status) {
       // Check if we're in an interactive environment
-      if (!process.stdout.isTTY) {
+      if (!(process.stdout as any).isTTY) {
         throw new ValidationError("Status parameter is required in non-interactive mode");
       }
 
@@ -241,7 +241,7 @@ const tasksStatusSetRegistration = {
 
       // Find the index of the current status to pre-select it
       const currentStatusIndex = statusOptions.findIndex(
-        (option) => option.value === previousStatus
+        (option) => (option as any).value === previousStatus
       );
       const initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0; // Default to TODO if current status not found
 
@@ -267,10 +267,10 @@ const tasksStatusSetRegistration = {
     await setTaskStatusFromParams({
       taskId: normalizedTaskId,
       status: status,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
-      backend: params.backend,
+      repo: (params as any).repo,
+      workspace: (params as any).workspace,
+      session: (params as any).session,
+      backend: (params as any).backend,
     });
 
     return {
@@ -287,16 +287,16 @@ const tasksStatusSetRegistration = {
  */
 const tasksSpecRegistration = {
   id: "tasks.spec",
-  category: CommandCategory.TASKS,
+  category: (CommandCategory as any).TASKS,
   name: "spec",
   description: "Get task specification content",
   parameters: tasksSpecParams,
   execute: async (params, ctx: CommandExecutionContext) => {
     try {
-      const normalizedTaskId = normalizeTaskId(params.taskId);
+      const normalizedTaskId = normalizeTaskId((params as any).taskId);
       if (!normalizedTaskId) {
         throw new ValidationError(
-          `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+          `Invalid task ID: '${(params as any).taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
       const result = await getTaskSpecContentFromParams({
@@ -338,7 +338,7 @@ const tasksListParams: CommandParameterMap = {
     required: false,
   },
   all: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: "Include completed tasks",
     required: false,
   },
@@ -363,7 +363,7 @@ const tasksListParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -399,7 +399,7 @@ const tasksGetParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -425,7 +425,7 @@ const tasksCreateParams: CommandParameterMap = {
     required: false,
   },
   force: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: "Force creation even if task already exists",
     required: false,
     defaultValue: false,
@@ -451,7 +451,7 @@ const tasksCreateParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -462,7 +462,7 @@ const tasksCreateParams: CommandParameterMap = {
  */
 const tasksListRegistration = {
   id: "tasks.list",
-  category: CommandCategory.TASKS,
+  category: (CommandCategory as any).TASKS,
   name: "list",
   description: "List tasks with optional filtering",
   parameters: tasksListParams,
@@ -485,18 +485,18 @@ const tasksListRegistration = {
  */
 const tasksGetRegistration = {
   id: "tasks.get",
-  category: CommandCategory.TASKS,
+  category: (CommandCategory as any).TASKS,
   name: "get",
   description: "Get a task by ID",
   parameters: tasksGetParams,
   execute: async (params, ctx) => {
-    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!(params as any).taskId) throw new ValidationError("Missing required parameter: taskId");
     return await getTaskFromParams({
-      taskId: params.taskId,
-      backend: params.backend,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
+      taskId: (params as any).taskId,
+      backend: (params as any).backend,
+      repo: (params as any).repo,
+      workspace: (params as any).workspace,
+      session: (params as any).session,
     });
   },
 };
@@ -506,37 +506,37 @@ const tasksGetRegistration = {
  */
 const tasksCreateRegistration = {
   id: "tasks.create",
-  category: CommandCategory.TASKS,
+  category: (CommandCategory as any).TASKS,
   name: "create",
   description: "Create a new task with --title and --description",
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
     // Title is required by schema, but validate it's provided
-    if (!params.title) {
+    if (!(params as any).title) {
       throw new ValidationError("Title is required");
     }
 
     // Validate that either description or descriptionPath is provided
-    if (!params.description && !params.descriptionPath) {
+    if (!(params as any).description && !(params as any).descriptionPath) {
       throw new ValidationError("Either --description or --description-path must be provided");
     }
 
     // Both description and descriptionPath provided is an error
-    if (params.description && params.descriptionPath) {
+    if ((params as any).description && (params as any).descriptionPath) {
       throw new ValidationError(
         "Cannot provide both --description and --description-path - use one or the other"
       );
     }
 
     return await createTaskFromTitleAndDescription({
-      title: params.title,
-      description: params.description,
-      descriptionPath: params.descriptionPath,
-      force: params.force ?? false,
-      backend: params.backend,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
+      title: (params as any).title,
+      description: (params as any).description,
+      descriptionPath: (params as any).descriptionPath,
+      force: (params as any).force ?? false,
+      backend: (params as any).backend,
+      repo: (params as any).repo,
+      workspace: (params as any).workspace,
+      session: (params as any).session,
     });
   },
 };
@@ -551,7 +551,7 @@ const tasksDeleteParams: CommandParameterMap = {
     required: true,
   },
   force: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: "Force deletion without confirmation",
     required: false,
     defaultValue: false,
@@ -577,7 +577,7 @@ const tasksDeleteParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: z.boolean().default(false),
+    schema: (z.boolean() as any).default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -588,60 +588,60 @@ const tasksDeleteParams: CommandParameterMap = {
  */
 const tasksDeleteRegistration = {
   id: "tasks.delete",
-  category: CommandCategory.TASKS,
+  category: (CommandCategory as any).TASKS,
   name: "delete",
   description: "Delete a task",
   parameters: tasksDeleteParams,
   execute: async (params, ctx) => {
-    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!(params as any).taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Handle confirmation if force is not set and we're in interactive mode
-    if (!params.force && !params.json) {
+    if (!(params as any).force && !(params as any).json) {
       // Get task details for confirmation
       const task = await getTaskFromParams({
-        taskId: params.taskId,
-        backend: params.backend,
-        repo: params.repo,
-        workspace: params.workspace,
-        session: params.session,
+        taskId: (params as any).taskId,
+        backend: (params as any).backend,
+        repo: (params as any).repo,
+        workspace: (params as any).workspace,
+        session: (params as any).session,
       });
 
       // Import confirm from @clack/prompts for confirmation
       const { confirm, isCancel } = await import("@clack/prompts");
 
       const shouldDelete = await confirm({
-        message: `Are you sure you want to delete task ${task.id}: "${task.title}"?`,
+        message: `Are you sure you want to delete task ${(task as any).id}: "${(task as any).title}"?`,
       });
 
       if (isCancel(shouldDelete) || !shouldDelete) {
         return {
           success: false,
           message: "Task deletion cancelled",
-          taskId: params.taskId,
+          taskId: (params as any).taskId,
         };
       }
     }
 
     const result = await deleteTaskFromParams({
-      taskId: params.taskId,
-      force: params.force ?? false,
-      backend: params.backend,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
+      taskId: (params as any).taskId,
+      force: (params as any).force ?? false,
+      backend: (params as any).backend,
+      repo: (params as any).repo,
+      workspace: (params as any).workspace,
+      session: (params as any).session,
     }) as any;
 
-    const message = result.success
-      ? `Task ${result.taskId} deleted successfully`
-      : `Failed to delete task ${result.taskId}`;
+    const message = (result as any).success
+      ? `Task ${(result as any).taskId} deleted successfully`
+      : `Failed to delete task ${(result as any).taskId}`;
 
     // Return different formats based on --json flag
-    if (params.json) {
+    if ((params as any).json) {
       // Structured output for programmatic use
       return {
-        success: result.success,
-        taskId: result.taskId,
-        task: result.task,
+        success: (result as any).success,
+        taskId: (result as any).taskId,
+        task: (result as any).task,
         message: message,
       } as any;
     } else {
@@ -653,23 +653,23 @@ const tasksDeleteRegistration = {
 
 export function registerTasksCommands() {
   // Register tasks.list command
-  sharedCommandRegistry.registerCommand(tasksListRegistration);
+  (sharedCommandRegistry as any).registerCommand(tasksListRegistration);
 
   // Register tasks.get command
-  sharedCommandRegistry.registerCommand(tasksGetRegistration);
+  (sharedCommandRegistry as any).registerCommand(tasksGetRegistration);
 
   // Register tasks.create command
-  sharedCommandRegistry.registerCommand(tasksCreateRegistration);
+  (sharedCommandRegistry as any).registerCommand(tasksCreateRegistration);
 
   // Register tasks.delete command
-  sharedCommandRegistry.registerCommand(tasksDeleteRegistration);
+  (sharedCommandRegistry as any).registerCommand(tasksDeleteRegistration);
 
   // Register tasks.status.get command
-  sharedCommandRegistry.registerCommand(tasksStatusGetRegistration);
+  (sharedCommandRegistry as any).registerCommand(tasksStatusGetRegistration);
 
   // Register tasks.status.set command
-  sharedCommandRegistry.registerCommand(tasksStatusSetRegistration);
+  (sharedCommandRegistry as any).registerCommand(tasksStatusSetRegistration);
 
   // Register tasks.spec command
-  sharedCommandRegistry.registerCommand(tasksSpecRegistration);
+  (sharedCommandRegistry as any).registerCommand(tasksSpecRegistration);
 }

@@ -32,8 +32,8 @@ export class SessionDbAdapter implements SessionProviderInterface {
       
       try {
         // Check if sessiondb config exists before trying to get it
-        if (config.has("sessiondb")) {
-          sessionDbConfig = config.get("sessiondb") as any;
+        if ((config as any).has("sessiondb")) {
+          sessionDbConfig = (config as any).get("sessiondb") as any;
         } else {
           log.debug("Session database configuration not found in config, using defaults");
           sessionDbConfig = null;
@@ -41,7 +41,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       } catch (error) {
         // Fallback to defaults when config is not available (e.g., running from outside project directory)
         log.debug("Configuration not available, using default session storage settings", {
-          error: getErrorMessage(error),
+          error: getErrorMessage(error as any),
         });
         sessionDbConfig = null;
       }
@@ -59,19 +59,19 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
       // Convert SessionDbConfig to StorageConfig
       const storageConfig: Partial<StorageConfig> = {
-        backend: sessionDbConfig.backend as "json" | "sqlite" | "postgres",
+        backend: (sessionDbConfig as any).backend as "json" | "sqlite" | "postgres",
       };
 
-      if (sessionDbConfig.backend === "sqlite" && sessionDbConfig.dbPath) {
-        storageConfig.sqlite = { dbPath: this.expandPath(sessionDbConfig.dbPath) };
-      } else if (sessionDbConfig.backend === "postgres" && sessionDbConfig.connectionString) {
-        storageConfig.postgres = { connectionUrl: sessionDbConfig.connectionString };
-      } else if (sessionDbConfig.backend === "json" && sessionDbConfig.dbPath) {
-        storageConfig.json = { filePath: this.expandPath(sessionDbConfig.dbPath) };
+      if ((sessionDbConfig as any).backend === "sqlite" && (sessionDbConfig as any).dbPath) {
+        (storageConfig as any).sqlite = { dbPath: this.expandPath((sessionDbConfig as any).dbPath) };
+      } else if ((sessionDbConfig as any).backend === "postgres" && (sessionDbConfig as any).connectionString) {
+        (storageConfig as any).postgres = { connectionUrl: (sessionDbConfig as any).connectionString };
+      } else if ((sessionDbConfig as any).backend === "json" && (sessionDbConfig as any).dbPath) {
+        (storageConfig as any).json = { filePath: this.expandPath((sessionDbConfig as any).dbPath) };
       }
 
       this.storage = createStorageBackend(storageConfig);
-      await this.storage.initialize();
+      await (this.storage as any).initialize();
     }
     return this.storage;
   }
@@ -80,11 +80,11 @@ export class SessionDbAdapter implements SessionProviderInterface {
    * Expand tilde and environment variables in file paths
    */
   private expandPath(filePath: string): string {
-    if (filePath.startsWith("~/")) {
-      return join(homedir(), filePath.slice(2));
+    if ((filePath as any).startsWith("~/")) {
+      return join(homedir(), (filePath as any).slice(2));
     }
-    if (filePath.startsWith("$HOME/")) {
-      return join(homedir(), filePath.slice(6));
+    if ((filePath as any).startsWith("$HOME/")) {
+      return join(homedir(), (filePath as any).slice(6));
     }
     return filePath;
   }
@@ -92,9 +92,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async listSessions(): Promise<SessionRecord[]> {
     try {
       const storage = await this.getStorage();
-      return await storage.getEntities();
+      return await (storage as any).getEntities();
     } catch (error) {
-      log.error(`Error listing sessions: ${getErrorMessage(error)}`);
+      log.error(`Error listing sessions: ${getErrorMessage(error as any)}`);
       return [];
     }
   }
@@ -102,9 +102,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async getSession(session: string): Promise<SessionRecord | null> {
     try {
       const storage = await this.getStorage();
-      return await storage.getEntity(session);
+      return await (storage as any).getEntity(session);
     } catch (error) {
-      log.error(`Error getting session: ${getErrorMessage(error)}`);
+      log.error(`Error getting session: ${getErrorMessage(error as any)}`);
       return null as any;
     }
   }
@@ -113,12 +113,12 @@ export class SessionDbAdapter implements SessionProviderInterface {
     try {
       const storage = await this.getStorage();
       // Normalize taskId for consistent searching
-      const normalizedTaskId = taskId.replace(/^#/, "");
-      const sessions = await storage.getEntities({ taskId: normalizedTaskId });
-      const session = sessions.length > 0 ? sessions[0] : null as any;
+      const normalizedTaskId = (taskId as any).replace(/^#/, "");
+      const sessions = await (storage as any).getEntities({ taskId: normalizedTaskId });
+      const session = (sessions as any).length > 0 ? sessions[0] : null as any;
       return session || null;
     } catch (error) {
-      log.error(`Error getting session by task ID: ${getErrorMessage(error)}`);
+      log.error(`Error getting session by task ID: ${getErrorMessage(error as any)}`);
       return null as any;
     }
   }
@@ -126,9 +126,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async addSession(record: SessionRecord): Promise<void> {
     try {
       const storage = await this.getStorage();
-      await storage.createEntity(record);
+      await (storage as any).createEntity(record as any);
     } catch (error) {
-      log.error(`Error adding session: ${getErrorMessage(error)}`);
+      log.error(`Error adding session: ${getErrorMessage(error as any)}`);
       throw error;
     }
   }
@@ -139,12 +139,12 @@ export class SessionDbAdapter implements SessionProviderInterface {
   ): Promise<void> {
     try {
       const storage = await this.getStorage();
-      const result = await storage.updateEntity(session, updates);
+      const result = await (storage as any).updateEntity(session, updates);
       if (!result) {
         throw new Error(`Session '${session}' not found`);
       }
     } catch (error) {
-      log.error(`Error updating session: ${getErrorMessage(error)}`);
+      log.error(`Error updating session: ${getErrorMessage(error as any)}`);
       throw error;
     }
   }
@@ -152,9 +152,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async deleteSession(session: string): Promise<boolean> {
     try {
       const storage = await this.getStorage();
-      return await storage.deleteEntity(session);
+      return await (storage as any).deleteEntity(session);
     } catch (error) {
-      log.error(`Error deleting session: ${getErrorMessage(error)}`);
+      log.error(`Error deleting session: ${getErrorMessage(error as any)}`);
       return false;
     }
   }
@@ -165,21 +165,21 @@ export class SessionDbAdapter implements SessionProviderInterface {
     }
 
     // Handle different record types (SessionRecord, SessionResult, etc.)
-    if (record.sessionRecord) {
-      return this.getRepoPath(record.sessionRecord);
+    if ((record as any).sessionRecord) {
+      return this.getRepoPath((record as any).sessionRecord);
     }
 
-    if (record.cloneResult && record.cloneResult.workdir) {
-      return record.cloneResult.workdir;
+    if ((record as any).cloneResult && (record.cloneResult as any).workdir) {
+      return (record.cloneResult as any).workdir;
     }
 
-    if (record.workdir) {
-      return record.workdir;
+    if ((record as any).workdir) {
+      return (record as any).workdir;
     }
 
     // Use the functional implementation to compute the path
     const state = await this.getState();
-    return getRepoPathFn(state, record);
+    return getRepoPathFn(state, record as any);
   }
 
   async getSessionWorkdir(sessionName: string): Promise<string> {
@@ -196,16 +196,16 @@ export class SessionDbAdapter implements SessionProviderInterface {
   private async getState(): Promise<SessionDbState> {
     try {
       const storage = await this.getStorage();
-      const result = await storage.readState();
+      const result = await (storage as any).readState();
 
-      if (result.success && result.data) {
-        return result.data as any;
+      if ((result as any).success && (result as any).data) {
+        return (result as any).data as any;
       }
 
       // Return initialized state if read fails
       return initializeSessionDbState();
     } catch (error) {
-      log.warn(`Error reading storage state, using defaults: ${getErrorMessage(error)}`);
+      log.warn(`Error reading storage state, using defaults: ${getErrorMessage(error as any)}`);
       return initializeSessionDbState();
     }
   }
@@ -216,8 +216,8 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async getStorageInfo(): Promise<{ backend: string; location: string }> {
     const storage = await this.getStorage();
     return {
-      backend: storage.constructor.name,
-      location: storage.getStorageLocation(),
+      backend: (storage.constructor as any).name,
+      location: (storage as any).getStorageLocation(),
     };
   }
 }

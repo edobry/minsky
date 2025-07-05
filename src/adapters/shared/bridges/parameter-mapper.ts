@@ -48,38 +48,36 @@ export interface ParameterMapping {
  * Creates an array of Command Option objects from parameter mappings
  */
 export function createOptionsFromMappings(mappings: ParameterMapping[]): Option[] {
-  return mappings.filter((mapping) => !mapping.options.asArgument).map(createOptionFromMapping);
+  return ((mappings as any).filter((mapping) => !mapping.options.asArgument) as any).map(createOptionFromMapping);
 }
 
 /**
  * Adds arguments to a command from parameter mappings
  */
 export function addArgumentsFromMappings(command: Command, mappings: ParameterMapping[]): Command {
-  mappings
-    .filter((mapping) => mapping.options.asArgument)
+  ((mappings as any).filter((mapping) => mapping.options.asArgument)
     .sort((a, b) => {
       // Required arguments come first
       if (a.paramDef.required && !b.paramDef.required) return -1;
       if (!a.paramDef.required && b.paramDef.required) return 1;
       return 0;
-    })
-    .forEach((mapping) => {
-      // Schema type not needed for arguments, only for options
+    }) as any).forEach((mapping) => {
+    // Schema type not needed for arguments, only for options
 
-      // Format the argument name
-      const argName = formatArgumentName(
-        mapping.name,
-        mapping.paramDef.required,
-        mapping.options.variadic
-      );
+    // Format the argument name
+    const argName = formatArgumentName(
+      (mapping as any).name,
+      (mapping.paramDef as any).required,
+      (mapping.options as any).variadic
+    );
 
-      // Add the argument to the command
-      command.argument(
-        argName,
-        mapping.options.description || mapping.paramDef.description || "",
-        mapping.options.parser
-      );
-    });
+    // Add the argument to the command
+    command.argument(
+      argName,
+      (mapping.options as any).description || (mapping.paramDef as any).description || "",
+      (mapping.options as any).parser
+    );
+  });
 
   return command;
 }
@@ -91,25 +89,25 @@ function createOptionFromMapping(mapping: ParameterMapping): Option {
   const { name, paramDef, options } = mapping;
 
   // Get schema type for proper option definition
-  const schemaType = getZodSchemaType(paramDef.schema);
+  const schemaType = getZodSchemaType((paramDef as any).schema);
 
   // Format option flag
-  const flag = formatOptionFlag(name, options.alias, schemaType);
+  const flag = formatOptionFlag(name, (options as any).alias, schemaType);
 
   // Create the option
-  const option = new Option(flag, options.description || paramDef.description || "");
+  const option = new Option(flag, (options as any).description || (paramDef as any).description || "");
 
   // Apply additional configuration
-  if (options.hidden) {
+  if ((options as any).hidden) {
     option.hideHelp();
   }
 
-  if (paramDef.defaultValue !== undefined || options.defaultValue !== undefined) {
-    option.default(options.defaultValue ?? paramDef.defaultValue);
+  if ((paramDef as any).defaultValue !== undefined || (options as any).defaultValue !== undefined) {
+    option.default((options as any).defaultValue ?? (paramDef as any).defaultValue);
   }
 
   // Add proper type handling based on schema
-  addTypeHandlingToOption(option, schemaType, options.parser);
+  addTypeHandlingToOption(option, schemaType, (options as any).parser);
 
   return option;
 }
@@ -174,7 +172,7 @@ function addTypeHandlingToOption(
   switch (schemaType) {
   case "number":
     return option.argParser((value) => {
-      const num = Number(value);
+      const num = Number(value as any);
       if (isNaN(num)) {
         throw new Error("Option requires a number value");
       }
@@ -185,7 +183,7 @@ function addTypeHandlingToOption(
     return option;
 
   case "array":
-    return option.argParser((value) => value.split(",").map((v) => v.trim()));
+    return option.argParser((value) => ((value as any).split(",") as any).map((v) => (v as any).trim()));
 
   default:
     return option;
@@ -206,12 +204,12 @@ function getZodSchemaType(schema: z.ZodTypeAny): string | undefined {
 
   // Handle optional types and nullable types (unwrap and check inner type)
   if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
-    return getZodSchemaType(schema.unwrap());
+    return getZodSchemaType((schema as any).unwrap());
   }
 
   // Handle default types (access inner type differently)
   if (schema instanceof z.ZodDefault) {
-    return getZodSchemaType(schema._def.innerType);
+    return getZodSchemaType((schema._def as any).innerType);
   }
 
   // Handle enums
@@ -228,12 +226,12 @@ export function createParameterMappings(
   parameters: Record<string, CommandParameterDefinition>,
   customOptions: Record<string, ParameterMappingOptions> = {}
 ): ParameterMapping[] {
-  return Object.entries(parameters).map(([name, paramDef]) => ({
+  return (Object.entries(parameters) as any).map(([name, paramDef]) => ({
     name,
     paramDef,
     options: {
       // Apply default options
-      hidden: paramDef.cliHidden,
+      hidden: (paramDef as any).cliHidden,
 
       // Override with custom options if available
       ...customOptions[name],
@@ -251,17 +249,17 @@ export function normalizeCliParameters(
   const result: Record<string, any> = {};
 
   // Process each parameter
-  for (const [paramName, paramDef] of Object.entries(parametersSchema)) {
+  for (const [paramName, paramDef] of (Object as any).entries(parametersSchema)) {
     const rawValue = cliParameters[paramName];
 
     // Handle undefined values
     if (rawValue === undefined) {
       // Use default value if available
-      if (paramDef.defaultValue !== undefined) {
-        result[paramName] = paramDef.defaultValue;
+      if ((paramDef as any).defaultValue !== undefined) {
+        (result as any)[paramName] = (paramDef as any).defaultValue;
       }
       // Skip optional parameters
-      if (!paramDef.required) {
+      if (!(paramDef as any).required) {
         continue;
       }
       // Error for required parameters without default
@@ -269,10 +267,10 @@ export function normalizeCliParameters(
     } else {
       // Parse and validate the value
       try {
-        const parsedValue = paramDef.schema.parse(rawValue);
-        result[paramName] = parsedValue;
+        const parsedValue = (paramDef.schema as any).parse(rawValue);
+        (result as any)[paramName] = parsedValue;
       } catch (error) {
-        throw new Error(`Invalid value for parameter '${paramName}': ${getErrorMessage(error)}`);
+        throw new Error(`Invalid value for parameter '${paramName}': ${getErrorMessage(error as any)}`);
       }
     }
   }

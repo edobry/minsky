@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { Project, SyntaxKind, Node, CallExpression } from "ts-morph";
+import { Project, SyntaxKind } from "ts-morph";
 import { readdirSync, statSync } from "fs";
 import { join } from "path";
 
@@ -42,187 +42,139 @@ sourceFiles.forEach(file => project.addSourceFileAtPath(file));
 let totalChanges = 0;
 let filesModified = 0;
 
-console.log("🎯 Starting comprehensive TS2345 'Argument type not assignable' fixer...");
-console.log(`📊 Target: 35 TS2345 errors (21.2% of remaining 165 errors)`);
+console.log("🎯 Starting precise fix for TS2345 argument errors...");
+console.log(`📊 Target: Fix specific argument type mismatches`);
 console.log(`📁 Processing ${sourceFiles.length} source files...`);
 
 // Process each source file
 project.getSourceFiles().forEach(sourceFile => {
   const filePath = sourceFile.getFilePath();
-  const fileName = filePath.split('/').pop();
+  const fileName = filePath.split('/').pop() || 'unknown';
   let fileChanges = 0;
   
-  // Pattern 1: Function call arguments that need type assertions
-  sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression).forEach(callExpr => {
-    const args = callExpr.getArguments();
-    
-    args.forEach(arg => {
-      const argText = arg.getText().trim();
+  try {
+    // Fix 1: cli-bridge.ts - Add null check before addCommand
+    if (fileName === 'cli-bridge.ts') {
+      // Find all if statements that check for childCommand
+      const ifStatements = sourceFile.getDescendantsOfKind(SyntaxKind.IfStatement);
       
-      // Skip if already has type assertion or is complex expression
-      if (argText.includes(' as ') || 
-          argText.includes('await ') || 
-          argText.includes('()') ||
-          argText.length > 50) {
-        return;
-      }
-      
-      const argKind = arg.getKind();
-      
-      // Fix identifier arguments that commonly cause TS2345
-      if (argKind === SyntaxKind.Identifier) {
-        const identifierPatterns = [
-          'error', 'err', 'e',
-          'result', 'data', 'response', 'output',
-          'config', 'options', 'params', 'context',
-          'metadata', 'info', 'details',
-          'value', 'item', 'element',
-          'record', 'entry', 'obj'
-        ];
-        
-        if (identifierPatterns.includes(argText)) {
-          arg.replaceWithText(`${argText} as any`);
-          fileChanges++;
-          totalChanges++;
-        }
-      }
-      
-      // Fix property access expressions
-      else if (argKind === SyntaxKind.PropertyAccessExpression) {
-        const propAccess = arg.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
-        const expression = propAccess.getExpression();
-        const property = propAccess.getName();
-        
-        if (expression.getKind() === SyntaxKind.Identifier) {
-          const exprText = expression.getText();
-          const commonObjects = ['error', 'result', 'data', 'config', 'options', 'params'];
-          const commonProps = ['message', 'code', 'status', 'type', 'name', 'id', 'length'];
+             for (const ifStmt of ifStatements) {
+         const condition = ifStmt.getExpression();
+         
+         // Look for if (childCommand) statements
+         if (condition.getKind() === SyntaxKind.Identifier && 
+             condition.getText() === 'childCommand') {
           
-          if (commonObjects.includes(exprText) && commonProps.includes(property)) {
-            arg.replaceWithText(`(${exprText} as any).${property}`);
-            fileChanges++;
-            totalChanges++;
-          }
-        }
-      }
-      
-      // Fix element access expressions
-      else if (argKind === SyntaxKind.ElementAccessExpression) {
-        const elemAccess = arg.asKindOrThrow(SyntaxKind.ElementAccessExpression);
-        const expression = elemAccess.getExpression();
-        
-        if (expression.getKind() === SyntaxKind.Identifier) {
-          const exprText = expression.getText();
-          const argumentExpr = elemAccess.getArgumentExpression();
-          
-          if (argumentExpr) {
-            const argExprText = argumentExpr.getText();
-            arg.replaceWithText(`(${exprText} as any)[${argExprText}]`);
-            fileChanges++;
-            totalChanges++;
-          }
-        }
-      }
-      
-      // Fix object literal expressions with type issues
-      else if (argKind === SyntaxKind.ObjectLiteralExpression) {
-        const objLiteral = arg.asKindOrThrow(SyntaxKind.ObjectLiteralExpression);
-        const properties = objLiteral.getProperties();
-        
-        // Add type assertion for objects with common problematic patterns
-        if (properties.length > 0) {
-          const hasCommonProps = properties.some(prop => {
-            if (prop.getKind() === SyntaxKind.PropertyAssignment) {
-              const propAssign = prop.asKindOrThrow(SyntaxKind.PropertyAssignment);
-              const name = propAssign.getName();
-              return ['type', 'kind', 'status', 'code', 'message'].includes(name);
+          const thenStatement = ifStmt.getThenStatement();
+          if (thenStatement.getKind() === SyntaxKind.Block) {
+            const block = thenStatement.asKindOrThrow(SyntaxKind.Block);
+            const statements = block.getStatements();
+            
+            // Look for addCommand calls that need fixing
+            for (const stmt of statements) {
+              if (stmt.getKind() === SyntaxKind.ExpressionStatement) {
+                const expr = stmt.asKindOrThrow(SyntaxKind.ExpressionStatement).getExpression();
+                
+                // Check if it's a call expression to addCommand with non-null assertion
+                if (expr.getKind() === SyntaxKind.CallExpression) {
+                  const callExpr = expr.asKindOrThrow(SyntaxKind.CallExpression);
+                  const callText = callExpr.getText();
+                  
+                  // Look for addCommand calls with non-null assertion
+                  if (callText.includes('addCommand(childCommand!)')) {
+                    // Replace childCommand! with just childCommand since we're inside an if(childCommand) block
+                    const newText = callText.replace('childCommand!', 'childCommand');
+                    callExpr.replaceWithText(newText);
+                    fileChanges++;
+                    totalChanges++;
+                    console.log(`  ✅ Fixed addCommand non-null assertion in ${fileName}`);
+                  }
+                }
+              }
             }
-            return false;
-          });
-          
-          if (hasCommonProps) {
-            arg.replaceWithText(`${argText} as any`);
-            fileChanges++;
-            totalChanges++;
           }
         }
       }
-      
-      // Fix array expressions that need type assertions
-      else if (argKind === SyntaxKind.ArrayLiteralExpression) {
-        const arrayLiteral = arg.asKindOrThrow(SyntaxKind.ArrayLiteralExpression);
-        const elements = arrayLiteral.getElements();
-        
-        // Add type assertion for arrays with mixed or complex types
-        if (elements.length > 0) {
-          arg.replaceWithText(`${argText} as any[]`);
-          fileChanges++;
-          totalChanges++;
-        }
-      }
-    });
-  });
-  
-  // Pattern 2: Method call arguments (object.method(args))
-  sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression).forEach(propAccess => {
-    const parent = propAccess.getParent();
-    
-    if (parent?.getKind() === SyntaxKind.CallExpression) {
-      const callExpr = parent.asKindOrThrow(SyntaxKind.CallExpression);
-      const args = callExpr.getArguments();
-      
-      args.forEach(arg => {
-        const argText = arg.getText().trim();
-        
-        if (!argText.includes(' as ') && arg.getKind() === SyntaxKind.Identifier) {
-          const commonMethodArgs = ['error', 'result', 'data', 'callback', 'handler'];
-          
-          if (commonMethodArgs.includes(argText)) {
-            arg.replaceWithText(`${argText} as any`);
-            fileChanges++;
-            totalChanges++;
-          }
-        }
-      });
     }
-  });
-  
-  // Pattern 3: Constructor arguments (new Class(args))
-  sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression).forEach(newExpr => {
-    const args = newExpr.getArguments();
     
-    args.forEach(arg => {
-      const argText = arg.getText().trim();
+    // Fix 2: git.ts - Add missing workdir property to clone call
+    if (fileName === 'git.ts') {
+      const functions = sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration);
       
-      if (!argText.includes(' as ') && arg.getKind() === SyntaxKind.Identifier) {
-        const constructorArgPatterns = ['error', 'message', 'config', 'options', 'data'];
-        
-        if (constructorArgPatterns.includes(argText)) {
-          arg.replaceWithText(`${argText} as any`);
-          fileChanges++;
-          totalChanges++;
+      for (const func of functions) {
+        if (func.getName() === 'cloneFromParams') {
+          // Find the git.clone call
+          const callExpressions = func.getDescendantsOfKind(SyntaxKind.CallExpression);
+          
+          for (const callExpr of callExpressions) {
+            const expression = callExpr.getExpression();
+            
+            // Check if this is a git.clone() call
+            if (expression.getKind() === SyntaxKind.PropertyAccessExpression) {
+              const propAccess = expression.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
+              
+              if (propAccess.getName() === 'clone') {
+                const args = callExpr.getArguments();
+                
+                if (args.length === 1 && args[0].getKind() === SyntaxKind.ObjectLiteralExpression) {
+                  const objLiteral = args[0].asKindOrThrow(SyntaxKind.ObjectLiteralExpression);
+                  const properties = objLiteral.getProperties();
+                  
+                  // Check if workdir property is missing
+                  const hasWorkdir = properties.some(prop => 
+                    prop.getKind() === SyntaxKind.PropertyAssignment &&
+                    prop.asKindOrThrow(SyntaxKind.PropertyAssignment).getName() === 'workdir'
+                  );
+                  
+                  if (!hasWorkdir) {
+                    // Add workdir property after repoUrl
+                    const repoUrlProp = properties.find(prop => 
+                      prop.getKind() === SyntaxKind.PropertyAssignment &&
+                      prop.asKindOrThrow(SyntaxKind.PropertyAssignment).getName() === 'repoUrl'
+                    );
+                    
+                    if (repoUrlProp) {
+                      const repoUrlIndex = properties.indexOf(repoUrlProp);
+                      objLiteral.insertPropertyAssignment(repoUrlIndex + 1, {
+                        name: 'workdir',
+                        initializer: '(params as any).workdir'
+                      });
+                      
+                      fileChanges++;
+                      totalChanges++;
+                      console.log(`  ✅ Added missing workdir property to git.clone call in ${fileName}`);
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
-    });
-  });
+    }
+    
+  } catch (error) {
+    console.log(`  ⚠️  Error processing ${fileName}: ${error}`);
+  }
   
   if (fileChanges > 0) {
     filesModified++;
-    console.log(`  ✅ ${fileName}: ${fileChanges} TS2345 fixes applied`);
+    console.log(`  ✅ ${fileName}: ${fileChanges} argument errors fixed`);
   }
 });
 
-console.log(`\n🎉 TS2345 argument error fixer completed!`);
+// Save all changes
+console.log(`\n💾 Saving all changes...`);
+try {
+  project.saveSync();
+  console.log(`✅ All changes saved successfully`);
+} catch (error) {
+  console.log(`❌ Error saving changes: ${error}`);
+}
+
+console.log(`\n🎉 Argument error fixes completed!`);
 console.log(`📊 Total changes applied: ${totalChanges}`);
 console.log(`📁 Files modified: ${filesModified}`);
-console.log(`🎯 Target: 35 TS2345 errors (21.2% of remaining errors)`);
-console.log(`\n🔧 Patterns fixed:`);
-console.log(`  • Function call arguments with type mismatches`);
-console.log(`  • Method call arguments`);
-console.log(`  • Constructor arguments`);
-console.log(`  • Property access in arguments`);
-console.log(`  • Object literal arguments`);
-console.log(`  • Array literal arguments`);
+console.log(`🎯 Target: Fix specific TS2345 argument type mismatches`);
 
-// Save all changes
-project.save(); 
+process.exit(0); 

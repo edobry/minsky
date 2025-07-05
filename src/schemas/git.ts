@@ -15,14 +15,13 @@ import {
 /**
  * Schema for git clone parameters
  */
-export const gitCloneParamsSchema = z
+export const gitCloneParamsSchema = (z
   .object({
     url: z.string().url().describe("URL of the Git repository to clone"),
     directory: pathSchema.optional().describe("Target directory for the clone"),
     branch: z.string().optional().describe("Branch to checkout after cloning"),
     depth: z.number().optional().describe("Create a shallow clone with specified depth"),
-  })
-  .merge(commonCommandOptionsSchema);
+  }) as any).merge(commonCommandOptionsSchema);
 
 /**
  * Type for git clone parameters
@@ -32,12 +31,11 @@ export type GitCloneParams = z.infer<typeof gitCloneParamsSchema>;
 /**
  * Schema for git branch parameters
  */
-export const gitBranchParamsSchema = z
+export const gitBranchParamsSchema = (z
   .object({
     name: z.string().min(1).describe("Name of the _branch to create"),
     repo: repoPathSchema.optional().describe("Path to the git repository"),
-  })
-  .merge(commonCommandOptionsSchema);
+  }) as any).merge(commonCommandOptionsSchema);
 
 /**
  * Type for git branch parameters
@@ -48,7 +46,7 @@ export type GitBranchParams = z.infer<typeof gitBranchParamsSchema>;
  * Common Git options schema
  */
 export const gitCommonOptionsSchema = z.object({
-  ...commonRepoSchema.shape,
+  ...(commonRepoSchema as any).shape,
   branch: z.string().optional().describe("Branch name"),
   remote: z.string().optional().describe("Remote name"),
 });
@@ -56,11 +54,11 @@ export const gitCommonOptionsSchema = z.object({
 /**
  * PR Command parameters schema
  */
-export const createPrParamsSchema = gitCommonOptionsSchema.extend({
-  debug: z.boolean().optional().describe("Enable debug logging"),
-  noStatusUpdate: z.boolean().optional().describe("Skip updating task status"),
-  taskId: taskIdSchema.optional().describe("Task ID associated with this PR"),
-  json: z.boolean().optional().describe("Return output as JSON"),
+export const createPrParamsSchema = (gitCommonOptionsSchema as any).extend({
+  debug: (z.boolean().optional() as any).describe("Enable debug logging"),
+  noStatusUpdate: (z.boolean().optional() as any).describe("Skip updating task status"),
+  taskId: (taskIdSchema.optional() as any).describe("Task ID associated with this PR"),
+  json: (z.boolean().optional() as any).describe("Return output as JSON"),
 });
 
 export type CreatePrParams = z.infer<typeof createPrParamsSchema>;
@@ -68,11 +66,11 @@ export type CreatePrParams = z.infer<typeof createPrParamsSchema>;
 /**
  * Commit command parameters schema
  */
-export const commitChangesParamsSchema = gitCommonOptionsSchema.extend({
+export const commitChangesParamsSchema = (gitCommonOptionsSchema as any).extend({
   message: z.string().min(1).describe("Commit message"),
-  amend: z.boolean().optional().describe("Amend the previous commit"),
-  all: z.boolean().optional().describe("Stage all changes including deletions"),
-  noStage: z.boolean().optional().describe("Skip staging changes"),
+  amend: (z.boolean().optional() as any).describe("Amend the previous commit"),
+  all: (z.boolean().optional() as any).describe("Stage all changes including deletions"),
+  noStage: (z.boolean().optional() as any).describe("Skip staging changes"),
 });
 
 export type CommitChangesParams = z.infer<typeof commitChangesParamsSchema>;
@@ -86,14 +84,13 @@ export type GitCommitParams = z.infer<typeof commitChangesParamsSchema>;
 /**
  * Schema for git push parameters
  */
-export const gitPushParamsSchema = z
+export const gitPushParamsSchema = (z
   .object({
     repo: repoPathSchema.optional().describe("Path to the git repository"),
     remote: z.string().optional().default("origin").describe("Remote to push to"),
     branch: z.string().optional().describe("Branch to push"),
     force: flagSchema("Force push"),
-  })
-  .merge(commonCommandOptionsSchema);
+  }) as any).merge(commonCommandOptionsSchema);
 
 /**
  * Type for git push parameters
