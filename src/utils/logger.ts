@@ -25,20 +25,20 @@ export enum LogMode {
  * Can be explicitly set via MINSKY_LOG_MODE environment variable
  */
 export function getLogMode(): LogMode {
-  const envMode = (process.env.MINSKY_LOG_MODE as any).toUpperCase();
+  const envMode = process.env.MINSKY_LOG_MODE?.toUpperCase();
 
   // If explicitly set via environment variable, respect that
-  if (envMode === (LogMode as any).STRUCTURED) {
-    return (LogMode as any).STRUCTURED;
+  if (envMode === LogMode.STRUCTURED) {
+    return LogMode.STRUCTURED;
   }
 
-  if (envMode === (LogMode as any).HUMAN) {
-    return (LogMode as any).HUMAN;
+  if (envMode === LogMode.HUMAN) {
+    return LogMode.HUMAN;
   }
 
   // Auto-detect based on terminal environment
-  const isTTY = (process.stdout as any).isTTY;
-  return isTTY ? (LogMode as any).HUMAN : (LogMode as any).STRUCTURED;
+  const isTTY = process.stdout.isTTY;
+  return isTTY ? LogMode.HUMAN : LogMode.STRUCTURED;
 }
 
 // Get current log mode
@@ -62,7 +62,9 @@ const programLogFormat = format.combine(
     const logInfo = info as { message?: any; stack?: string; [key: string]: any };
     // Ensure message is a string
     const message =
-      typeof (logInfo as any).message === "string" ? (logInfo as any).message : JSON.stringify((logInfo as any).message);
+      typeof (logInfo as any).message === "string"
+        ? (logInfo as any).message
+        : JSON.stringify((logInfo as any).message);
     // For user-facing CLI output, just show the message without timestamp and log level
     let log = message;
     if (logInfo.stack) {
@@ -100,7 +102,7 @@ const agentLogger = winston.createLogger({
 });
 
 // Only add stdout transport if in STRUCTURED mode or explicitly enabled in HUMAN mode
-if (currentLogMode === (LogMode as any).STRUCTURED || enableAgentLogs) {
+if (currentLogMode === LogMode.STRUCTURED || enableAgentLogs) {
   (agentLogger as any).add(new transports.Console({ stderrLevels: [] })); // Ensure only stdout
   (agentLogger.exceptions as any).handle(
     new transports.Console({ format: agentLogFormat, stderrLevels: [] })
@@ -131,23 +133,23 @@ interface LogContext {
 }
 
 // Check if we're in structured mode
-export const isStructuredMode = () => currentLogMode === (LogMode as any).STRUCTURED;
+export const isStructuredMode = () => currentLogMode === LogMode.STRUCTURED;
 // Check if we're in human mode
-export const isHumanMode = () => currentLogMode === (LogMode as any).HUMAN;
+export const isHumanMode = () => currentLogMode === LogMode.HUMAN;
 
 // Convenience wrapper
 export const log = {
   // Agent logs (structured JSON to stdout)
   agent: (message: any) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
-    if (currentLogMode === (LogMode as any).HUMAN && !enableAgentLogs) {
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
     (agentLogger as any).info(message);
   },
   debug: (message: string, context?: LogContext) => {
     // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
-    if (currentLogMode === (LogMode as any).HUMAN && !enableAgentLogs) {
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       // No-op in HUMAN mode to prevent "no transports" warning
       return;
     }
@@ -160,7 +162,7 @@ export const log = {
   },
   info: (message: string, context?: LogContext) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
-    if (currentLogMode === (LogMode as any).HUMAN && !enableAgentLogs) {
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
     if (context) {
@@ -171,7 +173,7 @@ export const log = {
   },
   warn: (message: string, context?: LogContext) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
-    if (currentLogMode === (LogMode as any).HUMAN && !enableAgentLogs) {
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
     if (context) {
@@ -182,13 +184,10 @@ export const log = {
   },
   error: (
     message: string,
-    context?:
-      | LogContext
-      | Error
-      | { originalError?: any; stack?: string; [key: string]: any }
+    context?: LogContext | Error | { originalError?: any; stack?: string; [key: string]: any }
   ) => {
     // For errors, in HUMAN mode route to programLogger.error instead of suppressing
-    if (currentLogMode === (LogMode as any).HUMAN && !enableAgentLogs) {
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       // Format the error for the programLogger
       if (context instanceof Error) {
         (programLogger as any).error(`${message}: ${(context as any).message}`);
@@ -200,7 +199,9 @@ export const log = {
         context !== null &&
         ((context as any).originalError || (context as any).stack)
       ) {
-        (programLogger as any).error(`${message}: ${(context as any).originalError || JSON.stringify(context as any)}`);
+        (programLogger as any).error(
+          `${message}: ${(context as any).originalError || JSON.stringify(context as any)}`
+        );
         if ((context as any).stack) {
           (programLogger as any).error((context as any).stack);
         }
