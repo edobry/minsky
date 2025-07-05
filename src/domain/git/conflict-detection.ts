@@ -699,19 +699,70 @@ export class ConflictDetectionService {
     repoPath: string,
     targetBranch: string
   ): Promise<BranchSwitchWarning> {
-    // Placeholder implementation
-    log.debug("Checking branch switch conflicts (not yet implemented)", {
-      repoPath,
-      targetBranch,
-    });
-    return {
-      fromBranch: "current",
-      toBranch: targetBranch,
-      uncommittedChanges: [],
-      conflictingFiles: [],
-      wouldLoseChanges: false,
-      recommendedAction: "force",
-    };
+    log.debug("Checking branch switch conflicts", { repoPath, targetBranch });
+
+    try {
+      const { stdout: currentBranch } = await execAsync(
+        `git -C ${repoPath} rev-parse --abbrev-ref HEAD`
+      );
+      const fromBranch = currentBranch.trim();
+
+      if (fromBranch === targetBranch) {
+        return {
+          fromBranch,
+          toBranch: targetBranch,
+          uncommittedChanges: [],
+          conflictingFiles: [],
+          wouldLoseChanges: false,
+          recommendedAction: "force", // No action needed
+        };
+      }
+
+      const { stdout: statusOutput } = await execAsync(`git -C ${repoPath} status --porcelain`);
+      const uncommittedChanges = statusOutput.trim().split("\n").filter(Boolean);
+
+      let conflictingFiles: string[] = [];
+      let wouldLoseChanges = false;
+      let recommendedAction: BranchSwitchWarning["recommendedAction"] = "force";
+
+      if (uncommittedChanges.length > 0) {
+        // If there are uncommitted changes, a simple checkout might fail or lose data.
+        // We can simulate a merge to see if the uncommitted changes would conflict.
+        try {
+          // This is a simplified check. A true check is more complex.
+          // We'll try to merge the target branch into a temporary index.
+          await execAsync(
+            `git -C ${repoPath} merge-tree $(git -C ${repoPath} write-tree) HEAD ${targetBranch}`
+          );
+        } catch (error) {
+          wouldLoseChanges = true;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          conflictingFiles = this.parseMergeConflictOutput(errorMessage);
+        }
+
+        if (wouldLoseChanges) {
+          recommendedAction = "stash";
+        } else {
+          recommendedAction = "commit";
+        }
+      }
+
+      return {
+        fromBranch,
+        toBranch: targetBranch,
+        uncommittedChanges: uncommittedChanges.map((line) => line.substring(3)),
+        conflictingFiles,
+        wouldLoseChanges,
+        recommendedAction,
+      };
+    } catch (error) {
+      log.error("Error checking branch switch conflicts", {
+        error,
+        repoPath,
+        targetBranch,
+      });
+      throw error;
+    }
   }
 
   async predictRebaseConflicts(
@@ -806,6 +857,16 @@ export class ConflictDetectionService {
     }
   }
 
+  private parseMergeConflictOutput(output: string): string[] {
+    const files: string[] = [];
+    const regex = /CONFLICT \((.+?)\): Merge conflict in (.+)/g;
+    let match;
+    while ((match = regex.exec(output)) !== null) {
+      files.push(match[2]);
+    }
+    return files;
+  }
+
   private async analyzeConflictFiles(repoPath: string): Promise<ConflictFile[]> {
     try {
       const { stdout: statusOutput } = await execAsync(
@@ -826,29 +887,29 @@ export class ConflictDetectionService {
         let deletionInfo: DeletionInfo | undefined;
 
         switch (status) {
-          case "UU":
-            fileStatus = FileConflictStatus.MODIFIED_BOTH;
-            break;
-          case "DU":
-            fileStatus = FileConflictStatus.DELETED_BY_US;
-            deletionInfo = await this.analyzeDeletion(repoPath, filePath, "us");
-            break;
-          case "UD":
-            fileStatus = FileConflictStatus.DELETED_BY_THEM;
-            deletionInfo = await this.analyzeDeletion(
-              repoPath,
-              filePath,
-              "them"
-            );
-            break;
-          case "AU":
-            fileStatus = FileConflictStatus.ADDED_BY_US;
-            break;
-          case "UA":
-            fileStatus = FileConflictStatus.ADDED_BY_THEM;
-            break;
-          default:
-            continue; // Skip non-conflict files
+        case "UU":
+          fileStatus = FileConflictStatus.MODIFIED_BOTH;
+          break;
+        case "DU":
+          fileStatus = FileConflictStatus.DELETED_BY_US;
+          deletionInfo = await this.analyzeDeletion(repoPath, filePath, "us");
+          break;
+        case "UD":
+          fileStatus = FileConflictStatus.DELETED_BY_THEM;
+          deletionInfo = await this.analyzeDeletion(
+            repoPath,
+            filePath,
+            "them"
+          );
+          break;
+        case "AU":
+          fileStatus = FileConflictStatus.ADDED_BY_US;
+          break;
+        case "UA":
+          fileStatus = FileConflictStatus.ADDED_BY_THEM;
+          break;
+        default:
+          continue; // Skip non-conflict files
         }
 
         const conflictRegions =
@@ -1082,7 +1143,7 @@ export class ConflictDetectionService {
             ...conflictFiles
               .filter((f) => f.deletionInfo)
               .map((f) => `git rm ${f.path}`),
-            'git commit -m "resolve conflicts: accept file deletions"',
+            "git commit -m \"resolve conflicts: accept file deletions\"",
           ],
           riskLevel: "low",
         });
@@ -1097,7 +1158,7 @@ export class ConflictDetectionService {
         "git status",
         "# Edit conflicted files to resolve <<<<<<< ======= >>>>>>> markers",
         "git add .",
-        'git commit -m "resolve merge conflicts"',
+        "git commit -m \"resolve merge conflicts\"",
       ],
       riskLevel: "medium",
     });
@@ -1111,11 +1172,11 @@ export class ConflictDetectionService {
     conflictFiles: ConflictFile[]
   ): string {
     switch (conflictType) {
-      case ConflictType.DELETE_MODIFY: {
-        const deletedFiles = conflictFiles
-          .filter((f) => f.deletionInfo)
-          .map((f) => f.path);
-        return `
+    case ConflictType.DELETE_MODIFY: {
+      const deletedFiles = conflictFiles
+        .filter((f) => f.deletionInfo)
+        .map((f) => f.path);
+      return `
 🗑️  Deleted file conflicts detected
 
 Files deleted in main branch but modified in your session:
@@ -1126,14 +1187,14 @@ The files were removed for a reason (likely part of refactoring or cleanup).
 
 Recommended action: Accept the deletions and remove your changes to these files.
         `.trim();
-      }
-      case ConflictType.CONTENT_CONFLICT:
-        return `
+    }
+    case ConflictType.CONTENT_CONFLICT:
+      return `
 ✏️  Content conflicts detected
 
 ${
-          conflictFiles.length
-        } file(s) have conflicting changes between your session and main branch.
+  conflictFiles.length
+} file(s) have conflicting changes between your session and main branch.
 These require manual resolution by editing the files and choosing which changes to keep.
 
 📋 Next Steps:
@@ -1154,16 +1215,16 @@ Look for conflict markers:
   >>>>>>> main (main branch changes)
         `.trim();
 
-      case ConflictType.ALREADY_MERGED:
-        return `
+    case ConflictType.ALREADY_MERGED:
+      return `
 ✅ Changes already merged
 
 Your session changes appear to already be present in the main branch.
 You can skip the update step and proceed directly to PR creation.
         `.trim();
 
-      default:
-        return `
+    default:
+      return `
 ⚠️  Merge conflicts detected
 
 ${conflictFiles.length} file(s) have conflicts that need resolution.
@@ -1184,7 +1245,7 @@ Review the affected files and choose appropriate resolution strategy.
         .filter((f) => f.deletionInfo)
         .forEach((f) => commands.push(`git rm "${f.path}"`));
       commands.push(
-        'git commit -m "resolve conflicts: accept file deletions"'
+        "git commit -m \"resolve conflicts: accept file deletions\""
       );
     } else {
       commands.push("# Check conflict status");
@@ -1197,7 +1258,7 @@ Review the affected files and choose appropriate resolution strategy.
       commands.push("");
       commands.push("# After editing, add resolved files");
       commands.push("git add .");
-      commands.push('git commit -m "resolve merge conflicts"');
+      commands.push("git commit -m \"resolve merge conflicts\"");
     }
 
     return commands;
