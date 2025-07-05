@@ -23,6 +23,7 @@ import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../types/tasks/taskData.js";
+import { TaskStatus } from "./taskConstants.js";
 
 import {
   parseTasksFromMarkdown,
@@ -97,10 +98,18 @@ export class MarkdownTaskBackend implements TaskBackend {
     const taskIndex = tasks.findIndex(task => task.id === id);
     
     if (taskIndex === -1) {
-      throw new Error(`Task ${id} not found`);
+      throw new Error(`Task with id ${id} not found`);
     }
-    
-    tasks[taskIndex].status = status;
+
+    // Add type guard to ensure task exists
+    const task = tasks[taskIndex];
+    if (!task) {
+      throw new Error(`Task with id ${id} not found`);
+    }
+
+    // Convert string status to TaskStatus type
+    task.status = status as TaskStatus;
+
     const updatedContent = this.formatTasks(tasks);
     
     const saveResult = await this.saveTasksData(updatedContent);
@@ -119,30 +128,44 @@ export class MarkdownTaskBackend implements TaskBackend {
     const spec = this.parseTaskSpec(specResult.content);
     
     // Get existing tasks to determine new ID
-    const tasks = await this.listTasks();
-    const maxId = tasks.reduce((max, task) => {
+    const existingTasksResult = await this.getTasksData();
+    if (!existingTasksResult.success || !existingTasksResult.content) {
+      throw new Error("Failed to read existing tasks");
+    }
+    
+    const existingTasks = this.parseTasks(existingTasksResult.content);
+    const maxId = existingTasks.reduce((max, task) => {
       const id = parseInt(task.id.slice(1), 10);
       return id > max ? id : max;
     }, 0);
     
     const newId = `#${maxId + 1}`;
     
-    const newTask: Task = {
+    const newTaskData: TaskData = {
       id: newId,
       title: spec.title,
       description: spec.description,
-      status: "TODO",
+      status: "TODO" as TaskStatus,
       specPath
     };
     
     // Add the new task to the list
-    tasks.push(newTask);
-    const updatedContent = this.formatTasks(tasks);
+    existingTasks.push(newTaskData);
+    const updatedContent = this.formatTasks(existingTasks);
     
     const saveResult = await this.saveTasksData(updatedContent);
     if (!saveResult.success) {
       throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
     }
+    
+    // Convert TaskData to Task for return
+    const newTask: Task = {
+      id: newTaskData.id,
+      title: newTaskData.title,
+      description: newTaskData.description,
+      status: newTaskData.status,
+      specPath: newTaskData.specPath
+    };
     
     return newTask;
   }

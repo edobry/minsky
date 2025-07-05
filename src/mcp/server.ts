@@ -155,14 +155,12 @@ export class MinskyMCPServer {
 
     // Listen for client connections
     (this.server as any).on("connect", () => {
-      log.agent("Client connected to Minsky MCP Server", {
-      });
+      log.agent("Client connected to Minsky MCP Server");
     });
 
     // Listen for client disconnections
     (this.server as any).on("disconnect", () => {
-      log.agent("Client disconnected from Minsky MCP Server", {
-      });
+      log.agent("Client disconnected from Minsky MCP Server");
     });
 
     // We'll add the debug tool later through the CommandMapper to ensure it gets properly registered
@@ -201,11 +199,7 @@ export class MinskyMCPServer {
       }
 
       // Log server started message with structured information for monitoring
-      log.agent("Minsky MCP Server started", {
-        serverName: (this.options as any).name,
-        version: (this.options as any).version,
-        repositoryPath: (this.projectContext as any).repositoryPath,
-      });
+      log.agent("Minsky MCP Server started");
 
       // Debug log of registered methods
       try {
