@@ -148,12 +148,15 @@ export class ConfigurationLoader {
   private mergeConfigurations(sources: ConfigurationSources): ResolvedConfig {
     const { cliFlags, environment, globalUser, repository, defaults } = sources;
 
+    // Provide sensible defaults for sessiondb
+    const defaultSessionDb = this.mergeSessionDbConfig(undefined, {});
+
     // Start with defaults
     const resolved: ResolvedConfig = {
       backend: (defaults as any).backend || "json-file",
       backendConfig: { ...(defaults as any).backendConfig },
       detectionRules: [...((defaults as any).detectionRules || [])],
-      sessiondb: { ...(defaults as any).sessiondb } as SessionDbConfig,
+      sessiondb: defaultSessionDb,
     };
 
     // Apply repository config
@@ -199,10 +202,10 @@ export class ConfigurationLoader {
     }
 
     // Apply global user config
-    if ((globalUser as any).github) {
+    if (globalUser && (globalUser as any).github) {
       (resolved as any).github = this.mergeGitHubConfig((resolved as any).github, (globalUser as any).github);
     }
-    if (globalUser?.sessiondb) {
+    if (globalUser && globalUser.sessiondb) {
       // Convert global user sessiondb format to SessionDbConfig format
       const globalSessionDb: Partial<SessionDbConfig> = {
         dbPath: globalUser?.sessiondb?.sqlite?.path,
@@ -210,10 +213,10 @@ export class ConfigurationLoader {
       };
       (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, globalSessionDb);
     }
-    if ((globalUser as any).ai) {
+    if (globalUser && (globalUser as any).ai) {
       (resolved as any).ai = this.mergeAIConfig((resolved as any).ai, (globalUser as any).ai);
     }
-    if ((globalUser as any).postgres) {
+    if (globalUser && (globalUser as any).postgres) {
       (resolved as any).postgres = { ...(globalUser as any).postgres };
     }
 
@@ -310,8 +313,12 @@ export class ConfigurationLoader {
     existing: SessionDbConfig | undefined,
     newSessionDb: Partial<SessionDbConfig>
   ): SessionDbConfig {
+    // Provide a sensible default baseDir if none is configured
+    const defaultBaseDir = join(homedir(), ".local", "state", "minsky", "sessions");
+    
     const merged: SessionDbConfig = {
       backend: "json",
+      baseDir: defaultBaseDir,
       ...existing,
       ...newSessionDb,
     };
