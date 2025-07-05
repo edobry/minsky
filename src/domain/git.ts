@@ -30,11 +30,6 @@ import {
   gitMergeWithTimeout,
   gitPushWithTimeout,
 } from "../utils/git-exec-enhanced";
-import { preparePr as preparePrImpl } from "./git/prepare-pr";
-import { cloneRepository } from "./git/clone-operations";
-import { mergeBranchImpl } from "./git/merge-branch-operations";
-import { pushImpl } from "./git/push-operations";
-import { mergePrImpl } from "./git/merge-pr-operations";
 
 const execAsync = promisify(exec);
 
@@ -306,7 +301,11 @@ export class GitService implements GitServiceInterface {
   constructor(baseDir?: string) {
     this.baseDir =
       baseDir ||
-      join((process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state"), "minsky");
+      join(
+        (process.env as any).XDG_STATE_HOME ||
+          join((process.env as any).HOME || "", ".local/state"),
+        "minsky"
+      );
     this.sessionDb = createSessionProvider({ dbPath: (process as any).cwd() });
   }
 
@@ -332,23 +331,100 @@ export class GitService implements GitServiceInterface {
 
   async clone(options: CloneOptions): Promise<CloneResult> {
     await this.ensureBaseDir();
-    
-    return cloneRepository(options, {
-      mkdir,
-      execAsync,
-      access: async (path: string) => {
-        const fs = await import("fs/promises");
-        await fs.access(path);
-      },
-      readdir: async (path: string) => {
-        const fs = await import("fs/promises");
-        return fs.readdir(path);
-      },
-      rm: async (path: string, options?: any) => {
-        const fs = await import("fs/promises");
-        await fs.rm(path, options);
-      },
-    }, this.generateSessionId.bind(this));
+
+    const session = (options as any).session || this.generateSessionId();
+    const workdir = (options as any).workdir;
+
+    log.debug("Clone operation starting", {
+      repoUrl: (options as any).repoUrl,
+      workdir,
+      session,
+    });
+
+    try {
+      // Validate repo URL
+      if (!(options as any).repoUrl || (options.repoUrl as any).trim() === "") {
+        log.error("Invalid repository URL", { repoUrl: (options as any).repoUrl });
+        throw new MinskyError("Repository URL is required for cloning");
+      }
+
+      // Clone the repository with verbose logging FIRST
+      log.debug(`Executing: git clone ${(options as any).repoUrl} ${workdir}`);
+      const cloneCmd = `git clone ${(options as any).repoUrl} ${workdir}`;
+      try {
+        // Create session directory structure ONLY when ready to clone
+        // This ensures no orphaned directories if validation fails
+        await mkdir(dirname(workdir), { recursive: true });
+        log.debug("Session parent directory created", { parentDir: dirname(workdir) });
+
+        const { stdout, stderr } = await execAsync(cloneCmd);
+        log.debug("git clone succeeded", {
+          stdout: (stdout.trim() as any).substring(0, 200),
+        });
+      } catch (cloneErr) {
+        log.error("git clone command failed", {
+          error: getErrorMessage(cloneErr),
+          command: cloneCmd,
+        });
+
+        // Clean up orphaned session directory if git clone fails
+        try {
+          const fs = await import("fs/promises");
+          await fs.rm(workdir, { recursive: true, force: true });
+          log.debug("Cleaned up session directory after git clone failure", { workdir });
+        } catch (cleanupErr) {
+          log.warn("Failed to cleanup session directory after git clone failure", {
+            workdir,
+            error: getErrorMessage(cleanupErr),
+          });
+        }
+
+        throw cloneErr;
+      }
+
+      // Verify the clone was successful by checking for .git directory
+      log.debug("Verifying clone success");
+      const fs = await import("fs/promises");
+      try {
+        const gitDir = join(workdir, ".git");
+        await fs.access(gitDir);
+        log.debug(".git directory exists, clone was successful", { gitDir });
+
+        // List files in the directory to help debug
+        try {
+          const dirContents = await fs.readdir(workdir);
+          log.debug("Clone directory contents", {
+            workdir,
+            fileCount: (dirContents as any).length,
+            firstFewFiles: (dirContents as any).slice(0, 5),
+          });
+        } catch (err) {
+          log.warn("Could not read clone directory", {
+            workdir,
+            error: getErrorMessage(err as any),
+          });
+        }
+      } catch (accessErr) {
+        log.error(".git directory not found after clone", {
+          workdir,
+          error: getErrorMessage(accessErr),
+        });
+        throw new MinskyError("Git repository was not properly cloned: .git directory not found");
+      }
+
+      return {
+        workdir,
+        session,
+      };
+    } catch (error) {
+      log.error("Error during git clone", {
+        error: getErrorMessage(error as any),
+        stack: error instanceof Error ? (error as any).stack : undefined,
+        repoUrl: (options as any).repoUrl,
+        workdir,
+      });
+      throw new MinskyError(`Failed to clone git repository: ${getErrorMessage(error as any)}`);
+    }
   }
 
   async branch(options: BranchOptions): Promise<BranchResult> {
@@ -401,7 +477,8 @@ export class GitService implements GitServiceInterface {
       execAsync,
       getSession: async (name: string) => (this.sessionDb as any).getSession(name),
       getSessionWorkdir: (session: string) => this.getSessionWorkdir(session),
-      getSessionByTaskId: async (taskId: string) => (this.sessionDb as any).getSessionByTaskId?.(taskId),
+      getSessionByTaskId: async (taskId: string) =>
+        (this.sessionDb as any).getSessionByTaskId?.(taskId),
     };
 
     const result = await this.prWithDependencies(options as any, deps);
@@ -502,7 +579,10 @@ export class GitService implements GitServiceInterface {
         throw new Error(`No session found for task ID "${(options as any).taskId}"`);
       }
       sessionName = (sessionRecord as any).session;
-      log.debug("Resolved session from task ID", { taskId: (options as any).taskId, session: sessionName });
+      log.debug("Resolved session from task ID", {
+        taskId: (options as any).taskId,
+        session: sessionName,
+      });
     }
 
     if (!sessionName) {
@@ -607,7 +687,9 @@ You need to specify one of these options to identify the target repository:
 
     // Check if master exists
     try {
-      await (deps as any).execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/master`);
+      await (deps as any).execAsync(
+        `git -C ${workdir} show-ref --verify refs/remotes/origin/master`
+      );
       log.debug("Using master as base branch");
       return "master";
     } catch (err) {
@@ -649,7 +731,9 @@ You need to specify one of these options to identify the target repository:
 
       // If merge-base fails, get the first commit of the branch
       try {
-        const { stdout } = await (deps as any).execAsync(`git -C ${workdir} rev-list --max-parents=0 HEAD`);
+        const { stdout } = await (deps as any).execAsync(
+          `git -C ${workdir} rev-list --max-parents=0 HEAD`
+        );
         mergeBase = (stdout as any).trim();
         comparisonDescription = "Showing changes from first commit";
         log.debug("Using first commit as base", { mergeBase });
@@ -686,7 +770,8 @@ You need to specify one of these options to identify the target repository:
 
     // Check if we have any working directory changes
     const hasWorkingDirChanges =
-      ((untrackedFiles as any).trim() as any).length > 0 || ((uncommittedChanges as any).trim() as any).length > 0;
+      ((untrackedFiles as any).trim() as any).length > 0 ||
+      ((uncommittedChanges as any).trim() as any).length > 0;
 
     return this.buildPrMarkdown(
       branch,
@@ -1071,9 +1156,67 @@ You need to specify one of these options to identify the target repository:
   }
 
   async mergeBranch(workdir: string, branch: string): Promise<MergeResult> {
-    return mergeBranchImpl(workdir, branch, {
-      execAsync,
-    });
+    log.debug("mergeBranch called", { workdir, branch });
+
+    try {
+      // Get current commit hash
+      const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+      log.debug("Before merge commit hash", { beforeHash: (beforeHash as any).trim() });
+
+      // Try to merge the branch
+      try {
+        log.debug("Attempting merge", { command: `git -C ${workdir} merge ${branch}` });
+        await execAsync(`git -C ${workdir} merge ${branch}`);
+        log.debug("Merge completed successfully");
+      } catch (err) {
+        log.debug("Merge command failed, checking for conflicts", {
+          error: getErrorMessage(err as any),
+        });
+
+        // Check if there are merge conflicts
+        const { stdout: status } = await execAsync(`git -C ${workdir} status --porcelain`);
+        log.debug("Git status after failed merge", { status });
+
+        const hasConflicts =
+          (status as any).includes("UU") ||
+          (status as any).includes("AA") ||
+          (status as any).includes("DD");
+        log.debug("Conflict detection result", {
+          hasConflicts,
+          statusIncludes: {
+            UU: (status as any).includes("UU"),
+            AA: (status as any).includes("AA"),
+            DD: (status as any).includes("DD"),
+          },
+        });
+
+        if (hasConflicts) {
+          // Leave repository in merging state for user to resolve conflicts
+          log.debug(
+            "Merge conflicts detected, leaving repository in merging state for manual resolution"
+          );
+          return { workdir, merged: false, conflicts: true };
+        }
+        log.debug("No conflicts detected, re-throwing original error");
+        throw err;
+      }
+
+      // Get new commit hash
+      const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+      log.debug("After merge commit hash", { afterHash: (afterHash as any).trim() });
+
+      // Return whether any changes were merged
+      const merged = (beforeHash as any).trim() !== (afterHash as any).trim();
+      log.debug("Merge result", { merged, conflicts: false });
+      return { workdir, merged, conflicts: false };
+    } catch (err) {
+      log.error("mergeBranch failed with error", {
+        error: getErrorMessage(err as any),
+        workdir,
+        branch,
+      });
+      throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err as any)}`);
+    }
   }
 
   /**
@@ -1081,11 +1224,67 @@ You need to specify one of these options to identify the target repository:
    */
   async push(options: PushOptions): Promise<PushResult> {
     await this.ensureBaseDir();
-    return pushImpl(options, {
-      execAsync,
-      getSession: this.sessionDb.getSession.bind(this.sessionDb),
-      getSessionWorkdir: this.getSessionWorkdir.bind(this),
-    });
+    let workdir: string;
+    let branch: string;
+    const remote = (options as any).remote || "origin";
+
+    // 1. Resolve workdir
+    if ((options as any).session) {
+      const record = await (this.sessionDb as any).getSession((options as any).session);
+      if (!record) {
+        throw new Error(`Session '${(options as any).session}' not found.`);
+      }
+      const repoName = (record as any).repoName || normalizeRepoName((record as any).repoUrl);
+      workdir = this.getSessionWorkdir((options as any).session);
+      branch = (options as any).session; // Session branch is named after the session
+    } else if ((options as any).repoPath) {
+      workdir = (options as any).repoPath;
+      // Get current branch from repo
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      branch = (branchOut as any).trim();
+    } else {
+      // Try to infer from current directory
+      workdir = (process as any).cwd();
+      // Get current branch from cwd
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      branch = (branchOut as any).trim();
+    }
+
+    // 2. Validate remote exists
+    const { stdout: remotesOut } = await execAsync(`git -C ${workdir} remote`);
+    const remotes = ((remotesOut.split("\n") as any).map((r) => r.trim()) as any).filter(Boolean);
+    if (!(remotes as any).includes(remote)) {
+      throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
+    }
+
+    // 3. Build push command
+    let pushCmd = `git -C ${workdir} push ${remote} ${branch}`;
+    if ((options as any).force) {
+      pushCmd += " --force";
+    }
+
+    // 4. Execute push
+    try {
+      await execAsync(pushCmd);
+      return { workdir, pushed: true };
+    } catch (err: any) {
+      // Provide helpful error messages for common issues
+      if ((err as any).stderr && (err.stderr as any).includes("[rejected]")) {
+        throw new Error(
+          "Push was rejected by the remote. You may need to pull or use --force if you intend to overwrite remote history."
+        );
+      }
+      if ((err as any).stderr && (err.stderr as any).includes("no upstream")) {
+        throw new Error(
+          "No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first."
+        );
+      }
+      throw new Error((err as any).stderr || (err as any).message || String(err as any));
+    }
   }
 
   /**
@@ -1141,16 +1340,407 @@ You need to specify one of these options to identify the target repository:
         command,
         workdir,
       });
-      throw new MinskyError(`Failed to execute command in repository: ${getErrorMessage(error as any)}`);
+      throw new MinskyError(
+        `Failed to execute command in repository: ${getErrorMessage(error as any)}`
+      );
     }
   }
 
   async preparePr(options: PreparePrOptions): Promise<PreparePrResult> {
-    return preparePrImpl(options, {
-      sessionDb: this.sessionDb,
-      execInRepository: this.execInRepository.bind(this),
-      getSessionWorkdir: this.getSessionWorkdir.bind(this),
+    let workdir: string;
+    let sourceBranch: string;
+    const baseBranch = (options as any).baseBranch || "main";
+
+    // Add debugging for session lookup
+    if ((options as any).session) {
+      log.debug(`Attempting to look up session in database: ${(options as any).session}`);
+    }
+
+    // Determine working directory and current branch
+    if ((options as any).session) {
+      let record = await (this.sessionDb as any).getSession((options as any).session);
+
+      // Add more detailed debugging
+      log.debug(
+        `Session database lookup result: ${(options as any).session}, found: ${!!record}, recordData: ${record ? JSON.stringify({ repoName: (record as any).repoName, repoUrl: (record as any).repoUrl, taskId: (record as any).taskId }) : "null"}`
+      );
+
+      // TASK #168 FIX: Implement session self-repair for preparePr
+      if (!record) {
+        log.debug("Session not found in database, attempting self-repair in preparePr", {
+          session: (options as any).session,
+        });
+
+        // Check if we're currently in a session workspace directory
+        const currentDir = (process as any).cwd();
+        const pathParts = (currentDir as any).split("/");
+        const sessionsIndex = (pathParts as any).indexOf("sessions");
+
+        if (sessionsIndex >= 0 && sessionsIndex < (pathParts as any).length - 1) {
+          const sessionNameFromPath = pathParts[sessionsIndex + 1];
+
+          // If the session name matches the one we're looking for, attempt self-repair
+          if (sessionNameFromPath === (options as any).session) {
+            log.debug("Attempting to register orphaned session in preparePr", {
+              session: (options as any).session,
+              currentDir,
+            });
+
+            try {
+              // Get the repository URL from git remote
+              const repoUrl = await this.execInRepository(currentDir, "git remote get-url origin");
+              const repoName = normalizeRepoName((repoUrl as any).trim());
+
+              // Extract task ID from session name if it follows the task#N pattern
+              const taskIdMatch = (options.session as any).match(/^task#(\d+)$/);
+              const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
+
+              // Create session record
+              const newSessionRecord: SessionRecord = {
+                session: (options as any).session,
+                repoUrl: (repoUrl as any).trim(),
+                repoName,
+                createdAt: (new Date() as any).toISOString(),
+                taskId,
+                branch: (options as any).session,
+              };
+
+              // Register the session
+              await (this.sessionDb as any).addSession(newSessionRecord);
+              record = newSessionRecord;
+
+              log.debug("Successfully registered orphaned session in preparePr", {
+                session: (options as any).session,
+                repoUrl: (repoUrl as any).trim(),
+                taskId,
+              });
+            } catch (selfRepairError) {
+              log.debug("Session self-repair failed in preparePr", {
+                session: (options as any).session,
+                error: selfRepairError,
+              });
+
+              // Before throwing error, let's try to understand what sessions are in the database
+              try {
+                const allSessions = await (this.sessionDb as any).listSessions();
+                log.debug(
+                  `All sessions in database: count=${(allSessions as any).length}, sessionNames=${((allSessions.map((s) => s.session as any) as any).slice(0, 10) as any).join(", ")}, searchedFor=${(options as any).session}`
+                );
+              } catch (listError) {
+                log.error(`Failed to list sessions for debugging: ${listError}`);
+              }
+
+              throw new MinskyError(`
+🔍 Session "${(options as any).session}" Not Found in Database
+
+The session exists in the file system but isn't registered in the session database.
+This can happen when sessions are created outside of Minsky or the database gets out of sync.
+
+💡 How to fix this:
+
+📋 Check if session exists on disk:
+   ls -la ~/.local/state/minsky/git/*/sessions/
+
+🔄 If session exists, re-register it:
+   cd /path/to/main/workspace
+   minsky sessions import "${(options as any).session}"
+
+🆕 Or create a fresh session:
+   minsky session start ${(options as any).session}
+
+📁 Alternative - use repository path directly:
+   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
+
+🗃️ Check registered sessions:
+   minsky sessions list
+
+⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
+
+Current directory: ${(process as any).cwd()}
+Session requested: "${(options as any).session}"
+`);
+            }
+          } else {
+            // Before throwing error, let's try to understand what sessions are in the database
+            try {
+              const allSessions = await (this.sessionDb as any).listSessions();
+              log.debug(
+                `All sessions in database: count=${(allSessions as any).length}, sessionNames=${((allSessions.map((s) => s.session as any) as any).slice(0, 10) as any).join(", ")}, searchedFor=${(options as any).session}`
+              );
+            } catch (listError) {
+              log.error(`Failed to list sessions for debugging: ${listError}`);
+            }
+
+            throw new MinskyError(`
+🔍 Session "${(options as any).session}" Not Found in Database
+
+The session exists in the file system but isn't registered in the session database.
+This can happen when sessions are created outside of Minsky or the database gets out of sync.
+
+💡 How to fix this:
+
+📋 Check if session exists on disk:
+   ls -la ~/.local/state/minsky/git/*/sessions/
+
+🔄 If session exists, re-register it:
+   cd /path/to/main/workspace
+   minsky sessions import "${(options as any).session}"
+
+🆕 Or create a fresh session:
+   minsky session start ${(options as any).session}
+
+📁 Alternative - use repository path directly:
+   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
+
+🗃️ Check registered sessions:
+   minsky sessions list
+
+⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
+
+Current directory: ${(process as any).cwd()}
+Session requested: "${(options as any).session}"
+`);
+          }
+        } else {
+          // Before throwing error, let's try to understand what sessions are in the database
+          try {
+            const allSessions = await (this.sessionDb as any).listSessions();
+            log.debug(
+              `All sessions in database: count=${(allSessions as any).length}, sessionNames=${((allSessions.map((s) => s.session as any) as any).slice(0, 10) as any).join(", ")}, searchedFor=${(options as any).session}`
+            );
+          } catch (listError) {
+            log.error(`Failed to list sessions for debugging: ${listError}`);
+          }
+
+          throw new MinskyError(`
+🔍 Session "${(options as any).session}" Not Found in Database
+
+The session exists in the file system but isn't registered in the session database.
+This can happen when sessions are created outside of Minsky or the database gets out of sync.
+
+💡 How to fix this:
+
+📋 Check if session exists on disk:
+   ls -la ~/.local/state/minsky/git/*/sessions/
+
+🔄 If session exists, re-register it:
+   cd /path/to/main/workspace
+   minsky sessions import "${(options as any).session}"
+
+🆕 Or create a fresh session:
+   minsky session start ${(options as any).session}
+
+📁 Alternative - use repository path directly:
+   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
+
+🗃️ Check registered sessions:
+   minsky sessions list
+
+⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
+
+Current directory: ${(process as any).cwd()}
+Session requested: "${(options as any).session}"
+`);
+        }
+      }
+      const repoName = (record as any).repoName || normalizeRepoName((record as any).repoUrl);
+      workdir = this.getSessionWorkdir((options as any).session);
+      // Get current branch from repo instead of assuming session name is branch name
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      sourceBranch = (branchOut as any).trim();
+    } else if ((options as any).repoPath) {
+      workdir = (options as any).repoPath;
+      // Get current branch from repo
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      sourceBranch = (branchOut as any).trim();
+    } else {
+      // Try to infer from current directory
+      workdir = (process as any).cwd();
+      // Get current branch from cwd
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      sourceBranch = (branchOut as any).trim();
+    }
+
+    // Create PR branch name with pr/ prefix - always use the current git branch name
+    // Fix for task #95: Don't use title for branch naming
+    const prBranchName = (options as any).branchName || sourceBranch;
+    const prBranch = `pr/${prBranchName}`;
+
+    log.debug("Creating PR branch using git branch as basis", {
+      sourceBranch,
+      prBranch,
+      usedProvidedBranchName: Boolean((options as any).branchName),
     });
+
+    // Verify base branch exists
+    try {
+      await execAsync(`git -C ${workdir} rev-parse --verify ${baseBranch}`);
+    } catch (err) {
+      throw new MinskyError(`Base branch '${baseBranch}' does not exist or is not accessible`);
+    }
+
+    // Make sure we have the latest from the base branch
+    await execAsync(`git -C ${workdir} fetch origin ${baseBranch}`);
+
+    // Create PR branch FROM base branch (not feature branch) - per Task #025
+    try {
+      // Check if PR branch already exists locally and delete it for clean slate
+      try {
+        await execAsync(`git -C ${workdir} rev-parse --verify ${prBranch}`);
+        // Branch exists, delete it to recreate cleanly
+        await execAsync(`git -C ${workdir} branch -D ${prBranch}`);
+        log.debug(`Deleted existing PR branch ${prBranch} for clean recreation`);
+      } catch {
+        // Branch doesn't exist, which is fine
+      }
+
+      // Check if PR branch exists remotely and delete it for clean slate
+      try {
+        await execAsync(`git -C ${workdir} ls-remote --exit-code origin ${prBranch}`);
+        // Remote branch exists, delete it to recreate cleanly
+        await execAsync(`git -C ${workdir} push origin --delete ${prBranch}`);
+        log.debug(`Deleted existing remote PR branch ${prBranch} for clean recreation`);
+      } catch {
+        // Remote branch doesn't exist, which is fine
+      }
+
+      // Fix for origin/origin/main bug: Don't prepend origin/ if baseBranch already has it
+      const remoteBaseBranch = (baseBranch as any).startsWith("origin/")
+        ? baseBranch
+        : `origin/${baseBranch}`;
+
+      // Create PR branch FROM base branch WITHOUT checking it out (Task #025 specification)
+      // Use git branch instead of git switch to avoid checking out the PR branch
+      await execAsync(`git -C ${workdir} branch ${prBranch} ${remoteBaseBranch}`);
+      log.debug(`Created PR branch ${prBranch} from ${remoteBaseBranch} without checking it out`);
+    } catch (err) {
+      throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err as any)}`);
+    }
+
+    // Create commit message file for merge commit (Task #025)
+    const commitMsgFile = `${workdir}/.pr_title`;
+    try {
+      let commitMessage = (options as any).title || `Merge ${sourceBranch} into ${prBranch}`;
+      if ((options as any).body) {
+        commitMessage += `\n\n${(options as any).body}`;
+      }
+
+      // CRITICAL BUG FIX: Improve commit message file handling
+      // Write commit message to file for git merge -F
+      // Use fs.writeFile instead of echo to avoid shell parsing issues
+      const fs = await import("fs/promises");
+      await fs.writeFile(commitMsgFile, commitMessage, "utf8");
+
+      // VERIFICATION: Read back the commit message file to ensure it was written correctly
+      const writtenMessage = await fs.readFile(commitMsgFile, "utf8");
+      if (writtenMessage !== commitMessage) {
+        throw new Error(
+          `Commit message file verification failed. Expected: ${commitMessage}, Got: ${writtenMessage}`
+        );
+      }
+
+      log.debug("Created and verified commit message file for prepared merge commit", {
+        commitMessage,
+        commitMsgFile,
+        sourceBranch,
+        prBranch,
+      });
+
+      // Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
+      // First checkout the PR branch temporarily to perform the merge
+      await execAsync(`git -C ${workdir} switch ${prBranch}`);
+
+      // CRITICAL BUG FIX: Use explicit commit message format and verify the merge
+      // Use -m instead of -F to avoid potential file reading issues
+      const escapedCommitMessage = (commitMessage as any).replace(
+        /"/g,
+        String.fromCharCode(92) + String.fromCharCode(34)
+      );
+      await execAsync(
+        `git -C ${workdir} merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`
+      );
+
+      // VERIFICATION: Check that the merge commit has the correct message
+      const actualCommitMessage = await execAsync(`git -C ${workdir} log -1 --pretty=format:%B`);
+      const actualTitle = ((actualCommitMessage.stdout as any).trim() as any).split("\n")[0];
+      const expectedTitle = (commitMessage as any).split("\n")[0];
+
+      if (actualTitle !== expectedTitle) {
+        log.warn("Commit message mismatch detected", {
+          expected: expectedTitle,
+          actual: actualTitle,
+          fullExpected: commitMessage,
+          fullActual: (actualCommitMessage.stdout as any).trim(),
+        });
+        // Don't throw error but log the issue for debugging
+      } else {
+        log.debug("✅ Verified merge commit message is correct", {
+          commitMessage: actualTitle,
+        });
+      }
+
+      log.debug(`Created prepared merge commit by merging ${sourceBranch} into ${prBranch}`);
+
+      // Clean up the commit message file
+      await (fs.unlink(commitMsgFile) as any).catch(() => {
+        // Ignore errors when cleaning up
+      });
+    } catch (err) {
+      // Clean up on error
+      try {
+        await execAsync(`git -C ${workdir} merge --abort`);
+        const fs = await import("fs/promises");
+        await (fs.unlink(commitMsgFile) as any).catch(() => {
+          // Ignore file cleanup errors
+        });
+        // CRITICAL: Switch back to session branch on error
+        await execAsync(`git -C ${workdir} switch ${sourceBranch}`);
+        log.debug("Aborted merge, cleaned up, and switched back to session branch after conflict");
+      } catch (cleanupErr) {
+        log.warn("Failed to clean up after merge error", { cleanupErr });
+      }
+
+      if (err instanceof Error && (err.message as any).includes("CONFLICT")) {
+        throw new MinskyError(
+          "Merge conflicts occurred while creating prepared merge commit. Please resolve conflicts and retry.",
+          { exitCode: 4 }
+        );
+      }
+      throw new MinskyError(
+        `Failed to create prepared merge commit: ${getErrorMessage(err as any)}`
+      );
+    }
+
+    // Push changes to the PR branch
+    await (this as any).push({
+      repoPath: workdir,
+      remote: "origin",
+      force: true,
+    });
+
+    // CRITICAL: Always switch back to the original session branch after creating PR branch
+    // This ensures session pr command never leaves user on the PR branch
+    try {
+      await execAsync(`git -C ${workdir} switch ${sourceBranch}`);
+      log.debug(`✅ Switched back to session branch ${sourceBranch} after creating PR branch`);
+    } catch (err) {
+      log.warn(
+        `Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err as any)}`
+      );
+    }
+
+    return {
+      prBranch,
+      baseBranch,
+      title: (options as any).title,
+      body: (options as any).body,
+    };
   }
 
   /**
@@ -1158,18 +1748,64 @@ You need to specify one of these options to identify the target repository:
    * e.g. "feat: add new feature" -> "feat-add-new-feature"
    */
   private titleToBranchName(title: string): string {
-    return ((title
-      .toLowerCase()
-      .replace(/[\s:/#]+/g, "-") // Replace spaces, colons, slashes, and hashes with dashes
-      .replace(/[^\w-]/g, "") as any).replace(/--+/g, "-") as any).replace(/^-|-$/g, ""); // Remove leading and trailing dashes
+    return (
+      (
+        title
+          .toLowerCase()
+          .replace(/[\s:/#]+/g, "-") // Replace spaces, colons, slashes, and hashes with dashes
+          .replace(/[^\w-]/g, "") as any
+      ).replace(/--+/g, "-") as any
+    ).replace(/^-|-$/g, ""); // Remove leading and trailing dashes
   }
 
   async mergePr(options: MergePrOptions): Promise<MergePrResult> {
-    return mergePrImpl(options, {
-      execInRepository: this.execInRepository.bind(this),
-      getSession: this.sessionDb.getSession.bind(this.sessionDb),
-      getSessionWorkdir: this.getSessionWorkdir.bind(this),
-    });
+    let workdir: string;
+    const baseBranch = (options as any).baseBranch || "main";
+
+    // 1. Determine working directory
+    if ((options as any).session) {
+      const record = await (this.sessionDb as any).getSession((options as any).session);
+      if (!record) {
+        throw new Error(`Session '${(options as any).session}' not found.`);
+      }
+      const repoName = (record as any).repoName || normalizeRepoName((record as any).repoUrl);
+      workdir = this.getSessionWorkdir((options as any).session);
+    } else if ((options as any).repoPath) {
+      workdir = (options as any).repoPath;
+    } else {
+      // Try to infer from current directory
+      workdir = (process as any).cwd();
+    }
+
+    // 2. Make sure we're on the base branch
+    await this.execInRepository(workdir, `git checkout ${baseBranch}`);
+
+    // 3. Make sure we have the latest changes
+    await this.execInRepository(workdir, `git pull origin ${baseBranch}`);
+
+    // 4. Merge the PR branch
+    await this.execInRepository(workdir, `git merge --no-ff ${(options as any).prBranch}`);
+
+    // 5. Get the commit hash of the merge
+    const commitHash = ((await this.execInRepository(workdir, "git rev-parse HEAD")) as any).trim();
+
+    // 6. Get merge date and author
+    const mergeDate = (new Date() as any).toISOString();
+    const mergedBy = ((await this.execInRepository(workdir, "git config user.name")) as any).trim();
+
+    // 7. Push the merge to the remote
+    await this.execInRepository(workdir, `git push origin ${baseBranch}`);
+
+    // 8. Delete the PR branch from the remote
+    await this.execInRepository(workdir, `git push origin --delete ${(options as any).prBranch}`);
+
+    return {
+      prBranch: (options as any).prBranch,
+      baseBranch,
+      commitHash,
+      mergeDate,
+      mergedBy,
+    };
   }
 
   /**
@@ -1258,7 +1894,9 @@ You need to specify one of these options to identify the target repository:
   ): Promise<StashResult> {
     try {
       // Check if there are changes to stash
-      const { stdout: status } = await (deps as any).execAsync(`git -C ${workdir} status --porcelain`);
+      const { stdout: status } = await (deps as any).execAsync(
+        `git -C ${workdir} status --porcelain`
+      );
       if (!(status as any).trim()) {
         // No changes to stash
         return { workdir, stashed: false };
@@ -1305,7 +1943,9 @@ You need to specify one of these options to identify the target repository:
   ): Promise<MergeResult> {
     try {
       // Get current commit hash
-      const { stdout: beforeHash } = await (deps as any).execAsync(`git -C ${workdir} rev-parse HEAD`);
+      const { stdout: beforeHash } = await (deps as any).execAsync(
+        `git -C ${workdir} rev-parse HEAD`
+      );
 
       // Try to merge the branch using enhanced git execution with timeout and conflict detection
       try {
@@ -1319,14 +1959,23 @@ You need to specify one of these options to identify the target repository:
         });
       } catch (err) {
         // Enhanced git execution will throw MinskyError with detailed conflict information
-        if (err instanceof MinskyError && (err.message as any).includes("Merge Conflicts Detected")) {
+        if (
+          err instanceof MinskyError &&
+          (err.message as any).includes("Merge Conflicts Detected")
+        ) {
           // The enhanced error message is already formatted, so we know there are conflicts
           return { workdir, merged: false, conflicts: true };
         }
 
         // Check if there are merge conflicts using traditional method as fallback
-        const { stdout: status } = await (deps as any).execAsync(`git -C ${workdir} status --porcelain`);
-        if ((status as any).includes("UU") || (status as any).includes("AA") || (status as any).includes("DD")) {
+        const { stdout: status } = await (deps as any).execAsync(
+          `git -C ${workdir} status --porcelain`
+        );
+        if (
+          (status as any).includes("UU") ||
+          (status as any).includes("AA") ||
+          (status as any).includes("DD")
+        ) {
           // Abort the merge and report conflicts
           await (deps as any).execAsync(`git -C ${workdir} merge --abort`);
           return { workdir, merged: false, conflicts: true };
@@ -1335,10 +1984,16 @@ You need to specify one of these options to identify the target repository:
       }
 
       // Get new commit hash
-      const { stdout: afterHash } = await (deps as any).execAsync(`git -C ${workdir} rev-parse HEAD`);
+      const { stdout: afterHash } = await (deps as any).execAsync(
+        `git -C ${workdir} rev-parse HEAD`
+      );
 
       // Return whether any changes were merged
-      return { workdir, merged: (beforeHash as any).trim() !== (afterHash as any).trim(), conflicts: false };
+      return {
+        workdir,
+        merged: (beforeHash as any).trim() !== (afterHash as any).trim(),
+        conflicts: false,
+      };
     } catch (err) {
       throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err as any)}`);
     }
@@ -1368,7 +2023,9 @@ You need to specify one of these options to identify the target repository:
   ): Promise<PullResult> {
     try {
       // Get current commit hash before fetch
-      const { stdout: beforeHash } = await (deps as any).execAsync(`git -C ${workdir} rev-parse HEAD`);
+      const { stdout: beforeHash } = await (deps as any).execAsync(
+        `git -C ${workdir} rev-parse HEAD`
+      );
 
       // Fetch latest changes from remote using enhanced git execution with timeout
       await gitFetchWithTimeout(remote, undefined, {
@@ -1381,7 +2038,9 @@ You need to specify one of these options to identify the target repository:
       });
 
       // Get commit hash after fetch (should be the same since we only fetched)
-      const { stdout: afterHash } = await (deps as any).execAsync(`git -C ${workdir} rev-parse HEAD`);
+      const { stdout: afterHash } = await (deps as any).execAsync(
+        `git -C ${workdir} rev-parse HEAD`
+      );
 
       // Return whether local working directory changed (should be false for fetch-only)
       // The 'updated' flag indicates if remote refs were updated, but we can't easily detect that
@@ -1501,8 +2160,7 @@ You need to specify one of these options to identify the target repository:
 
     // 2. Validate remote exists
     const { stdout: remotesOut } = await (deps as any).execAsync(`git -C ${workdir} remote`);
-    const remotes = ((remotesOut
-      .split("\n") as any).map((r) => r.trim()) as any).filter(Boolean);
+    const remotes = ((remotesOut.split("\n") as any).map((r) => r.trim()) as any).filter(Boolean);
     if (!(remotes as any).includes(remote)) {
       throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
     }
@@ -1568,7 +2226,11 @@ You need to specify one of these options to identify the target repository:
     sessionBranch: string,
     baseBranch: string
   ): Promise<BranchDivergenceAnalysis> {
-    return (ConflictDetectionService as any).analyzeBranchDivergence(repoPath, sessionBranch, baseBranch);
+    return (ConflictDetectionService as any).analyzeBranchDivergence(
+      repoPath,
+      sessionBranch,
+      baseBranch
+    );
   }
 
   /**
@@ -1672,7 +2334,11 @@ export async function commitChangesFromParams(params: {
       }
     }
 
-    const commitHash = await (git as any).commit((params as any).message, (params as any).repo, (params as any).amend);
+    const commitHash = await (git as any).commit(
+      (params as any).message,
+      (params as any).repo,
+      (params as any).amend
+    );
 
     return {
       commitHash,
@@ -1843,7 +2509,7 @@ export async function pushFromParams(params: {
  * @returns A GitServiceInterface implementation
  */
 export function createGitService(options?: { baseDir?: string }): GitServiceInterface {
-  return new GitService((options as any).baseDir);
+  return new GitService(options?.baseDir);
 }
 
 /**
@@ -1862,7 +2528,7 @@ export async function mergeFromParams(params: {
     const git = new GitService();
     const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
     const targetBranch = params.targetBranch || "HEAD";
-    
+
     const result = await git.mergeWithConflictPrevention(
       repoPath,
       params.sourceBranch,
@@ -1870,10 +2536,10 @@ export async function mergeFromParams(params: {
       {
         dryRun: params.preview,
         autoResolveDeleteConflicts: params.autoResolve,
-        skipConflictCheck: false
+        skipConflictCheck: false,
       }
     );
-    
+
     return result;
   } catch (error) {
     log.error("Error merging branches", {
@@ -1898,44 +2564,47 @@ export async function checkoutFromParams(params: {
   preview?: boolean;
   autoResolve?: boolean;
   conflictStrategy?: string;
-}): Promise<{ 
-  workdir: string; 
-  switched: boolean; 
-  conflicts: boolean; 
-  conflictDetails?: string; 
-  warning?: { wouldLoseChanges: boolean; recommendedAction: string } 
+}): Promise<{
+  workdir: string;
+  switched: boolean;
+  conflicts: boolean;
+  conflictDetails?: string;
+  warning?: { wouldLoseChanges: boolean; recommendedAction: string };
 }> {
   try {
     const git = new GitService();
     const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
-    
+
     // Use ConflictDetectionService to check for branch switch conflicts
     const { ConflictDetectionService } = await import("./git/conflict-detection");
-    
+
     if (params.preview) {
       // Just preview the operation
-      const warning = await ConflictDetectionService.checkBranchSwitchConflicts(repoPath, params.branch);
+      const warning = await ConflictDetectionService.checkBranchSwitchConflicts(
+        repoPath,
+        params.branch
+      );
       return {
         workdir: repoPath,
         switched: false,
         conflicts: warning.wouldLoseChanges,
-        conflictDetails: warning.wouldLoseChanges ? 
-          `Switching to ${params.branch} would lose uncommitted changes. ${warning.recommendedAction}` : 
-          undefined,
+        conflictDetails: warning.wouldLoseChanges
+          ? `Switching to ${params.branch} would lose uncommitted changes. ${warning.recommendedAction}`
+          : undefined,
         warning: {
           wouldLoseChanges: warning.wouldLoseChanges,
-          recommendedAction: warning.recommendedAction
-        }
+          recommendedAction: warning.recommendedAction,
+        },
       };
     }
-    
+
     // Perform actual checkout
     await git.execInRepository(repoPath, `checkout ${params.branch}`);
-    
+
     return {
       workdir: repoPath,
       switched: true,
-      conflicts: false
+      conflicts: false,
     };
   } catch (error) {
     log.error("Error checking out branch", {
@@ -1975,16 +2644,16 @@ export async function rebaseFromParams(params: {
     const git = new GitService();
     const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
     const featureBranch = params.featureBranch || "HEAD";
-    
+
     // Use ConflictDetectionService to predict rebase conflicts
     const { ConflictDetectionService } = await import("./git/conflict-detection");
-    
+
     const prediction = await ConflictDetectionService.predictRebaseConflicts(
       repoPath,
       params.baseBranch,
       featureBranch
     );
-    
+
     if (params.preview) {
       // Just preview the operation
       return {
@@ -1995,11 +2664,11 @@ export async function rebaseFromParams(params: {
         prediction: {
           canAutoResolve: prediction.canAutoResolve,
           recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity
-        }
+          overallComplexity: prediction.overallComplexity,
+        },
       };
     }
-    
+
     // Perform actual rebase if no conflicts or auto-resolve enabled
     if (prediction.canAutoResolve || params.autoResolve) {
       await git.execInRepository(repoPath, `rebase ${params.baseBranch}`);
@@ -2010,20 +2679,21 @@ export async function rebaseFromParams(params: {
         prediction: {
           canAutoResolve: prediction.canAutoResolve,
           recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity
-        }
+          overallComplexity: prediction.overallComplexity,
+        },
       };
     } else {
       return {
         workdir: repoPath,
         rebased: false,
         conflicts: true,
-        conflictDetails: "Rebase would create conflicts. Use --preview to see details or --auto-resolve to attempt automatic resolution.",
+        conflictDetails:
+          "Rebase would create conflicts. Use --preview to see details or --auto-resolve to attempt automatic resolution.",
         prediction: {
           canAutoResolve: prediction.canAutoResolve,
           recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity
-        }
+          overallComplexity: prediction.overallComplexity,
+        },
       };
     }
   } catch (error) {

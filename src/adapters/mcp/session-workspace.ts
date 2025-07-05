@@ -54,7 +54,7 @@ export class SessionPathResolver {
 
     // Security check: ensure the resolved path is within the session workspace
     if (
-      !(normalizedPath as any).startsWith(`${normalizedWorkspace}/`) &&
+      !normalizedPath.startsWith(`${normalizedWorkspace}/`) &&
       normalizedPath !== normalizedWorkspace
     ) {
       throw new Error(

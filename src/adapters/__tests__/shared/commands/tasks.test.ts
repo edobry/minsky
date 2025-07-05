@@ -18,7 +18,7 @@ import {
   getMockCallArg,
 } from "../../../../utils/test-utils/assertions.js";
 
-const EXPECTED_TASKS_COMMANDS_COUNT = SHORT_ID_LENGTH;
+const EXPECTED_TASKS_COMMANDS_COUNT = 7;
 
 describe("Shared Tasks Commands", () => {
   // Set up spies for domain functions
@@ -91,7 +91,7 @@ describe("Shared Tasks Commands", () => {
 
     // Execute command
     const params = {
-      taskId: "TEST_VALUE",
+      taskId: "123",
       repo: "/test/repo",
     };
     const _context = { interface: "test" };
@@ -100,15 +100,15 @@ describe("Shared Tasks Commands", () => {
     // Verify domain function was called with correct params
     expectToHaveBeenCalled(getTaskStatusSpy);
     expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "#TEST_VALUE",
+      taskId: "#123",
       repo: "/test/repo",
     });
 
     // Verify result
     expect(_result).toEqual({
+      status: "TODO",
       success: true,
-      taskId: "#TEST_VALUE",
-      _status: "TODO",
+      taskId: "#123",
     });
   });
 
@@ -122,7 +122,7 @@ describe("Shared Tasks Commands", () => {
 
     // Execute command
     const params = {
-      taskId: "TEST_VALUE",
+      taskId: "123",
       status: "IN-PROGRESS",
       session: "test-session",
     };
@@ -132,29 +132,29 @@ describe("Shared Tasks Commands", () => {
     // Verify domain function was called to get previous status
     expectToHaveBeenCalled(getTaskStatusSpy);
     expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "#TEST_VALUE",
-      repo: undefined,
-      workspace: undefined,
-      _session: "test-session",
+      session: "test-session",
       backend: undefined,
+      repo: undefined,
+      taskId: "#123",
+      workspace: undefined,
     });
 
     // Verify domain function was called to set status
     expectToHaveBeenCalled(setTaskStatusSpy);
     expect(getMockCallArg(setTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "#TEST_VALUE",
-      _status: "IN-PROGRESS",
+      taskId: "#123",
+      status: "IN-PROGRESS",
       repo: undefined,
       workspace: undefined,
-      _session: "test-session",
+      session: "test-session",
       backend: undefined,
     });
 
     // Verify result
     expect(_result).toEqual({
       success: true,
-      taskId: "#TEST_VALUE",
-      _status: "IN-PROGRESS",
+      taskId: "#123",
+      status: "IN-PROGRESS",
       previousStatus: "TODO",
     });
   });

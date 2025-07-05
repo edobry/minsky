@@ -46,12 +46,12 @@ export class SpecialWorkspaceManager {
   private readonly lockTimeoutMs: number;
 
   constructor(options: SpecialWorkspaceOptions) {
-    (this as any).repoUrl = (options as any).repoUrl;
-    this.lockTimeoutMs = (options as any).lockTimeoutMs ?? 5 * 60 * 1000; // 5 minutes
+    this.repoUrl = options.repoUrl;
+    this.lockTimeoutMs = options?.lockTimeoutMs ?? 5 * 60 * 1000; // 5 minutes
 
     // Determine workspace paths
-    const baseDir = (options as any).baseDir ?? join(homedir(), ".local", "state", "minsky");
-    const workspaceName = (options as any).workspaceName ?? "task-operations";
+    const baseDir = options?.baseDir ?? join(homedir(), ".local", "state", "minsky");
+    const workspaceName = options?.workspaceName ?? "task-operations";
     this.workspacePath = join(baseDir, workspaceName);
     this.lockPath = join("/tmp", `minsky-${workspaceName}.lock`);
   }
@@ -125,7 +125,8 @@ export class SpecialWorkspaceManager {
         }
 
         // Commit changes
-        await execAsync(`git commit -m "${(message as any).replace(/"/g, "\\\"")}"`, {
+        const escapedMessage = (message as any).replace(/"/g, "\\\"");
+        await execAsync(`git commit -m "${escapedMessage}"`, {
           cwd: this.workspacePath,
         });
 
@@ -231,14 +232,14 @@ export class SpecialWorkspaceManager {
     await fs.mkdir(baseDir, { recursive: true });
 
     log.debug("Creating optimized special workspace", {
-      repoUrl: (this as any).repoUrl,
+      repoUrl: this.repoUrl,
       workspacePath: this.workspacePath,
     });
 
     try {
       // Clone with optimizations: shallow, no blobs initially
       await execAsync(
-        `git clone --depth=1 --filter=blob:none --no-checkout "${(this as any).repoUrl}" "${this.workspacePath}"`,
+        `git clone --depth=1 --filter=blob:none --no-checkout "${this.repoUrl}" "${this.workspacePath}"`,
         { cwd: baseDir }
       );
 
@@ -264,13 +265,11 @@ export class SpecialWorkspaceManager {
 
       log.error("Failed to create optimized workspace", {
         error: getErrorMessage(error as any),
-        repoUrl: (this as any).repoUrl,
+        repoUrl: this.repoUrl,
         workspacePath: this.workspacePath,
       });
 
-      throw new Error(
-        `Failed to create special workspace: ${getErrorMessage(error as any)}`
-      );
+      throw new Error(`Failed to create special workspace: ${getErrorMessage(error as any)}`);
     }
   }
 
@@ -371,5 +370,5 @@ export class SpecialWorkspaceManager {
 export function createSpecialWorkspaceManager(
   options: SpecialWorkspaceOptions
 ): SpecialWorkspaceManager {
-  return new SpecialWorkspaceManager(options as any);
+  return new SpecialWorkspaceManager(options);
 }
