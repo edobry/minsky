@@ -131,7 +131,7 @@ const sessionStartCommandParams: CommandParameterMap = {
     defaultValue: false,
   },
   packageManager: {
-    schema: z.string(),
+    schema: z.enum(["bun", "npm", "yarn", "pnpm"]),
     description: "Override the detected package manager",
     required: false,
   },
@@ -375,9 +375,9 @@ const sessionPrCommandParams: CommandParameterMap = {
  */
 export function registerSessionCommands(): void {
   // Register session list command
-  (sharedCommandRegistry as any).registerCommand({
+  sharedCommandRegistry.registerCommand({
     id: "session.list",
-    category: (CommandCategory as any).SESSION,
+    category: CommandCategory.SESSION,
     name: "list",
     description: "List all sessions",
     parameters: sessionListCommandParams,
@@ -386,8 +386,8 @@ export function registerSessionCommands(): void {
 
       try {
         const sessions = await listSessionsFromParams({
-          repo: (params as any).repo,
-          json: (params as any).json,
+          repo: params.repo,
+          json: params.json,
         });
 
         return {
@@ -396,7 +396,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to list sessions", {
-          error: getErrorMessage(error as any),
+          error: getErrorMessage(error),
         });
         throw error;
       }
@@ -404,25 +404,25 @@ export function registerSessionCommands(): void {
   });
 
   // Register session get command
-  (sharedCommandRegistry as any).registerCommand({
+  sharedCommandRegistry.registerCommand({
     id: "session.get",
-    category: (CommandCategory as any).SESSION,
+    category: CommandCategory.SESSION,
     name: "get",
     description: "Get details of a specific session",
     parameters: sessionGetCommandParams,
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing session.get command"!, { params, context });
+      log.debug("Executing session.get command", { params, context });
 
       try {
         const session = await getSessionFromParams({
-          name: (params as any).name,
-          task: (params as any).task,
-          repo: (params as any).repo,
-          json: (params as any).json,
+          name: params.name,
+          task: params.task,
+          repo: params.repo,
+          json: params.json,
         });
 
         if (!session) {
-          const identifier = (params as any).name || `task #${(params as any).task}`;
+          const identifier = params.name || `task #${params.task}`;
           throw new Error(`Session '${identifier}' not found`);
         }
 
@@ -432,9 +432,9 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to get session", {
-          error: getErrorMessage(error as any),
-          session: (params as any).name,
-          task: (params as any).task,
+          error: getErrorMessage(error),
+          session: params.name,
+          task: params.task,
         });
         throw error;
       }
@@ -442,17 +442,17 @@ export function registerSessionCommands(): void {
   });
 
   // Register session start command
-  (sharedCommandRegistry as any).registerCommand({
+  sharedCommandRegistry.registerCommand({
     id: "session.start",
-    category: (CommandCategory as any).SESSION,
+    category: CommandCategory.SESSION,
     name: "start",
     description: "Start a new session",
     parameters: sessionStartCommandParams,
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing session.start command"!, { params, context });
+      log.debug("Executing session.start command", { params, context });
 
       // Phase 2: Validate that task association is provided
-      if (!(params as any).task && !(params as any).description) {
+      if (!params.task && !params.description) {
         throw new Error(`Task association is required for proper tracking.
 Please provide one of:
   --task <id>           Associate with existing task
@@ -465,17 +465,17 @@ Examples:
 
       try {
         const session = await startSessionFromParams({
-          name: (params as any).name,
-          task: (params as any).task,
-          description: (params as any).description,
-          branch: (params as any).branch,
-          repo: (params as any).repo,
-          session: (params as any).session,
-          json: (params as any).json,
-          quiet: (params as any).quiet,
-          noStatusUpdate: (params as any).noStatusUpdate,
-          skipInstall: (params as any).skipInstall,
-          packageManager: (params as any).packageManager,
+          name: params.name,
+          task: params.task,
+          description: params.description,
+          branch: params.branch,
+          repo: params.repo,
+          session: params.session,
+          json: params.json,
+          quiet: params.quiet,
+          noStatusUpdate: params.noStatusUpdate,
+          skipInstall: params.skipInstall,
+          packageManager: params.packageManager,
         });
 
         return {
@@ -484,9 +484,9 @@ Examples:
         };
       } catch (error) {
         log.error("Failed to start session", {
-          error: getErrorMessage(error as any),
-          session: (params as any).name,
-          task: (params as any).task,
+          error: getErrorMessage(error),
+          session: params.name,
+          task: params.task,
         });
         throw error;
       }
@@ -494,9 +494,9 @@ Examples:
   });
 
   // Register session dir command
-  (sharedCommandRegistry as any).registerCommand({
+  sharedCommandRegistry.registerCommand({
     id: "session.dir",
-    category: (CommandCategory as any).SESSION,
+    category: CommandCategory.SESSION,
     name: "dir",
     description: "Get the directory of a session",
     parameters: sessionDirCommandParams,
@@ -505,10 +505,10 @@ Examples:
 
       try {
         const directory = await getSessionDirFromParams({
-          name: (params as any).name,
-          task: (params as any).task,
-          repo: (params as any).repo,
-          json: (params as any).json,
+          name: params.name,
+          task: params.task,
+          repo: params.repo,
+          json: params.json,
         });
 
         return {
@@ -517,9 +517,9 @@ Examples:
         };
       } catch (error) {
         log.error("Failed to get session directory", {
-          error: getErrorMessage(error as any),
-          session: (params as any).name,
-          task: (params as any).task,
+          error: getErrorMessage(error),
+          session: params.name,
+          task: params.task,
         });
         throw error;
       }
@@ -527,9 +527,9 @@ Examples:
   });
 
   // Register session delete command
-  (sharedCommandRegistry as any).registerCommand({
+  sharedCommandRegistry.registerCommand({
     id: "session.delete",
-    category: (CommandCategory as any).SESSION,
+    category: CommandCategory.SESSION,
     name: "delete",
     description: "Delete a session",
     parameters: sessionDeleteCommandParams,
@@ -538,21 +538,21 @@ Examples:
 
       try {
         const deleted = await deleteSessionFromParams({
-          name: (params as any).name,
-          task: (params as any).task,
-          force: (params as any).force,
-          repo: (params as any).repo,
-          json: (params as any).json,
+          name: params.name,
+          task: params.task,
+          force: params.force,
+          repo: params.repo,
+          json: params.json,
         });
 
         return {
           success: deleted,
-          session: (params as any).name || (params as any).task,
+          session: params.name || params.task,
         };
       } catch (error) {
         log.error("Failed to delete session", {
-          error: getErrorMessage(error as any),
-          session: (params as any).name || (params as any).task,
+          error: getErrorMessage(error),
+          session: params.name || params.task,
         });
         throw error;
       }
@@ -560,9 +560,9 @@ Examples:
   });
 
   // Register session update command
-  (sharedCommandRegistry as any).registerCommand({
+  sharedCommandRegistry.registerCommand({
     id: "session.update",
-    category: (CommandCategory as any).SESSION,
+    category: CommandCategory.SESSION,
     name: "update",
     description: "Update a session",
     parameters: sessionUpdateCommandParams,
@@ -571,28 +571,28 @@ Examples:
 
       try {
         await updateSessionFromParams({
-          name: (params as any).name,
-          task: (params as any).task,
-          repo: (params as any).repo,
-          branch: (params as any).branch,
-          noStash: (params as any).noStash,
-          noPush: (params as any).noPush,
-          force: (params as any).force,
-          json: (params as any).json,
-          skipConflictCheck: (params as any).skipConflictCheck,
-          autoResolveDeleteConflicts: (params as any).autoResolveDeleteConflicts,
-          dryRun: (params as any).dryRun,
-          skipIfAlreadyMerged: (params as any).skipIfAlreadyMerged,
+          name: params.name,
+          task: params.task,
+          repo: params.repo,
+          branch: params.branch,
+          noStash: params.noStash,
+          noPush: params.noPush,
+          force: params.force,
+          json: params.json,
+          skipConflictCheck: params.skipConflictCheck,
+          autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
+          dryRun: params.dryRun,
+          skipIfAlreadyMerged: params.skipIfAlreadyMerged,
         });
 
         return {
           success: true,
-          session: (params as any).name || (params as any).task,
+          session: params.name || params.task,
         };
       } catch (error) {
         log.error("Failed to update session", {
-          error: getErrorMessage(error as any),
-          session: (params as any).name || (params as any).task,
+          error: getErrorMessage(error),
+          session: params.name || params.task,
         });
         throw error;
       }
@@ -600,9 +600,9 @@ Examples:
   });
 
   // Register session approve command
-  (sharedCommandRegistry as any).registerCommand({
+  sharedCommandRegistry.registerCommand({
     id: "session.approve",
-    category: (CommandCategory as any).SESSION,
+    category: CommandCategory.SESSION,
     name: "approve",
     description: "Approve a session pull request",
     parameters: sessionApproveCommandParams,
@@ -610,12 +610,12 @@ Examples:
       log.debug("Executing session.approve command", { params, context });
 
       try {
-        const result = await approveSessionFromParams({
-          session: (params as any).name,
-          task: (params as any).task,
-          repo: (params as any).repo,
-          json: (params as any).json,
-        }) as any;
+        const result = (await approveSessionFromParams({
+          session: params.name,
+          task: params.task,
+          repo: params.repo,
+          json: params.json,
+        })) as any;
 
         return {
           success: true,
@@ -623,9 +623,9 @@ Examples:
         };
       } catch (error) {
         log.error("Failed to approve session", {
-          error: getErrorMessage(error as any),
-          session: (params as any).name,
-          task: (params as any).task,
+          error: getErrorMessage(error),
+          session: params.name,
+          task: params.task,
         });
         throw error;
       }
@@ -633,29 +633,41 @@ Examples:
   });
 
   // Register session pr command
-  (sharedCommandRegistry as any).registerCommand({
+  sharedCommandRegistry.registerCommand({
     id: "session.pr",
-    category: (CommandCategory as any).SESSION,
+    category: CommandCategory.SESSION,
     name: "pr",
     description: "Create a pull request for a session",
     parameters: sessionPrCommandParams,
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
+      // Validate that either body or bodyPath is provided
+      if (!params.body && !params.bodyPath) {
+        throw new Error(`PR description is required for meaningful pull requests.
+Please provide one of:
+  --body <text>       Direct PR body text
+  --body-path <path>  Path to file containing PR body
+
+Example:
+  minsky session pr --title "feat: Add new feature" --body "This PR adds..."
+  minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
+      }
+
       try {
-        const result = await sessionPrFromParams({
-          title: (params as any).title,
-          body: (params as any).body,
-          bodyPath: (params as any).bodyPath,
-          session: (params as any).name,
-          task: (params as any).task,
-          repo: (params as any).repo,
-          noStatusUpdate: (params as any).noStatusUpdate,
-          debug: (params as any).debug,
-          skipUpdate: (params as any).skipUpdate,
-          autoResolveDeleteConflicts: (params as any).autoResolveDeleteConflicts,
-          skipConflictCheck: (params as any).skipConflictCheck,
-        }) as any;
+        const result = (await sessionPrFromParams({
+          title: params.title,
+          body: params.body,
+          bodyPath: params.bodyPath,
+          session: params.name,
+          task: params.task,
+          repo: params.repo,
+          noStatusUpdate: params.noStatusUpdate,
+          debug: params.debug,
+          skipUpdate: params.skipUpdate,
+          autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
+          skipConflictCheck: params.skipConflictCheck,
+        })) as any;
 
         return {
           success: true,
@@ -663,13 +675,13 @@ Examples:
         };
       } catch (error) {
         // Instead of just logging and rethrowing, provide user-friendly error messages
-        const errorMessage = getErrorMessage(error as any);
-          
+        const errorMessage = getErrorMessage(error);
+
         // Handle specific error types with friendly messages
-        if ((errorMessage as any).includes("CONFLICT") || (errorMessage as any).includes("conflict")) {
+        if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
           throw new MinskyError(
             `🔥 Git merge conflict detected while creating PR branch.
-            
+
 This usually happens when:
 • The PR branch already exists with different content
 • There are conflicting changes between your session and the base branch
@@ -680,10 +692,10 @@ This usually happens when:
 
 Technical details: ${errorMessage}`
           );
-        } else if ((errorMessage as any).includes("Failed to create prepared merge commit")) {
+        } else if (errorMessage.includes("Failed to create prepared merge commit")) {
           throw new MinskyError(
             `❌ Failed to create PR branch merge commit.
-            
+
 This could be due to:
 • Merge conflicts between your session branch and base branch
 • Remote PR branch already exists with different content
@@ -696,10 +708,13 @@ This could be due to:
 
 Technical details: ${errorMessage}`
           );
-        } else if ((errorMessage as any).includes("Permission denied") || (errorMessage as any).includes("authentication")) {
+        } else if (
+          errorMessage.includes("Permission denied") ||
+          errorMessage.includes("authentication")
+        ) {
           throw new MinskyError(
             `🔐 Git authentication error.
-            
+
 Please check:
 • Your SSH keys are properly configured
 • You have push access to the repository
@@ -707,11 +722,11 @@ Please check:
 
 Technical details: ${errorMessage}`
           );
-        } else if ((errorMessage as any).includes("Session") && (errorMessage as any).includes("not found")) {
+        } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
           throw new MinskyError(
             `🔍 Session not found.
-            
-The session '${(params as any).name || (params as any).task}' could not be located.
+
+The session '${params.name || params.task}' could not be located.
 
 💡 Try:
 • Check available sessions: minsky session list
@@ -724,7 +739,7 @@ Technical details: ${errorMessage}`
           // For other errors, provide a general helpful message
           throw new MinskyError(
             `❌ Failed to create session PR.
-            
+
 The operation failed with: ${errorMessage}
 
 💡 Troubleshooting:
@@ -741,9 +756,9 @@ Need help? Run the command with --debug for detailed error information.`
   });
 
   // Register session inspect command
-  (sharedCommandRegistry as any).registerCommand({
+  sharedCommandRegistry.registerCommand({
     id: "session.inspect",
-    category: (CommandCategory as any).SESSION,
+    category: CommandCategory.SESSION,
     name: "inspect",
     description: "Inspect the current session (auto-detected from workspace)",
     parameters: {
@@ -759,7 +774,7 @@ Need help? Run the command with --debug for detailed error information.`
 
       try {
         const session = await inspectSessionFromParams({
-          json: (params as any).json,
+          json: params.json,
         });
 
         return {
@@ -768,7 +783,7 @@ Need help? Run the command with --debug for detailed error information.`
         };
       } catch (error) {
         log.error("Failed to inspect session", {
-          error: getErrorMessage(error as any),
+          error: getErrorMessage(error),
         });
         throw error;
       }

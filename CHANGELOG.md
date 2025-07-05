@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task #164: Add Bun Binary Builds and GitHub Actions Release Workflow**
+  - Added cross-platform binary compilation using `bun build --compile` with Just command runner
+  - Implemented multi-platform support for Linux (x64, ARM64), macOS (x64, ARM64), and Windows (x64)
+  - Created justfile with clean, maintainable build commands replacing repetitive npm scripts
+  - Added justfile recipes: `build`, `build-linux`, `build-linux-arm64`, `build-macos`, `build-macos-arm64`, `build-windows`, `build-all`, `clean`, `test-binary`
+  - Created GitHub Actions release workflow for automated binary builds on version tags using Just
+  - Configured peer dependencies required for bun compilation: `@valibot/to-json-schema`, `effect`, `sury`
+  - Set up automated release creation with multi-platform artifacts uploaded to GitHub Releases
+  - Added binary patterns to .gitignore to exclude compiled binaries from repository
+  - Created comprehensive BUILD.md documentation with installation and usage instructions
+  - Verified build process works correctly with functional cross-platform binary generation
+  - Enabled release automation triggered by version tags (v\*) with automatic release notes generation
+
+_See: SpecStory history [2025-07-04_task-164-bun-binary-builds](mdc:.specstory/history/2025-07-04_task-164-bun-binary-builds.md) for implementation details._
+
+- **Task #189: Restore Init Command Interactivity**
+  - Restored interactive prompts for the `minsky init init` command that were lost during refactoring
+  - Added comprehensive interactive prompts using `@clack/prompts` for consistent UX
+  - Interactive backend selection between json-file, markdown, and github-issues backends
+  - GitHub configuration prompts for owner/repo when github-issues backend is selected
+  - Rule format selection between cursor and generic formats
+  - MCP (Model Context Protocol) configuration with transport type selection
+  - Added proper error handling for non-interactive environments and user cancellation
+  - Maintained full backward compatibility with explicit command-line flags
+  - Replaced silent defaults with guided user experience for better onboarding
+  - Added input validation for GitHub details and port numbers
+  - Implemented graceful cancellation handling throughout the interactive flow
+
+_See: SpecStory history [2025-07-04_task-189-restore-init-command-interactivity](mdc:.specstory/history/2025-07-04_task-189-restore-init-command-interactivity.md) for implementation details._
+
 - Task #216: Created task to implement core agent loop for independent Minsky operation, enabling Minsky to work outside of Cursor's agent loop and support multiple AI providers
 - Task 182: AI-powered rule suggestion MVP - `minsky context suggest-rules` command for intelligent rule selection based on natural language queries
 - Task 183: Rule suggestion evaluation and optimization - Advanced features including confidence scoring, model optimization, and evaluation integration
@@ -29,6 +59,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 _See: SpecStory history [2025-01-28_task-229-mandatory-session-task-association](mdc:.specstory/history/2025-01-28_task-229-mandatory-session-task-association.md) for implementation details._
 
 ### Changed
+
+- **Enhanced Session PR Command with Required PR Descriptions**
+
+  - Added validation to `minsky session pr` command to require either `--body` or `--body-path` parameter
+  - Prevents creation of PRs without meaningful descriptions
+  - Provides clear error message with usage examples and suggestions
+  - Maintains backward compatibility with existing flags and functionality
+  - Improves code review processes by ensuring all PRs have proper documentation
+  - Enforces best practices for pull request documentation across all projects
 
 - Task #216: Updated to include investigation of existing agent framework libraries (claude-code SDK, OpenHands/OpenCode, LangChain, LlamaIndex, AutoGen, Semantic Kernel, etc.) before implementing from scratch, with evaluation criteria and decision framework for build vs. buy vs. extend
 - Task 082: Simplified to focus only on context analysis and visualization, removing obsolete concepts that don't match how AI context actually works
@@ -128,6 +167,20 @@ _See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specst
 _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
 
 ### Fixed
+
+- **Task #166: Complete TypeScript Error Resolution After Removing @types/commander**
+  - Successfully eliminated all 700+ TypeScript errors revealed after removing incompatible @types/commander package
+  - Fixed TaskBackend interface conflicts by consolidating duplicate interfaces across modules
+  - Resolved markdownTaskBackend.ts type compatibility issues between Task and TaskData interfaces
+  - Fixed MCP server logging to use correct single-argument logger method signatures
+  - Fixed MCP fastmcp-server.ts configuration to use valid transport properties for FastMCP
+  - Fixed test utilities assertions to handle unknown types with proper type assertions
+  - Fixed test compatibility layer interface to match actual implementation signatures
+  - Applied systematic AST-based transformations for precise error resolution
+  - Achieved 100% TypeScript compilation success with zero remaining errors
+  - Maintained code quality and functionality throughout the error resolution process
+
+_See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specstory/history/2025-01-24_13-58-start-working-on-task-166.md) for comprehensive TypeScript error resolution._
 
 - **Session PR Commit Message Bug Fix**
 
