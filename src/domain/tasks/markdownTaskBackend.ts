@@ -9,12 +9,12 @@ import { getErrorMessage } from "../../errors/index.js";
 // @ts-ignore - matter is a third-party library
 import matter from "gray-matter";
 
-import type { 
-  TaskBackend, 
-  Task, 
-  TaskListOptions, 
-  CreateTaskOptions, 
-  DeleteTaskOptions 
+import type {
+  TaskBackend,
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions,
 } from "../tasks.js";
 import type {
   TaskData,
@@ -68,19 +68,19 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (!result.success || !result.content) {
       return [];
     }
-    
+
     const tasks = this.parseTasks(result.content);
-    
+
     if (options?.status) {
-      return tasks.filter(task => task.status === options.status);
+      return tasks.filter((task) => task.status === options?.status);
     }
-    
+
     return tasks;
   }
 
   async getTask(id: string): Promise<Task | null> {
     const tasks = await this.listTasks();
-    return tasks.find(task => task.id === id) || null;
+    return tasks.find((task) => task.id === id) || null;
   }
 
   async getTaskStatus(id: string): Promise<string | undefined> {
@@ -93,10 +93,10 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (!result.success || !result.content) {
       throw new Error("Failed to read tasks data");
     }
-    
+
     const tasks = this.parseTasks(result.content);
-    const taskIndex = tasks.findIndex(task => task.id === id);
-    
+    const taskIndex = tasks.findIndex((task) => task.id === id);
+
     if (taskIndex === -1) {
       throw new Error(`Task with id ${id} not found`);
     }
@@ -111,7 +111,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     task.status = status as TaskStatus;
 
     const updatedContent = this.formatTasks(tasks);
-    
+
     const saveResult = await this.saveTasksData(updatedContent);
     if (!saveResult.success) {
       throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
@@ -124,49 +124,49 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (!specResult.success || !specResult.content) {
       throw new Error(`Failed to read spec file: ${specPath}`);
     }
-    
+
     const spec = this.parseTaskSpec(specResult.content);
-    
+
     // Get existing tasks to determine new ID
     const existingTasksResult = await this.getTasksData();
     if (!existingTasksResult.success || !existingTasksResult.content) {
       throw new Error("Failed to read existing tasks");
     }
-    
+
     const existingTasks = this.parseTasks(existingTasksResult.content);
     const maxId = existingTasks.reduce((max, task) => {
       const id = parseInt(task.id.slice(1), 10);
       return id > max ? id : max;
     }, 0);
-    
+
     const newId = `#${maxId + 1}`;
-    
+
     const newTaskData: TaskData = {
       id: newId,
       title: spec.title,
       description: spec.description,
       status: "TODO" as TaskStatus,
-      specPath
+      specPath,
     };
-    
+
     // Add the new task to the list
     existingTasks.push(newTaskData);
     const updatedContent = this.formatTasks(existingTasks);
-    
+
     const saveResult = await this.saveTasksData(updatedContent);
     if (!saveResult.success) {
       throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
     }
-    
+
     // Convert TaskData to Task for return
     const newTask: Task = {
       id: newTaskData.id,
       title: newTaskData.title,
       description: newTaskData.description,
       status: newTaskData.status,
-      specPath: newTaskData.specPath
+      specPath: newTaskData.specPath,
     };
-    
+
     return newTask;
   }
 
@@ -180,23 +180,28 @@ export class MarkdownTaskBackend implements TaskBackend {
 
       // Parse tasks and find the one to delete
       const tasks = this.parseTasks((tasksResult as any).content);
-      const taskToDelete = tasks.find(task => (task as any).id === id || (task as any).id === `#${id}` || (task as any).id.slice(1) === id);
-      
+      const taskToDelete = tasks.find(
+        (task) =>
+          (task as any).id === id ||
+          (task as any).id === `#${id}` ||
+          (task as any).id.slice(1) === id
+      );
+
       if (!taskToDelete) {
         log.debug(`Task ${id} not found for deletion`);
         return false;
       }
 
       // Remove the task from the array
-      const updatedTasks = tasks.filter(task => (task as any).id !== (taskToDelete as any).id);
+      const updatedTasks = tasks.filter((task) => (task as any).id !== (taskToDelete as any).id);
 
       // Save the updated tasks
       const updatedContent = this.formatTasks(updatedTasks);
       const saveResult = await this.saveTasksData(updatedContent);
-      
+
       if (!(saveResult as any).success) {
         log.error(`Failed to save tasks after deleting ${id}:`, {
-          error: (saveResult.error as any).message
+          error: (saveResult.error as any).message,
         });
         return false;
       }
@@ -204,10 +209,10 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Try to delete the spec file if it exists
       if ((taskToDelete as any).specPath) {
         try {
-          const fullSpecPath = (taskToDelete.specPath as any).startsWith("/") 
-            ? (taskToDelete as any).specPath 
+          const fullSpecPath = (taskToDelete.specPath as any).startsWith("/")
+            ? (taskToDelete as any).specPath
             : join(this.workspacePath, (taskToDelete as any).specPath);
-          
+
           if (await this.fileExists(fullSpecPath)) {
             const { unlink } = await import("fs/promises");
             await unlink(fullSpecPath);
@@ -235,7 +240,9 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    const fullPath = (specPath as any).startsWith("/")
+      ? specPath
+      : join(this.workspacePath, specPath);
     return readTaskSpecFile(fullPath);
   }
 
@@ -295,7 +302,9 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
-    const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    const fullPath = (specPath as any).startsWith("/")
+      ? specPath
+      : join(this.workspacePath, specPath);
     return writeTaskSpecFile(fullPath, content);
   }
 

@@ -60,7 +60,11 @@ export class TaskService {
   private readonly currentBackend: TaskBackend;
 
   constructor(options: TaskServiceOptions = {}) {
-    const { workspacePath = (process as any).cwd(), backend = "markdown", customBackends } = options;
+    const {
+      workspacePath = (process as any).cwd(),
+      backend = "markdown",
+      customBackends,
+    } = options;
 
     // Initialize with provided backends or create defaults
     if (customBackends && (customBackends as any).length > 0) {
@@ -116,8 +120,8 @@ export class TaskService {
     let tasks = (this.currentBackend as any).parseTasks((result as any).content);
 
     // Apply filters if provided
-    if ((options as any).status) {
-      tasks = tasks.filter((task) => (task as any).status === (options as any).status);
+    if (options?.status) {
+      tasks = tasks.filter((task) => (task as any).status === options.status);
     }
 
     return tasks;
@@ -161,7 +165,7 @@ export class TaskService {
    */
   async getTaskStatus(id: string): Promise<string | undefined> {
     const task = await this.getTask(id);
-    return task ? (task as any).status : null as any;
+    return task ? (task as any).status : (null as any);
   }
 
   /**
@@ -277,7 +281,9 @@ export class TaskService {
         updatedSpecContent
       );
       if (!(saveSpecResult as any).success) {
-        throw new Error(`Failed to save updated spec file: ${(saveSpecResult.error as any).message}`);
+        throw new Error(
+          `Failed to save updated spec file: ${(saveSpecResult.error as any).message}`
+        );
       }
     }
 
@@ -465,10 +471,9 @@ export class TaskService {
   private async tryCreateGitHubBackend(workspacePath: string): Promise<TaskBackend | null> {
     try {
       // Dynamic import to avoid hard dependency on GitHub modules
-      const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await (Promise as any).all([
-        import("./githubBackendConfig"),
-        import("./githubIssuesTaskBackend"),
-      ]);
+      const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await (
+        Promise as any
+      ).all([import("./githubBackendConfig"), import("./githubIssuesTaskBackend")]);
 
       const config = getGitHubBackendConfig(workspacePath);
       if (!config) {
@@ -508,7 +513,10 @@ export class TaskService {
 
     const tempDir = os.tmpdir();
     const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${(Date as any).now()}.md`);
+    const tempSpecPath = path.join(
+      tempDir,
+      `temp-task-${normalizedTitle}-${(Date as any).now()}.md`
+    );
 
     try {
       // Write the spec content to the temporary file

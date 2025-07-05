@@ -12,12 +12,12 @@ const TEST_VALUE = 123;
 import { join, dirname } from "path";
 import type { TaskSpecData, TaskBackendConfig, TaskData } from "../../types/tasks/taskData";
 import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
-import type { 
-  TaskBackend, 
-  Task, 
-  TaskListOptions, 
-  CreateTaskOptions, 
-  DeleteTaskOptions 
+import type {
+  TaskBackend,
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions,
 } from "../tasks";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
@@ -59,10 +59,10 @@ export class JsonFileTaskBackend implements TaskBackend {
 
     // Storage location priority:
     // 1. Explicitly provided dbFilePath (e.g., from special workspace)
-    // 2. Team-shareable location in process/ directory 
+    // 2. Team-shareable location in process/ directory
     // 3. Local fallback in .minsky directory
     let dbFilePath: string;
-    
+
     if ((options as any).dbFilePath) {
       // Use provided path (likely from special workspace or team configuration)
       dbFilePath = (options as any).dbFilePath;
@@ -70,7 +70,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       // Try team-shareable location first
       const teamLocation = join(this.workspacePath, "process", "tasks.json");
       dbFilePath = teamLocation;
-      
+
       // TODO: Add fallback logic if process/ directory doesn't exist
       // For now, default to team-shareable location to encourage adoption
     }
@@ -86,7 +86,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         metadata: {
           storageLocation: dbFilePath,
           backendType: "json-file",
-          createdAt: (new Date() as any).toISOString()
+          createdAt: (new Date() as any).toISOString(),
         },
       }),
       prettyPrint: true,
@@ -127,7 +127,9 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
     try {
-      const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
+      const fullPath = (specPath as any).startsWith("/")
+        ? specPath
+        : join(this.workspacePath, specPath);
 
       const content = String(await readFile(fullPath, "utf8"));
       return {
@@ -178,7 +180,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   parseTaskSpec(content: string): TaskSpecData {
     // Basic parsing of task spec content
-    const lines = (((content) as any).toString() as any).split("\n");
+    const lines = ((content as any).toString() as any).split("\n");
     let title = "";
     let description = "";
     let id = "";
@@ -224,11 +226,11 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     const tasks = await this.getAllTasks();
-    
+
     if (options?.status) {
-      return tasks.filter(task => task.status === options.status);
+      return tasks.filter((task) => task.status === options?.status);
     }
-    
+
     return tasks;
   }
 
@@ -249,7 +251,9 @@ export class JsonFileTaskBackend implements TaskBackend {
     // Read and parse the task specification
     const specDataResult = await this.getTaskSpecData(specPath);
     if (!specDataResult.success) {
-      throw new Error(`Failed to read task spec from ${specPath}: ${specDataResult.error?.message}`);
+      throw new Error(
+        `Failed to read task spec from ${specPath}: ${specDataResult.error?.message}`
+      );
     }
     const spec = this.parseTaskSpec(specDataResult.content || "");
 
@@ -314,7 +318,9 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
     try {
-      const fullPath = (specPath as any).startsWith("/") ? specPath : join(this.workspacePath, specPath);
+      const fullPath = (specPath as any).startsWith("/")
+        ? specPath
+        : join(this.workspacePath, specPath);
 
       // Ensure directory exists
       const dir = dirname(fullPath);
@@ -340,7 +346,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
     const normalizedId = id.startsWith("#") ? id : `#${id}`;
-    
+
     try {
       // Check if the task exists first
       const existingTask = await this.getTaskById(normalizedId);
@@ -351,12 +357,12 @@ export class JsonFileTaskBackend implements TaskBackend {
 
       // Delete from database
       const deleted = await this.deleteTaskData(normalizedId);
-      
+
       if (deleted && (existingTask as any).specPath) {
         // Delete the spec file if it exists
         try {
-          const fullSpecPath = (existingTask.specPath as any).startsWith("/") 
-            ? (existingTask as any).specPath 
+          const fullSpecPath = (existingTask.specPath as any).startsWith("/")
+            ? (existingTask as any).specPath
             : join(this.workspacePath, (existingTask as any).specPath);
           await unlink(fullSpecPath);
         } catch (error) {
@@ -515,7 +521,7 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   private parseMarkdownTasks(content: string): TaskData[] {
     const tasks: TaskData[] = [];
-    const lines = (((content) as any).toString() as any).split("\n");
+    const lines = ((content as any).toString() as any).split("\n");
 
     for (const line of lines) {
       const trimmed = (line as any).trim();
