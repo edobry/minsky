@@ -30,7 +30,7 @@ export interface SessionDbState {
  * Initialize a new SessionDB state object
  */
 export function initializeSessionDbState(options: { baseDir?: string } = {}): SessionDbState {
-  const baseDir = options.baseDir || getMinskyStateDir();
+  const baseDir = (options as any).baseDir || getMinskyStateDir();
 
   return {
     sessions: [],
@@ -42,14 +42,14 @@ export function initializeSessionDbState(options: { baseDir?: string } = {}): Se
  * List all sessions
  */
 export function listSessionsFn(state: SessionDbState): SessionRecord[] {
-  return [...state.sessions];
+  return [...(state as any).sessions];
 }
 
 /**
  * Get a specific session by name
  */
 export function getSessionFn(state: SessionDbState, sessionName: string): SessionRecord | null {
-  return state.sessions.find((s) => s.session === sessionName) || null;
+  return (state.sessions as any).find((s) => (s as any).session === sessionName) || null;
 }
 
 /**
@@ -57,8 +57,8 @@ export function getSessionFn(state: SessionDbState, sessionName: string): Sessio
  */
 export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): SessionRecord | null {
   // Normalize taskId by removing # prefix if present
-  const normalizedTaskId = taskId.replace(/^#/, "");
-  return state.sessions.find((s) => s.taskId.replace(/^#/, "") === normalizedTaskId) || null;
+  const normalizedTaskId = (taskId as any).replace(/^#/, "");
+  return (state.sessions as any).find((s) => (s.taskId as any).replace(/^#/, "") === normalizedTaskId) || null;
 }
 
 /**
@@ -67,7 +67,7 @@ export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): Ses
 export function addSessionFn(state: SessionDbState, record: SessionRecord): SessionDbState {
   return {
     ...state,
-    sessions: [...state.sessions, record],
+    sessions: [...(state as any).sessions, record],
   };
 }
 
@@ -79,13 +79,13 @@ export function updateSessionFn(
   sessionName: string,
   updates: Partial<Omit<SessionRecord, "session">>
 ): SessionDbState {
-  const index = state.sessions.findIndex((s) => s.session === sessionName);
+  const index = (state.sessions as any).findIndex((s) => (s as any).session === sessionName);
   if (index === -1) {
     return state;
   }
 
   const { session: _, ...safeUpdates } = updates as any;
-  const updatedSessions = [...state.sessions];
+  const updatedSessions = [...(state as any).sessions];
   updatedSessions[index] = { ...updatedSessions[index], ...safeUpdates };
 
   return {
@@ -98,13 +98,13 @@ export function updateSessionFn(
  * Delete a session by name
  */
 export function deleteSessionFn(state: SessionDbState, sessionName: string): SessionDbState {
-  const index = state.sessions.findIndex((s) => s.session === sessionName);
+  const index = (state.sessions as any).findIndex((s) => (s as any).session === sessionName);
   if (index === -1) {
     return state;
   }
 
-  const updatedSessions = [...state.sessions];
-  updatedSessions.splice(index, 1);
+  const updatedSessions = [...(state as any).sessions];
+  (updatedSessions as any).splice(index, 1);
 
   return {
     ...state,
@@ -121,13 +121,13 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
   }
 
   // Use simplified session-ID-based path structure: /sessions/{sessionId}/
-  return join(state.baseDir, "sessions", record.session);
+  return join((state as any).baseDir, "sessions", (record as any).session);
 }
 
 /**
  * Get the working directory for a session
  */
-export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | null {
+export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | undefined {
   const session = getSessionFn(state, sessionName);
   if (!session) {
     return null as any;

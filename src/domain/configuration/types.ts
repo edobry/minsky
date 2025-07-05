@@ -143,6 +143,8 @@ export interface ValidationResult {
   warnings: ValidationWarning[];
 }
 
+export interface CredentialConfig {}
+
 export interface ValidationError {
   field: string;
   message: string;
@@ -166,7 +168,7 @@ export interface ConfigurationService {
 }
 
 export interface CredentialManager {
-  getCredential(_service: "github"): Promise<string | null>;
+  getCredential(_service: "github"): Promise<string | undefined>;
   setGlobalCredential(
     _service: "github",
     source: CredentialSource,

@@ -54,7 +54,7 @@ export function createSessionPrBranchErrorMessage(
     ]
   };
 
-  return buildErrorMessage(template, context);
+  return buildErrorMessage(template, context as any);
 }
 
 /**
@@ -105,7 +105,7 @@ export function createTaskIdParsingErrorMessage(
       {
         title: "Supported formats:",
         emoji: ErrorEmojis.INFO,
-        content: validExamples.map(example => `• ${example}`).join("\n")
+        content: ((validExamples as any).map(example => `• ${example}`) as any).join("\n")
       },
       {
         title: "Try these commands:",
@@ -115,7 +115,7 @@ export function createTaskIdParsingErrorMessage(
     ]
   };
 
-  return buildErrorMessage(template, context);
+  return buildErrorMessage(template, context as any);
 }
 
 /**
@@ -178,8 +178,8 @@ export function createVariableNamingErrorMessage(
   const contextInfo: ContextInfo[] = [
     ...(context || []),
     ...(filePath ? [{ label: "File", value: filePath }] : []),
-    ...(declarationLine ? [{ label: "Declaration line", value: declarationLine.toString() }] : []),
-    ...(usageLine ? [{ label: "Usage line", value: usageLine.toString() }] : [])
+    ...(declarationLine ? [{ label: "Declaration line", value: (declarationLine as any).toString() }] : []),
+    ...(usageLine ? [{ label: "Usage line", value: (usageLine as any).toString() }] : [])
   ];
 
   const template: ErrorTemplate = {
@@ -270,7 +270,7 @@ export function createMergeConflictErrorMessage(
   workdir?: string,
   context?: ContextInfo[]
 ): string {
-  const fileList = conflictingFiles.map(file => {
+  const fileList = ((conflictingFiles as any).map(file => {
     const type = conflictTypes[file] || "other";
     const typeEmoji = {
       "modify/modify": "✏️",
@@ -279,7 +279,7 @@ export function createMergeConflictErrorMessage(
       "other": "⚠️"
     }[type];
     return `${typeEmoji} ${file} (${type} conflict)`;
-  }).join("\n");
+  }) as any).join("\n");
 
   const suggestions: CommandSuggestion[] = [
     {
@@ -294,7 +294,7 @@ export function createMergeConflictErrorMessage(
     },
     {
       description: "Edit conflicts in first file",
-      command: conflictingFiles.length > 0 ? `code ${conflictingFiles[0]}` : "code <conflicted-file>",
+      command: (conflictingFiles as any).length > 0 ? `code ${conflictingFiles[0]}` : "code <conflicted-file>",
       emoji: ErrorEmojis.FILE
     },
     {
@@ -327,13 +327,13 @@ export function createMergeConflictErrorMessage(
   const contextInfo: ContextInfo[] = [
     ...(context || []),
     { label: "Operation", value: operation },
-    { label: "Conflicted files", value: conflictingFiles.length.toString() },
+    { label: "Conflicted files", value: (conflictingFiles.length as any).toString() },
     ...(workdir ? [{ label: "Working directory", value: workdir }] : [])
   ];
 
   const template: ErrorTemplate = {
     title: `${ErrorEmojis.CONFLICT} Merge Conflicts Detected`,
-    description: `The ${operation} operation failed due to conflicts in ${conflictingFiles.length} file(s).`,
+    description: `The ${operation} operation failed due to conflicts in ${(conflictingFiles as any).length} file(s).`,
     sections: [
       {
         title: "Conflicted files:",
@@ -362,12 +362,12 @@ export function createBackendDetectionErrorMessage(
   workspacePath?: string,
   context?: ContextInfo[]
 ): string {
-  const backendsList = availableBackends.length > 0 
-    ? availableBackends.map(backend => {
-      const requirements = configurationRequirements[backend] || [];
+  const backendsList = (availableBackends as any).length > 0 
+    ? (availableBackends.map(backend => {
+      const requirements = (configurationRequirements as any)[backend] || [];
       const reqText = requirements.length > 0 ? ` (requires: ${requirements.join(", ")})` : "";
       return `• ${backend}${reqText}`;
-    }).join("\n")
+    }) as any).join("\n")
     : "• markdown (default)\n• json-file\n• github-issues (requires GitHub config)";
 
   const suggestions: CommandSuggestion[] = [
@@ -401,7 +401,7 @@ export function createBackendDetectionErrorMessage(
   const contextInfo: ContextInfo[] = [
     ...(context || []),
     ...(attemptedBackend ? [{ label: "Attempted backend", value: attemptedBackend }] : []),
-    { label: "Available backends", value: availableBackends.length.toString() },
+    { label: "Available backends", value: (availableBackends.length as any).toString() },
     ...(workspacePath ? [{ label: "Workspace path", value: workspacePath }] : [])
   ];
 

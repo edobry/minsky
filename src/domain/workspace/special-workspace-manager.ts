@@ -40,18 +40,18 @@ interface LockInfo {
  * - Error recovery and workspace repair
  */
 export class SpecialWorkspaceManager {
-  private readonly repoUrl: string;
+  private readonly repoUrl!: string;
   private readonly workspacePath: string;
   private readonly lockPath: string;
   private readonly lockTimeoutMs: number;
 
   constructor(options: SpecialWorkspaceOptions) {
-    this.repoUrl = options.repoUrl;
-    this.lockTimeoutMs = options.lockTimeoutMs ?? 5 * 60 * 1000; // 5 minutes
+    (this as any).repoUrl = (options as any).repoUrl;
+    this.lockTimeoutMs = (options as any).lockTimeoutMs ?? 5 * 60 * 1000; // 5 minutes
 
     // Determine workspace paths
-    const baseDir = options.baseDir ?? join(homedir(), ".local", "state", "minsky");
-    const workspaceName = options.workspaceName ?? "task-operations";
+    const baseDir = (options as any).baseDir ?? join(homedir(), ".local", "state", "minsky");
+    const workspaceName = (options as any).workspaceName ?? "task-operations";
     this.workspacePath = join(baseDir, workspaceName);
     this.lockPath = join("/tmp", `minsky-${workspaceName}.lock`);
   }
@@ -95,7 +95,7 @@ export class SpecialWorkspaceManager {
         });
       } catch (error) {
         log.error("Failed to update workspace, attempting repair", {
-          error: getErrorMessage(error),
+          error: getErrorMessage(error as any),
           workspacePath: this.workspacePath,
         });
 
@@ -119,13 +119,13 @@ export class SpecialWorkspaceManager {
           cwd: this.workspacePath,
         });
 
-        if (!statusOutput.trim()) {
+        if (!(statusOutput as any).trim()) {
           log.debug("No changes to commit in special workspace");
           return;
         }
 
         // Commit changes
-        await execAsync(`git commit -m "${message.replace(/"/g, "\\\"")}"`, {
+        await execAsync(`git commit -m "${(message as any).replace(/"/g, "\\\"")}"`, {
           cwd: this.workspacePath,
         });
 
@@ -138,7 +138,7 @@ export class SpecialWorkspaceManager {
         });
       } catch (error) {
         log.error("Failed to commit and push changes", {
-          error: getErrorMessage(error),
+          error: getErrorMessage(error as any),
           message,
           workspacePath: this.workspacePath,
         });
@@ -160,7 +160,7 @@ export class SpecialWorkspaceManager {
         });
       } catch (error) {
         log.error("Failed to rollback changes", {
-          error: getErrorMessage(error),
+          error: getErrorMessage(error as any),
           workspacePath: this.workspacePath,
         });
         throw error;
@@ -189,7 +189,7 @@ export class SpecialWorkspaceManager {
         log.debug("Successfully repaired special workspace");
       } catch (error) {
         log.error("Failed to repair workspace", {
-          error: getErrorMessage(error),
+          error: getErrorMessage(error as any),
           workspacePath: this.workspacePath,
         });
         throw error;
@@ -231,14 +231,14 @@ export class SpecialWorkspaceManager {
     await fs.mkdir(baseDir, { recursive: true });
 
     log.debug("Creating optimized special workspace", {
-      repoUrl: this.repoUrl,
+      repoUrl: (this as any).repoUrl,
       workspacePath: this.workspacePath,
     });
 
     try {
       // Clone with optimizations: shallow, no blobs initially
       await execAsync(
-        `git clone --depth=1 --filter=blob:none --no-checkout "${this.repoUrl}" "${this.workspacePath}"`,
+        `git clone --depth=1 --filter=blob:none --no-checkout "${(this as any).repoUrl}" "${this.workspacePath}"`,
         { cwd: baseDir }
       );
 
@@ -263,13 +263,13 @@ export class SpecialWorkspaceManager {
       }
 
       log.error("Failed to create optimized workspace", {
-        error: getErrorMessage(error),
-        repoUrl: this.repoUrl,
+        error: getErrorMessage(error as any),
+        repoUrl: (this as any).repoUrl,
         workspacePath: this.workspacePath,
       });
 
       throw new Error(
-        `Failed to create special workspace: ${getErrorMessage(error)}`
+        `Failed to create special workspace: ${getErrorMessage(error as any)}`
       );
     }
   }
@@ -303,17 +303,17 @@ export class SpecialWorkspaceManager {
    * Acquire a file-based lock
    */
   private async acquireLock(operation: string): Promise<void> {
-    const startTime = Date.now();
+    const startTime = (Date as any).now();
 
-    while (Date.now() - startTime < this.lockTimeoutMs) {
+    while ((Date as any).now() - startTime < this.lockTimeoutMs) {
       try {
         // Check if lock file exists
         if (existsSync(this.lockPath)) {
           const lockContent = await fs.readFile(this.lockPath, "utf8");
-          const lockInfo: LockInfo = JSON.parse(lockContent);
+          const lockInfo: LockInfo = JSON.parse(String(lockContent));
 
           // Check if lock is stale
-          if (Date.now() - lockInfo.timestamp > this.lockTimeoutMs) {
+          if ((Date as any).now() - (lockInfo as any).timestamp > this.lockTimeoutMs) {
             log.warn("Removing stale lock", {
               lockPath: this.lockPath,
               lockInfo,
@@ -328,15 +328,15 @@ export class SpecialWorkspaceManager {
 
         // Try to create lock file
         const lockInfo: LockInfo = {
-          pid: process.pid,
-          timestamp: Date.now(),
+          pid: (process as any).pid,
+          timestamp: (Date as any).now(),
           operation,
         };
 
         await fs.writeFile(this.lockPath, JSON.stringify(lockInfo), { flag: "wx" });
         return; // Successfully acquired lock
       } catch (error: any) {
-        if (error.code === "EEXIST") {
+        if ((error as any).code === "EEXIST") {
           // Lock file was created by another process, wait and retry
           await new Promise((resolve) => setTimeout(resolve, 100));
           continue;
@@ -358,7 +358,7 @@ export class SpecialWorkspaceManager {
       }
     } catch (error) {
       log.warn("Failed to release lock", {
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as any),
         lockPath: this.lockPath,
       });
     }
@@ -371,5 +371,5 @@ export class SpecialWorkspaceManager {
 export function createSpecialWorkspaceManager(
   options: SpecialWorkspaceOptions
 ): SpecialWorkspaceManager {
-  return new SpecialWorkspaceManager(options);
+  return new SpecialWorkspaceManager(options as any);
 }

@@ -12,40 +12,39 @@ import { log } from "../../utils/logger.js";
  */
 export function registerDebugTools(commandMapper: CommandMapper): void {
   // List all registered methods
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "debug.listMethods",
     description: "List all registered MCP methods for debugging",
-    parameters: z.object({}).strict(),
+    parameters: (z.object({}) as any).strict(),
     execute: async () => {
       // Get the list of all registered method names from the CommandMapper
-      const methodNames = commandMapper.getRegisteredMethodNames();
+      const methodNames = (commandMapper as any).getRegisteredMethodNames();
 
       // Sort method names for easier reading
-      const sortedMethods = [...methodNames].sort();
+      const sortedMethods = ([...methodNames] as any).sort();
 
       // Log the methods for debugging
       log.debug("Listing all registered MCP methods", {
-        count: sortedMethods.length,
+        count: (sortedMethods as any).length,
         methods: sortedMethods,
       });
 
       return {
         methods: sortedMethods,
-        count: sortedMethods.length,
+        count: (sortedMethods as any).length,
       };
     },
   });
 
   // Echo command for testing JSON-RPC communication
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "debug.echo",
     description: "Echo back the provided parameters (for testing MCP communication)",
-    parameters: z
+    parameters: (z
       .object({
         message: z.string().optional().describe("Message to echo back"),
         // Allow any additional properties for flexible testing
-      })
-      .passthrough(),
+      }) as any).passthrough(),
     execute: async (args) => {
       // Log the echo request
       log.debug("Debug echo request", {
@@ -55,29 +54,24 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
       // Return the provided arguments with a timestamp
       return {
         success: true,
-        timestamp: new Date().toISOString(),
+        timestamp: (new Date() as any).toISOString(),
         echo: args,
       };
     },
   });
 
   // System info command for diagnostics
-  commandMapper.addCommand({
+  (commandMapper as any).addCommand({
     name: "debug.systemInfo",
     description: "Get system information about the MCP server",
-    parameters: z.object({}).strict(),
+    parameters: (z.object({}) as any).strict(),
     execute: async () => {
       // Get basic system info for diagnostics
-      // @ts-expect-error - Bun supports process.version at runtime, types incomplete
-      const nodejsVersion = process.version;
-      // @ts-expect-error - Bun supports process.platform at runtime, types incomplete
-      const platform = process.platform;
-      // @ts-expect-error - Bun supports process.arch at runtime, types incomplete
-      const arch = process.arch;
-      // @ts-expect-error - Bun supports process.uptime at runtime, types incomplete
-      const uptime = process.uptime();
-      // @ts-expect-error - Bun supports process.memoryUsage at runtime, types incomplete
-      const memory = process.memoryUsage();
+      const nodejsVersion = (process as any).version;
+      const platform = (process as any).platform;
+      const arch = (process as any).arch;
+      const uptime = (process as any).uptime();
+      const memory = (process as any).memoryUsage();
 
       // Return formatted system information
       return {
@@ -88,12 +82,12 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
           uptime: Math.round(uptime),
         },
         memory: {
-          rss: formatBytes(memory.rss),
-          heapTotal: formatBytes(memory.heapTotal),
-          heapUsed: formatBytes(memory.heapUsed),
-          external: formatBytes(memory.external),
+          rss: formatBytes((memory as any).rss),
+          heapTotal: formatBytes((memory as any).heapTotal),
+          heapUsed: formatBytes((memory as any).heapUsed),
+          external: formatBytes((memory as any).external),
         },
-        timestamp: new Date().toISOString(),
+        timestamp: (new Date() as any).toISOString(),
       };
     },
   });
@@ -111,5 +105,5 @@ function formatBytes(bytes: number): string {
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  return `${parseFloat(((bytes / Math.pow(k, i)) as any).toFixed(2))} ${sizes[i]}`;
 }

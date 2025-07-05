@@ -30,8 +30,8 @@ const execAsync = promisify(exec);
  */
 export class RemoteGitBackend implements RepositoryBackend {
   private readonly baseDir: string;
-  private readonly repoUrl: string;
-  private readonly repoName: string;
+  private readonly repoUrl!: string;
+  private readonly repoName!: string;
   private readonly defaultBranch?: string;
   private sessionDb: SessionProviderInterface;
 
@@ -40,18 +40,18 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param config Backend configuration
    */
   constructor(config: RepositoryBackendConfig) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
 
     // Extract configuration options
-    this.repoUrl = config.repoUrl;
-    this.defaultBranch = config.branch;
+    (this as any).repoUrl = (config as any).repoUrl;
+    this.defaultBranch = (config as any).branch;
 
-    if (!this.repoUrl) {
+    if (!(this as any).repoUrl) {
       throw new Error("Repository URL is required for Remote Git backend");
     }
 
-    this.repoName = normalizeRepositoryURI(this.repoUrl);
+    (this as any).repoName = normalizeRepositoryURI((this as any).repoUrl);
     this.sessionDb = createSessionProvider();
   }
 
@@ -94,7 +94,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
     try {
       // Clone the repository
-      let cloneCmd = `git clone ${this.repoUrl} ${workdir}`;
+      let cloneCmd = `git clone ${(this as any).repoUrl} ${workdir}`;
 
       // Add branch if specified
       if (this.defaultBranch) {
@@ -111,28 +111,28 @@ export class RemoteGitBackend implements RepositoryBackend {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
 
       // Provide more informative error messages for common Git issues
-      if (normalizedError?.message.includes("Authentication failed")) {
+      if ((normalizedError?.message as any).includes("Authentication failed")) {
         throw new Error(`
 🔐 Git Authentication Failed
 
 Unable to authenticate with the Git repository.
 
 💡 Quick fixes:
-   • Verify you have access to this repository: ${this.repoUrl}
+   • Verify you have access to this repository: ${(this as any).repoUrl}
    • Check your Git credentials are configured
    • Ensure SSH keys or tokens are set up for your Git provider
 
-Repository: ${this.repoUrl}
+Repository: ${(this as any).repoUrl}
 `);
       } else if (
-        normalizedError?.message.includes("not found") ||
-        normalizedError?.message.includes("does not exist")
+        (normalizedError?.message as any).includes("not found") ||
+        (normalizedError?.message as any).includes("does not exist")
       ) {
-        throw new Error(`Git repository not found: ${this.repoUrl}. Check the URL.`);
-      } else if (normalizedError?.message.includes("timed out")) {
+        throw new Error(`Git repository not found: ${(this as any).repoUrl}. Check the URL.`);
+      } else if ((normalizedError?.message as any).includes("timed out")) {
         throw new Error("Git connection timed out. Check your network connection and try again.");
       } else {
-        throw new Error(`Failed to clone Git repository: ${normalizedError?.message}`);
+        throw new Error(`Failed to clone Git repository: ${(normalizedError as any).message}`);
       }
     }
   }
@@ -157,7 +157,7 @@ Repository: ${this.repoUrl}
       };
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-      throw new Error(`Failed to create branch in Git repository: ${normalizedError?.message}`);
+      throw new Error(`Failed to create branch in Git repository: ${(normalizedError as any).message}`);
     }
   }
 
@@ -174,7 +174,7 @@ Repository: ${this.repoUrl}
       const { stdout: branchOutput } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
-      const branch = branchOutput.trim();
+      const branch = (branchOutput as any).trim();
 
       // Get ahead/behind counts
       let ahead = 0;
@@ -183,8 +183,8 @@ Repository: ${this.repoUrl}
         const { stdout: revListOutput } = await execAsync(
           `git -C ${workdir} rev-list --left-right --count @{upstream}...HEAD`
         );
-        const counts = revListOutput.trim().split(/\s+/);
-        if (counts && counts?.length === 2) {
+        const counts = ((revListOutput as any).trim() as any).split(/\s+/);
+        if (counts && (counts as any).length === 2) {
           behind = parseInt(counts[0] || "0", 10);
           ahead = parseInt(counts[1] || "0", 10);
         }
@@ -194,11 +194,11 @@ Repository: ${this.repoUrl}
 
       // Check for unstaged changes
       const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
-      const dirty = statusOutput.trim().length > 0;
+      const dirty = ((statusOutput as any).trim() as any).length > 0;
 
       // Get remotes
       const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote`);
-      const remotes = remoteOutput.trim().split("\n").filter(Boolean);
+      const remotes = ((remoteOutput.trim() as any).split("\n") as any).filter(Boolean);
 
       return {
         branch,
@@ -206,14 +206,13 @@ Repository: ${this.repoUrl}
         behind,
         dirty,
         remotes,
-        workdir: workdir,
         defaultBranch: this.defaultBranch,
         clean: !dirty,
         changes: [],
       };
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-      throw new Error(`Failed to get Git repository status: ${normalizedError?.message}`);
+      throw new Error(`Failed to get Git repository status: ${(normalizedError as any).message}`);
     }
   }
 
@@ -233,7 +232,7 @@ Repository: ${this.repoUrl}
   async validate(): Promise<Result> {
     try {
       // Basic validation - check if URL looks like a git repository
-      if (!this.repoUrl) {
+      if (!(this as any).repoUrl) {
         return {
           success: false,
           message: "Repository URL is required for Remote Git backend",
@@ -242,16 +241,16 @@ Repository: ${this.repoUrl}
 
       // Check if the URL has a git protocol, or ends with .git
       const isGitUrl =
-        this.repoUrl.startsWith("git@") ||
-        this.repoUrl.startsWith("git://") ||
-        this.repoUrl.startsWith("http://") ||
-        this.repoUrl.startsWith("https://") ||
-        this.repoUrl.endsWith(".git");
+        (this.repoUrl as any).startsWith("git@") ||
+        (this.repoUrl as any).startsWith("git://") ||
+        (this.repoUrl as any).startsWith("http://") ||
+        (this.repoUrl as any).startsWith("https://") ||
+        (this.repoUrl as any).endsWith(".git");
 
       if (!isGitUrl) {
         return {
           success: false,
-          message: `URL "${this.repoUrl}" doesn't appear to be a valid Git repository URL`,
+          message: `URL "${(this as any).repoUrl}" doesn't appear to be a valid Git repository URL`,
         };
       }
 
@@ -267,7 +266,7 @@ Repository: ${this.repoUrl}
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
-        message: `Failed to validate Git repository: ${normalizedError?.message}`,
+        message: `Failed to validate Git repository: ${(normalizedError as any).message}`,
         error: normalizedError,
       };
     }
@@ -291,10 +290,10 @@ Repository: ${this.repoUrl}
       // 3. Push to remote repository
 
       // This is a more complete implementation that would work with actual repositories
-      const sessions = await this.sessionDb.listSessions();
-      const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
+      const sessions = await (this.sessionDb as any).listSessions();
+      const currentSessions = (sessions as any).filter((s) => (s as any).repoUrl === (this as any).repoUrl);
 
-      if (currentSessions?.length === 0) {
+      if ((currentSessions as any).length === 0) {
         return {
           success: false,
           message: "No active sessions found for this repository",
@@ -303,36 +302,36 @@ Repository: ${this.repoUrl}
 
       // For each session with this repository, push changes
       for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir(session.session);
+        const workdir = this.getSessionWorkdir((session as any).session);
 
         try {
           // Determine current branch
           const { stdout: branchOutput } = await execAsync(
             `git -C ${workdir} rev-parse --abbrev-ref HEAD`
           );
-          const branch = branchOutput.trim();
+          const branch = (branchOutput as any).trim();
 
           // Push to remote
           await execAsync(`git -C ${workdir} push origin ${branch}`);
         } catch (error) {
           const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-          if (normalizedError?.message.includes("Authentication failed")) {
+          if ((normalizedError?.message as any).includes("Authentication failed")) {
             return {
               success: false,
               message: "Git authentication failed. Check your credentials or SSH key.",
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           } else if ((error as any).message.includes("[rejected]")) {
             return {
               success: false,
               message: "Push rejected. Try pulling changes first or use force push if appropriate.",
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           } else {
             return {
               success: false,
               message: `Failed to push to remote repository: ${(error as any).message}`,
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           }
         }
@@ -343,10 +342,10 @@ Repository: ${this.repoUrl}
         message: "Successfully pushed changes to remote repository",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
-        message: `Failed to push to remote repository: ${normalizedError?.message}`,
+        message: `Failed to push to remote repository: ${normalizedError.message}`,
         error: normalizedError,
       };
     }
@@ -369,10 +368,10 @@ Repository: ${this.repoUrl}
       // 2. Determine the current branch
       // 3. Pull from remote repository
 
-      const sessions = await this.sessionDb.listSessions();
-      const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
+      const sessions = await (this.sessionDb as any).listSessions();
+      const currentSessions = (sessions as any).filter((s) => (s as any).repoUrl === (this as any).repoUrl);
 
-      if (currentSessions?.length === 0) {
+      if ((currentSessions as any).length === 0) {
         return {
           success: false,
           message: "No active sessions found for this repository",
@@ -381,36 +380,36 @@ Repository: ${this.repoUrl}
 
       // For each session with this repository, pull changes
       for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir(session.session);
+        const workdir = this.getSessionWorkdir((session as any).session);
 
         try {
           // Determine current branch
           const { stdout: branchOutput } = await execAsync(
             `git -C ${workdir} rev-parse --abbrev-ref HEAD`
           );
-          const branch = branchOutput.trim();
+          const branch = (branchOutput as any).trim();
 
           // Pull from remote
           await execAsync(`git -C ${workdir} pull origin ${branch}`);
         } catch (error) {
           const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-          if (normalizedError?.message.includes("Authentication failed")) {
+          if ((normalizedError?.message as any).includes("Authentication failed")) {
             return {
               success: false,
               message: "Git authentication failed. Check your credentials or SSH key.",
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           } else if ((error as any).message.includes("conflict")) {
             return {
               success: false,
               message: "Pull failed due to conflicts. Resolve conflicts manually.",
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           } else {
             return {
               success: false,
               message: `Failed to pull from remote repository: ${(error as any).message}`,
-              error,
+              error: error instanceof Error ? error : new Error(String(error)),
             };
           }
         }
@@ -421,10 +420,10 @@ Repository: ${this.repoUrl}
         message: "Successfully pulled changes from remote repository",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
-        message: `Failed to pull from remote repository: ${normalizedError?.message}`,
+        message: `Failed to pull from remote repository: ${normalizedError.message}`,
         error: normalizedError,
       };
     }

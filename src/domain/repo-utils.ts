@@ -31,29 +31,29 @@ export async function resolveRepoPath(
 ): Promise<string> {
   // Set up default dependencies if not provided
   const deps: RepoUtilsDependencies = {
-    sessionProvider: depsInput?.sessionProvider || createSessionProvider(),
-    execCwd: depsInput?.execCwd || execAsync,
-    getCurrentDirectory: depsInput?.getCurrentDirectory || getCurrentWorkingDirectory,
+    sessionProvider: (depsInput as any).sessionProvider || createSessionProvider(),
+    execCwd: (depsInput as any).execCwd || execAsync,
+    getCurrentDirectory: (depsInput as any).getCurrentDirectory || getCurrentWorkingDirectory,
   };
 
-  if (options.repo) {
-    return options.repo;
+  if ((options as any).repo) {
+    return (options as any).repo;
   }
 
-  if (options.session) {
-    const record = await deps.sessionProvider.getSession(options.session);
+  if ((options as any).session) {
+    const record = await (deps.sessionProvider as any).getSession((options as any).session);
     if (!record) {
-      throw new Error(`Session '${options.session}' not found.`);
+      throw new Error(`Session '${(options as any).session}' not found.`);
     }
-    return record.repoUrl;
+    return (record as any).repoUrl;
   }
 
   // Fallback: use current git repo
   try {
-    const { stdout } = await deps.execCwd("git rev-parse --show-toplevel");
-    return stdout.trim();
+    const { stdout } = await (deps as any).execCwd("git rev-parse --show-toplevel");
+    return (stdout as any).trim();
   } catch (_error) {
     // If git command fails, fall back to process.cwd()
-    return deps.getCurrentDirectory();
+    return (deps as any).getCurrentDirectory();
   }
 }

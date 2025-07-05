@@ -1,0 +1,39 @@
+{
+  "timestamp": "2025-07-04T22:37:55.847Z",
+  "totalChanges": 4,
+  "fixes": [
+    {
+      "file": "src/domain/workspace.ts",
+      "line": 272,
+      "column": 48,
+      "change": "SessionDB → SessionProviderInterface",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils.ts",
+      "line": 40,
+      "column": 31,
+      "change": "_console → console, _process → process",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils/test-git-service.ts",
+      "line": 38,
+      "column": 11,
+      "change": "parameter __command → command",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils/test-git-service.ts",
+      "line": 51,
+      "column": 51,
+      "change": "parameter __workdir → workdir",
+      "fixed": true
+    }
+  ],
+  "summary": {
+    "successful": 4,
+    "failed": 0,
+    "principleApplied": "Remove underscores from parameter definitions, not usage"
+  }
+}

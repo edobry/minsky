@@ -29,19 +29,19 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
         return null as any;
       }
 
-      const result = await this.configService.loadConfiguration(process.cwd());
-      const config = result.resolved;
+      const result = await (this.configService as any).loadConfiguration((process as any).cwd());
+      const config = (result as any).resolved;
 
       // Get provider-specific config from both repo and user levels
-      const repoConfig = config.ai?.providers?.[provider as keyof typeof config.ai.providers];
-      const userConfig = config.ai?.providers?.[provider as keyof typeof config.ai.providers];
+      const repoConfig = (config.ai as any).providers?.[provider as keyof typeof config.ai.providers];
+      const userConfig = (config.ai as any).providers?.[provider as keyof typeof config.ai.providers];
 
       // Create provider config with API key and any available settings
       return {
         provider: provider as any,
         apiKey,
-        baseURL: userConfig?.base_url || repoConfig?.base_url,
-        defaultModel: userConfig?.default_model || repoConfig?.default_model,
+        baseURL: (userConfig as any).base_url || (repoConfig as any).base_url,
+        defaultModel: (userConfig as any).default_model || (repoConfig as any).default_model,
         supportedCapabilities: await this.getProviderCapabilities(provider),
       };
     } catch (error) {
@@ -58,8 +58,8 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
   async getDefaultProvider(): Promise<string> {
     try {
-      const result = await this.configService.loadConfiguration(process.cwd());
-      return result.resolved.ai?.default_provider || "openai" as any;
+      const result = await (this.configService as any).loadConfiguration((process as any).cwd());
+      return (result.resolved.ai as any).default_provider || "openai" as any;
     } catch (error) {
       log.error("Failed to get default provider", { error });
       return "openai";
@@ -100,17 +100,17 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
     // Try config files
     try {
-      const result = await this.configService.loadConfiguration(process.cwd());
-      const providerConfig = result.resolved.ai?.providers?.[provider as keyof typeof result.resolved.ai.providers];
-      const credentialConfig = providerConfig?.credentials;
+      const result = await (this.configService as any).loadConfiguration((process as any).cwd());
+      const providerConfig = (result.resolved.ai as any).providers?.[provider as keyof typeof result.resolved.ai.providers];
+      const credentialConfig = (providerConfig as any).credentials;
 
-      if (credentialConfig?.source === "file" && credentialConfig.api_key_file) {
+      if ((credentialConfig as any).source === "file" && (credentialConfig as any).api_key_file) {
         // Would read from file in real implementation
         return undefined as any;
       }
 
-      if (credentialConfig?.api_key) {
-        return credentialConfig.api_key;
+      if ((credentialConfig as any).api_key) {
+        return (credentialConfig as any).api_key;
       }
     } catch (error) {
       log.debug(`Failed to resolve API key for ${provider}`, { error });
@@ -128,8 +128,8 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
       mistral: "MISTRAL_API_KEY",
     };
 
-    const envVar = envVarMap[provider];
-    return envVar ? process.env[envVar] : undefined as any;
+    const envVar = (envVarMap as any)[provider];
+    return envVar ? (process as any).env[envVar] : undefined as any;
   }
 
   private validateAPIKeyFormat(provider: string, apiKey: string): boolean {
@@ -145,10 +145,10 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     const pattern = formatMap[provider];
     if (!pattern) {
       // Unknown provider, assume valid
-      return apiKey.length > 10;
+      return (apiKey as any).length > 10;
     }
 
-    return pattern.test(apiKey);
+    return (pattern as any).test(apiKey);
   }
 
   private async getProviderCapabilities(provider: string) {

@@ -1,0 +1,131 @@
+{
+  "timestamp": "2025-07-04T22:40:37.728Z",
+  "totalChanges": 18,
+  "totalFiles": 143,
+  "fixes": [
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/adapters/shared/bridges/mcp-bridge.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/configuration/credential-manager.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/configuration/types.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/git.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/repository-uri.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/session.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/session/session-adapter.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/session/session-db.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/session/session-path-resolver.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/tasks.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/tasks/taskFunctions.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/tasks/taskService.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/tasks/utils.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/domain/workspace.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/types/node.d.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/utils/tempdir.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    },
+    {
+      "file": "/Users/edobry/.local/state/minsky/sessions/task#166/src/utils/test-utils.ts",
+      "line": 0,
+      "column": 0,
+      "change": "Multiple TS2345 argument type fixes",
+      "fixed": true
+    }
+  ],
+  "summary": {
+    "successful": 17,
+    "failed": 0,
+    "filesProcessed": 143
+  }
+}

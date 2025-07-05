@@ -87,6 +87,7 @@ Task #221 successfully implemented proactive conflict detection for session-to-m
 ## Success Criteria
 
 ### 🎯 Comprehensive Coverage
+
 - [x] Branch switching with conflict detection
 - [x] Merge operation previews working
 - [x] Rebase conflict prediction implemented

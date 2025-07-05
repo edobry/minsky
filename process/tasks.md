@@ -318,7 +318,7 @@
 
 - [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#165](process/tasks/165-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
-- [+] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
+- [-] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
 
 - [x] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
 
@@ -423,3 +423,5 @@
 - [ ] Implement Dagger CI Pipeline with Hybrid Development Workflow [#234](process/tasks/234-implement-dagger-ci-pipeline-with-hybrid-development-workflow.md)
 
 - [ ] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
+
+- [ ] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)

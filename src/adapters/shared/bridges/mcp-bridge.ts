@@ -52,13 +52,13 @@ export interface McpExecutionContext extends CommandExecutionContext {
  * @returns A promise that resolves to an MCP command response.
  */
 export async function executeMcpCommand(request: McpCommandRequest): Promise<McpCommandResponse> {
-  const commandDef = sharedCommandRegistry.getCommand(request.commandId);
+  const commandDef = (sharedCommandRegistry as any).getCommand((request as any).commandId);
 
   if (!commandDef) {
     const errorResponse = {
       success: false,
       error: {
-        message: `Command with ID '${request.commandId}' not found.`,
+        message: `Command with ID '${(request as any).commandId}' not found.`,
         type: "COMMAND_NOT_FOUND",
       },
     };
@@ -71,9 +71,9 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     // Prepare execution context for the shared command
     const _context: McpExecutionContext = {
       interface: "mcp",
-      debug: !!request.debug,
-      format: request.format,
-      mcpSpecificData: request.mcpContext, // Pass along any MCP specific _context
+      debug: !!(request as any).debug,
+      format: (request as any).format,
+      mcpSpecificData: (request as any).mcpContext, // Pass along any MCP specific _context
     };
 
     // Validate incoming parameters against the command's Zod schemas
@@ -81,44 +81,44 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     const parsedParams: Record<string, any> = {};
     const validationErrors: Record<string, string[]> = {};
 
-    for (const paramName in commandDef.parameters) {
-      const paramDef = commandDef.parameters[paramName];
-      const rawValue = request.parameters[paramName];
+    for (const paramName in (commandDef as any).parameters) {
+      const paramDef = (commandDef as any).parameters[paramName];
+      const rawValue = (request as any).parameters[paramName];
 
-      if (rawValue === undefined && paramDef.required && paramDef.defaultValue === undefined) {
+      if (rawValue === undefined && (paramDef as any).required && (paramDef as any).defaultValue === undefined) {
         if (!validationErrors[paramName]) validationErrors[paramName] = [];
-        validationErrors[paramName].push("Parameter is required.");
+        (validationErrors[paramName] as any).push("Parameter is required.");
         continue;
       }
 
-      const valueToParse = rawValue === undefined ? paramDef.defaultValue : rawValue;
+      const valueToParse = rawValue === undefined ? (paramDef as any).defaultValue : rawValue;
 
       if (valueToParse === undefined) {
         continue;
       }
 
-      const parseResult = paramDef.schema.safeParse(valueToParse);
-      if (parseResult.success) {
-        parsedParams[paramName] = parseResult.data;
+      const parseResult = (paramDef.schema as any).safeParse(valueToParse);
+      if ((parseResult as any).success) {
+        parsedParams[paramName] = (parseResult as any).data;
       } else {
         if (!validationErrors[paramName]) {
           validationErrors[paramName] = []; // Initialize if not already an array
         }
         // Ensure parseResult.error and parseResult.error.errors exist before iterating
-        if (parseResult.error && parseResult.error.errors) {
+        if ((parseResult as any).error && (parseResult.error as any).errors) {
           // Ensure array exists before pushing to it within the callback
           const errors = validationErrors[paramName];
-          parseResult.error.errors.forEach((validationIssue: any) => {
-            errors.push(validationIssue.message);
+          (parseResult.error.errors as any).forEach((validationIssue: any) => {
+            (errors as any).push((validationIssue as any).message);
           });
         } else {
           // Fallback generic error if Zod's error structure is unexpected
-          validationErrors[paramName].push("Invalid value, and Zod error details are unavailable.");
+          (validationErrors[paramName] as any).push("Invalid value, and Zod error details are unavailable.");
         }
       }
     }
 
-    if (Object.keys(validationErrors).length > 0) {
+    if ((Object.keys(validationErrors) as any).length > 0) {
       return {
         success: false,
         error: {
@@ -130,7 +130,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     }
 
     // Execute the command with validated parameters
-    const result = await commandDef.execute(parsedParams as any, _context); // Cast as any due to generic complexity
+    const result = await (commandDef as any).execute(parsedParams as any, _context); // Cast as any due to generic complexity
 
     // Format response for MCP
     // In a real scenario, a shared response formatter might be used based on context.format
@@ -139,17 +139,17 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
       result: result,
     };
   } catch (error: any) {
-    const ensuredError = ensureError(error);
+    const ensuredError = ensureError(error as any);
 
     const formattedMcpErrorResponse = {
-      message: ensuredError.message || "An unexpected error occurred during MCP command execution.",
+      message: (ensuredError as any).message || "An unexpected error occurred during MCP command execution.",
       type:
-        ensuredError.constructor &&
-        ensuredError.constructor.name !== "Error" &&
-        ensuredError.constructor.name !== "Object"
-          ? ensuredError.constructor.name
+        (ensuredError as any).constructor &&
+        (ensuredError.constructor as any).name !== "Error" &&
+        (ensuredError.constructor as any).name !== "Object"
+          ? (ensuredError.constructor as any).name
           : "MCP_EXECUTION_ERROR",
-      stack: request.debug ? ensuredError.stack : undefined as any,
+      stack: (request as any).debug ? (ensuredError as any).stack : undefined as any,
       details: (ensuredError as any)?.details || (ensuredError as any)?.cause || undefined,
     };
 

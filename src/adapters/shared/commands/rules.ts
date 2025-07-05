@@ -39,7 +39,7 @@ type RulesListParams = {
 
 const rulesListCommandParams: CommandParameterMap = {
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.string().optional(),
     description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
@@ -79,7 +79,7 @@ const rulesGetCommandParams: CommandParameterMap = {
     required: true,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.string().optional(),
     description: "Preferred rule format (cursor or generic)",
     required: false,
   },
@@ -144,7 +144,7 @@ const rulesCreateCommandParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.string().optional(),
     description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
@@ -209,7 +209,7 @@ const rulesUpdateCommandParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.string().optional(),
     description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
@@ -245,7 +245,7 @@ const rulesSearchCommandParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.string().optional(),
     description: "Filter by rule format (cursor or generic)",
     required: false,
   },
@@ -319,7 +319,7 @@ export function registerRulesCommands(): void {
     parameters: rulesGetCommandParams,
     execute: async (params: any) => {
       log.debug("Executing rules.get command", { params });
-      
+        
       const typedParams = params as RulesGetParams;
 
       try {
@@ -359,7 +359,7 @@ export function registerRulesCommands(): void {
     parameters: rulesCreateCommandParams,
     execute: async (params: any) => {
       log.debug("Executing rules.create command", { params });
-      
+        
       const typedParams = params as RulesCreateParams;
 
       try {
@@ -374,7 +374,7 @@ export function registerRulesCommands(): void {
         const globs = parseGlobs(typedParams.globs);
         const tags = typedParams.tags
           ? typedParams.tags.split(",").map((tag: string) => tag.trim())
-          : undefined as any;
+          : undefined;
 
         // Prepare metadata
         const meta = {
@@ -415,7 +415,7 @@ export function registerRulesCommands(): void {
     description: "Update an existing rule",
     parameters: rulesUpdateCommandParams,
     execute: async (params: any) => {
-      log.debug("Executing rules.update command", { params });
+      log.debug("Executing rules.update command"!, { params });
       
       const typedParams = params as RulesUpdateParams;
 
@@ -427,13 +427,13 @@ export function registerRulesCommands(): void {
         // Process content if provided (could be file path)
         const content = typedParams.content
           ? await readContentFromFileIfExists(typedParams.content)
-          : undefined as any;
+          : undefined;
 
         // Process globs and tags
-        const globs = typedParams.globs ? parseGlobs(typedParams.globs) : undefined as any;
+        const globs = typedParams.globs ? parseGlobs(typedParams.globs) : undefined;
         const tags = typedParams.tags
-          ? typedParams.tags.split(",").map((tag: any) => tag.trim())
-          : undefined as any;
+          ? typedParams.tags.split(",").map((tag: string) => tag.trim())
+          : undefined;
 
         // Prepare metadata updates
         const meta: Record<string, any> = {};
@@ -451,7 +451,7 @@ export function registerRulesCommands(): void {
           typedParams.id,
           {
             content,
-            meta: Object.keys(meta).length > 0 ? meta : undefined as any,
+            meta: Object.keys(meta).length > 0 ? meta : undefined,
           },
           {
             format,
@@ -489,13 +489,13 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Convert parameters
-        const format = params.format as RuleFormat | undefined;
+        const format = (params as any).format as RuleFormat | undefined;
 
         // Call domain function
         const rules = await ruleService.searchRules({
           format,
-          tag: params.tag,
-          query: params.query,
+          tag: (params as any).tag,
+          query: (params as any).query,
         });
 
         return {
@@ -504,8 +504,8 @@ export function registerRulesCommands(): void {
         };
       } catch (error) {
         log.error("Failed to search rules", {
-          error: getErrorMessage(error),
-          query: params.query,
+          error: getErrorMessage(error as any),
+          query: (params as any).query,
         });
         throw error;
       }

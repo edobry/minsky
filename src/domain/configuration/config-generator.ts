@@ -32,35 +32,35 @@ export class ConfigurationGenerator {
     const config: RepositoryConfig = {
       version: 1,
       backends: {
-        default: options.backend,
+        default: (options as any).backend,
       },
     } as any;
 
     // Add GitHub-specific configuration
-    if (options.backend === "github-issues") {
-      if (!options.githubOwner || !options.githubRepo) {
+    if ((options as any).backend === "github-issues") {
+      if (!(options as any).githubOwner || !(options as any).githubRepo) {
         const errorMessage = createBackendDetectionErrorMessage(
           "github-issues",
-          ["markdown", "json-file", "github-issues"],
+          ["markdown", "json-file", "github-issues"] as any[],
           {
             "github-issues": [
-              ...(options.githubOwner ? [] : ["GitHub owner"]),
-              ...(options.githubRepo ? [] : ["GitHub repository"])
+              ...((options as any).githubOwner ? [] : ["GitHub owner"]),
+              ...((options as any).githubRepo ? [] : ["GitHub repository"])
             ]
           },
           workingDir
         );
-        throw new Error(errorMessage);
+        throw new Error(errorMessage as any);
       }
-      config.backends!["github-issues"] = {
-        owner: options.githubOwner,
-        repo: options.githubRepo,
+      (config as any).backends!["github-issues"] = {
+        owner: (options as any).githubOwner,
+        repo: (options as any).githubRepo,
       };
     }
 
     // Add repository-level settings
-    config.repository = {
-      auto_detect_backend: options.autoDetectBackend ?? true,
+    (config as any).repository = {
+      auto_detect_backend: (options as any).autoDetectBackend ?? true,
       detection_rules: [
         { condition: "tasks_md_exists", backend: "github-issues" },
         { condition: "tasks_md_exists", backend: "markdown" },
@@ -68,7 +68,7 @@ export class ConfigurationGenerator {
       ],
     };
 
-    this.writeRepositoryConfig(workingDir, config);
+    this.writeRepositoryConfig(workingDir, config as any);
   }
 
   /**
@@ -79,19 +79,19 @@ export class ConfigurationGenerator {
       version: 1,
     };
 
-    if (options.githubToken || options.githubTokenSource) {
-      config.github = {
+    if ((options as any).githubToken || (options as any).githubTokenSource) {
+      (config as any).github = {
         credentials: {
-          source: options.githubTokenSource || "file",
+          source: (options as any).githubTokenSource || "file",
         },
       };
 
-      if (options.githubToken && options.githubTokenSource === "file") {
-        config.github.credentials!.token = options.githubToken;
+      if ((options as any).githubToken && (options as any).githubTokenSource === "file") {
+        (config?.github?.credentials! as any).token = (options as any).githubToken;
       }
     }
 
-    this.writeGlobalUserConfig(config);
+    this.writeGlobalUserConfig(config as any);
   }
 
   /**
@@ -108,7 +108,7 @@ export class ConfigurationGenerator {
 
     const yamlContent =
       this.generateYamlHeader("Repository") +
-      stringifyYaml(config, {
+      stringifyYaml(config as any, {
         indent: 2,
         lineWidth: 100,
       });
@@ -130,7 +130,7 @@ export class ConfigurationGenerator {
 
     const yamlContent =
       this.generateYamlHeader("Global User") +
-      stringifyYaml(config, {
+      stringifyYaml(config as any, {
         indent: 2,
         lineWidth: 100,
       });
@@ -153,8 +153,8 @@ export class ConfigurationGenerator {
    * Expand tilde in file paths
    */
   private expandTilde(filePath: string): string {
-    if (filePath.startsWith("~/")) {
-      return join(homedir(), filePath.slice(2));
+    if ((filePath as any).startsWith("~/")) {
+      return join(homedir(), (filePath as any).slice(2));
     }
     return filePath;
   }
@@ -171,8 +171,8 @@ export class ConfigurationGenerator {
    */
   static getGlobalUserConfigPath(): string {
     const configPath = CONFIG_PATHS.GLOBAL_USER;
-    if (configPath.startsWith("~/")) {
-      return join(homedir(), configPath.slice(2));
+    if ((configPath as any).startsWith("~/")) {
+      return join(homedir(), (configPath as any).slice(2));
     }
     return configPath;
   }
