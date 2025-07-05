@@ -17,6 +17,7 @@ import {
   expectToHaveBeenCalled,
   expectToHaveBeenCalledWith,
 } from "../utils/test-utils/assertions.js";
+import { createGitService } from "./git";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -132,7 +133,7 @@ describe("GitService", () => {
   test("should use session-ID-based storage in getSessionWorkdir", () => {
     // NEW: Session-ID-based storage - repository normalization no longer needed for paths
     const workdir1 = gitService.getSessionWorkdir("test-session");
-    
+
     // Path should contain session ID but NOT repository name
     expect(workdir1.includes("test-session")).toBe(true);
     expect(workdir1.includes("sessions")).toBe(true);
@@ -895,5 +896,47 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       // - cloneWithDependencies() (ExtendedGitDependencies)
       // Multi-tier dependency injection architecture established!
     });
+  });
+});
+
+// ========== Factory Function Regression Tests ==========
+
+describe("createGitService Factory Function", () => {
+  // Regression test for Task #166: Fix options.baseDir runtime error
+  test("should handle undefined options parameter without throwing runtime error", () => {
+    // This test covers the specific scenario that caused the runtime error:
+    // "undefined is not an object (evaluating 'options.baseDir')"
+    expect(() => {
+      const gitService = createGitService(undefined);
+      expect(gitService instanceof GitService).toBe(true);
+    }).not.toThrow();
+  });
+
+  // Regression test for Task #166: Fix options.baseDir runtime error
+  test("should handle null options parameter without throwing runtime error", () => {
+    expect(() => {
+      const gitService = createGitService(null as any);
+      expect(gitService instanceof GitService).toBe(true);
+    }).not.toThrow();
+  });
+
+  // Regression test for Task #166: Fix options.baseDir runtime error
+  test("should handle options with undefined baseDir property", () => {
+    const options = { baseDir: undefined };
+    expect(() => {
+      const gitService = createGitService(options);
+      expect(gitService instanceof GitService).toBe(true);
+    }).not.toThrow();
+  });
+
+  test("should create GitService with custom baseDir when provided", () => {
+    const customBaseDir = "/custom/base/directory";
+    const gitService = createGitService({ baseDir: customBaseDir });
+    expect(gitService instanceof GitService).toBe(true);
+  });
+
+  test("should create GitService with default baseDir when no options provided", () => {
+    const gitService = createGitService();
+    expect(gitService instanceof GitService).toBe(true);
   });
 });

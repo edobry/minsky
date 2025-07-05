@@ -58,6 +58,44 @@ describe("SessionDB Functional Implementation", () => {
       const state = initializeSessionDbState({ baseDir: customBaseDir });
       expect(state.baseDir).toBe(customBaseDir);
     });
+
+    // Regression test for Task #166: Fix options.baseDir runtime error
+    it("should handle undefined options parameter without throwing runtime error", () => {
+      // This test covers the specific scenario that caused the runtime error:
+      // "undefined is not an object (evaluating 'options.baseDir')"
+      expect(() => {
+        const state = initializeSessionDbState(undefined as any);
+        expect(state).toHaveProperty("sessions");
+        expect(state.sessions).toEqual([]);
+        expect(state).toHaveProperty("baseDir");
+        expect(typeof state.baseDir).toBe("string");
+      }).not.toThrow();
+    });
+
+    // Regression test for Task #166: Fix options.baseDir runtime error
+    it("should handle null options parameter without throwing runtime error", () => {
+      // Additional edge case to ensure robustness
+      expect(() => {
+        const state = initializeSessionDbState(null as any);
+        expect(state).toHaveProperty("sessions");
+        expect(state.sessions).toEqual([]);
+        expect(state).toHaveProperty("baseDir");
+        expect(typeof state.baseDir).toBe("string");
+      }).not.toThrow();
+    });
+
+    // Regression test for Task #166: Fix options.baseDir runtime error
+    it("should handle options with undefined baseDir property", () => {
+      // Test the case where options object exists but baseDir is explicitly undefined
+      const options = { baseDir: undefined };
+      expect(() => {
+        const state = initializeSessionDbState(options);
+        expect(state).toHaveProperty("sessions");
+        expect(state.sessions).toEqual([]);
+        expect(state).toHaveProperty("baseDir");
+        expect(typeof state.baseDir).toBe("string");
+      }).not.toThrow();
+    });
   });
 
   describe("listSessionsFn", () => {

@@ -30,7 +30,7 @@ export interface SessionDbState {
  * Initialize a new SessionDB state object
  */
 export function initializeSessionDbState(options: { baseDir?: string } = {}): SessionDbState {
-  const baseDir = (options as any).baseDir || getMinskyStateDir();
+  const baseDir = options?.baseDir || getMinskyStateDir();
 
   return {
     sessions: [],
@@ -58,7 +58,10 @@ export function getSessionFn(state: SessionDbState, sessionName: string): Sessio
 export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): SessionRecord | null {
   // Normalize taskId by removing # prefix if present
   const normalizedTaskId = (taskId as any).replace(/^#/, "");
-  return (state.sessions as any).find((s) => (s.taskId as any).replace(/^#/, "") === normalizedTaskId) || null;
+  return (
+    (state.sessions as any).find((s) => (s.taskId as any).replace(/^#/, "") === normalizedTaskId) ||
+    null
+  );
 }
 
 /**
@@ -127,7 +130,10 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
 /**
  * Get the working directory for a session
  */
-export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | undefined {
+export function getSessionWorkdirFn(
+  state: SessionDbState,
+  sessionName: string
+): string | undefined {
   const session = getSessionFn(state, sessionName);
   if (!session) {
     return null as any;

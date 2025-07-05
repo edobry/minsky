@@ -2,229 +2,43 @@
  * MCP adapter for task commands
  */
 import type { CommandMapper } from "../../mcp/command-mapper.js";
-import { z } from "zod";
+import { registerTaskCommandsWithMcp } from "./shared-command-integration.js";
 import { log } from "../../utils/logger.js";
-
-
-// Import centralized descriptions
-import {
-  TASK_STATUS_FILTER_DESCRIPTION,
-  TASK_ALL_DESCRIPTION,
-  TASK_BACKEND_DESCRIPTION,
-  TASK_STATUS_DESCRIPTION,
-  FORCE_DESCRIPTION,
-} from "../../utils/option-descriptions.js";
-
-// Import domain functions
-import {
-  listTasksFromParams,
-  getTaskFromParams,
-  getTaskStatusFromParams,
-  setTaskStatusFromParams,
-  createTaskFromParams,
-  deleteTaskFromParams,
-} from "../../domain/index.js";
-
-import type { TaskStatus } from "../../domain/tasks/taskConstants.js";
 
 /**
  * Registers task tools with the MCP command mapper
  */
 export function registerTaskTools(commandMapper: CommandMapper): void {
-  // Task list command
-  (commandMapper as any).addTaskCommand(
-    "list",
-    "List all tasks",
-    z.object({
-      filter: z.string().optional().describe(TASK_STATUS_FILTER_DESCRIPTION),
-      all: (z.boolean().optional() as any).describe(TASK_ALL_DESCRIPTION),
-      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
-    }),
-    async (args: any) => {
-      // Log the repository path being used
-      if (args.repositoryPath) {
-        log.debug("Using explicit repository path for tasks.list", {
-          repositoryPath: args.repositoryPath,
-        });
-      }
+  log.debug("Registering task commands via shared command integration");
 
-      const params = {
-        ...args,
-        all: args.all ?? false, // Provide default for 'all'
-        json: true, // Always use JSON format for MCP
-        repo: args.repositoryPath, // Pass the repository path to the domain function
-      };
+  // Use the bridge integration to automatically register all task commands
+  registerTaskCommandsWithMcp(commandMapper, {
+    debug: true,
+    commandOverrides: {
+      // MCP-specific optimizations
+      "tasks.list": {
+        description: "List all tasks in the current repository (MCP optimized)",
+      },
+      "tasks.get": {
+        description: "Get a task by ID (MCP optimized)",
+      },
+      "tasks.create": {
+        description: "Create a new task (MCP optimized)",
+      },
+      "tasks.delete": {
+        description: "Delete a task by ID (MCP optimized)",
+      },
+      "tasks.status.get": {
+        description: "Get the status of a task (MCP optimized)",
+      },
+      "tasks.status.set": {
+        description: "Set the status of a task (MCP optimized)",
+      },
+      "tasks.spec": {
+        description: "Get task specification content (MCP optimized)",
+      },
+    },
+  });
 
-      // Return task array and cast to Record<string, unknown> to satisfy TypeScript
-      const tasks = await listTasksFromParams(params as any);
-      return { tasks } as Record<string, any>;
-    }
-  );
-
-  // Task get command
-  (commandMapper as any).addTaskCommand(
-    "get",
-    "Get a task by ID",
-    z.object({
-      taskId: z.string().describe("Task ID to retrieve (e.g., '077' or '#077')"),
-      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
-    }),
-    async (args: any) => {
-      // Log the repository path being used
-      if (args.repositoryPath) {
-        log.debug("Using explicit repository path for tasks.get", {
-          repositoryPath: args.repositoryPath,
-        });
-      }
-
-      const params = {
-        ...args,
-        json: true, // Always use JSON format for MCP
-        repo: args.repositoryPath, // Pass the repository path to the domain function
-      };
-
-      // Return task as part of an object to satisfy TypeScript
-      const task = await getTaskFromParams(params as any);
-      return { task } as Record<string, any>;
-    }
-  );
-
-  // Task status get command
-  (commandMapper as any).addTaskCommand(
-    "status.get",
-    "Get the status of a task",
-    z.object({
-      taskId: z.string().describe("Task ID to retrieve status for"),
-      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
-    }),
-    async (args: any) => {
-      // Log the repository path being used
-      if (args.repositoryPath) {
-        log.debug("Using explicit repository path for tasks.status.get", {
-          repositoryPath: args.repositoryPath,
-        });
-      }
-
-      const params = {
-        ...args,
-        json: true, // Always use JSON format for MCP
-        repo: args.repositoryPath, // Pass the repository path to the domain function
-      };
-
-      const status = await getTaskStatusFromParams(params as any);
-
-      // Format the response for MCP
-      return {
-        taskId: (args as any).taskId,
-        status,
-      };
-    }
-  );
-
-  // Task status set command
-  (commandMapper as any).addTaskCommand(
-    "status.set",
-    "Set the status of a task",
-    z.object({
-      taskId: z.string().describe("Task ID to set status for"),
-      status: z.string().describe(TASK_STATUS_DESCRIPTION),
-      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
-    }),
-    async (args: any) => {
-      // Log the repository path being used
-      if (args.repositoryPath) {
-        log.debug("Using explicit repository path for tasks.status.set", {
-          repositoryPath: args.repositoryPath,
-        });
-      }
-
-      const params = {
-        ...args,
-        status: (args as any).status as TaskStatus, // Use proper type instead of hardcoded union
-        repo: args.repositoryPath, // Pass the repository path to the domain function
-      };
-
-      await setTaskStatusFromParams(params as any);
-
-      // For MCP, return a success response
-      return {
-        success: true,
-        taskId: (args as any).taskId,
-        status: (args as any).status,
-      };
-    }
-  );
-
-  // Task create command
-  (commandMapper as any).addTaskCommand(
-    "create",
-    "Create a new task with title and description or from a specification file",
-    z.object({
-      title: z.string().optional().describe("Title for the task"),
-      description: z.string().optional().describe("Description text for the task"),
-      descriptionPath: z.string().optional().describe("Path to file containing task description"),
-      specPath: z.string().optional().describe("Path to the task specification file (legacy)"),
-      force: (z.boolean().optional() as any).describe(FORCE_DESCRIPTION),
-      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
-    }),
-    async (args: any) => {
-      // Log the repository path being used
-      if (args.repositoryPath) {
-        log.debug("Using explicit repository path for tasks.create", {
-          repositoryPath: args.repositoryPath,
-        });
-      }
-
-      const params = {
-        ...args,
-        force: args.force ?? false, // Provide default for 'force'
-        json: true, // Always use JSON format for MCP
-        repo: args.repositoryPath, // Pass the repository path to the domain function
-      };
-
-      const task = await createTaskFromParams(params as any);
-
-      return {
-        success: true,
-        task,
-      };
-    }
-  );
-
-  // Task delete command
-  (commandMapper as any).addTaskCommand(
-    "delete",
-    "Delete a task by ID",
-    z.object({
-      taskId: z.string().describe("ID of the task to delete"),
-      force: (z.boolean().optional() as any).describe("Force deletion without confirmation"),
-      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
-    }),
-    async (args: any) => {
-      // Log the repository path being used
-      if (args.repositoryPath) {
-        log.debug("Using explicit repository path for tasks.delete", {
-          repositoryPath: args.repositoryPath,
-        });
-      }
-
-      const params = {
-        ...args,
-        force: args.force ?? false, // Provide default for 'force'
-        json: true, // Always use JSON format for MCP
-        repo: args.repositoryPath, // Pass the repository path to the domain function
-      };
-
-      const result = await deleteTaskFromParams(params as any);
-
-      return {
-        success: (result as any).success,
-        taskId: (result as any).taskId,
-        task: (result as any).task,
-        message: (result as any).success 
-          ? `Task ${(result as any).taskId} deleted successfully`
-          : `Failed to delete task ${(result as any).taskId}`,
-      } as any;
-    }
-  );
+  log.debug("Task commands registered successfully via shared integration");
 }

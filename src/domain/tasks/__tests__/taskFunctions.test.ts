@@ -36,7 +36,7 @@ describe("Task Functions", () => {
       expect(normalizeTaskId("TASK_TEST_VALUE")).toBe("#TASK_TEST_VALUE");
     });
 
-    test("should return null for invalid formats", () => {
+    test("should return null for non-numeric input", () => {
       expect(normalizeTaskId("")).toBeNull();
       expect(normalizeTaskId(" ")).toBeNull();
       expect(normalizeTaskId("@#$%")).toBeNull();
