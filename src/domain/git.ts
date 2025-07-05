@@ -32,6 +32,9 @@ import {
 } from "../utils/git-exec-enhanced";
 import { preparePr as preparePrImpl } from "./git/prepare-pr";
 import { cloneRepository } from "./git/clone-operations";
+import { mergeBranchImpl } from "./git/merge-branch-operations";
+import { pushImpl } from "./git/push-operations";
+import { mergePrImpl } from "./git/merge-pr-operations";
 
 const execAsync = promisify(exec);
 
@@ -1068,65 +1071,9 @@ You need to specify one of these options to identify the target repository:
   }
 
   async mergeBranch(workdir: string, branch: string): Promise<MergeResult> {
-    log.debug("mergeBranch called", { workdir, branch });
-
-    try {
-      // Get current commit hash
-      const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
-      log.debug("Before merge commit hash", { beforeHash: (beforeHash as any).trim() });
-
-      // Try to merge the branch
-      try {
-        log.debug("Attempting merge", { command: `git -C ${workdir} merge ${branch}` });
-        await execAsync(`git -C ${workdir} merge ${branch}`);
-        log.debug("Merge completed successfully");
-      } catch (err) {
-        log.debug("Merge command failed, checking for conflicts", {
-          error: getErrorMessage(err as any),
-        });
-
-        // Check if there are merge conflicts
-        const { stdout: status } = await execAsync(`git -C ${workdir} status --porcelain`);
-        log.debug("Git status after failed merge", { status });
-
-        const hasConflicts =
-          (status as any).includes("UU") || (status as any).includes("AA") || (status as any).includes("DD");
-        log.debug("Conflict detection result", {
-          hasConflicts,
-          statusIncludes: {
-            UU: (status as any).includes("UU"),
-            AA: (status as any).includes("AA"),
-            DD: (status as any).includes("DD"),
-          },
-        });
-
-        if (hasConflicts) {
-          // Leave repository in merging state for user to resolve conflicts
-          log.debug(
-            "Merge conflicts detected, leaving repository in merging state for manual resolution"
-          );
-          return { workdir, merged: false, conflicts: true };
-        }
-        log.debug("No conflicts detected, re-throwing original error");
-        throw err;
-      }
-
-      // Get new commit hash
-      const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
-      log.debug("After merge commit hash", { afterHash: (afterHash as any).trim() });
-
-      // Return whether any changes were merged
-      const merged = (beforeHash as any).trim() !== (afterHash as any).trim();
-      log.debug("Merge result", { merged, conflicts: false });
-      return { workdir, merged, conflicts: false };
-    } catch (err) {
-      log.error("mergeBranch failed with error", {
-        error: getErrorMessage(err as any),
-        workdir,
-        branch,
-      });
-      throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err as any)}`);
-    }
+    return mergeBranchImpl(workdir, branch, {
+      execAsync,
+    });
   }
 
   /**
@@ -1134,68 +1081,11 @@ You need to specify one of these options to identify the target repository:
    */
   async push(options: PushOptions): Promise<PushResult> {
     await this.ensureBaseDir();
-    let workdir: string;
-    let branch: string;
-    const remote = (options as any).remote || "origin";
-
-    // 1. Resolve workdir
-    if ((options as any).session) {
-      const record = await (this.sessionDb as any).getSession((options as any).session);
-      if (!record) {
-        throw new Error(`Session '${(options as any).session}' not found.`);
-      }
-      const repoName = (record as any).repoName || normalizeRepoName((record as any).repoUrl);
-      workdir = this.getSessionWorkdir((options as any).session);
-      branch = (options as any).session; // Session branch is named after the session
-    } else if ((options as any).repoPath) {
-      workdir = (options as any).repoPath;
-      // Get current branch from repo
-      const { stdout: branchOut } = await execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      branch = (branchOut as any).trim();
-    } else {
-      // Try to infer from current directory
-      workdir = (process as any).cwd();
-      // Get current branch from cwd
-      const { stdout: branchOut } = await execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      branch = (branchOut as any).trim();
-    }
-
-    // 2. Validate remote exists
-    const { stdout: remotesOut } = await execAsync(`git -C ${workdir} remote`);
-    const remotes = ((remotesOut
-      .split("\n") as any).map((r) => r.trim()) as any).filter(Boolean);
-    if (!(remotes as any).includes(remote)) {
-      throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
-    }
-
-    // 3. Build push command
-    let pushCmd = `git -C ${workdir} push ${remote} ${branch}`;
-    if ((options as any).force) {
-      pushCmd += " --force";
-    }
-
-    // 4. Execute push
-    try {
-      await execAsync(pushCmd);
-      return { workdir, pushed: true };
-    } catch (err: any) {
-      // Provide helpful error messages for common issues
-      if ((err as any).stderr && (err.stderr as any).includes("[rejected]")) {
-        throw new Error(
-          "Push was rejected by the remote. You may need to pull or use --force if you intend to overwrite remote history."
-        );
-      }
-      if ((err as any).stderr && (err.stderr as any).includes("no upstream")) {
-        throw new Error(
-          "No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first."
-        );
-      }
-      throw new Error((err as any).stderr || (err as any).message || String(err as any));
-    }
+    return pushImpl(options, {
+      execAsync,
+      getSession: this.sessionDb.getSession.bind(this.sessionDb),
+      getSessionWorkdir: this.getSessionWorkdir.bind(this),
+    });
   }
 
   /**
@@ -1275,53 +1165,11 @@ You need to specify one of these options to identify the target repository:
   }
 
   async mergePr(options: MergePrOptions): Promise<MergePrResult> {
-    let workdir: string;
-    const baseBranch = (options as any).baseBranch || "main";
-
-    // 1. Determine working directory
-    if ((options as any).session) {
-      const record = await (this.sessionDb as any).getSession((options as any).session);
-      if (!record) {
-        throw new Error(`Session '${(options as any).session}' not found.`);
-      }
-      const repoName = (record as any).repoName || normalizeRepoName((record as any).repoUrl);
-      workdir = this.getSessionWorkdir((options as any).session);
-    } else if ((options as any).repoPath) {
-      workdir = (options as any).repoPath;
-    } else {
-      // Try to infer from current directory
-      workdir = (process as any).cwd();
-    }
-
-    // 2. Make sure we're on the base branch
-    await this.execInRepository(workdir, `git checkout ${baseBranch}`);
-
-    // 3. Make sure we have the latest changes
-    await this.execInRepository(workdir, `git pull origin ${baseBranch}`);
-
-    // 4. Merge the PR branch
-    await this.execInRepository(workdir, `git merge --no-ff ${(options as any).prBranch}`);
-
-    // 5. Get the commit hash of the merge
-    const commitHash = ((await this.execInRepository(workdir, "git rev-parse HEAD")) as any).trim();
-
-    // 6. Get merge date and author
-    const mergeDate = (new Date() as any).toISOString();
-    const mergedBy = ((await this.execInRepository(workdir, "git config user.name")) as any).trim();
-
-    // 7. Push the merge to the remote
-    await this.execInRepository(workdir, `git push origin ${baseBranch}`);
-
-    // 8. Delete the PR branch from the remote
-    await this.execInRepository(workdir, `git push origin --delete ${(options as any).prBranch}`);
-
-    return {
-      prBranch: (options as any).prBranch,
-      baseBranch,
-      commitHash,
-      mergeDate,
-      mergedBy,
-    };
+    return mergePrImpl(options, {
+      execInRepository: this.execInRepository.bind(this),
+      getSession: this.sessionDb.getSession.bind(this.sessionDb),
+      getSessionWorkdir: this.getSessionWorkdir.bind(this),
+    });
   }
 
   /**

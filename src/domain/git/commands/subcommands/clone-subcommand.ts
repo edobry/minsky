@@ -4,7 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { cloneFromParams } from "../clone-command";
-import { log } from "../../../../utils/logger";
+import { log } from "../../../../../utils/logger";
 import {
   SESSION_DESCRIPTION,
   GIT_BRANCH_DESCRIPTION,
