@@ -53,7 +53,6 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
     createdAt: (record as any).createdAt,
     taskId: (record as any).taskId,
     branch: (record as any).branch,
-    repoPath: (record as any).repoPath || null,
   };
 }
 
@@ -68,7 +67,6 @@ export function fromSqliteSelect(record: SqliteSessionRecord): SessionRecord {
     createdAt: (record as any).createdAt,
     taskId: (record as any).taskId,
     branch: (record as any).branch,
-    repoPath: (record as any).repoPath || undefined,
   };
 }
 
@@ -83,7 +81,6 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
     createdAt: new Date((record as any).createdAt),
     taskId: (record as any).taskId,
     branch: (record as any).branch,
-    repoPath: (record as any).repoPath || null,
   };
 }
 
@@ -98,6 +95,5 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     createdAt: (record.createdAt as any).toISOString(),
     taskId: (record as any).taskId,
     branch: (record as any).branch,
-    repoPath: (record as any).repoPath || undefined,
   };
 }
