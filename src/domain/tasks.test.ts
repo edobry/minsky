@@ -423,12 +423,12 @@ describe("createTask", () => {
     expect(task.title).toBe("New Feature");
     expect(task.status).toBe(TASK_STATUS.TODO);
 
-    // Check that the title was updated in the file
+    // Check that the title was updated to clean format
     const updatedContent = mockFileSystem.get(newSpecPath);
     expect(updatedContent).toBeDefined();
     expect(typeof updatedContent === "string").toBe(true);
     if (updatedContent && typeof updatedContent === "string") {
-      expect(updatedContent.includes("# Task #003: New Feature")).toBe(true);
+      expect(updatedContent.includes("# New Feature")).toBe(true);
     }
   });
 
@@ -467,12 +467,12 @@ describe("createTask", () => {
     expect(task.title).toBe("Existing ID Feature");
     expect(task.status).toBe(TASK_STATUS.TODO);
 
-    // Check that the title was not modified in the file
+    // Check that the title was converted to clean format
     const updatedContent = mockFileSystem.get(newSpecPath);
     expect(updatedContent).toBeDefined();
     expect(typeof updatedContent === "string").toBe(true);
     if (updatedContent && typeof updatedContent === "string") {
-      expect(updatedContent.includes("# Task #042: Existing ID Feature")).toBe(true);
+      expect(updatedContent.includes("# Existing ID Feature")).toBe(true);
     }
   });
 

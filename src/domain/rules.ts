@@ -14,11 +14,21 @@ const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
 // Create a custom stringify function that doesn't add unnecessary quotes
 function customMatterStringify(content: string, data: any): string {
   // Use js-yaml's dump function directly with options to control quoting behavior
-  const yamlStr = jsYaml.dump(data as any, {
+  let yamlStr = jsYaml.dump(data as any, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
     quotingType: "\"", // Use double quotes when necessary
     forceQuotes: false, // Don't force quotes on all strings
+  });
+
+  // Post-process to ensure descriptions with special characters use double quotes
+  // Replace single-quoted descriptions with double-quoted ones
+  yamlStr = yamlStr.replace(/^description: '(.+)'$/gm, (match, description) => {
+    // Check if description contains special characters that warrant quoting
+    if (description.includes(":") || description.includes("!") || description.includes("?")) {
+      return `description: "${description}"`;
+    }
+    return match;
   });
 
   return `---\n${yamlStr}---\n${content}`;
