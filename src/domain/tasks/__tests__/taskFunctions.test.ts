@@ -367,7 +367,7 @@ Description here.
 `;
 
       const spec = parseTaskSpecFromMarkdown(markdown);
-      expect(spec.title).toBe("Task: No ID Task");
+      expect(spec.title).toBe("No ID Task");
       expect(spec.description).toBe("Description here.");
       expect(spec.id).toBeUndefined();
     });
