@@ -301,7 +301,11 @@ export class GitService implements GitServiceInterface {
   constructor(baseDir?: string) {
     this.baseDir =
       baseDir ||
-      join((process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state"), "minsky");
+      join(
+        (process.env as any).XDG_STATE_HOME ||
+          join((process.env as any).HOME || "", ".local/state"),
+        "minsky"
+      );
     this.sessionDb = createSessionProvider({ dbPath: (process as any).cwd() });
   }
 
@@ -355,7 +359,7 @@ export class GitService implements GitServiceInterface {
 
         const { stdout, stderr } = await execAsync(cloneCmd);
         log.debug("git clone succeeded", {
-          stdout: (stdout.trim() as any).substring(0, 200)
+          stdout: (stdout.trim() as any).substring(0, 200),
         });
       } catch (cloneErr) {
         log.error("git clone command failed", {
@@ -473,7 +477,8 @@ export class GitService implements GitServiceInterface {
       execAsync,
       getSession: async (name: string) => (this.sessionDb as any).getSession(name),
       getSessionWorkdir: (session: string) => this.getSessionWorkdir(session),
-      getSessionByTaskId: async (taskId: string) => (this.sessionDb as any).getSessionByTaskId?.(taskId),
+      getSessionByTaskId: async (taskId: string) =>
+        (this.sessionDb as any).getSessionByTaskId?.(taskId),
     };
 
     const result = await this.prWithDependencies(options as any, deps);
@@ -574,7 +579,10 @@ export class GitService implements GitServiceInterface {
         throw new Error(`No session found for task ID "${(options as any).taskId}"`);
       }
       sessionName = (sessionRecord as any).session;
-      log.debug("Resolved session from task ID", { taskId: (options as any).taskId, session: sessionName });
+      log.debug("Resolved session from task ID", {
+        taskId: (options as any).taskId,
+        session: sessionName,
+      });
     }
 
     if (!sessionName) {
@@ -679,7 +687,9 @@ You need to specify one of these options to identify the target repository:
 
     // Check if master exists
     try {
-      await (deps as any).execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/master`);
+      await (deps as any).execAsync(
+        `git -C ${workdir} show-ref --verify refs/remotes/origin/master`
+      );
       log.debug("Using master as base branch");
       return "master";
     } catch (err) {
@@ -721,7 +731,9 @@ You need to specify one of these options to identify the target repository:
 
       // If merge-base fails, get the first commit of the branch
       try {
-        const { stdout } = await (deps as any).execAsync(`git -C ${workdir} rev-list --max-parents=0 HEAD`);
+        const { stdout } = await (deps as any).execAsync(
+          `git -C ${workdir} rev-list --max-parents=0 HEAD`
+        );
         mergeBase = (stdout as any).trim();
         comparisonDescription = "Showing changes from first commit";
         log.debug("Using first commit as base", { mergeBase });
@@ -758,7 +770,8 @@ You need to specify one of these options to identify the target repository:
 
     // Check if we have any working directory changes
     const hasWorkingDirChanges =
-      ((untrackedFiles as any).trim() as any).length > 0 || ((uncommittedChanges as any).trim() as any).length > 0;
+      ((untrackedFiles as any).trim() as any).length > 0 ||
+      ((uncommittedChanges as any).trim() as any).length > 0;
 
     return this.buildPrMarkdown(
       branch,
@@ -1165,7 +1178,9 @@ You need to specify one of these options to identify the target repository:
         log.debug("Git status after failed merge", { status });
 
         const hasConflicts =
-          (status as any).includes("UU") || (status as any).includes("AA") || (status as any).includes("DD");
+          (status as any).includes("UU") ||
+          (status as any).includes("AA") ||
+          (status as any).includes("DD");
         log.debug("Conflict detection result", {
           hasConflicts,
           statusIncludes: {
@@ -1241,8 +1256,7 @@ You need to specify one of these options to identify the target repository:
 
     // 2. Validate remote exists
     const { stdout: remotesOut } = await execAsync(`git -C ${workdir} remote`);
-    const remotes = ((remotesOut
-      .split("\n") as any).map((r) => r.trim()) as any).filter(Boolean);
+    const remotes = ((remotesOut.split("\n") as any).map((r) => r.trim()) as any).filter(Boolean);
     if (!(remotes as any).includes(remote)) {
       throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
     }
@@ -1326,7 +1340,9 @@ You need to specify one of these options to identify the target repository:
         command,
         workdir,
       });
-      throw new MinskyError(`Failed to execute command in repository: ${getErrorMessage(error as any)}`);
+      throw new MinskyError(
+        `Failed to execute command in repository: ${getErrorMessage(error as any)}`
+      );
     }
   }
 
@@ -1696,7 +1712,9 @@ Session requested: "${(options as any).session}"
           { exitCode: 4 }
         );
       }
-      throw new MinskyError(`Failed to create prepared merge commit: ${getErrorMessage(err as any)}`);
+      throw new MinskyError(
+        `Failed to create prepared merge commit: ${getErrorMessage(err as any)}`
+      );
     }
 
     // Push changes to the PR branch
@@ -1712,7 +1730,9 @@ Session requested: "${(options as any).session}"
       await execAsync(`git -C ${workdir} switch ${sourceBranch}`);
       log.debug(`✅ Switched back to session branch ${sourceBranch} after creating PR branch`);
     } catch (err) {
-      log.warn(`Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err as any)}`);
+      log.warn(
+        `Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err as any)}`
+      );
     }
 
     return {
@@ -1728,10 +1748,14 @@ Session requested: "${(options as any).session}"
    * e.g. "feat: add new feature" -> "feat-add-new-feature"
    */
   private titleToBranchName(title: string): string {
-    return ((title
-      .toLowerCase()
-      .replace(/[\s:/#]+/g, "-") // Replace spaces, colons, slashes, and hashes with dashes
-      .replace(/[^\w-]/g, "") as any).replace(/--+/g, "-") as any).replace(/^-|-$/g, ""); // Remove leading and trailing dashes
+    return (
+      (
+        title
+          .toLowerCase()
+          .replace(/[\s:/#]+/g, "-") // Replace spaces, colons, slashes, and hashes with dashes
+          .replace(/[^\w-]/g, "") as any
+      ).replace(/--+/g, "-") as any
+    ).replace(/^-|-$/g, ""); // Remove leading and trailing dashes
   }
 
   async mergePr(options: MergePrOptions): Promise<MergePrResult> {
@@ -1870,7 +1894,9 @@ Session requested: "${(options as any).session}"
   ): Promise<StashResult> {
     try {
       // Check if there are changes to stash
-      const { stdout: status } = await (deps as any).execAsync(`git -C ${workdir} status --porcelain`);
+      const { stdout: status } = await (deps as any).execAsync(
+        `git -C ${workdir} status --porcelain`
+      );
       if (!(status as any).trim()) {
         // No changes to stash
         return { workdir, stashed: false };
@@ -1917,7 +1943,9 @@ Session requested: "${(options as any).session}"
   ): Promise<MergeResult> {
     try {
       // Get current commit hash
-      const { stdout: beforeHash } = await (deps as any).execAsync(`git -C ${workdir} rev-parse HEAD`);
+      const { stdout: beforeHash } = await (deps as any).execAsync(
+        `git -C ${workdir} rev-parse HEAD`
+      );
 
       // Try to merge the branch using enhanced git execution with timeout and conflict detection
       try {
@@ -1931,14 +1959,23 @@ Session requested: "${(options as any).session}"
         });
       } catch (err) {
         // Enhanced git execution will throw MinskyError with detailed conflict information
-        if (err instanceof MinskyError && (err.message as any).includes("Merge Conflicts Detected")) {
+        if (
+          err instanceof MinskyError &&
+          (err.message as any).includes("Merge Conflicts Detected")
+        ) {
           // The enhanced error message is already formatted, so we know there are conflicts
           return { workdir, merged: false, conflicts: true };
         }
 
         // Check if there are merge conflicts using traditional method as fallback
-        const { stdout: status } = await (deps as any).execAsync(`git -C ${workdir} status --porcelain`);
-        if ((status as any).includes("UU") || (status as any).includes("AA") || (status as any).includes("DD")) {
+        const { stdout: status } = await (deps as any).execAsync(
+          `git -C ${workdir} status --porcelain`
+        );
+        if (
+          (status as any).includes("UU") ||
+          (status as any).includes("AA") ||
+          (status as any).includes("DD")
+        ) {
           // Abort the merge and report conflicts
           await (deps as any).execAsync(`git -C ${workdir} merge --abort`);
           return { workdir, merged: false, conflicts: true };
@@ -1947,10 +1984,16 @@ Session requested: "${(options as any).session}"
       }
 
       // Get new commit hash
-      const { stdout: afterHash } = await (deps as any).execAsync(`git -C ${workdir} rev-parse HEAD`);
+      const { stdout: afterHash } = await (deps as any).execAsync(
+        `git -C ${workdir} rev-parse HEAD`
+      );
 
       // Return whether any changes were merged
-      return { workdir, merged: (beforeHash as any).trim() !== (afterHash as any).trim(), conflicts: false };
+      return {
+        workdir,
+        merged: (beforeHash as any).trim() !== (afterHash as any).trim(),
+        conflicts: false,
+      };
     } catch (err) {
       throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err as any)}`);
     }
@@ -1980,7 +2023,9 @@ Session requested: "${(options as any).session}"
   ): Promise<PullResult> {
     try {
       // Get current commit hash before fetch
-      const { stdout: beforeHash } = await (deps as any).execAsync(`git -C ${workdir} rev-parse HEAD`);
+      const { stdout: beforeHash } = await (deps as any).execAsync(
+        `git -C ${workdir} rev-parse HEAD`
+      );
 
       // Fetch latest changes from remote using enhanced git execution with timeout
       await gitFetchWithTimeout(remote, undefined, {
@@ -1993,7 +2038,9 @@ Session requested: "${(options as any).session}"
       });
 
       // Get commit hash after fetch (should be the same since we only fetched)
-      const { stdout: afterHash } = await (deps as any).execAsync(`git -C ${workdir} rev-parse HEAD`);
+      const { stdout: afterHash } = await (deps as any).execAsync(
+        `git -C ${workdir} rev-parse HEAD`
+      );
 
       // Return whether local working directory changed (should be false for fetch-only)
       // The 'updated' flag indicates if remote refs were updated, but we can't easily detect that
@@ -2113,8 +2160,7 @@ Session requested: "${(options as any).session}"
 
     // 2. Validate remote exists
     const { stdout: remotesOut } = await (deps as any).execAsync(`git -C ${workdir} remote`);
-    const remotes = ((remotesOut
-      .split("\n") as any).map((r) => r.trim()) as any).filter(Boolean);
+    const remotes = ((remotesOut.split("\n") as any).map((r) => r.trim()) as any).filter(Boolean);
     if (!(remotes as any).includes(remote)) {
       throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
     }
@@ -2180,7 +2226,11 @@ Session requested: "${(options as any).session}"
     sessionBranch: string,
     baseBranch: string
   ): Promise<BranchDivergenceAnalysis> {
-    return (ConflictDetectionService as any).analyzeBranchDivergence(repoPath, sessionBranch, baseBranch);
+    return (ConflictDetectionService as any).analyzeBranchDivergence(
+      repoPath,
+      sessionBranch,
+      baseBranch
+    );
   }
 
   /**
@@ -2284,7 +2334,11 @@ export async function commitChangesFromParams(params: {
       }
     }
 
-    const commitHash = await (git as any).commit((params as any).message, (params as any).repo, (params as any).amend);
+    const commitHash = await (git as any).commit(
+      (params as any).message,
+      (params as any).repo,
+      (params as any).amend
+    );
 
     return {
       commitHash,
@@ -2455,7 +2509,7 @@ export async function pushFromParams(params: {
  * @returns A GitServiceInterface implementation
  */
 export function createGitService(options?: { baseDir?: string }): GitServiceInterface {
-  return new GitService((options as any).baseDir);
+  return new GitService(options?.baseDir);
 }
 
 /**
@@ -2474,7 +2528,7 @@ export async function mergeFromParams(params: {
     const git = new GitService();
     const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
     const targetBranch = params.targetBranch || "HEAD";
-    
+
     const result = await git.mergeWithConflictPrevention(
       repoPath,
       params.sourceBranch,
@@ -2482,10 +2536,10 @@ export async function mergeFromParams(params: {
       {
         dryRun: params.preview,
         autoResolveDeleteConflicts: params.autoResolve,
-        skipConflictCheck: false
+        skipConflictCheck: false,
       }
     );
-    
+
     return result;
   } catch (error) {
     log.error("Error merging branches", {
@@ -2510,44 +2564,47 @@ export async function checkoutFromParams(params: {
   preview?: boolean;
   autoResolve?: boolean;
   conflictStrategy?: string;
-}): Promise<{ 
-  workdir: string; 
-  switched: boolean; 
-  conflicts: boolean; 
-  conflictDetails?: string; 
-  warning?: { wouldLoseChanges: boolean; recommendedAction: string } 
+}): Promise<{
+  workdir: string;
+  switched: boolean;
+  conflicts: boolean;
+  conflictDetails?: string;
+  warning?: { wouldLoseChanges: boolean; recommendedAction: string };
 }> {
   try {
     const git = new GitService();
     const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
-    
+
     // Use ConflictDetectionService to check for branch switch conflicts
     const { ConflictDetectionService } = await import("./git/conflict-detection");
-    
+
     if (params.preview) {
       // Just preview the operation
-      const warning = await ConflictDetectionService.checkBranchSwitchConflicts(repoPath, params.branch);
+      const warning = await ConflictDetectionService.checkBranchSwitchConflicts(
+        repoPath,
+        params.branch
+      );
       return {
         workdir: repoPath,
         switched: false,
         conflicts: warning.wouldLoseChanges,
-        conflictDetails: warning.wouldLoseChanges ? 
-          `Switching to ${params.branch} would lose uncommitted changes. ${warning.recommendedAction}` : 
-          undefined,
+        conflictDetails: warning.wouldLoseChanges
+          ? `Switching to ${params.branch} would lose uncommitted changes. ${warning.recommendedAction}`
+          : undefined,
         warning: {
           wouldLoseChanges: warning.wouldLoseChanges,
-          recommendedAction: warning.recommendedAction
-        }
+          recommendedAction: warning.recommendedAction,
+        },
       };
     }
-    
+
     // Perform actual checkout
     await git.execInRepository(repoPath, `checkout ${params.branch}`);
-    
+
     return {
       workdir: repoPath,
       switched: true,
-      conflicts: false
+      conflicts: false,
     };
   } catch (error) {
     log.error("Error checking out branch", {
@@ -2587,16 +2644,16 @@ export async function rebaseFromParams(params: {
     const git = new GitService();
     const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
     const featureBranch = params.featureBranch || "HEAD";
-    
+
     // Use ConflictDetectionService to predict rebase conflicts
     const { ConflictDetectionService } = await import("./git/conflict-detection");
-    
+
     const prediction = await ConflictDetectionService.predictRebaseConflicts(
       repoPath,
       params.baseBranch,
       featureBranch
     );
-    
+
     if (params.preview) {
       // Just preview the operation
       return {
@@ -2607,11 +2664,11 @@ export async function rebaseFromParams(params: {
         prediction: {
           canAutoResolve: prediction.canAutoResolve,
           recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity
-        }
+          overallComplexity: prediction.overallComplexity,
+        },
       };
     }
-    
+
     // Perform actual rebase if no conflicts or auto-resolve enabled
     if (prediction.canAutoResolve || params.autoResolve) {
       await git.execInRepository(repoPath, `rebase ${params.baseBranch}`);
@@ -2622,20 +2679,21 @@ export async function rebaseFromParams(params: {
         prediction: {
           canAutoResolve: prediction.canAutoResolve,
           recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity
-        }
+          overallComplexity: prediction.overallComplexity,
+        },
       };
     } else {
       return {
         workdir: repoPath,
         rebased: false,
         conflicts: true,
-        conflictDetails: "Rebase would create conflicts. Use --preview to see details or --auto-resolve to attempt automatic resolution.",
+        conflictDetails:
+          "Rebase would create conflicts. Use --preview to see details or --auto-resolve to attempt automatic resolution.",
         prediction: {
           canAutoResolve: prediction.canAutoResolve,
           recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity
-        }
+          overallComplexity: prediction.overallComplexity,
+        },
       };
     }
   } catch (error) {
