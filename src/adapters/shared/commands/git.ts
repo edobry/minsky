@@ -114,6 +114,11 @@ const cloneCommandParams: CommandParameterMap = {
     description: "URL of the Git repository to clone",
     required: true,
   },
+  workdir: {
+    schema: z.string(),
+    description: "Directory where the repository will be cloned",
+    required: true,
+  },
   session: {
     schema: z.string(),
     description: SESSION_DESCRIPTION,
@@ -246,6 +251,7 @@ export function registerGitCommands(): void {
 
       const result = await cloneFromParams({
         url: (params as any).url,
+        workdir: (params as any).workdir,
         session: (params as any).session,
         branch: (params as any).branch,
       }) as any;

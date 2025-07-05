@@ -1,5 +1,5 @@
 import { join } from "path";
-import { HTTP_OK } from "../utils/constants";
+import { HTTP_OK } from "../../utils/constants";
 import { mkdir } from "fs/promises";
 import { promisify } from "util";
 import { exec } from "child_process";

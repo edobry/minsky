@@ -47,7 +47,7 @@ export interface LocalSessionProviderInterface {
   /**
    * Update an existing session
    */
-  updateSession(session: string, _updates: Partial<Omit<"session">>): Promise<void>;
+  updateSession(session: string, _updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
 
   /**
    * Delete a session by name
@@ -146,7 +146,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Update an existing session
    */
-  async updateSession(session: string, _updates: Partial<Omit<"session">>): Promise<void> {
+  async updateSession(session: string, _updates: Partial<Omit<SessionRecord, "session">>): Promise<void> {
     await this.readDb();
     const newState = updateSessionFn(this.state, session, _updates);
     await this.writeDb((newState as any).sessions);

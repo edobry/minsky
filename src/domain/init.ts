@@ -6,8 +6,8 @@ const TEST_VALUE = 123;
 
 export const initializeProjectParamsSchema = z.object({
   repoPath: z.string(),
-  backend: z.enum(["tasks.md", "tasks.csv"] as any[]),
-  ruleFormat: z.enum(["cursor", "generic"] as any[]),
+  backend: z.enum(["tasks.md", "tasks.csv"] as const),
+  ruleFormat: z.enum(["cursor", "generic"] as const),
   mcp: z
     .object({
       enabled: (z.boolean().optional() as any).default(true),

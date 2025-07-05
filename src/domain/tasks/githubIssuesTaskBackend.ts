@@ -11,7 +11,6 @@ import { execSync } from "child_process";
 import { getErrorMessage } from "../../errors/index";
 import type {
   TaskData,
-  TaskState,
   TaskSpecData,
   TaskBackendConfig,
 } from "../../types/tasks/taskData.js";
@@ -21,7 +20,15 @@ import type {
 } from "../../types/tasks/taskData.js";
 import type { TaskBackend } from "./taskBackend";
 import { log } from "../../utils/logger";
-import { TASK_STATUS } from "./taskConstants.js";
+import { TASK_STATUS, TaskStatus } from "./taskConstants.js";
+
+// Import additional types needed for interface implementation
+import type { 
+  Task, 
+  TaskListOptions, 
+  CreateTaskOptions, 
+  DeleteTaskOptions 
+} from "../tasks.js";
 
 /**
  * Configuration for GitHubIssuesTaskBackend
@@ -439,14 +446,15 @@ ${((issue.labels as any).map((label) => `- ${typeof label === "string" ? label :
   }
 
   private extractTaskIdFromIssue(issue: any): string {
-    // Try to extract task ID from title or body
+    // Try to find task ID like #123 in title
     const titleMatch = (issue.title as any).match(/#(\d+)/);
-    if (titleMatch) {
+    if (titleMatch && titleMatch[1]) {
       return `#${titleMatch[1]}`;
     }
 
-    const bodyMatch = (issue.body as any).match(/#(\d+)/);
-    if (bodyMatch) {
+    // If not in title, look in body
+    const bodyMatch = (issue.body as any).match(/Task ID: #(\d+)/);
+    if (bodyMatch && bodyMatch[1]) {
       return `#${bodyMatch[1]}`;
     }
 
@@ -455,54 +463,188 @@ ${((issue.labels as any).map((label) => `- ${typeof label === "string" ? label :
   }
 
   private getTaskStatusFromIssue(issue: any): TaskStatus {
-    // Check labels for status
-    const labels = (issue as any).labels || [];
-
-    for (const [status, labelName] of (Object as any).entries(this.statusLabels)) {
-      if (
-        (labels as any).some((label: any) => {
-          const name = typeof label === "string" ? label : (label as any).name;
-          return name === labelName;
-        })
-      ) {
-        return status;
+    for (const [status, label] of Object.entries(this.statusLabels)) {
+      if ((issue.labels as any).some((l: any) => (l as any).name === label)) {
+        return status as TaskStatus;
       }
     }
-
-    // Fallback based on issue state
-    return (issue as any).state === "closed" ? TASK_STATUS.DONE : TASK_STATUS.TODO;
+    // Default to TODO if no status label is found
+    return TASK_STATUS.TODO as TaskStatus;
   }
 
   private getLabelsForTaskStatus(status: string): string[] {
-    const statusLabel = this.statusLabels[status];
-    return statusLabel ? [statusLabel] : [];
+    return [(this.statusLabels as any)[status] || this.statusLabels.TODO];
   }
 
   private async syncTaskToGitHub(taskData: TaskData): Promise<void> {
-    try {
-      const issueData = this.convertTaskDataToIssueFormat(taskData);
+    // This method would handle creating or updating the GitHub issue
+    // For now, it's a placeholder
+    log.debug("Syncing task to GitHub", { taskData });
+  }
 
-      // For now, we'll always create new issues since we can't track existing ones without metadata
-      // TODO: Implement a better way to track GitHub issue numbers
-      const response = await (this.octokit.rest.issues as any).create({
+  // Implement required TaskBackend interface methods
+  async listTasks(options?: TaskListOptions): Promise<Task[]> {
+    try {
+      const result = await this.getTasksData();
+      if (!result.success || !result.content) {
+        return [];
+      }
+      
+      const taskDataList = this.parseTasks(result.content);
+      return taskDataList.map(taskData => ({
+        id: taskData.id,
+        title: taskData.title,
+        status: taskData.status,
+        specPath: taskData.specPath,
+        description: taskData.description
+      }));
+    } catch (error) {
+      log.error("Failed to list tasks", {
+        error: getErrorMessage(error),
+      });
+      return [];
+    }
+  }
+
+  async getTask(id: string): Promise<Task | null> {
+    try {
+      const tasks = await this.listTasks();
+      return tasks.find(task => task.id === id) || null;
+    } catch (error) {
+      log.error("Failed to get task", {
+        id,
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+  }
+
+  async getTaskStatus(id: string): Promise<string | null> {
+    try {
+      const task = await this.getTask(id);
+      return task?.status || null;
+    } catch (error) {
+      log.error("Failed to get task status", {
+        id,
+        error: getErrorMessage(error),
+      });
+      return null;
+    }
+  }
+
+  async setTaskStatus(id: string, status: string): Promise<void> {
+    try {
+      // Get the task
+      const task = await this.getTask(id);
+      if (!task) {
+        throw new Error(`Task ${id} not found`);
+      }
+
+      // Update the task status in GitHub
+      const issueNumber = this.extractIssueNumberFromTaskId(id);
+      if (!issueNumber) {
+        throw new Error(`Could not extract issue number from task ID ${id}`);
+      }
+
+      // Update the issue with new labels
+      await this.octokit.rest.issues.update({
         owner: this.owner,
         repo: this.repo,
-        title: (issueData as any).title,
-        body: (issueData as any).body,
-        labels: (issueData as any).labels,
+        issue_number: issueNumber,
+        labels: this.getLabelsForTaskStatus(status),
+        state: status === "DONE" ? "closed" : "open",
       });
 
-      log.debug("Created GitHub issue", {
-        issueNumber: (response.data as any).number,
-        title: (issueData as any).title,
+      log.debug("Updated task status in GitHub", {
+        taskId: id,
+        status,
       });
     } catch (error) {
-      log.error("Failed to sync task to GitHub", {
-        taskId: (taskData as any).id,
-        error: getErrorMessage(error as any),
+      log.error("Failed to set task status", {
+        id,
+        status,
+        error: getErrorMessage(error),
       });
       throw error;
     }
+  }
+
+  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+    try {
+      // Read the spec file
+      const result = await this.getTaskSpecData(specPath);
+      if (!result.success || !result.content) {
+        throw new Error(`Failed to read task spec: ${specPath}`);
+      }
+
+      // Parse the spec
+      const spec = this.parseTaskSpec(result.content);
+      
+      // Create a new issue in GitHub
+      const response = await this.octokit.rest.issues.create({
+        owner: this.owner,
+        repo: this.repo,
+        title: spec.title,
+        body: spec.description || "",
+        labels: this.getLabelsForTaskStatus("TODO"), // Default to TODO status
+      });
+
+      // Extract task ID from the created issue
+      const taskId = `#${response.data.number}`;
+
+      return {
+        id: taskId,
+        title: spec.title,
+        status: "TODO", // Default to TODO status
+        specPath,
+        description: spec.description || "",
+      };
+    } catch (error) {
+      log.error("Failed to create task", {
+        specPath,
+        error: getErrorMessage(error),
+      });
+      throw error;
+    }
+  }
+
+  async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
+    try {
+      // Extract issue number from task ID
+      const issueNumber = this.extractIssueNumberFromTaskId(id);
+      if (!issueNumber) {
+        throw new Error(`Could not extract issue number from task ID ${id}`);
+      }
+
+      // For GitHub issues, we can't actually delete an issue
+      // Instead, we'll close it and add a "DELETED" label
+      await this.octokit.rest.issues.update({
+        owner: this.owner,
+        repo: this.repo,
+        issue_number: issueNumber,
+        state: "closed",
+        labels: [...this.getLabelsForTaskStatus("CLOSED"), "DELETED"],
+      });
+
+      log.debug("Marked task as deleted in GitHub", {
+        taskId: id,
+      });
+
+      return true;
+    } catch (error) {
+      log.error("Failed to delete task", {
+        id,
+        error: getErrorMessage(error),
+      });
+      return false;
+    }
+  }
+
+  // Helper method to extract issue number from task ID
+  private extractIssueNumberFromTaskId(taskId: string): number | null {
+    const id = taskId.startsWith("#") ? taskId.slice(1) : taskId;
+    const issueNumber = parseInt(id, 10);
+    return isNaN(issueNumber) ? null : issueNumber;
   }
 }
 

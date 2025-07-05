@@ -49,7 +49,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  */
 export function mockFunction<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Cast to unknown first to avoid TypeScript errors
-  return createMock(String(implementation)) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
+  return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
 }
 
 /**
@@ -79,7 +79,7 @@ export function mockFunction<T extends (...args: unknown[]) => any>(implementati
  */
 export function createMock<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Use Bun's mock directly instead of trying to access mock.fn
-  return implementation ? mock(String(implementation)) : mock(() => {});
+  return implementation ? mock(implementation) : mock(() => {});
 }
 
 /**
@@ -90,7 +90,7 @@ export function createMock<T extends (...args: unknown[]) => any>(implementation
  * expect(someFunction()).toBe("mocked result");
  */
 export function mockModule(_modulePath: string, factory: () => any): void {
-  mock.module(String(_modulePath), String(factory)); // Use mock.module for module mocking
+  mock.module(_modulePath, factory); // Use mock.module for module mocking
 }
 
 /**
@@ -414,6 +414,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     }),
     mkdir: createMock(async (path: unknown, ...args: unknown[]) => {
       directories.add(path as string);
+      const options = args[0] as { recursive?: boolean } | undefined;
       // If recursive option, add all parent directories
       if (options?.recursive) {
         const parts = (path as string).split("/");
@@ -507,7 +508,7 @@ export function mockReadonlyProperty<T extends object, K extends keyof T>(
   mockValue: any
 ): void {
   // Use Object.defineProperty to override the property
-  Object.defineProperty(String(obj), String(propName), {
+  Object.defineProperty(obj, propName, {
     configurable: true,
     get: () => mockValue,
   });
@@ -537,12 +538,12 @@ export function createSpyOn<T extends object, M extends keyof T>(
   const original = obj[method];
 
   if (typeof original !== "function") {
-    throw new Error(`Cannot spy on ${String(String(method))} because it is not a function`);
+    throw new Error(`Cannot spy on ${String(method)} because it is not a function`);
   }
 
   // Create a mock function that calls the original
   const mockFn = mock((...args: unknown[]) => {
-    return (original as Function).apply(String(obj), String(args));
+    return (original as Function).apply(obj, args);
   });
 
   // Replace the original method with our mock
@@ -657,7 +658,7 @@ export function withCleanup(cleanupFn: () => void | Promise<void>): void {
       "withCleanup called outside of a test context. Make sure to call beforeEachTest in a beforeEach hook."
     );
   }
-  currentTestContext.registerCleanup(String(cleanupFn));
+  currentTestContext.registerCleanup(cleanupFn);
 }
 
 /**

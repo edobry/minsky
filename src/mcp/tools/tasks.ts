@@ -17,7 +17,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     z.object({
       filter: z.string().optional().describe("Filter tasks by status or other criteria"),
       limit: (z.number().optional() as any).describe("Limit the number of tasks returned"),
-      format: z.enum(["detailed", "simple"] as any[]).optional().describe("Format of the task list"),
+      format: z.enum(["detailed", "simple"] as const).optional().describe("Format of the task list"),
     }),
     async (
       args: z.infer<

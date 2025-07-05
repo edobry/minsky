@@ -70,7 +70,7 @@ export const sessionStartParamsSchema = z
     noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task"),
     skipInstall: flagSchema("Skip automatic dependency installation"),
     packageManager: z
-      .enum(["bun", "npm", "yarn", "pnpm"] as any[])
+      .enum(["bun", "npm", "yarn", "pnpm"] as const)
       .optional()
       .describe("Override the detected package manager"),
   })

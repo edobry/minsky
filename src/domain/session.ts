@@ -1730,7 +1730,7 @@ export async function sessionReviewFromParams(
 }
 
 // Re-export types from session-db module for convenience
-export type { SessionRecord, SessionDbState } from "./session/session-db";
+export type { SessionDbState } from "./session/session-db";
 
 // Re-export the SessionDbAdapter class
 export { SessionDbAdapter } from "./session/session-db-adapter";

@@ -296,9 +296,12 @@ export class CliCommandBridge {
         // Get or create the parent command
         let parentCommand = commandGroups.get(parentName);
         if (!parentCommand) {
-          parentCommand = (new Command(parentName) as any).description(`${parentName} commands`);
-          commandGroups.set(parentName, parentCommand);
-          (categoryCommand as any).addCommand(parentCommand);
+          const newParentCommand = new Command(parentName).description(
+            `${parentName} commands`
+          );
+          commandGroups.set(parentName, newParentCommand);
+          (categoryCommand as any).addCommand(newParentCommand);
+          parentCommand = newParentCommand;
         }
 
         // Create the child command with the correct name
@@ -306,7 +309,10 @@ export class CliCommandBridge {
         if (childCommand) {
           // Update the child command name to just the child part
           (childCommand as any).name(childName);
-          (parentCommand as any).addCommand(childCommand!);
+          // Add the command to the parent
+          if (parentCommand && childCommand) {
+            parentCommand.addCommand(childCommand!);
+          }
         }
       } else {
         // More complex nesting - handle it recursively or warn

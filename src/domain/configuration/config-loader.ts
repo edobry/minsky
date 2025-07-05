@@ -202,11 +202,11 @@ export class ConfigurationLoader {
     if ((globalUser as any).github) {
       (resolved as any).github = this.mergeGitHubConfig((resolved as any).github, (globalUser as any).github);
     }
-    if ((globalUser as any).sessiondb) {
+    if (globalUser?.sessiondb) {
       // Convert global user sessiondb format to SessionDbConfig format
       const globalSessionDb: Partial<SessionDbConfig> = {
-        dbPath: (globalUser?.sessiondb?.sqlite as any).path,
-        baseDir: (globalUser.sessiondb as any).base_dir,
+        dbPath: globalUser?.sessiondb?.sqlite?.path,
+        baseDir: globalUser.sessiondb.base_dir,
       };
       (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, globalSessionDb);
     }
