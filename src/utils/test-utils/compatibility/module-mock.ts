@@ -128,7 +128,7 @@ export function mockModule(
     const emptyMock = {};
     mockedModules.set(modulePath, emptyMock);
   } catch (error) {
-    log.error(`Error mocking module ${modulePath}:`, error);
+    log.error(`Error mocking module ${modulePath}:`, error as Error);
     throw error;
   }
 }
