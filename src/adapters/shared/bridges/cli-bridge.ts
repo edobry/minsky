@@ -129,7 +129,8 @@ export class CliCommandBridge {
     // Warn about direct usage in development (but not when called via factory)
     if ((process.env as any).NODE_ENV !== "production" && !(context as any).viaFactory) {
       log.warn(
-        `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`);
+        `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
+      );
     }
 
     const commandDef = (sharedCommandRegistry as any).getCommand(commandId);
@@ -142,12 +143,14 @@ export class CliCommandBridge {
     log.systemDebug(`options retrieved: ${!!options}`);
 
     // Create the basic command
-    const command = (new Command(commandDef.name) as any).description((commandDef as any).description);
+    const command = (new Command(commandDef.name) as any).description(
+      (commandDef as any).description
+    );
     log.systemDebug(`command created: ${(command as any).name()}`);
 
     // Add aliases if specified
-    if ((options.aliases as any).length) {
-      command.aliases((options as any).aliases);
+    if (options.aliases && options.aliases.length) {
+      command.aliases(options.aliases);
     }
 
     // Hide from help if specified
@@ -197,7 +200,10 @@ export class CliCommandBridge {
         };
 
         // Normalize parameters
-        const normalizedParams = normalizeCliParameters((commandDef as any).parameters!, rawParameters);
+        const normalizedParams = normalizeCliParameters(
+          (commandDef as any).parameters!,
+          rawParameters
+        );
 
         // Execute the command with parameters and context
         const result = await (commandDef as any).execute(normalizedParams, context as any);
@@ -257,10 +263,11 @@ export class CliCommandBridge {
     // Create the base category command
     const categoryName = (customOptions as any).name || (category as any).toLowerCase();
     const categoryCommand = (new Command(categoryName) as any).description(
-      (customOptions as any).description || `${category} commands`);
+      (customOptions as any).description || `${category} commands`
+    );
 
     // Add aliases if specified
-    if ((customOptions.aliases as any).length) {
+    if (customOptions.aliases && customOptions.aliases.length) {
       (categoryCommand as any).aliases(customOptions.aliases);
     }
 
@@ -296,9 +303,7 @@ export class CliCommandBridge {
         // Get or create the parent command
         let parentCommand = commandGroups.get(parentName);
         if (!parentCommand) {
-          const newParentCommand = new Command(parentName).description(
-            `${parentName} commands`
-          );
+          const newParentCommand = new Command(parentName).description(`${parentName} commands`);
           commandGroups.set(parentName, newParentCommand);
           (categoryCommand as any).addCommand(newParentCommand);
           parentCommand = newParentCommand;
@@ -363,12 +368,17 @@ export class CliCommandBridge {
     commandDef: SharedCommand,
     options: CliCommandOptions
   ): ParameterMapping[] {
-    const mappings = createParameterMappings((commandDef as any).parameters || {}!, (options as any).parameters || {});
+    const mappings = createParameterMappings(
+      (commandDef as any).parameters || {}!,
+      (options as any).parameters || {}
+    );
 
     // If automatic argument generation is enabled
     if ((options as any).useFirstRequiredParamAsArgument && !(options as any).forceOptions) {
       // Find the first required parameter to use as an argument
-      const firstRequiredIndex = mappings.findIndex((mapping) => (mapping.paramDef as any).required);
+      const firstRequiredIndex = mappings.findIndex(
+        (mapping) => (mapping.paramDef as any).required
+      );
 
       if (firstRequiredIndex >= 0 && mappings[firstRequiredIndex]) {
         // Mark it as an argument
@@ -391,7 +401,9 @@ export class CliCommandBridge {
     const result = { ...options };
 
     // Map positional arguments to parameter names
-    const argumentMappings = ((mappings as any).filter((mapping) => mapping.options.asArgument) as any).sort((a, b) => {
+    const argumentMappings = (
+      (mappings as any).filter((mapping) => mapping.options.asArgument) as any
+    ).sort((a, b) => {
       // Required arguments come first
       if ((a.paramDef as any).required && !(b.paramDef as any).required) return -1;
       if (!(a.paramDef as any).required && (b.paramDef as any).required) return 1;
@@ -424,7 +436,9 @@ export class CliCommandBridge {
               // For objects in arrays, try to display meaningful information
               if ((item as any).id && (item as any).title) {
                 // Looks like a task or similar entity
-                log.cli(`- ${(item as any).id}: ${(item as any).title}${(item as any).status ? ` [${(item as any).status}]` : ""}`);
+                log.cli(
+                  `- ${(item as any).id}: ${(item as any).title}${(item as any).status ? ` [${(item as any).status}]` : ""}`
+                );
               } else {
                 // Generic object display
                 log.cli(`${index + 1}. ${JSON.stringify(item as any)}`);
@@ -499,7 +513,9 @@ export class CliCommandBridge {
           }
 
           // Generic object handling - show all simple properties and handle complex ones
-          const meaningfulEntries = (Object as any).entries(result as any).filter(([key]) => key !== "success");
+          const meaningfulEntries = (Object as any)
+            .entries(result as any)
+            .filter(([key]) => key !== "success");
 
           // If there's only one meaningful property and it's a simple message, show just the value
           if ((meaningfulEntries as any).length === 1) {
@@ -592,7 +608,8 @@ export class CliCommandBridge {
     log.cli(`   Base Branch: ${baseBranch}`);
 
     if (body && typeof body === "string" && (body as any).trim()) {
-      const truncatedBody = (body as any).length > 100 ? `${(body as any).substring(0, 100)}...` : body;
+      const truncatedBody =
+        (body as any).length > 100 ? `${(body as any).substring(0, 100)}...` : body;
       log.cli(`   Body: ${truncatedBody}`);
     }
     log.cli("");
