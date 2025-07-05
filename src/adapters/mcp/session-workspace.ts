@@ -24,12 +24,12 @@ export class SessionPathResolver {
    * Resolve session workspace path for a given session
    */
   async getSessionWorkspacePath(sessionId: string): Promise<string> {
-    const session = await (this.sessionDB as any).getSession(sessionId);
+    const session = await this.sessionDB.getSession(sessionId);
     if (!session) {
       throw new Error(`Session "${sessionId}" not found`);
     }
 
-    return await (this.sessionDB as any).getRepoPath(session);
+    return await this.sessionDB.getRepoPath(session);
   }
 
   /**
@@ -101,41 +101,41 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
     }),
     execute: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
-        await (pathResolver as any).validatePathExists(resolvedPath);
+        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
+        await pathResolver.validatePathExists(resolvedPath);
 
         const content = await readFile(resolvedPath, "utf8");
 
         log.debug("Session file read successful", {
-          session: (args as any).session,
-          path: (args as any).path,
+          session: args.session,
+          path: args.path,
           resolvedPath,
-          contentLength: (content as any).length,
+          contentLength: content.length,
         });
 
         return {
           success: true,
           content,
-          path: (args as any).path,
-          session: (args as any).session,
+          path: args.path,
+          session: args.session,
           resolvedPath: relative(
-            await (pathResolver as any).getSessionWorkspacePath((args as any).session),
+            await pathResolver.getSessionWorkspacePath(args.session),
             resolvedPath
           ),
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error as any);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file read failed", {
-          session: (args as any).session,
-          path: (args as any).path,
+          session: args.session,
+          path: args.path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: (args as any).path,
-          session: (args as any).session,
+          path: args.path,
+          session: args.session,
         };
       }
     },
@@ -156,7 +156,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
     }),
     execute: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
+        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
         // Create parent directories if requested and they don't exist
         if (args.createDirs) {
@@ -164,39 +164,39 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           await mkdir(parentDir, { recursive: true });
         }
 
-        await writeFile(resolvedPath, (args as any).content, "utf8");
+        await writeFile(resolvedPath, args.content, "utf8");
 
         log.debug("Session file write successful", {
-          session: (args as any).session,
-          path: (args as any).path,
+          session: args.session,
+          path: args.path,
           resolvedPath,
-          contentLength: (args.content as any).length,
+          contentLength: args.content.length,
           createdDirs: args.createDirs,
         });
 
         return {
           success: true,
-          path: (args as any).path,
-          session: (args as any).session,
+          path: args.path,
+          session: args.session,
           resolvedPath: relative(
-            await (pathResolver as any).getSessionWorkspacePath((args as any).session),
+            await pathResolver.getSessionWorkspacePath(args.session),
             resolvedPath
           ),
-          bytesWritten: (args.content as any).length,
+          bytesWritten: args.content.length,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error as any);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file write failed", {
-          session: (args as any).session,
-          path: (args as any).path,
+          session: args.session,
+          path: args.path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: (args as any).path,
-          session: (args as any).session,
+          path: args.path,
+          session: args.session,
         };
       }
     },

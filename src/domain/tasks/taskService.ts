@@ -202,8 +202,8 @@ export class TaskService {
     });
 
     if (taskIndex === -1) {
-      // Task not found - return silently without throwing error
-      return;
+      // Task not found - throw error
+      throw new Error(`Task ${normalizedId} not found`);
     }
 
     // Update the task status
