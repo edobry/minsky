@@ -124,7 +124,7 @@ export class CliCommandBridge {
    * @internal
    */
   generateCommand(commandId: string, context?: { viaFactory?: boolean }): Command | null {
-    log.systemDebug(`generateCommand called with commandId: ${commandId}`);
+    log.debug(`generateCommand called with commandId: ${commandId}`);
 
     // Warn about direct usage in development (but not when called via factory)
     if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
@@ -134,19 +134,19 @@ export class CliCommandBridge {
     }
 
     const commandDef = (sharedCommandRegistry as any).getCommand(commandId);
-    log.systemDebug(`commandDef found: ${!!commandDef}`);
+    log.debug(`commandDef found: ${!!commandDef}`);
     if (!commandDef) {
       return null as any;
     }
 
     const options = this.getCommandOptions(commandId);
-    log.systemDebug(`options retrieved: ${!!options}`);
+    log.debug(`options retrieved: ${!!options}`);
 
     // Create the basic command
     const command = (new Command(commandDef.name) as any).description(
       (commandDef as any).description
     );
-    log.systemDebug(`command created: ${(command as any).name()}`);
+    log.debug(`command created: ${(command as any).name()}`);
 
     // Add aliases if specified
     if (options.aliases && options.aliases.length) {
@@ -160,9 +160,9 @@ export class CliCommandBridge {
     }
 
     // Create parameter mappings
-    log.systemDebug("About to create parameter mappings");
+    log.debug("About to create parameter mappings");
     const mappings = this.createCommandParameterMappings(commandDef!, options as any);
-    log.systemDebug(`Parameter mappings created: ${(mappings as any).length}`);
+    log.debug(`Parameter mappings created: ${(mappings as any).length}`);
 
     // Add arguments to the command
     addArgumentsFromMappings(command!, mappings);
