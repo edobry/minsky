@@ -127,7 +127,7 @@ export class CliCommandBridge {
     log.systemDebug(`generateCommand called with commandId: ${commandId}`);
 
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context as any).viaFactory) {
+    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
       log.warn(
         `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
       );
@@ -247,7 +247,7 @@ export class CliCommandBridge {
     context?: { viaFactory?: boolean }
   ): Command | null {
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context as any).viaFactory) {
+    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
       log.warn(
         `[CLI Bridge] Direct usage detected for category '${category}'. Consider using CLI Command Factory for proper customization support.`
       );
@@ -340,7 +340,7 @@ export class CliCommandBridge {
    */
   generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean }): void {
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context as any).viaFactory) {
+    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
       log.warn(
         "[CLI Bridge] Direct usage of generateAllCategoryCommands detected. Consider using CLI Command Factory for proper customization support."
       );
