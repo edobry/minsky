@@ -55,8 +55,8 @@ describe("SessionPathResolver", () => {
       getRepoPath: async () => sessionWorkspace,
     };
 
+    // Create resolver and immediately replace sessionDB to avoid real database connection
     resolver = new SessionPathResolver();
-    // Replace the sessionDB with our mock
     (resolver as any).sessionDB = mockSessionDB;
   });
 

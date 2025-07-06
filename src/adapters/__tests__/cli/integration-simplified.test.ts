@@ -1,4 +1,4 @@
-const TEST_ARRAY_SIZE = 3;
+const TEST_ARRAY_SIZE = 8;
 
 /**
  * Simplified CLI Integration Tests
