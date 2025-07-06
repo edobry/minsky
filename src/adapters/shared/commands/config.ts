@@ -83,11 +83,11 @@ const configListRegistration = {
       // Use node-config directly to get configuration
       const sources = (config.util as any).getConfigSources();
       const resolved = {
-        backend: (config as any).get("backend"),
-        backendConfig: (config as any).get("backendConfig"),
-        credentials: (config as any).get("credentials"),
-        sessiondb: (config as any).get("sessiondb"),
-        ai: (config as any).has("ai") ? (config as any).get("ai") : undefined as any,
+        backend: config.get("backend"),
+        backendConfig: config.get("backendConfig"),
+        credentials: config.has("credentials") ? config.get("credentials") : {},
+        sessiondb: config.get("sessiondb"),
+        ai: config.has("ai") ? config.get("ai") : undefined,
       };
 
       return {
@@ -128,11 +128,11 @@ const configShowRegistration = {
     try {
       // Use node-config directly to get resolved configuration
       const resolved = {
-        backend: (config as any).get("backend"),
-        backendConfig: (config as any).get("backendConfig"),
-        credentials: (config as any).get("credentials"),
-        sessiondb: (config as any).get("sessiondb"),
-        ai: (config as any).has("ai") ? (config as any).get("ai") : undefined as any,
+        backend: config.get("backend"),
+        backendConfig: config.get("backendConfig"),
+        credentials: config.has("credentials") ? config.get("credentials") : {},
+        sessiondb: config.get("sessiondb"),
+        ai: config.has("ai") ? config.get("ai") : undefined,
       };
 
       return {

@@ -424,7 +424,7 @@
 
 - [ ] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
 
-- [x] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
+- [+] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
 
 - [ ] Implement Hierarchical Task System with Subtasks and Dependencies [#237](process/tasks/237-implement-hierarchical-task-system-with-subtasks-and-dependencies.md)
 

@@ -53,7 +53,8 @@ export interface StorageConfig {
  * Default storage configuration
  */
 export function getDefaultStorageConfig(): StorageConfig {
-  const xdgStateHome = (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
+  const xdgStateHome =
+    (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
 
   return {
     backend: "json",
@@ -66,7 +67,8 @@ export function getDefaultStorageConfig(): StorageConfig {
       timeout: 5000,
     },
     postgres: {
-      connectionUrl: (process.env as any).MINSKY_POSTGRES_URL || "postgresql://localhost:5432/minsky",
+      connectionUrl:
+        (process.env as any).MINSKY_POSTGRES_URL || "postgresql://localhost:5432/minsky",
       maxConnections: 10,
       connectTimeout: 30,
       idleTimeout: 600,
@@ -80,19 +82,44 @@ export function getDefaultStorageConfig(): StorageConfig {
 export function loadStorageConfig(overrides?: Partial<StorageConfig>): StorageConfig {
   const defaults = getDefaultStorageConfig();
 
-  // Override backend from environment variable
-  const envBackend = (process.env as any).MINSKY_SESSION_BACKEND as StorageBackendType;
-  if (envBackend && (["json", "sqlite", "postgres"] as any).includes(envBackend)) {
-    (defaults as any).backend = envBackend;
+  // First, try to get configuration from node-config
+  let configBackend: string | undefined;
+  let configSqlitePath: string | undefined;
+  let configPostgresUrl: string | undefined;
+
+  try {
+    const config = require("config");
+    if (config.has("sessiondb")) {
+      const sessiondbConfig = config.get("sessiondb");
+      configBackend = sessiondbConfig.backend;
+      configSqlitePath = sessiondbConfig.dbPath;
+      configPostgresUrl = sessiondbConfig.connectionString;
+    }
+  } catch (error) {
+    // node-config not available or misconfigured, continue with environment variables
   }
 
-  // Override SQLite path from environment
-  if ((process.env as any).MINSKY_SQLITE_PATH) {
+  // Override backend from node-config first, then environment variable
+  if (configBackend && (["json", "sqlite", "postgres"] as any).includes(configBackend)) {
+    (defaults as any).backend = configBackend;
+  } else {
+    const envBackend = (process.env as any).MINSKY_SESSION_BACKEND as StorageBackendType;
+    if (envBackend && (["json", "sqlite", "postgres"] as any).includes(envBackend)) {
+      (defaults as any).backend = envBackend;
+    }
+  }
+
+  // Override SQLite path from node-config first, then environment
+  if (configSqlitePath) {
+    (defaults.sqlite! as any).dbPath = configSqlitePath;
+  } else if ((process.env as any).MINSKY_SQLITE_PATH) {
     (defaults.sqlite! as any).dbPath = (process.env as any).MINSKY_SQLITE_PATH as any;
   }
 
-  // Override PostgreSQL URL from environment
-  if ((process.env as any).MINSKY_POSTGRES_URL) {
+  // Override PostgreSQL URL from node-config first, then environment
+  if (configPostgresUrl) {
+    (defaults.postgres! as any).connectionUrl = configPostgresUrl;
+  } else if ((process.env as any).MINSKY_POSTGRES_URL) {
     (defaults.postgres! as any).connectionUrl = (process.env as any).MINSKY_POSTGRES_URL as any;
   }
 
@@ -115,15 +142,20 @@ export function createStorageBackend(
 
   switch ((storageConfig as any).backend) {
   case "json": {
-    const dbPath = (storageConfig.json as any).filePath || (getDefaultStorageConfig().json! as any).filePath;
-    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
+    const dbPath =
+        (storageConfig.json as any).filePath || (getDefaultStorageConfig().json! as any).filePath;
+    const xdgStateHome =
+        (process.env as any).XDG_STATE_HOME ||
+        join((process.env as any).HOME || "", ".local/state");
     const baseDir = join(xdgStateHome, "minsky");
     return new JsonFileStorage(dbPath, baseDir);
   }
 
   case "sqlite": {
     const sqliteConfig: SqliteStorageConfig = {
-      dbPath: (storageConfig.sqlite as any).dbPath || (getDefaultStorageConfig().sqlite! as any).dbPath!,
+      dbPath:
+          (storageConfig.sqlite as any).dbPath ||
+          (getDefaultStorageConfig().sqlite! as any).dbPath!,
       enableWAL: (storageConfig.sqlite as any).enableWAL ?? true,
       timeout: (storageConfig.sqlite as any).timeout ?? 5000,
     };
@@ -134,10 +166,10 @@ export function createStorageBackend(
     if (!(storageConfig.postgres as any).connectionUrl) {
       const errorMessage = createBackendDetectionErrorMessage(
         "postgres",
-        ["json", "sqlite", "postgres"] as any[],
-        {
-          "postgres": ["PostgreSQL connection URL"]
-        }
+          ["json", "sqlite", "postgres"] as any[],
+          {
+            postgres: ["PostgreSQL connection URL"],
+          }
       );
       throw new Error(errorMessage as any);
     }
@@ -145,10 +177,11 @@ export function createStorageBackend(
   }
 
   default: {
-    const errorMessage = createBackendDetectionErrorMessage(
-      (storageConfig as any).backend,
-      ["json", "sqlite", "postgres"] as any[]
-    );
+    const errorMessage = createBackendDetectionErrorMessage((storageConfig as any).backend, [
+      "json",
+      "sqlite",
+      "postgres",
+    ] as any[]);
     throw new Error(errorMessage as any);
   }
   }
