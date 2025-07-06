@@ -30,7 +30,7 @@ const VALID_JSON_DATA = {
   baseDir: "/test/base",
 };
 
-const INVALID_JSON_DATA = '{"invalid": json, missing quote}';
+const INVALID_JSON_DATA = "{\"invalid\": json, missing quote}";
 const SQLITE_MAGIC_HEADER = "SQLite format 3\x00";
 
 // Global test isolation
