@@ -400,7 +400,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
     },
   });
 
-  // Config/SessionDB commands customization
+  // Config commands customization
   cliFactory.customizeCategory((CommandCategory as any).CONFIG, {
     commandOptions: {
       "config.list": {
@@ -459,6 +459,12 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           }
         },
       },
+    },
+  });
+
+  // SessionDB commands customization
+  cliFactory.customizeCategory((CommandCategory as any).SESSIONDB, {
+    commandOptions: {
       "sessiondb.migrate": {
         useFirstRequiredParamAsArgument: true,
         parameters: {
