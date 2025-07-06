@@ -71,7 +71,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     }
 
     // Backend validation
-    if ((config.backends as any).default) {
+    if ((config as any).backends && (config.backends as any).default) {
       const validBackends = ["markdown", "json-file", "github-issues"];
       if (!(validBackends as any).includes((config.backends as any).default)) {
         (errors as any).push({
@@ -130,7 +130,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     }
 
     // GitHub credential validation
-    if ((config.github as any).credentials) {
+    if ((config as any).github && (config.github as any).credentials) {
       const github = (config.github as any).credentials;
       const validSources: CredentialSource[] = ["environment", "file", "prompt"];
 
