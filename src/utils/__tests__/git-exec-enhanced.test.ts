@@ -18,16 +18,25 @@ import {
 } from "../git-exec-enhanced.js";
 import { MinskyError } from "../../errors/index.js";
 
-// Mock the child_process module
+// Mock the util module and child_process at the top level before imports
 const mockExecAsync = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
 
-// Mock the modules
+// Mock execAsync directly by patching the exec function
+let execAsyncSpy: any;
 mock.module("child_process", () => ({
-  exec: mock(() => {}),
+  exec: (command: string, options: any, callback?: any) => {
+    // If callback is provided, it is the old exec format
+    if (typeof callback === "function") {
+      process.nextTick(() => callback(null, "", ""));
+      return;
+    }
+    // If no callback, it means promisify is being used
+    return mockExecAsync();
+  },
 }));
 
 mock.module("util", () => ({
-  promisify: mock(() => mockExecAsync),
+  promisify: (fn: any) => mockExecAsync,
 }));
 
 interface ExtendedError extends Error {
