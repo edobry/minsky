@@ -22,7 +22,7 @@ detectionRules:
 
 # Session database configuration
 sessiondb:
-  backend: "json"
+  backend: "sqlite"
   baseDir: null
   dbPath: null
   connectionString: null
