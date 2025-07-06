@@ -78,6 +78,7 @@ describe("Session CLI Commands", () => {
       const correctSession = mockSessions[1]; // task#160 session
       mockSessionDB.getSessionByTaskId.mockReturnValue(Promise.resolve(correctSession));
       mockSessionDB.getSession.mockReturnValue(Promise.resolve(correctSession));
+      mockSessionDB.getRepoPath.mockReturnValue(Promise.resolve("/Users/edobry/.local/state/minsky/sessions/task#160"));
 
       // Act
       const result = await getSessionDirFromParams(
@@ -91,6 +92,7 @@ describe("Session CLI Commands", () => {
 
       // Assert
       expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#160");
+      expect(typeof result).toBe("string");
       expect(result).toContain("task#160");
       expect(result).not.toContain("/004");
     });
@@ -197,6 +199,8 @@ describe("Session CLI Commands", () => {
           }
           return "";
         },
+        getCurrentBranch: async (workdir: string) => "task#168", // Added missing method
+        fetchDefaultBranch: async (workdir: string) => "main", // Added missing method
         hasUncommittedChanges: async () => false,
         stashChanges: async () => undefined,
         pullLatest: async () => undefined,
@@ -225,6 +229,9 @@ describe("Session CLI Commands", () => {
 
       mockSessionDB.getSession = async (name: string) =>
         name === sessionName ? sessionRecord : null;
+
+      // Mock getSessionWorkdir to return a valid path
+      mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
 
       // Create the session directory
       await mkdir(sessionPath, { recursive: true });
@@ -279,6 +286,9 @@ describe("Session CLI Commands", () => {
         expect(record.repoUrl).toBe(repoUrl);
         expect(record.taskId).toBe("#168");
       };
+
+      // Mock getSessionWorkdir to return a valid path
+      mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
 
       // Mock git service to return repo URL
       mockGitService.execInRepository = async (workdir: string, command: string) => {
@@ -384,6 +394,9 @@ describe("Session CLI Commands", () => {
         registeredRecord = record;
       };
 
+      // Mock getSessionWorkdir to return a valid path
+      mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
+
       mockGitService.execInRepository = async (workdir: string, command: string) => {
         if (command.includes("git remote get-url origin")) {
           return repoUrl;
@@ -432,9 +445,9 @@ describe("Session CLI Commands", () => {
       mockSessionDB.getSession = async (name: string) =>
         name === sessionName ? sessionRecord : null;
 
-      // Mock gitService to return a non-existent directory
+      // Mock sessionDB.getSessionWorkdir to return a non-existent directory (this is what actually gets called)
       const missingWorkdir = join(tempDir, "nonexistent", "sessions", sessionName);
-      mockGitService.getSessionWorkdir = (repoName: string, sessionName: string) => missingWorkdir;
+      mockSessionDB.getSessionWorkdir = async (sessionName: string) => missingWorkdir;
 
       // Act & Assert: Should provide clear error message
       await expect(
@@ -474,7 +487,8 @@ describe("Session CLI Commands", () => {
       mockSessionDB.getSession = async (name: string) =>
         name === sessionName ? sessionRecord : null;
 
-      mockGitService.getSessionWorkdir = (repoName: string, sessionName: string) => sessionPath;
+      // Mock sessionDB.getSessionWorkdir (this is what actually gets called)
+      mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
 
       // Mock git status to show uncommitted changes
       mockGitService.execInRepository = async (workdir: string, command: string) => {
