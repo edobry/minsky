@@ -751,57 +751,68 @@ export async function updateSessionFromParams(
       // ConflictDetectionService expects plain branch names and adds origin/ internally
       const normalizedBaseBranch = branchToMerge;
 
-      // Use smart session update for enhanced conflict handling
-      const updateResult = await ConflictDetectionService.smartSessionUpdate(
-        workdir, 
-        currentBranch, 
-        normalizedBaseBranch,
-        {
-          skipIfAlreadyMerged,
-          autoResolveConflicts: autoResolveDeleteConflicts
-        }
-      );
+      // Use smart session update for enhanced conflict handling (only if not forced)
+      if (!force) {
+        const updateResult = await ConflictDetectionService.smartSessionUpdate(
+          workdir, 
+          currentBranch, 
+          normalizedBaseBranch,
+          {
+            skipIfAlreadyMerged,
+            autoResolveConflicts: autoResolveDeleteConflicts
+          }
+        );
 
-      if (!updateResult.updated && updateResult.skipped) {
-        log.cli(`✅ ${updateResult.reason}`);
-        
-        if (updateResult.reason?.includes("already in base")) {
-          log.cli("\n💡 Your session changes are already merged. You can create a PR with --skip-update:");
-          log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
-        }
-        
-        return {
-          session: sessionName,
-          repoName: sessionRecord.repoName || "unknown", 
-          repoUrl: sessionRecord.repoUrl,
-          branch: currentBranch,
-          createdAt: sessionRecord.createdAt,
-          taskId: sessionRecord.taskId,
-        };
-      }
-
-      if (!updateResult.updated && updateResult.conflictDetails) {
-        // Enhanced conflict guidance
-        log.cli("🚫 Update failed due to merge conflicts:");
-        log.cli(updateResult.conflictDetails);
-        
-        if (updateResult.divergenceAnalysis) {
-          const analysis = updateResult.divergenceAnalysis;
-          log.cli("\n📊 Branch Analysis:");
-          log.cli(`   • Session ahead: ${analysis.aheadCommits} commits`);
-          log.cli(`   • Session behind: ${analysis.behindCommits} commits`);
-          log.cli(`   • Recommended action: ${analysis.recommendedAction}`);
+        if (!updateResult.updated && updateResult.skipped) {
+          log.cli(`✅ ${updateResult.reason}`);
           
-          if (analysis.sessionChangesInBase) {
-            log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
+          if (updateResult.reason?.includes("already in base")) {
+            log.cli("\n💡 Your session changes are already merged. You can create a PR with --skip-update:");
             log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
           }
+          
+          return {
+            session: sessionName,
+            repoName: sessionRecord.repoName || "unknown", 
+            repoUrl: sessionRecord.repoUrl,
+            branch: currentBranch,
+            createdAt: sessionRecord.createdAt,
+            taskId: sessionRecord.taskId,
+          };
         }
-        
-        throw new MinskyError(updateResult.conflictDetails);
-      }
 
-      log.debug("Enhanced merge completed successfully", { updateResult });
+        if (!updateResult.updated && updateResult.conflictDetails) {
+          // Enhanced conflict guidance
+          log.cli("🚫 Update failed due to merge conflicts:");
+          log.cli(updateResult.conflictDetails);
+          
+          if (updateResult.divergenceAnalysis) {
+            const analysis = updateResult.divergenceAnalysis;
+            log.cli("\n📊 Branch Analysis:");
+            log.cli(`   • Session ahead: ${analysis.aheadCommits} commits`);
+            log.cli(`   • Session behind: ${analysis.behindCommits} commits`);
+            log.cli(`   • Recommended action: ${analysis.recommendedAction}`);
+            
+            if (analysis.sessionChangesInBase) {
+              log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
+              log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
+            }
+          }
+          
+          throw new MinskyError(updateResult.conflictDetails);
+        }
+
+        log.debug("Enhanced merge completed successfully", { updateResult });
+      } else {
+        log.debug("Skipping conflict detection due to force flag", { force });
+        // When forced, perform a simple merge without conflict detection
+        try {
+          await deps.gitService.mergeBranch(workdir, normalizedBaseBranch);
+          log.debug("Forced merge completed");
+        } catch (mergeError) {
+          log.debug("Forced merge failed, but continuing due to force flag", { error: getErrorMessage(mergeError) });
+        }
+      }
 
       // Push changes if needed
       if (!noPush) {
