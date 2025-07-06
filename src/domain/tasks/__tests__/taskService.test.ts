@@ -138,7 +138,7 @@ describe("TaskService", () => {
 
       expect(task).not.toBeNull();
       expect(task?.id).toBe("#001");
-      expect(task?._title).toBe("Task 1");
+      expect(task?.title).toBe("Task 1");
     });
 
     test("should find a task by ID without # prefix", async () => {
@@ -213,7 +213,7 @@ describe("TaskService", () => {
       expect(mockBackend.saveTasksData).toHaveBeenCalled();
 
       expect(task.id).toBe("#TEST_VALUE");
-      expect(task._title).toBe("Test Task");
+      expect(task.title).toBe("Test Task");
       expect(task.status).toBe("TODO");
     });
 
@@ -242,7 +242,7 @@ describe("TaskService", () => {
 
     test("should use markdown backend by default", () => {
       // No custom backends, default backend should be created
-      const defaultService = new TaskService({ _workspacePath: "/tmp" });
+      const defaultService = new TaskService({ workspacePath: "/tmp" });
       expect(defaultService).toBeDefined();
     });
   });
