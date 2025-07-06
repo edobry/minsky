@@ -460,12 +460,12 @@ export class DatabaseIntegrityChecker {
 
   private static getPriorityOrder(priority: "high" | "medium" | "low"): number {
     switch (priority) {
-      case "high":
-        return 1;
-      case "medium":
-        return 2;
-      case "low":
-        return 3;
+    case "high":
+      return 1;
+    case "medium":
+      return 2;
+    case "low":
+      return 3;
     }
   }
 }
