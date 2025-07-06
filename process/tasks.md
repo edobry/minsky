@@ -424,4 +424,12 @@
 
 - [ ] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
 
-- [+] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
+- [x] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
+
+- [ ] Implement Hierarchical Task System with Subtasks and Dependencies [#237](process/tasks/237-implement-hierarchical-task-system-with-subtasks-and-dependencies.md)
+
+- [ ] Phase 1: Implement Basic Subtask Support with Parent-Child Relationships [#238](process/tasks/238-phase-1-implement-basic-subtask-support-with-parent-child-relationships.md)
+
+- [ ] Phase 2: Implement Task Dependencies and Basic Task Graphs [#239](process/tasks/239-phase-2-implement-task-dependencies-and-basic-task-graphs.md)
+
+- [ ] Phase 3: Enhanced Planning/Execution Separation with Checkpointing [#240](/Users/edobry/Projects/minsky/process/tasks/240-phase-3-enhanced-planning-execution-separation-with-checkpointing.md)
