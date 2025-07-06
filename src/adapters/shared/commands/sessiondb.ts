@@ -23,35 +23,74 @@ import type { StorageBackendType } from "../../../domain/storage/storage-backend
 /**
  * Parameters for the sessiondb migrate command
  */
-const sessiondbMigrateCommandParams = z.object({
-  to: z.enum(["json", "sqlite", "postgres"]).describe("Target backend type"),
-  from: z.string().optional().describe("Source file path (auto-detect if not provided)"),
-  sqlitePath: z.string().optional().describe("SQLite database path"),
-  connectionString: z.string().optional().describe("PostgreSQL connection string"),
-  backup: z.boolean().optional().describe("Create backup before migration"),
-  dryRun: z.boolean().optional().describe("Show what would be migrated without doing it"),
-});
+const sessiondbMigrateCommandParams: CommandParameterMap = {
+  to: {
+    schema: z.enum(["json", "sqlite", "postgres"]),
+    description: "Target backend type",
+    required: true,
+  },
+  from: {
+    schema: z.string(),
+    description: "Source file path (auto-detect if not provided)",
+    required: false,
+  },
+  sqlitePath: {
+    schema: z.string(),
+    description: "SQLite database path",
+    required: false,
+  },
+  connectionString: {
+    schema: z.string(),
+    description: "PostgreSQL connection string",
+    required: false,
+  },
+  backup: {
+    schema: z.boolean(),
+    description: "Create backup before migration",
+    required: false,
+  },
+  dryRun: {
+    schema: z.boolean(),
+    description: "Show what would be migrated without doing it",
+    required: false,
+  },
+};
 
 /**
  * Parameters for the sessiondb check command
  */
-const sessiondbCheckCommandParams = z.object({
-  file: z.string().optional().describe("Path to database file to check"),
-  backend: z.enum(["json", "sqlite", "postgres"]).optional().describe("Expected backend type"),
-  fix: z.boolean().optional().describe("Automatically fix issues when possible"),
-  report: z.boolean().optional().describe("Show detailed integrity report"),
-});
+const sessiondbCheckCommandParams: CommandParameterMap = {
+  file: {
+    schema: z.string(),
+    description: "Path to database file to check",
+    required: false,
+  },
+  backend: {
+    schema: z.enum(["json", "sqlite", "postgres"]),
+    description: "Expected backend type",
+    required: false,
+  },
+  fix: {
+    schema: z.boolean(),
+    description: "Automatically fix issues when possible",
+    required: false,
+  },
+  report: {
+    schema: z.boolean(),
+    description: "Show detailed integrity report",
+    required: false,
+  },
+};
 
 // Register sessiondb migrate command
 sharedCommandRegistry.registerCommand({
   id: "sessiondb.migrate",
-  category: CommandCategory.SESSIONDB,
+  category: CommandCategory.SESSION,
   name: "migrate",
   description: "Migrate session database between backends",
   parameters: sessiondbMigrateCommandParams,
-  async execute(context: CommandExecutionContext) {
-    const { to, from, sqlitePath, connectionString, backup, dryRun } =
-      context.parameters as z.infer<typeof sessiondbMigrateCommandParams>;
+  async execute(params: any, context: CommandExecutionContext) {
+    const { to, from, sqlitePath, connectionString, backup, dryRun } = params;
 
     try {
       // Read source data
@@ -60,7 +99,7 @@ sharedCommandRegistry.registerCommand({
 
       if (from && existsSync(from)) {
         // Read from specific file
-        const fileContent = readFileSync(from, "utf8");
+        const fileContent = readFileSync(from, "utf8").toString();
         sourceData = JSON.parse(fileContent);
         sourceCount = Object.keys(sourceData).length;
         log.info(`Reading from backup file: ${from} (${sourceCount} sessions)`);
@@ -71,7 +110,7 @@ sharedCommandRegistry.registerCommand({
         const currentSqlitePath = join(homeDir, ".local/state/minsky/sessions.db");
 
         if (existsSync(jsonPath)) {
-          const fileContent = readFileSync(jsonPath, "utf8");
+          const fileContent = readFileSync(jsonPath, "utf8").toString();
           sourceData = JSON.parse(fileContent);
           sourceCount = Object.keys(sourceData).length;
           log.info(`Reading from JSON backend: ${jsonPath} (${sourceCount} sessions)`);
@@ -182,7 +221,7 @@ sharedCommandRegistry.registerCommand({
       };
 
       // Format human-readable output
-      if (context.outputFormat === "human") {
+      if (context.format === "human") {
         let output = `Migration ${result.success ? "completed" : "failed"}\n`;
         output += `Source sessions: ${result.sourceCount}\n`;
         output += `Target sessions: ${result.targetCount}\n`;
@@ -209,14 +248,12 @@ sharedCommandRegistry.registerCommand({
 // Register sessiondb check command
 sharedCommandRegistry.registerCommand({
   id: "sessiondb.check",
-  category: CommandCategory.SESSIONDB,
+  category: CommandCategory.SESSION,
   name: "check",
   description: "Check database integrity and detect issues",
   parameters: sessiondbCheckCommandParams,
-  async execute(context: CommandExecutionContext) {
-    const { file, backend, fix, report } = context.parameters as z.infer<
-      typeof sessiondbCheckCommandParams
-    >;
+  async execute(params: any, context: CommandExecutionContext) {
+    const { file, backend, fix, report } = params;
 
     try {
       // Import integrity checker
@@ -266,11 +303,13 @@ sharedCommandRegistry.registerCommand({
 
         if (autoFixableActions.length > 0) {
           const action = autoFixableActions[0];
-          log.cli(`\n🔧 Auto-fixing: ${action.description}`);
+          if (action) {
+            log.cli(`\n🔧 Auto-fixing: ${action.description}`);
 
-          if (action.command) {
-            log.cli(`Would execute: ${action.command}`);
-            log.cli("(Auto-fix implementation would go here)");
+            if (action.command) {
+              log.cli(`Would execute: ${action.command}`);
+              log.cli("(Auto-fix implementation would go here)");
+            }
           }
         } else {
           log.cli("\n⚠️  No auto-fixable issues found. Manual intervention required.");

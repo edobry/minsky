@@ -246,6 +246,14 @@ export class CliCommandBridge {
     category: CommandCategory,
     context?: { viaFactory?: boolean }
   ): Command | null {
+    // Add safety check for undefined category
+    if (!category) {
+      log.error(
+        "[CLI Bridge] Invalid category passed to generateCategoryCommand: category is undefined or null"
+      );
+      return null;
+    }
+
     // Warn about direct usage in development (but not when called via factory)
     if ((process.env as any).NODE_ENV !== "production" && !(context as any).viaFactory) {
       log.warn(
@@ -349,7 +357,12 @@ export class CliCommandBridge {
     // Get unique categories from all commands
     const categories = new Set<CommandCategory>();
     (sharedCommandRegistry.getAllCommands() as any).forEach((cmd) => {
-      (categories as any).add(cmd.category);
+      // Only add valid categories (not undefined/null)
+      if (cmd.category) {
+        (categories as any).add(cmd.category);
+      } else {
+        log.error(`[CLI Bridge] Command '${cmd.id}' has undefined category, skipping`);
+      }
     });
 
     // Generate commands for each category
