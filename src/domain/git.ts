@@ -1947,23 +1947,17 @@ Session requested: "${(options as any).session}"
         `git -C ${workdir} rev-parse HEAD`
       );
 
-      // Try to merge the branch using enhanced git execution with timeout and conflict detection
+      // Try to merge the branch using dependency-injected execution
       try {
-        await gitMergeWithTimeout(branch, {
-          workdir,
-          timeout: 60000, // 60 second timeout for merge operations
-          context: [
-            { label: "Target branch", value: branch },
-            { label: "Working directory", value: workdir },
-          ],
-        });
+        await (deps as any).execAsync(`git -C ${workdir} merge ${branch}`);
       } catch (err) {
-        // Enhanced git execution will throw MinskyError with detailed conflict information
+        // Check if the error indicates merge conflicts
         if (
-          err instanceof MinskyError &&
-          (err.message as any).includes("Merge Conflicts Detected")
+          err instanceof Error &&
+          ((err.message as any).includes("Merge Conflicts Detected") ||
+           (err.message as any).includes("CONFLICT"))
         ) {
-          // The enhanced error message is already formatted, so we know there are conflicts
+          // The error message indicates conflicts
           return { workdir, merged: false, conflicts: true };
         }
 
@@ -2027,15 +2021,8 @@ Session requested: "${(options as any).session}"
         `git -C ${workdir} rev-parse HEAD`
       );
 
-      // Fetch latest changes from remote using enhanced git execution with timeout
-      await gitFetchWithTimeout(remote, undefined, {
-        workdir,
-        timeout: 30000, // 30 second timeout for fetch operations
-        context: [
-          { label: "Remote", value: remote },
-          { label: "Working directory", value: workdir },
-        ],
-      });
+      // Fetch latest changes from remote using dependency-injected execution
+      await (deps as any).execAsync(`git -C ${workdir} fetch ${remote}`);
 
       // Get commit hash after fetch (should be the same since we only fetched)
       const { stdout: afterHash } = await (deps as any).execAsync(
