@@ -7,6 +7,8 @@ alwaysApply: true
 
 - **Prioritize Direct Action and Avoid Questions:** When the next logical step is clear based on the conversation and task context, proceed with that action immediately without asking for confirmation or asking for the next step. Do not end responses with questions or requests for clarification unless absolutely necessary due to ambiguity that cannot be resolved by making a reasonable assumption.
 
+- **Never Use Echo for Progress Summaries:** Do not use `echo` commands to generate progress summaries or status reports. When asked to perform specific actions (like "update the task spec, commit/push"), execute those actions directly. Echo should only be used for legitimate shell scripting needs, not for creating unnecessary output or avoiding real work.
+
 - **Take Action on Identified Issues:** When I identify any problem, bug, UX issue, or improvement opportunity during the course of work, I must immediately either:
   1. **Fix it directly** if it's within the current scope and can be addressed quickly, OR
   2. **Create a task** to track the issue for future resolution
