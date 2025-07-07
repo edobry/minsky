@@ -17,6 +17,8 @@ The current task system treats all tasks as independent entities. To support eff
 
 **Task #235**: This task builds on the comprehensive research and architectural analysis from Task #235 "Add metadata support to tasks (subtasks, priority, dependencies)". Task #235 provides the foundational analysis of task metadata systems, backend capabilities, and architectural approaches that inform the design decisions for this hierarchical task system.
 
+**⚠️ CRITICAL SEQUENCING**: This task MUST NOT begin implementation until Task #235 has completed its architectural decision and provided implementation guidelines. The technical implementation details described below may need to be significantly revised based on #235's architectural recommendations.
+
 ## Goal
 
 Implement a parent-child task relationship system that enables:
@@ -28,11 +30,15 @@ Implement a parent-child task relationship system that enables:
 
 ## Proposed Solution
 
-### Phase 1: Core Parent-Child Relationships (Immediate)
+**NOTE**: The technical approach described below is provisional and subject to revision based on Task #235's architectural decisions.
 
-**Database Schema Extension**:
+### Phase 1: Core Parent-Child Relationships (After #235 completion)
+
+**Database Schema Extension** (provisional):
 
 ```typescript
+// NOTE: This schema design may be revised based on Task #235's
+// architectural decisions and chosen approach
 interface TaskRelationship {
   id: string;
   parentTaskId: string;
@@ -87,11 +93,14 @@ Task #123: "Implement user authentication"
 
 ## Technical Implementation
 
-### Database Changes
+**⚠️ IMPLEMENTATION NOTICE**: All technical implementation details are provisional and must be aligned with Task #235's architectural decisions before proceeding.
 
-1. **Add TaskRelationship table**:
+### Database Changes (provisional)
+
+1. **Add TaskRelationship table** (subject to #235's architecture):
 
    ```sql
+   -- NOTE: This schema may be revised based on Task #235's decisions
    CREATE TABLE task_relationships (
      id TEXT PRIMARY KEY,
      parent_task_id TEXT NOT NULL,
@@ -103,8 +112,9 @@ Task #123: "Implement user authentication"
    );
    ```
 
-2. **Add parent_task_id column to tasks table**:
+2. **Add parent_task_id column to tasks table** (subject to #235's architecture):
    ```sql
+   -- NOTE: This change may be revised based on Task #235's decisions
    ALTER TABLE tasks ADD COLUMN parent_task_id TEXT;
    ALTER TABLE tasks ADD COLUMN has_children BOOLEAN DEFAULT FALSE;
    ```
@@ -224,3 +234,15 @@ The unified relationship model allows adding new relationship types without chan
 3. **Phase 3**: Add advanced features and optimizations
 
 No breaking changes to existing task operations - all current functionality remains available.
+
+## Implementation Steps
+
+### Phase 0: Architectural Alignment (REQUIRED FIRST)
+
+1. **Wait for Task #235 completion** - Do not proceed until architectural decisions are made
+2. **Review comprehensive architectural guidelines** - Ensure all implementation details align with chosen approach
+3. **Revise entire implementation plan** - Update all schemas, APIs, and approaches based on #235's recommendations
+4. **Validate backend compatibility** - Ensure approach works with Task #235's backend capability decisions
+5. **Get architectural approval** - Confirm complete implementation plan follows architectural guidelines
+
+### Phase 1: Core Parent-Child Relationships (After #235 architectural approval)

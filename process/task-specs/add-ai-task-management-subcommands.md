@@ -18,10 +18,20 @@ This enhances the manual task hierarchy system with intelligent automation capab
 ## Dependencies
 
 1. **Task #235**: Leverages the research and architectural analysis from Task #235 "Add metadata support to tasks (subtasks, priority, dependencies)" to understand task metadata systems and backend capabilities.
-2. **Task Hierarchy System** - Requires the parent-child relationship system (separate task spec)
+2. **Task Hierarchy System** - Requires the parent-child relationship system (Tasks #246 or #247)
 3. **AI Backend Infrastructure** - Requires Task #160 (AI completion backend with multi-provider support)
 
+**⚠️ CRITICAL SEQUENCING**: This task MUST NOT begin implementation until:
+
+1. Task #235 has completed its architectural decision and provided implementation guidelines
+2. The chosen task hierarchy implementation (Task #246 or #247) has been completed
+3. Task #160 (AI backend) is available
+
+The AI integration approach described below may need to be revised based on #235's architectural decisions regarding metadata storage and backend capabilities.
+
 ## Proposed Solution
+
+**NOTE**: The technical approach described below is provisional and subject to revision based on Task #235's architectural decisions and the implemented hierarchy system.
 
 ### Core AI Commands
 
@@ -60,61 +70,46 @@ This enhances the manual task hierarchy system with intelligent automation capab
 
 ## Technical Implementation
 
+**⚠️ IMPLEMENTATION NOTICE**: All technical implementation details are provisional and must be aligned with:
+
+- Task #235's architectural decisions (metadata storage, backend capabilities)
+- The implemented hierarchy system from Task #246 or #247
+- Task #160's AI backend architecture
+
 ### AI Integration (Building on Task #160)
 
-1. **TaskDecompositionService**:
+1. **TaskDecompositionService** (provisional design):
 
    - Uses AI backend for task analysis
    - Specialized prompts for task breakdown
-   - Integration with TaskHierarchyService for creating relationships
+   - Integration with TaskHierarchyService (to be defined by hierarchy implementation)
 
-2. **Prompt Templates**:
+2. **Prompt Templates** (subject to revision):
 
    - **Decomposition prompt**: Analyzes task and suggests subtasks
    - **Test decomposition prompt**: Creates comprehensive test hierarchies
    - **Estimation prompt**: Provides sizing and complexity analysis
    - **Analysis prompt**: Reviews task quality and completeness
 
-3. **AI Response Processing**:
+3. **AI Response Processing** (subject to revision based on #235's decisions):
    - Structured AI responses for creating task hierarchies
    - Validation of suggested decomposition
    - User confirmation before creating multiple subtasks
 
-### Command Implementation
+## Implementation Steps
 
-1. **`minsky tasks decompose <task-id>`**:
+### Phase 0: Architectural and Dependency Alignment (REQUIRED FIRST)
 
-   ```bash
-   # Analyze and suggest decomposition
-   minsky tasks decompose 123
+1. **Wait for Task #235 completion** - Do not proceed until architectural decisions are made
+2. **Wait for hierarchy system implementation** - Requires Task #246 or #247 completion
+3. **Verify Task #160 availability** - Ensure AI backend is functional
+4. **Review all architectural guidelines** - Align with #235's metadata architecture decisions
+5. **Revise AI integration approach** - Update based on implemented hierarchy system and #235's architecture
+6. **Get comprehensive approval** - Confirm AI approach works with chosen architecture and hierarchy implementation
 
-   # Automatically create suggested subtasks
-   minsky tasks decompose 123 --create
+### Phase 1: Core AI Commands (After all dependencies completed)
 
-   # Focus on test decomposition
-   minsky tasks decompose 123 --type tests
-   ```
-
-2. **Response Format**:
-
-   ```
-   AI Analysis for Task #123: "Implement user authentication"
-
-   Suggested Decomposition:
-   ├── Unit Tests (estimated: 2-3 days)
-   │   ├── Test login validation
-   │   ├── Test password hashing
-   │   └── Test session management
-   ├── Integration Tests (estimated: 1-2 days)
-   │   ├── Test API endpoints
-   │   └── Test database integration
-   └── E2E Tests (estimated: 1 day)
-       └── Test complete user flow
-
-   Total estimated effort: 4-6 days
-
-   Create this hierarchy? (y/n)
-   ```
+- Implementation details to be finalized based on dependency outcomes
 
 ## Use Cases
 

@@ -22,11 +22,15 @@ Implement the minimal viable parent-child relationship system that allows:
 
 **Task #235**: This task builds on the research and architectural analysis from Task #235 "Add metadata support to tasks (subtasks, priority, dependencies)". Task #235 provides the foundational research on task metadata systems and backend capabilities that inform the implementation approach for this parent-child relationship system.
 
+**⚠️ CRITICAL SEQUENCING**: This task MUST NOT begin implementation until Task #235 has completed its architectural decision and provided implementation guidelines. The implementation approach described below may need to be revised based on #235's architectural recommendations.
+
 ## Simplified Solution
 
 ### Core Schema (Minimal)
 
 ```typescript
+// NOTE: This schema design is provisional and subject to
+// revision based on Task #235's architectural decisions
 interface Task {
   // ... existing fields
   parentTaskId?: string; // Simple parent reference
@@ -49,6 +53,9 @@ interface TaskRelationship {
 ### Database Changes
 
 ```sql
+-- NOTE: These database changes are provisional and subject to
+-- revision based on Task #235's architectural decisions
+
 -- Add parent reference to tasks table
 ALTER TABLE tasks ADD COLUMN parent_task_id TEXT;
 
@@ -66,9 +73,16 @@ CREATE TABLE task_relationships (
 
 ## Implementation Steps
 
-### Phase 1: Core Functionality (Immediate)
+### Phase 0: Architectural Alignment (REQUIRED FIRST)
 
-1. **Database migration** - Add parent_task_id column and relationships table
+1. **Wait for Task #235 completion** - Do not proceed until architectural decisions are made
+2. **Review architectural guidelines** - Ensure this implementation aligns with chosen approach
+3. **Revise implementation plan** - Update schema and approach based on #235's recommendations
+4. **Get architectural approval** - Confirm implementation plan follows architectural guidelines
+
+### Phase 1: Core Functionality (After #235 completion)
+
+1. **Database migration** - Add parent_task_id column and relationships table (per #235 guidelines)
 2. **TaskService updates** - Add parent-child methods to existing task service
 3. **CLI command updates** - Add `--parent` flag to `tasks create`
 4. **Tree display** - Simple `tasks tree` command with ASCII output
