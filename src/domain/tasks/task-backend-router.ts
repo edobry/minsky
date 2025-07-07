@@ -33,8 +33,8 @@ export class TaskBackendRouter {
    */
   getBackendRoutingInfo(backend: TaskBackend): BackendRoutingInfo {
     // Check for manual override first
-    if (typeof (backend as any).isInTreeBackend === "function") {
-      const isInTree = (backend as any).isInTreeBackend();
+    if (backend && "isInTreeBackend" in backend && typeof backend.isInTreeBackend === "function") {
+      const isInTree = backend.isInTreeBackend();
       return {
         category: isInTree ? "in-tree" : "external",
         requiresSpecialWorkspace: isInTree,

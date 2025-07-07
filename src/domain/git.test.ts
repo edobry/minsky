@@ -43,6 +43,14 @@ mockModule("../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
 
+// Mock the git-exec-enhanced module to prevent real git execution
+mockModule("../utils/git-exec-enhanced", () => ({
+  execGitWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+  gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+  gitMergeWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+  gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+}));
+
 describe("GitService", () => {
   let gitService: GitService;
 
@@ -865,7 +873,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         gitService.mergeBranchWithDependencies("/test/repo", "feature", mockDeps)
       ).rejects.toThrow("Failed to merge branch");
       await expect(gitService.pullLatestWithDependencies("/test/repo", mockDeps)).rejects.toThrow(
-        "Failed to fetch latest changes"
+        "Failed to pull latest changes"
       );
     });
   });

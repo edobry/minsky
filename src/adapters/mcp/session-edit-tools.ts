@@ -40,7 +40,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
   const pathResolver = new SessionPathResolver();
 
   // Session edit file tool
-  (commandMapper as any).addTool(
+  commandMapper.addTool(
     "session_edit_file",
     "Edit a file within a session workspace using a diff-like format",
     z.object({
@@ -48,14 +48,15 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
       path: z.string().describe("Path to the file within the session workspace"),
       instructions: z.string().describe("Instructions describing the edit to make"),
       content: z.string().describe("The edit content with '// ... existing code ...' markers"),
-      createDirs: (z
+      createDirs: z
         .boolean()
         .optional()
-        .default(true) as any).describe("Create parent directories if they don't exist"),
+        .default(true)
+        .describe("Create parent directories if they don't exist"),
     }),
     async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
+        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
         // Check if file exists
         let fileExists = false;
@@ -64,27 +65,27 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         try {
           await stat(resolvedPath);
           fileExists = true;
-          originalContent = (await readFile(resolvedPath, "utf8")) as string;
+          originalContent = (await readFile(resolvedPath, "utf8")).toString();
         } catch (error) {
           // File doesn't exist - that's ok for new files
           fileExists = false;
         }
 
         // If file doesn't exist and we have existing code markers, that's an error
-        if (!fileExists && (((args.content) as any).toString() as any).includes("// ... existing code ...")) {
+        if (!fileExists && args.content.includes("// ... existing code ...")) {
           throw new Error(
-            `Cannot apply edits with existing code markers to non-existent file: ${(args as any).path}`
+            `Cannot apply edits with existing code markers to non-existent file: ${args.path}`
           );
         }
 
         let finalContent: string;
 
-        if (fileExists && (((args.content) as any).toString() as any).includes("// ... existing code ...")) {
+        if (fileExists && args.content.includes("// ... existing code ...")) {
           // Apply the edit pattern
-          finalContent = applyEditPattern(originalContent, (args as any).content);
+          finalContent = applyEditPattern(originalContent, args.content);
         } else {
           // Direct write for new files or complete replacements
-          finalContent = (args as any).content;
+          finalContent = args.content;
         }
 
         // Create parent directories if needed
@@ -97,41 +98,41 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         await writeFile(resolvedPath, finalContent, "utf8");
 
         log.debug("Session file edit successful", {
-          session: (args as any).session,
-          path: (args as any).path,
+          session: args.session,
+          path: args.path,
           resolvedPath,
           fileExisted: fileExists,
-          contentLength: (finalContent as any).length,
+          contentLength: finalContent.length,
         });
 
         return {
           success: true,
-          path: (args as any).path,
-          session: (args as any).session,
+          path: args.path,
+          session: args.session,
           edited: true,
           created: !fileExists,
-          bytesWritten: (Buffer.from(finalContent, "utf8") as any).byteLength,
+          bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error as any);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file edit failed", {
-          session: (args as any).session,
-          path: (args as any).path,
+          session: args.session,
+          path: args.path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: (args as any).path,
-          session: (args as any).session,
+          path: args.path,
+          session: args.session,
         };
       }
     }
   );
 
   // Session search replace tool
-  (commandMapper as any).addTool(
+  commandMapper.addTool(
     "session_search_replace",
     "Replace a single occurrence of text in a file within a session workspace",
     z.object({
@@ -142,13 +143,13 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
     }),
     async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await (pathResolver as any).resolvePath((args as any).session, (args as any).path);
+        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
         // Validate file exists
-        await (pathResolver as any).validatePathExists(resolvedPath);
+        await pathResolver.validatePathExists(resolvedPath);
 
         // Read file content
-        const content = (await readFile(resolvedPath, "utf8")) as string;
+        const content = (await readFile(resolvedPath, "utf8")).toString();
 
         // Count occurrences
         const occurrences = countOccurrences(content, args.search);
@@ -164,40 +165,40 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         }
 
         // Perform replacement
-        const newContent = (((content) as any).toString() as any).replace(args.search, (args as any).replace);
+        const newContent = content.replace(args.search, args.replace);
 
         // Write back
         await writeFile(resolvedPath, newContent, "utf8");
 
         log.debug("Session search replace successful", {
-          session: (args as any).session,
-          path: (args as any).path,
+          session: args.session,
+          path: args.path,
           resolvedPath,
-          searchLength: (args.search as any).length,
-          replaceLength: (args.replace as any).length,
+          searchLength: args.search.length,
+          replaceLength: args.replace.length,
         });
 
         return {
           success: true,
-          path: (args as any).path,
-          session: (args as any).session,
+          path: args.path,
+          session: args.session,
           replaced: true,
           searchText: args.search,
-          replaceText: (args as any).replace,
+          replaceText: args.replace,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error as any);
+        const errorMessage = getErrorMessage(error);
         log.error("Session search replace failed", {
-          session: (args as any).session,
-          path: (args as any).path,
+          session: args.session,
+          path: args.path,
           error: errorMessage,
         });
 
         return {
           success: false,
           error: errorMessage,
-          path: (args as any).path,
-          session: (args as any).session,
+          path: args.path,
+          session: args.session,
         };
       }
     }
