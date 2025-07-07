@@ -433,3 +433,9 @@
 - [ ] Phase 2: Implement Task Dependencies and Basic Task Graphs [#239](process/tasks/239-phase-2-implement-task-dependencies-and-basic-task-graphs.md)
 
 - [ ] Phase 3: Enhanced Planning/Execution Separation with Checkpointing [#240](process/tasks/240-phase-3-enhanced-planning-execution-separation-with-checkpointing.md)
+
+- [ ] Implement Task Dependencies and Basic Task Graphs [#241](process/tasks/241-implement-task-dependencies-and-basic-task-graphs.md)
+
+- [ ] Enhanced Planning/Execution Separation with Checkpointing [#242](process/tasks/242-enhanced-planning-execution-separation-with-checkpointing.md)
+
+- [ ] Advanced Visualization and Database Migration [#243](/Users/edobry/Projects/minsky/process/tasks/243-advanced-visualization-and-database-migration.md)
