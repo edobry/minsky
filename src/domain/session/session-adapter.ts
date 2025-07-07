@@ -96,8 +96,12 @@ export class SessionAdapter implements LocalSessionProviderInterface {
    * Read database from disk
    */
   private async readDb(): Promise<SessionRecord[]> {
-    this.state = readSessionDbFile({ dbPath: this.dbPath, baseDir: this.baseDir });
-    return (this.state as any).sessions;
+    const sessions = readSessionDbFile({ dbPath: this.dbPath, baseDir: this.baseDir });
+    this.state = {
+      sessions,
+      baseDir: this.baseDir,
+    };
+    return sessions;
   }
 
   /**
@@ -110,7 +114,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
       sessions,
     };
     // Then write to disk
-    writeSessionDbFile(this.state, { dbPath: this.dbPath });
+    await writeSessionsToFile(sessions, { dbPath: this.dbPath });
   }
 
   /**
