@@ -424,7 +424,7 @@
 
 - [ ] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
 
-- [+] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
+- [x] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
 
 - [ ] Implement Hierarchical Task System with Subtasks and Dependencies [#237](process/tasks/237-implement-hierarchical-task-system-with-subtasks-and-dependencies.md)
 
@@ -442,4 +442,4 @@
 
 - [+] Complete configuration system standardization and cleanup [#244](process/tasks/244-complete-configuration-system-standardization-and-cleanup.md)
 
-- [ ] Complete configuration system standardization and cleanup [#245](/Users/edobry/Projects/minsky/process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
+- [+] Complete configuration system standardization and cleanup [#245](process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
