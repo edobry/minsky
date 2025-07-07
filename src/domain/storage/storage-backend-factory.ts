@@ -8,6 +8,7 @@
 import { join } from "path";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
+import { getDefaultJsonDbPath, getDefaultSqliteDbPath, getMinskyStateDir } from "../../utils/paths";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
 import { JsonFileStorage } from "./backends/json-file-storage";
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
@@ -53,16 +54,13 @@ export interface StorageConfig {
  * Default storage configuration
  */
 export function getDefaultStorageConfig(): StorageConfig {
-  const xdgStateHome =
-    (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
-
   return {
     backend: "json",
     json: {
-      filePath: join(xdgStateHome, "minsky", "session-db.json"),
+      filePath: getDefaultJsonDbPath(),
     },
     sqlite: {
-      dbPath: join(xdgStateHome, "minsky", "sessions.db"),
+      dbPath: getDefaultSqliteDbPath(),
       enableWAL: true,
       timeout: 5000,
     },
@@ -141,49 +139,46 @@ export function createStorageBackend(
   log.debug(`Creating storage backend: ${(storageConfig as any).backend}`);
 
   switch ((storageConfig as any).backend) {
-  case "json": {
-    const dbPath =
+    case "json": {
+      const dbPath =
         (storageConfig.json as any).filePath || (getDefaultStorageConfig().json! as any).filePath;
-    const xdgStateHome =
-        (process.env as any).XDG_STATE_HOME ||
-        join((process.env as any).HOME || "", ".local/state");
-    const baseDir = join(xdgStateHome, "minsky");
-    return new JsonFileStorage(dbPath, baseDir);
-  }
+      const baseDir = getMinskyStateDir();
+      return new JsonFileStorage(dbPath, baseDir);
+    }
 
-  case "sqlite": {
-    const sqliteConfig: SqliteStorageConfig = {
-      dbPath:
+    case "sqlite": {
+      const sqliteConfig: SqliteStorageConfig = {
+        dbPath:
           (storageConfig.sqlite as any).dbPath ||
           (getDefaultStorageConfig().sqlite! as any).dbPath!,
-      enableWAL: (storageConfig.sqlite as any).enableWAL ?? true,
-      timeout: (storageConfig.sqlite as any).timeout ?? 5000,
-    };
-    return createSqliteStorage(sqliteConfig);
-  }
+        enableWAL: (storageConfig.sqlite as any).enableWAL ?? true,
+        timeout: (storageConfig.sqlite as any).timeout ?? 5000,
+      };
+      return createSqliteStorage(sqliteConfig);
+    }
 
-  case "postgres": {
-    if (!(storageConfig.postgres as any).connectionUrl) {
-      const errorMessage = createBackendDetectionErrorMessage(
-        "postgres",
+    case "postgres": {
+      if (!(storageConfig.postgres as any).connectionUrl) {
+        const errorMessage = createBackendDetectionErrorMessage(
+          "postgres",
           ["json", "sqlite", "postgres"] as any[],
           {
             postgres: ["PostgreSQL connection URL"],
           }
-      );
+        );
+        throw new Error(errorMessage as any);
+      }
+      return createPostgresStorage((storageConfig as any).postgres);
+    }
+
+    default: {
+      const errorMessage = createBackendDetectionErrorMessage((storageConfig as any).backend, [
+        "json",
+        "sqlite",
+        "postgres",
+      ] as any[]);
       throw new Error(errorMessage as any);
     }
-    return createPostgresStorage((storageConfig as any).postgres);
-  }
-
-  default: {
-    const errorMessage = createBackendDetectionErrorMessage((storageConfig as any).backend, [
-      "json",
-      "sqlite",
-      "postgres",
-    ] as any[]);
-    throw new Error(errorMessage as any);
-  }
   }
 }
 
@@ -250,14 +245,14 @@ export class StorageBackendFactory {
    */
   private getBackendKey(config: StorageConfig): string {
     switch ((config as any).backend) {
-    case "json":
-      return `json:${(config.json as any).filePath}`;
-    case "sqlite":
-      return `sqlite:${(config.sqlite as any).dbPath}`;
-    case "postgres":
-      return `postgres:${(config.postgres as any).connectionUrl}`;
-    default:
-      return (config as any).backend;
+      case "json":
+        return `json:${(config.json as any).filePath}`;
+      case "sqlite":
+        return `sqlite:${(config.sqlite as any).dbPath}`;
+      case "postgres":
+        return `postgres:${(config.postgres as any).connectionUrl}`;
+      default:
+        return (config as any).backend;
     }
   }
 }

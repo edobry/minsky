@@ -1,125 +1,219 @@
-# Add AI-powered task management subcommands
+# Add AI-powered task decomposition and analysis
 
 ## Problem Statement
 
-To improve task management workflow and enable AI-assisted backlog management, we need to add several new subcommands to the `minsky tasks` command that leverage AI capabilities for estimation, decomposition, and other task management operations.
+To enhance the task hierarchy system and enable intelligent task decomposition, we need AI-powered commands that can analyze complex tasks and automatically create parent-child task hierarchies. This builds on the core parent-child relationship system to provide intelligent task breakdown.
 
 ## Context
 
-Currently, task management in Minsky is primarily manual. Adding AI-powered capabilities will help:
+With the parent-child task hierarchy system in place, we can now leverage AI to:
 
-1. Estimate task complexity and effort more consistently
-2. Break down complex tasks into manageable subtasks
-3. Improve backlog grooming and planning processes
-4. Gather data about task patterns and workflow efficiency
+1. **Intelligent task decomposition** - AI analyzes complex tasks and suggests breakdown into subtasks
+2. **Automated test decomposition** - AI creates comprehensive test task hierarchies
+3. **Task estimation and analysis** - AI provides sizing and complexity analysis
+4. **Hierarchy optimization** - AI suggests improvements to existing task structures
 
-This is an experimental approach to test the workflow and gather information before determining the long-term architecture.
+This enhances the manual task hierarchy system with intelligent automation capabilities.
 
 ## Dependencies
 
-This task depends on **Task #160: Add AI completion backend with multi-provider support**, which provides the foundational AI backend infrastructure including:
-
-- Multi-provider AI abstraction layer (OpenAI, Anthropic, etc.)
-- Tool calling and function execution capabilities
-- Prompt caching and reasoning model support
-- Configuration system for API keys and provider selection
-- Error handling and logging patterns
+1. **Task Hierarchy System** - Requires the parent-child relationship system (separate task spec)
+2. **AI Backend Infrastructure** - Requires Task #160 (AI completion backend with multi-provider support)
 
 ## Proposed Solution
 
-Add the following subcommands to `minsky tasks`:
+### Core AI Commands
 
-### Core Commands
+1. **`minsky tasks decompose <task-id>`**
 
-1. **`minsky tasks estimate <task-id>`**
+   - Analyzes task specification and suggests breakdown into subtasks
+   - Creates parent-child hierarchy automatically with `--create` flag
+   - Focuses on test decomposition patterns for development workflows
 
-   - Send task spec to AI with estimation prompt and relevant rules
-   - Return size/complexity estimation (e.g., XS, S, M, L, XL or story points)
-   - Store estimation in task metadata
+2. **`minsky tasks estimate <task-id>`**
 
-2. **`minsky tasks decompose <task-id>`**
-   - Analyze complex tasks and suggest breakdown
-   - Return subtasks (for future hierarchical support) or serial task sequence
-   - Option to auto-create the suggested tasks
-
-### Additional Commands to Consider
+   - Provides AI-powered task sizing and complexity estimation
+   - Analyzes task hierarchy depth and suggests optimization
+   - Estimates effort for task and all subtasks
 
 3. **`minsky tasks analyze <task-id>`**
+   - Provides comprehensive task analysis including completeness, clarity, and structure
+   - Suggests improvements to task specifications
+   - Identifies potential missing subtasks or test cases
 
-   - Provide AI analysis of task clarity, completeness, and potential issues
-   - Suggest improvements to task specification
+### Enhanced AI Features
 
-4. **`minsky tasks suggest-deps <task-id>`**
+4. **`minsky tasks decompose-tests <task-id>`**
 
-   - Analyze task and suggest potential dependencies on other tasks
-   - Help identify blocking relationships
+   - Specialized command for test decomposition
+   - Creates comprehensive test task hierarchies:
+     - Unit tests → individual test cases
+     - Integration tests → component interaction tests
+     - E2E tests → user flow tests
+   - Follows testing best practices and patterns
 
-5. **`minsky tasks prioritize [--all | --status <status>]`**
+5. **`minsky tasks optimize-hierarchy <task-id>`**
+   - Analyzes existing task hierarchy and suggests improvements
+   - Identifies over-decomposition or under-decomposition
+   - Suggests better organization of subtasks
 
-   - AI-assisted prioritization based on impact, effort, and dependencies
-   - Return suggested priority order
+## Technical Implementation
 
-6. **`minsky tasks similar <task-id>`**
-   - Find similar completed tasks for reference
-   - Help with estimation and approach planning
+### AI Integration (Building on Task #160)
 
-## Technical Approach
+1. **TaskDecompositionService**:
 
-1. **Command Structure**:
+   - Uses AI backend for task analysis
+   - Specialized prompts for task breakdown
+   - Integration with TaskHierarchyService for creating relationships
 
-   - Add new subcommands under `src/commands/tasks/`
-   - Follow existing command patterns for consistency
+2. **Prompt Templates**:
 
-2. **AI Integration** (building on Task #160):
+   - **Decomposition prompt**: Analyzes task and suggests subtasks
+   - **Test decomposition prompt**: Creates comprehensive test hierarchies
+   - **Estimation prompt**: Provides sizing and complexity analysis
+   - **Analysis prompt**: Reviews task quality and completeness
 
-   - **Leverage existing AI backend** for provider abstraction and core functionality
-   - Build task-specific AI service layer using the established AI backend
-   - Use existing configuration system for API keys and provider selection
-   - Focus on task analysis domain logic rather than low-level AI integration
+3. **AI Response Processing**:
+   - Structured AI responses for creating task hierarchies
+   - Validation of suggested decomposition
+   - User confirmation before creating multiple subtasks
 
-3. **Data Storage**:
+### Command Implementation
 
-   - Extend task schema to include AI-generated metadata
-   - Store estimations, decompositions, and analysis results
-   - Track AI usage for future analysis
+1. **`minsky tasks decompose <task-id>`**:
 
-4. **Prompt Engineering**:
-   - Create reusable prompt templates optimized for task analysis use cases
-   - Include relevant project rules and context in prompts
-   - Leverage prompt caching capabilities from the AI backend (Task #160)
-   - Design prompts optimized for reasoning models (o1, Claude 3.5 Sonnet)
+   ```bash
+   # Analyze and suggest decomposition
+   minsky tasks decompose 123
 
-## Implementation Steps
+   # Automatically create suggested subtasks
+   minsky tasks decompose 123 --create
 
-**Prerequisites**: Task #160 (AI completion backend) must be completed first.
+   # Focus on test decomposition
+   minsky tasks decompose 123 --type tests
+   ```
 
-1. **Build task-specific AI service** using the established AI backend
-2. **Implement `estimate` command** as proof of concept
-3. **Add task schema extensions** for AI metadata
-4. **Design and test prompt templates** for task analysis use cases
-5. **Implement `decompose` command** with task breakdown logic
-6. **Add remaining commands** based on initial feedback
-7. **Add comprehensive tests** including AI interaction testing
-8. **Document usage and best practices** for AI-powered task management
+2. **Response Format**:
+
+   ```
+   AI Analysis for Task #123: "Implement user authentication"
+
+   Suggested Decomposition:
+   ├── Unit Tests (estimated: 2-3 days)
+   │   ├── Test login validation
+   │   ├── Test password hashing
+   │   └── Test session management
+   ├── Integration Tests (estimated: 1-2 days)
+   │   ├── Test API endpoints
+   │   └── Test database integration
+   └── E2E Tests (estimated: 1 day)
+       └── Test complete user flow
+
+   Total estimated effort: 4-6 days
+
+   Create this hierarchy? (y/n)
+   ```
+
+## Use Cases
+
+### AI-Powered Test Decomposition
+
+```bash
+# Create main feature task
+minsky tasks create "Implement user authentication"
+
+# Let AI decompose into test hierarchy
+minsky tasks decompose-tests 123 --create
+
+# Result: Complete test task hierarchy automatically created
+minsky tasks tree 123
+```
+
+### Complex Feature Analysis
+
+```bash
+# Create complex task
+minsky tasks create "Add real-time notifications"
+
+# Get AI analysis and decomposition
+minsky tasks decompose 200 --create
+
+# Get effort estimation for entire hierarchy
+minsky tasks estimate 200 --recursive
+```
+
+### Hierarchy Optimization
+
+```bash
+# Analyze existing complex hierarchy
+minsky tasks optimize-hierarchy 150
+
+# Get suggestions for improvement
+minsky tasks analyze 150 --suggest-improvements
+```
 
 ## Acceptance Criteria
 
-- [ ] **Task #160 (AI completion backend) is completed** and available
-- [ ] **`minsky tasks estimate <task-id>`** returns complexity estimation using AI backend
-- [ ] **Estimations are stored** in task metadata with proper schema validation
-- [ ] **`minsky tasks decompose <task-id>`** suggests task breakdown using reasoning models
-- [ ] **Task-specific AI service** integrates cleanly with the general AI backend
-- [ ] **Prompt templates** are optimized for task analysis and support rule injection
-- [ ] **Commands include appropriate error handling** leveraging AI backend patterns
-- [ ] **AI responses are validated** before storage with proper type checking
-- [ ] **Usage is tracked** for analysis and optimization
-- [ ] **Commands have comprehensive help text** with examples
-- [ ] **Feature is documented** in user guide with AI backend integration details
+### Core Functionality
 
-## Future Considerations
+- [ ] `minsky tasks decompose <task-id>` analyzes task and suggests breakdown
+- [ ] `--create` flag automatically creates suggested subtask hierarchy
+- [ ] AI responses are structured and validated before task creation
+- [ ] Integration with TaskHierarchyService works correctly
+- [ ] Error handling for invalid task IDs and AI failures
 
-- Integration with task hierarchies once implemented
-- Batch operations for multiple tasks
-- Learning from historical data to improve estimates
-- Custom prompt templates per project
-- Integration with external project management tools
+### Test Decomposition
+
+- [ ] `minsky tasks decompose-tests <task-id>` creates comprehensive test hierarchies
+- [ ] Test decomposition follows established testing patterns
+- [ ] Generated test tasks have appropriate descriptions and context
+- [ ] Hierarchy includes unit, integration, and E2E test categories
+
+### Estimation and Analysis
+
+- [ ] `minsky tasks estimate <task-id>` provides meaningful sizing estimates
+- [ ] `minsky tasks analyze <task-id>` identifies task quality issues
+- [ ] AI analysis includes actionable suggestions for improvement
+- [ ] Estimation accounts for task complexity and hierarchy depth
+
+### User Experience
+
+- [ ] Commands provide clear output with structured suggestions
+- [ ] User can preview decomposition before creating subtasks
+- [ ] AI responses are validated and formatted consistently
+- [ ] Error messages are helpful and actionable
+
+## Future Enhancements
+
+1. **Learning from History**:
+
+   - AI learns from completed task hierarchies
+   - Improves decomposition suggestions over time
+   - Personalized recommendations based on user patterns
+
+2. **Integration with External Tools**:
+
+   - Import task hierarchies from project management tools
+   - Export AI-generated hierarchies to external systems
+   - Sync with development tools and testing frameworks
+
+3. **Advanced Analysis**:
+
+   - Dependency analysis between tasks
+   - Risk assessment for complex task hierarchies
+   - Resource allocation suggestions
+
+4. **Batch Operations**:
+   - Decompose multiple tasks simultaneously
+   - Apply AI analysis to entire project backlogs
+   - Bulk optimization of existing hierarchies
+
+## Implementation Priority
+
+1. **Phase 1**: Core decomposition command with basic AI integration
+2. **Phase 2**: Test-specific decomposition with specialized prompts
+3. **Phase 3**: Estimation and analysis features
+4. **Phase 4**: Advanced optimization and learning capabilities
+
+This AI-powered enhancement makes the task hierarchy system significantly more powerful by automating the complex process of task decomposition, especially for test-driven development workflows.

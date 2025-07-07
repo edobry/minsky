@@ -1,14 +1,14 @@
 import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { join } from "path";
-import { getMinskyStateDir, getSessionDbPath } from "../utils/paths.js";
-import { 
-  MinskyError, 
-  ResourceNotFoundError, 
+import { getMinskyStateDir, getSessionDir } from "../utils/paths.js";
+import {
+  MinskyError,
+  ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
   createCommandFailureMessage,
-  createErrorContext
+  createErrorContext,
 } from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
@@ -195,8 +195,18 @@ export async function startSessionFromParams(
   }
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, description, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
-    params;
+  const {
+    name,
+    repo,
+    task,
+    description,
+    branch,
+    noStatusUpdate,
+    quiet,
+    json,
+    skipInstall,
+    packageManager,
+  } = params;
 
   // Create dependencies with defaults
   const deps = {
@@ -281,8 +291,6 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
     }
 
-
-
     if (taskId && !sessionName) {
       // Normalize the task ID format using Zod validation
       const normalizedTaskId = taskIdSchema.parse(taskId);
@@ -342,9 +350,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
     // Generate the expected repository path using simplified session-ID-based structure
-    const sessionBaseDir =
-      process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionName);
+    const sessionDir = getSessionDir(sessionName);
 
     // Check if session directory already exists and clean it up
     if (existsSync(sessionDir)) {
@@ -399,8 +405,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
           log.error("Failed to cleanup session record after git error", {
             sessionName,
             gitError: getErrorMessage(gitError),
-            cleanupError:
-              getErrorMessage(cleanupError),
+            cleanupError: getErrorMessage(cleanupError),
           });
         }
       }
@@ -413,8 +418,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
           log.error("Failed to cleanup session directory after git error", {
             sessionDir,
             gitError: getErrorMessage(gitError),
-            cleanupError:
-              getErrorMessage(cleanupError),
+            cleanupError: getErrorMessage(cleanupError),
           });
         }
       }
@@ -476,10 +480,7 @@ Error: ${getErrorMessage(installError)}`
     if (error instanceof MinskyError) {
       throw error;
     } else {
-      throw new MinskyError(
-        `Failed to start session: ${getErrorMessage(error)}`,
-        error
-      );
+      throw new MinskyError(`Failed to start session: ${getErrorMessage(error)}`, error);
     }
   }
 }
@@ -569,8 +570,6 @@ export async function getSessionDirFromParams(
   return repoPath;
 }
 
-
-
 /**
  * Interface-agnostic function for updating a session
  */
@@ -582,7 +581,18 @@ export async function updateSessionFromParams(
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<Session> {
-  let { name, branch, remote, noStash, noPush, force, skipConflictCheck, autoResolveDeleteConflicts, dryRun, skipIfAlreadyMerged } = params;
+  let {
+    name,
+    branch,
+    remote,
+    noStash,
+    noPush,
+    force,
+    skipConflictCheck,
+    autoResolveDeleteConflicts,
+    dryRun,
+    skipIfAlreadyMerged,
+  } = params;
 
   log.debug("updateSessionFromParams called", { params });
 
@@ -716,24 +726,28 @@ export async function updateSessionFromParams(
       log.debug("Latest changes pulled");
 
       // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
-      const branchToMerge = branch || await deps.gitService.fetchDefaultBranch(workdir);
+      const branchToMerge = branch || (await deps.gitService.fetchDefaultBranch(workdir));
       const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
-      
+
       // Enhanced conflict detection and smart merge handling
       if (dryRun) {
         log.cli("🔍 Performing dry run conflict check...");
-        
+
         const conflictPrediction = await ConflictDetectionService.predictConflicts(
-          workdir, currentBranch, remoteBranchToMerge
+          workdir,
+          currentBranch,
+          remoteBranchToMerge
         );
-        
+
         if (conflictPrediction.hasConflicts) {
           log.cli("⚠️  Conflicts detected during dry run:");
           log.cli(conflictPrediction.userGuidance);
           log.cli("\n🛠️  Recovery commands:");
-          conflictPrediction.recoveryCommands.forEach(cmd => log.cli(`   ${cmd}`));
-          
-          throw new MinskyError("Dry run detected conflicts. Use the guidance above to resolve them.");
+          conflictPrediction.recoveryCommands.forEach((cmd) => log.cli(`   ${cmd}`));
+
+          throw new MinskyError(
+            "Dry run detected conflicts. Use the guidance above to resolve them."
+          );
         } else {
           log.cli("✅ No conflicts detected. Safe to proceed with update.");
           return {
@@ -754,26 +768,28 @@ export async function updateSessionFromParams(
       // Use smart session update for enhanced conflict handling (only if not forced)
       if (!force) {
         const updateResult = await ConflictDetectionService.smartSessionUpdate(
-          workdir, 
-          currentBranch, 
+          workdir,
+          currentBranch,
           normalizedBaseBranch,
           {
             skipIfAlreadyMerged,
-            autoResolveConflicts: autoResolveDeleteConflicts
+            autoResolveConflicts: autoResolveDeleteConflicts,
           }
         );
 
         if (!updateResult.updated && updateResult.skipped) {
           log.cli(`✅ ${updateResult.reason}`);
-          
+
           if (updateResult.reason?.includes("already in base")) {
-            log.cli("\n💡 Your session changes are already merged. You can create a PR with --skip-update:");
+            log.cli(
+              "\n💡 Your session changes are already merged. You can create a PR with --skip-update:"
+            );
             log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
           }
-          
+
           return {
             session: sessionName,
-            repoName: sessionRecord.repoName || "unknown", 
+            repoName: sessionRecord.repoName || "unknown",
             repoUrl: sessionRecord.repoUrl,
             branch: currentBranch,
             createdAt: sessionRecord.createdAt,
@@ -785,20 +801,20 @@ export async function updateSessionFromParams(
           // Enhanced conflict guidance
           log.cli("🚫 Update failed due to merge conflicts:");
           log.cli(updateResult.conflictDetails);
-          
+
           if (updateResult.divergenceAnalysis) {
             const analysis = updateResult.divergenceAnalysis;
             log.cli("\n📊 Branch Analysis:");
             log.cli(`   • Session ahead: ${analysis.aheadCommits} commits`);
             log.cli(`   • Session behind: ${analysis.behindCommits} commits`);
             log.cli(`   • Recommended action: ${analysis.recommendedAction}`);
-            
+
             if (analysis.sessionChangesInBase) {
               log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
               log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
             }
           }
-          
+
           throw new MinskyError(updateResult.conflictDetails);
         }
 
@@ -810,7 +826,9 @@ export async function updateSessionFromParams(
           await deps.gitService.mergeBranch(workdir, normalizedBaseBranch);
           log.debug("Forced merge completed");
         } catch (mergeError) {
-          log.debug("Forced merge failed, but continuing due to force flag", { error: getErrorMessage(mergeError) });
+          log.debug("Forced merge failed, but continuing due to force flag", {
+            error: getErrorMessage(mergeError),
+          });
         }
       }
 
@@ -871,10 +889,7 @@ export async function updateSessionFromParams(
     if (error instanceof MinskyError) {
       throw error;
     } else {
-      throw new MinskyError(
-        `Failed to update session: ${getErrorMessage(error)}`,
-        error
-      );
+      throw new MinskyError(`Failed to update session: ${getErrorMessage(error)}`, error);
     }
   }
 }
@@ -888,7 +903,7 @@ async function checkPrBranchExists(
   currentDir: string
 ): Promise<boolean> {
   const prBranch = `pr/${sessionName}`;
-  
+
   try {
     // Check if branch exists locally
     const localBranchOutput = await gitService.execInRepository(
@@ -896,18 +911,18 @@ async function checkPrBranchExists(
       `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
     );
     const localBranchExists = localBranchOutput.trim() !== "not-exists";
-    
+
     if (localBranchExists) {
       return true;
     }
-    
+
     // Check if branch exists remotely
     const remoteBranchOutput = await gitService.execInRepository(
       currentDir,
       `git ls-remote --heads origin ${prBranch}`
     );
     const remoteBranchExists = remoteBranchOutput.trim().length > 0;
-    
+
     return remoteBranchExists;
   } catch (error) {
     log.debug("Error checking PR branch existence", {
@@ -928,7 +943,7 @@ async function extractPrDescription(
   currentDir: string
 ): Promise<{ title: string; body: string } | null> {
   const prBranch = `pr/${sessionName}`;
-  
+
   try {
     // Try to get from remote first
     const remoteBranchOutput = await gitService.execInRepository(
@@ -936,13 +951,13 @@ async function extractPrDescription(
       `git ls-remote --heads origin ${prBranch}`
     );
     const remoteBranchExists = remoteBranchOutput.trim().length > 0;
-    
+
     let commitMessage = "";
-    
+
     if (remoteBranchExists) {
       // Fetch the PR branch to ensure we have latest
       await gitService.execInRepository(currentDir, `git fetch origin ${prBranch}`);
-      
+
       // Get the commit message from the remote branch's last commit
       commitMessage = await gitService.execInRepository(
         currentDir,
@@ -955,7 +970,7 @@ async function extractPrDescription(
         `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
       );
       const localBranchExists = localBranchOutput.trim() !== "not-exists";
-      
+
       if (localBranchExists) {
         // Get the commit message from the local branch's last commit
         commitMessage = await gitService.execInRepository(
@@ -966,12 +981,12 @@ async function extractPrDescription(
         return null;
       }
     }
-    
+
     // Parse the commit message to extract title and body
     const lines = commitMessage.trim().split("\n");
     const title = lines[0] || "";
     const body = lines.slice(1).join("\n").trim();
-    
+
     return { title, body };
   } catch (error) {
     log.debug("Error extracting PR description", {
@@ -1113,9 +1128,7 @@ Need help? Run 'git status' to see what files have changed.
       } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
         throw new ValidationError(`Permission denied reading body file: ${params.bodyPath}`);
       } else {
-        throw new ValidationError(
-          `Failed to read body file: ${params.bodyPath}. ${errorMessage}`
-        );
+        throw new ValidationError(`Failed to read body file: ${params.bodyPath}. ${errorMessage}`);
       }
     }
   }
@@ -1169,14 +1182,14 @@ Need help? Run 'git status' to see what files have changed.
   // STEP 4.5: PR Branch Detection and Title/Body Handling
   // This implements the new refresh functionality
   const prBranchExists = await checkPrBranchExists(sessionName, gitService, currentDir);
-  
+
   let titleToUse = params.title;
   let bodyToUse = bodyContent;
-  
+
   if (!titleToUse && prBranchExists) {
     // Case: Existing PR + no title → Auto-reuse existing title/body (refresh)
     log.cli("🔄 Refreshing existing PR (reusing title and body)...");
-    
+
     const existingDescription = await extractPrDescription(sessionName, gitService, currentDir);
     if (existingDescription) {
       titleToUse = existingDescription.title;
@@ -1208,7 +1221,9 @@ Need help? Run 'git status' to see what files have changed.
     // 1. No existing PR to reuse from (prBranchExists=false), OR
     // 2. Existing PR but new title provided (titleToUse=true) indicating update
     if (!prBranchExists) {
-      log.cli("💡 Tip: For new PRs, consider providing --body or --body-path for a complete description");
+      log.cli(
+        "💡 Tip: For new PRs, consider providing --body or --body-path for a complete description"
+      );
       // Allow empty body for new PRs (user choice)
     }
   }
@@ -1216,7 +1231,7 @@ Need help? Run 'git status' to see what files have changed.
   // STEP 5: Enhanced session update with conflict detection (unless --skip-update is specified)
   if (!params.skipUpdate) {
     log.cli("🔍 Checking for conflicts before PR creation...");
-    
+
     try {
       // Use enhanced update with conflict detection options
       await updateSessionFromParams({
@@ -1224,7 +1239,7 @@ Need help? Run 'git status' to see what files have changed.
         repo: params.repo,
         json: false,
         force: false,
-        noStash: false, 
+        noStash: false,
         noPush: false,
         dryRun: false,
         skipConflictCheck: params.skipConflictCheck,
@@ -1234,10 +1249,12 @@ Need help? Run 'git status' to see what files have changed.
       log.cli("✅ Session updated successfully");
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      
+
       // Enhanced error handling for common conflict scenarios
       if (errorMessage.includes("already in base") || errorMessage.includes("already merged")) {
-        log.cli("💡 Your session changes are already in the base branch. Proceeding with PR creation...");
+        log.cli(
+          "💡 Your session changes are already in the base branch. Proceeding with PR creation..."
+        );
       } else if (errorMessage.includes("conflicts")) {
         log.cli("⚠️  Merge conflicts detected. Consider using conflict resolution options:");
         log.cli("   • --auto-resolve-delete-conflicts: Auto-resolve delete/modify conflicts");
@@ -1272,9 +1289,7 @@ Need help? Run 'git status' to see what files have changed.
         await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
         log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
       } catch (error) {
-        log.warn(
-          `Failed to update task status: ${getErrorMessage(error)}`
-        );
+        log.warn(`Failed to update task status: ${getErrorMessage(error)}`);
       }
     }
   }
@@ -1458,9 +1473,7 @@ export async function approveSessionFromParams(
     if (error instanceof MinskyError) {
       throw error;
     } else {
-      throw new MinskyError(
-        `Failed to approve session: ${getErrorMessage(error)}`
-      );
+      throw new MinskyError(`Failed to approve session: ${getErrorMessage(error)}`);
     }
   }
 }
