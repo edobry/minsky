@@ -11,6 +11,8 @@ import { normalizeTaskId } from "./taskFunctions";
 import config from "config";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants.js";
 import { getErrorMessage } from "../../errors/index";
+import { ConfigurationService } from "../configuration/types";
+import { configurationService } from "../configuration";
 
 // Dynamic import for GitHub backend to avoid hard dependency
 
@@ -604,13 +606,14 @@ export async function createConfiguredTaskService(
   }
 
   try {
-    // Use node-config directly to get the resolved backend
-    const resolvedBackend = ((config as any).get("backend") as string) || "json-file"; // fallback to json-file
+    // Use configuration service to get the resolved backend
+    const configResult = await configurationService.loadConfiguration(workspacePath);
+    const resolvedBackend = (configResult.resolved.backend as string) || "json-file"; // fallback to json-file
 
     log.debug("Resolved backend from configuration", {
       workspacePath,
       backend: resolvedBackend,
-      configSource: (config as any).get("backend") ? "configuration" : "default",
+      configSource: "configurationService",
     });
 
     return createTaskService({

@@ -3,13 +3,12 @@
  * This module contains all file system operations separated from pure functions
  */
 
-import { join, dirname } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { normalizeRepoName } from "../repository-uri";
-import type { SessionDbState } from "./session-db";
-import { initializeSessionDbState } from "./session-db";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { dirname, join } from "path";
+import { SessionRecord } from "./session-db";
+import { getErrorMessage } from "../../errors";
 import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors/index";
+import { getMinskyStateDir, getDefaultJsonDbPath } from "../../utils/paths";
 
 /**
  * Options for the SessionDB file operations
@@ -22,40 +21,35 @@ export interface SessionDbFileOptions {
 /**
  * Read sessions from the database file
  */
-export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDbState {
-  const xdgStateHome =
-    (process.env as any).XDGSTATE_HOME || join((process.env as any).HOME || "", ".local/state");
-  const dbPath = options?.dbPath || join(xdgStateHome, "minsky", "session-db.json");
-  const baseDir = options?.baseDir || join(xdgStateHome, "minsky");
+export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionRecord[] {
+  const stateDir = getMinskyStateDir();
+  const dbPath = options?.dbPath || getDefaultJsonDbPath();
+  const baseDir = options?.baseDir || stateDir;
 
   try {
     if (!existsSync(dbPath)) {
-      return initializeSessionDbState({ baseDir });
+      return [];
     }
 
     const data = readFileSync(dbPath, "utf8") as string;
     const sessions = JSON.parse(data as any);
 
-    return {
-      sessions,
-      baseDir,
-    };
+    return sessions;
   } catch (error) {
     log.error(`Error reading session database: ${getErrorMessage(error as any)}`);
-    return initializeSessionDbState({ baseDir });
+    return [];
   }
 }
 
 /**
  * Write sessions to the database file
  */
-export function writeSessionDbFile(
-  state: SessionDbState,
-  options: SessionDbFileOptions = {}
-): boolean {
-  const xdgStateHome =
-    (process.env as any).XDGSTATE_HOME || join((process.env as any).HOME || "", ".local/state");
-  const dbPath = options?.dbPath || join(xdgStateHome, "minsky", "session-db.json");
+export async function writeSessionsToFile(
+  sessions: SessionRecord[],
+  options?: SessionDbFileOptions
+): Promise<void> {
+  const stateDir = getMinskyStateDir();
+  const dbPath = options?.dbPath || getDefaultJsonDbPath();
 
   try {
     // Ensure directory exists
@@ -64,11 +58,9 @@ export function writeSessionDbFile(
       mkdirSync(dbDir, { recursive: true });
     }
 
-    writeFileSync(dbPath, JSON.stringify((state as any).sessions, undefined, 2));
-    return true;
+    writeFileSync(dbPath, JSON.stringify(sessions, undefined, 2));
   } catch (error) {
     log.error(`Error writing session database: ${getErrorMessage(error as any)}`);
-    return false;
   }
 }
 

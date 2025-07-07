@@ -18,6 +18,7 @@ import {
   getSessionWorkdirFn,
 } from "./session-db"; // Value imports
 import { readSessionDbFile, writeSessionDbFile } from "./session-db-io";
+import { getMinskyStateDir, getDefaultJsonDbPath } from "../../utils/paths";
 
 /**
  * Interface for session provider
@@ -75,7 +76,8 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   private state: SessionDbState;
 
   constructor(dbPath?: string) {
-    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
+    const xdgStateHome =
+      (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
 
     if (dbPath) {
       this.dbPath = dbPath;
@@ -146,7 +148,10 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Update an existing session
    */
-  async updateSession(session: string, _updates: Partial<Omit<SessionRecord, "session">>): Promise<void> {
+  async updateSession(
+    session: string,
+    _updates: Partial<Omit<SessionRecord, "session">>
+  ): Promise<void> {
     await this.readDb();
     const newState = updateSessionFn(this.state, session, _updates);
     await this.writeDb((newState as any).sessions);

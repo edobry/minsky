@@ -197,7 +197,7 @@ sharedCommandRegistry.registerCommand({
       // Write to target backend
       const targetState = {
         sessions: sessionRecords,
-        baseDir: join(process.env.HOME || "", ".local/state/minsky"),
+        baseDir: getMinskyStateDir(),
       };
 
       const writeResult = await targetStorage.writeState(targetState);
