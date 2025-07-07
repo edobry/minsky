@@ -11,7 +11,7 @@ export {
 } from "./session-adapter";
 
 // Export core types from session-db
-export type {SessionDbState } from "./session-db";
+export type { SessionDbState } from "./session-db";
 
 // Export pure functions from session-db
 export {
@@ -29,7 +29,7 @@ export {
 // Export I/O functions and types from session-db-io
 export {
   readSessionDbFile,
-  writeSessionDbFile,
+  writeSessionsToFile,
   ensureDbDir,
   type SessionDbFileOptions,
 } from "./session-db-io";

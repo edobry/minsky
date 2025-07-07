@@ -17,7 +17,7 @@ import {
   getRepoPathFn,
   getSessionWorkdirFn,
 } from "./session-db"; // Value imports
-import { readSessionDbFile, writeSessionDbFile } from "./session-db-io";
+import { readSessionDbFile, writeSessionsToFile } from "./session-db-io";
 import { getMinskyStateDir, getDefaultJsonDbPath } from "../../utils/paths";
 
 /**

@@ -438,4 +438,6 @@
 
 - [ ] Enhanced Planning/Execution Separation with Checkpointing [#242](process/tasks/242-enhanced-planning-execution-separation-with-checkpointing.md)
 
-- [ ] Advanced Visualization and Database Migration [#243](/Users/edobry/Projects/minsky/process/tasks/243-advanced-visualization-and-database-migration.md)
+- [ ] Advanced Visualization and Database Migration [#243](process/tasks/243-advanced-visualization-and-database-migration.md)
+
+- [ ] Complete configuration system standardization and cleanup [#244](/Users/edobry/Projects/minsky/process/tasks/244-complete-configuration-system-standardization-and-cleanup.md)
