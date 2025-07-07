@@ -2,7 +2,7 @@
 
 ## Status
 
-TODO
+IN-PROGRESS
 
 ## Priority
 
@@ -67,11 +67,11 @@ The configuration audit revealed significant inconsistencies in how configuratio
 ## Success Criteria
 
 ### Phase 1 Completion Criteria
-- [ ] All components use `configurationService.loadConfiguration()`
-- [ ] No direct `process.env.HOME/.local/state` access in critical files
-- [ ] No hardcoded `session-db.json` or `sessions.db` paths
-- [ ] Consistent XDG_STATE_HOME handling (typo fixed)
-- [ ] `src/domain/tasks/taskService.ts` uses ConfigurationService
+- [x] All components use `configurationService.loadConfiguration()`
+- [x] No direct `process.env.HOME/.local/state` access in critical files
+- [x] No hardcoded `session-db.json` or `sessions.db` paths
+- [x] Consistent XDG_STATE_HOME handling (typo fixed)
+- [x] `src/domain/tasks/taskService.ts` uses ConfigurationService
 - [ ] All tests pass after changes
 
 ### Phase 2 Completion Criteria
@@ -130,6 +130,26 @@ The configuration audit revealed significant inconsistencies in how configuratio
 10. Configuration schema definition
 11. Runtime validation implementation
 12. Documentation generation
+
+## Implementation Status
+
+### ✅ Phase 1: Completed (Commit 5ef1f11f)
+
+**Critical Configuration Fixes:**
+- **Fixed `src/domain/session/session-adapter.ts`**: Replaced hardcoded XDG_STATE_HOME paths with `getDefaultJsonDbPath()` and `getMinskyStateDir()`
+- **Fixed `src/domain/storage/storage-backend-factory.ts`**: Added centralized path utilities import, replaced hardcoded paths in `getDefaultStorageConfig()` and `createStorageBackend()`
+- **Fixed `src/domain/tasks/taskService.ts`**: Removed unused direct node-config import (already using ConfigurationService properly)
+- **Fixed `src/domain/workspace.ts`**: Replaced 3 instances of hardcoded XDG_STATE_HOME paths with `getSessionsDir()`
+- **Fixed `src/domain/session.ts`**: Replaced hardcoded session directory path with `getSessionDir(sessionName)`  
+- **Fixed `src/domain/git.ts`**: Replaced hardcoded baseDir path with `getMinskyStateDir()`
+
+**Centralized Path Utilities Now Used:**
+- All critical components now use functions from `src/utils/paths.ts`
+- No more direct `process.env.XDG_STATE_HOME` access in core files
+- No more hardcoded `.local/state/minsky` paths
+- Consistent path resolution across the codebase
+
+**Next: Phase 2** - Environment variable cleanup and remaining storage backend files
 
 ## References
 
