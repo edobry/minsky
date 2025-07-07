@@ -17,6 +17,7 @@ import {
   getErrorMessage,
 } from "../errors/index";
 import { log } from "../utils/logger";
+import { getMinskyStateDir } from "../utils/paths";
 import {
   ConflictDetectionService,
   ConflictPrediction,
@@ -299,13 +300,7 @@ export class GitService implements GitServiceInterface {
   private sessionDb: SessionProviderInterface;
 
   constructor(baseDir?: string) {
-    this.baseDir =
-      baseDir ||
-      join(
-        (process.env as any).XDG_STATE_HOME ||
-          join((process.env as any).HOME || "", ".local/state"),
-        "minsky"
-      );
+    this.baseDir = baseDir || getMinskyStateDir();
     this.sessionDb = createSessionProvider({ dbPath: (process as any).cwd() });
   }
 
