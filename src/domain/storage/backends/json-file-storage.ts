@@ -5,8 +5,8 @@
  * wrapping the existing session-db-io.ts functionality.
  */
 
-import { join, dirname } from "path";
-import { existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { dirname, join } from "path";
 import type {
   DatabaseStorage,
   DatabaseReadResult,
@@ -16,30 +16,25 @@ import type {
 import type { SessionRecord, SessionDbState } from "../../session/session-db";
 import {
   readSessionDbFile,
-  writeSessionDbFile,
+  writeSessionsToFile,
   type SessionDbFileOptions,
 } from "../../session/session-db-io";
 import { initializeSessionDbState } from "../../session/session-db";
 import { log } from "../../../utils/logger";
 import { getErrorMessage } from "../../../errors/index";
+import { getMinskyStateDir, getDefaultJsonDbPath } from "../../../utils/paths";
 
 /**
  * JSON File Storage implementation for session records
  */
 export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDbState> {
-  private readonly dbPath: string;
-  private readonly baseDir: string;
+  private dbPath: string;
+  private baseDir: string;
 
   constructor(dbPath?: string, baseDir?: string) {
-    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
-
-    if (dbPath) {
-      this.dbPath = dbPath;
-      this.baseDir = baseDir || join(dbPath, "..", "..");
-    } else {
-      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
-      this.baseDir = baseDir || join(xdgStateHome, "minsky");
-    }
+    const defaultStateDir = getMinskyStateDir();
+    this.baseDir = baseDir || defaultStateDir;
+    this.dbPath = dbPath || getDefaultJsonDbPath();
   }
 
   private getFileOptions(): SessionDbFileOptions {
@@ -89,7 +84,10 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return null as any;
     }
 
-    return (result.data!.sessions as any).find((session) => (session as any).session === id) || null as any;
+    return (
+      (result.data!.sessions as any).find((session) => (session as any).session === id) ||
+      (null as any)
+    );
   }
 
   async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
@@ -112,7 +110,9 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
         });
       }
       if ((options as any).repoName) {
-        sessions = (sessions as any).filter((s) => (s as any).repoName === (options as any).repoName);
+        sessions = (sessions as any).filter(
+          (s) => (s as any).repoName === (options as any).repoName
+        );
       }
       if ((options as any).branch) {
         sessions = (sessions as any).filter((s) => (s as any).branch === (options as any).branch);
@@ -160,7 +160,10 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       }
     });
 
-    const updatedSession: SessionRecord = { ...(result.data as any).sessions[sessionIndex], ...safeUpdates };
+    const updatedSession: SessionRecord = {
+      ...(result.data as any).sessions[sessionIndex],
+      ...safeUpdates,
+    };
 
     const newSessions = [...(result.data as any).sessions];
     newSessions[sessionIndex] = updatedSession;
@@ -227,9 +230,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return true;
     } catch (error) {
-      log.error(
-        `Error initializing JSON file storage: ${getErrorMessage(error as any)}`
-      );
+      log.error(`Error initializing JSON file storage: ${getErrorMessage(error as any)}`);
       return false;
     }
   }
