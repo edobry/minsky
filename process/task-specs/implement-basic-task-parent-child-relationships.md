@@ -18,6 +18,10 @@ Implement the minimal viable parent-child relationship system that allows:
 **Immediate Need**: Task decomposition for test-driven development and complex feature breakdown
 **Future Foundation**: Extensible relationship model for dependencies and other relationship types later
 
+## Dependencies
+
+**Task #235**: This task builds on the research and architectural analysis from Task #235 "Add metadata support to tasks (subtasks, priority, dependencies)". Task #235 provides the foundational research on task metadata systems and backend capabilities that inform the implementation approach for this parent-child relationship system.
+
 ## Simplified Solution
 
 ### Core Schema (Minimal)

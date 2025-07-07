@@ -13,6 +13,10 @@ The current task system treats all tasks as independent entities. To support eff
 3. **Simple parent-child relationships** - A unified approach that can be extended to other relationship types later
 4. **Immediate value** - Focus on core functionality with minimal complexity
 
+## Dependencies
+
+**Task #235**: This task builds on the comprehensive research and architectural analysis from Task #235 "Add metadata support to tasks (subtasks, priority, dependencies)". Task #235 provides the foundational analysis of task metadata systems, backend capabilities, and architectural approaches that inform the design decisions for this hierarchical task system.
+
 ## Goal
 
 Implement a parent-child task relationship system that enables:

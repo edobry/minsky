@@ -17,8 +17,9 @@ This enhances the manual task hierarchy system with intelligent automation capab
 
 ## Dependencies
 
-1. **Task Hierarchy System** - Requires the parent-child relationship system (separate task spec)
-2. **AI Backend Infrastructure** - Requires Task #160 (AI completion backend with multi-provider support)
+1. **Task #235**: Leverages the research and architectural analysis from Task #235 "Add metadata support to tasks (subtasks, priority, dependencies)" to understand task metadata systems and backend capabilities.
+2. **Task Hierarchy System** - Requires the parent-child relationship system (separate task spec)
+3. **AI Backend Infrastructure** - Requires Task #160 (AI completion backend with multi-provider support)
 
 ## Proposed Solution
 
