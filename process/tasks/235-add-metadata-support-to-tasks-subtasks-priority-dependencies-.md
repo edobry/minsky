@@ -29,6 +29,7 @@ Research and design the architectural foundation for task metadata systems inclu
   - **Temporal**: due dates, estimates, time tracking
   - **Workflow**: assignees, reviewers, status transitions
   - **Contextual**: descriptions, attachments, comments, links
+  - **Provenance**: original user requirements, prompt evolution history, user intent preservation
 
 #### 1.2 Backend Capabilities Analysis
 
@@ -89,7 +90,33 @@ Research and design the architectural foundation for task metadata systems inclu
   - Predictable behavior across different backends
   - Minimal cognitive overhead for common operations
 
-#### 2.4 Current Architecture Evaluation
+#### 2.4 User Requirements History Architecture
+
+- [ ] **Original Intent Preservation**: Design system for preserving user's original requirements:
+  - Capture initial user prompts and requests that led to task creation
+  - Track evolution of requirements through iterative user refinement
+  - Maintain user's language and intent WITHOUT AI enhancement
+  - Structure accumulated requirements in information-preserving format
+- [ ] **Requirements Evolution Tracking**: Model how user requirements change over time:
+  - Example flow: "track bookmarks" → "store in database" → "include page downloads"
+  - Result: "Create a system that downloads websites when bookmarked by a user and stores them in a database"
+  - Preserve chronological evolution while maintaining current consolidated view
+- [ ] **Storage Location Analysis**: Evaluate where to store user requirements history:
+  - **YAML frontmatter**: Structured, version-controlled, part of task file
+  - **Database metadata**: Separate storage, queryable, complex versioning
+  - **Markdown section**: Human-readable, part of task content
+  - **Separate requirements file**: Dedicated space, structured format
+- [ ] **Separation from AI-Enhanced Specs**: Design clear boundaries:
+  - User requirements (original intent, no AI enhancement)
+  - Task specification (AI-enhanced, detailed implementation plan)
+  - Relationship and synchronization between the two
+- [ ] **User Workflow Integration**: Design how requirements history fits into task creation:
+  - Capture during initial task creation
+  - Update through iterative refinement sessions
+  - Display for context during task review/updates
+  - Export/import for task replication or migration
+
+#### 2.5 Current Architecture Evaluation
 
 - [ ] **Markdown + YAML Frontmatter**: Evaluate current approach:
   - Strengths: Human-readable, version-controllable, flexible
@@ -262,6 +289,7 @@ Research and design the architectural foundation for task metadata systems inclu
 6. **User Workflow Analysis** - mapping of user scenarios and confusion points
 7. **Minsky Design Philosophy Alignment Document** - how metadata supports core mission
 8. **Source of Truth Decision Document** - clear stance on internal vs. external primary storage
+9. **User Requirements History Architecture** - design for preserving original user intent and prompt evolution
 
 ## Related Implementation Tasks
 
@@ -302,7 +330,14 @@ This task must provide clear answers to the following strategic questions:
    - Or evolve to more structured storage approaches?
 
 7. **How do we balance control vs. integration?**
+
    - Full control over data vs. leveraging existing ecosystems
+
+8. **How do we preserve and structure user requirements history?**
+
+   - Where to store original user prompts vs. AI-enhanced specifications?
+   - How to track evolution of user requirements through iterative refinement?
+   - What format best preserves user intent without AI enhancement?
 
 ## Implementation Constraints
 
