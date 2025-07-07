@@ -139,46 +139,46 @@ export function createStorageBackend(
   log.debug(`Creating storage backend: ${(storageConfig as any).backend}`);
 
   switch ((storageConfig as any).backend) {
-    case "json": {
-      const dbPath =
+  case "json": {
+    const dbPath =
         (storageConfig.json as any).filePath || (getDefaultStorageConfig().json! as any).filePath;
-      const baseDir = getMinskyStateDir();
-      return new JsonFileStorage(dbPath, baseDir);
-    }
+    const baseDir = getMinskyStateDir();
+    return new JsonFileStorage(dbPath, baseDir);
+  }
 
-    case "sqlite": {
-      const sqliteConfig: SqliteStorageConfig = {
-        dbPath:
+  case "sqlite": {
+    const sqliteConfig: SqliteStorageConfig = {
+      dbPath:
           (storageConfig.sqlite as any).dbPath ||
           (getDefaultStorageConfig().sqlite! as any).dbPath!,
-        enableWAL: (storageConfig.sqlite as any).enableWAL ?? true,
-        timeout: (storageConfig.sqlite as any).timeout ?? 5000,
-      };
-      return createSqliteStorage(sqliteConfig);
-    }
+      enableWAL: (storageConfig.sqlite as any).enableWAL ?? true,
+      timeout: (storageConfig.sqlite as any).timeout ?? 5000,
+    };
+    return createSqliteStorage(sqliteConfig);
+  }
 
-    case "postgres": {
-      if (!(storageConfig.postgres as any).connectionUrl) {
-        const errorMessage = createBackendDetectionErrorMessage(
-          "postgres",
+  case "postgres": {
+    if (!(storageConfig.postgres as any).connectionUrl) {
+      const errorMessage = createBackendDetectionErrorMessage(
+        "postgres",
           ["json", "sqlite", "postgres"] as any[],
           {
             postgres: ["PostgreSQL connection URL"],
           }
-        );
-        throw new Error(errorMessage as any);
-      }
-      return createPostgresStorage((storageConfig as any).postgres);
-    }
-
-    default: {
-      const errorMessage = createBackendDetectionErrorMessage((storageConfig as any).backend, [
-        "json",
-        "sqlite",
-        "postgres",
-      ] as any[]);
+      );
       throw new Error(errorMessage as any);
     }
+    return createPostgresStorage((storageConfig as any).postgres);
+  }
+
+  default: {
+    const errorMessage = createBackendDetectionErrorMessage((storageConfig as any).backend, [
+      "json",
+      "sqlite",
+      "postgres",
+    ] as any[]);
+    throw new Error(errorMessage as any);
+  }
   }
 }
 
@@ -245,14 +245,14 @@ export class StorageBackendFactory {
    */
   private getBackendKey(config: StorageConfig): string {
     switch ((config as any).backend) {
-      case "json":
-        return `json:${(config.json as any).filePath}`;
-      case "sqlite":
-        return `sqlite:${(config.sqlite as any).dbPath}`;
-      case "postgres":
-        return `postgres:${(config.postgres as any).connectionUrl}`;
-      default:
-        return (config as any).backend;
+    case "json":
+      return `json:${(config.json as any).filePath}`;
+    case "sqlite":
+      return `sqlite:${(config.sqlite as any).dbPath}`;
+    case "postgres":
+      return `postgres:${(config.postgres as any).connectionUrl}`;
+    default:
+      return (config as any).backend;
     }
   }
 }

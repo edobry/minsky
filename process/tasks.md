@@ -443,3 +443,9 @@
 - [+] Complete configuration system standardization and cleanup [#244](process/tasks/244-complete-configuration-system-standardization-and-cleanup.md)
 
 - [+] Complete configuration system standardization and cleanup [#245](process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
+
+- [ ] Implement Basic Task Parent-Child Relationships [#246](process/task-specs/implement-basic-task-parent-child-relationships.md)
+
+- [ ] Implement Task Hierarchy System (Parent-Child Relationships) [#247](process/task-specs/implement-task-hierarchy-system.md)
+
+- [ ] Add AI-powered task decomposition and analysis [#248](process/task-specs/add-ai-task-management-subcommands.md)
