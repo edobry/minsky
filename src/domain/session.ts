@@ -1,7 +1,7 @@
 import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { join } from "path";
-import { getMinskyStateDir, getSessionDbPath } from "../utils/paths.js";
+import { getMinskyStateDir, getSessionDir } from "../utils/paths.js";
 import { 
   MinskyError, 
   ResourceNotFoundError, 
@@ -342,9 +342,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
     // Generate the expected repository path using simplified session-ID-based structure
-    const sessionBaseDir =
-      process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionName);
+    const sessionDir = getSessionDir(sessionName);
 
     // Check if session directory already exists and clean it up
     if (existsSync(sessionDir)) {

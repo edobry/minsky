@@ -8,6 +8,7 @@
 import { join } from "path";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
+import { getMinskyStateDir, getDefaultJsonDbPath, getDefaultSqliteDbPath } from "../../utils/paths";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
 import { JsonFileStorage } from "./backends/json-file-storage";
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
@@ -53,16 +54,13 @@ export interface StorageConfig {
  * Default storage configuration
  */
 export function getDefaultStorageConfig(): StorageConfig {
-  const xdgStateHome =
-    (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
-
   return {
     backend: "json",
     json: {
-      filePath: join(xdgStateHome, "minsky", "session-db.json"),
+      filePath: getDefaultJsonDbPath(),
     },
     sqlite: {
-      dbPath: join(xdgStateHome, "minsky", "sessions.db"),
+      dbPath: getDefaultSqliteDbPath(),
       enableWAL: true,
       timeout: 5000,
     },
@@ -144,10 +142,7 @@ export function createStorageBackend(
   case "json": {
     const dbPath =
         (storageConfig.json as any).filePath || (getDefaultStorageConfig().json! as any).filePath;
-    const xdgStateHome =
-        (process.env as any).XDG_STATE_HOME ||
-        join((process.env as any).HOME || "", ".local/state");
-    const baseDir = join(xdgStateHome, "minsky");
+    const baseDir = getMinskyStateDir();
     return new JsonFileStorage(dbPath, baseDir);
   }
 
