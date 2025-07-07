@@ -7,6 +7,28 @@ alwaysApply: false
 
 This rule serves as the entry point for all code organization guidance in the Minsky project. Use it to navigate to the appropriate code organization rules based on your specific scenario.
 
+## ⚠️ Critical Anti-Patterns to Avoid
+
+**MANDATORY CHECK**: Before creating any new module, verify it doesn't exhibit these anti-patterns:
+
+### God Module Anti-Pattern
+- **Symptom**: Single module combining multiple unrelated responsibilities
+- **Example**: `isolation.ts` combining state management + data generation + database utilities
+- **Fix**: Split into focused modules with single responsibilities
+- **Check**: Ask "Would an experienced developer immediately understand this module's purpose from its name?"
+
+### Non-Idiomatic Organization
+- **Symptom**: Organization that doesn't follow ecosystem standards
+- **Example**: Custom patterns when standard testing utility organization exists
+- **Fix**: Research and follow established patterns for the domain (testing, CLI, etc.)
+- **Check**: "Does this follow standard practices other projects use?"
+
+### Vague Naming
+- **Symptom**: Module names that don't describe functionality
+- **Example**: `isolation.ts`, `utils.ts`, `helpers.ts`
+- **Fix**: Use descriptive names that indicate purpose (`setup.ts`, `database.ts`, `fixtures.ts`)
+- **Check**: "Can someone understand what this module does without reading the code?"
+
 ## Rule Application Matrix
 
 | Scenario | Primary Rules | Supporting Rules |
@@ -17,6 +39,7 @@ This rule serves as the entry point for all code organization guidance in the Mi
 | Organizing import statements | no-dynamic-imports | N/A |
 | Large file refactoring | file-size | domain-oriented-modules |
 | Command/adapter organization | command-organization | domain-oriented-modules |
+| **Test utility organization** | **idiomatic-patterns** | **testing-boundaries** |
 
 ## Rule Relationships
 
