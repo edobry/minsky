@@ -316,11 +316,16 @@ export class ConfigurationLoader {
     // Provide a sensible default baseDir if none is configured
     const defaultBaseDir = join(homedir(), ".local", "state", "minsky", "sessions");
     
+    // Filter out undefined values from newSessionDb to prevent overwriting defaults
+    const filteredNewSessionDb = Object.fromEntries(
+      Object.entries(newSessionDb).filter(([key, value]) => value !== undefined)
+    );
+    
     const merged: SessionDbConfig = {
       backend: "json",
       baseDir: defaultBaseDir,
       ...existing,
-      ...newSessionDb,
+      ...filteredNewSessionDb,
     };
 
     return merged;

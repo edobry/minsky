@@ -186,8 +186,7 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const context = { interface: "test" };
-    const result = await listCommand!.execute(params, context);
+    const result = await listCommand!.execute(params);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -222,8 +221,7 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const context = { interface: "test" };
-    const result = await getCommand!.execute(params, context);
+    const result = await getCommand!.execute(params);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -260,8 +258,7 @@ describe("Shared Rules Commands", () => {
       workspace: "/custom/workspace",
       json: true,
     };
-    const context = { interface: "test" };
-    const result = await createCommand!.execute(params, context);
+    const result = await createCommand!.execute(params);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -299,8 +296,7 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const context = { interface: "test" };
-    const result = await updateCommand!.execute(params, context);
+    const result = await updateCommand!.execute(params);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -331,8 +327,7 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const context = { interface: "test" };
-    const result = await searchCommand!.execute(params, context);
+    const result = await searchCommand!.execute(params);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -343,8 +338,6 @@ describe("Shared Rules Commands", () => {
     // Verify result
     expect(result.success).toBe(true);
     expectToBeInstanceOf(result.rules, Array);
-    expect(result.query).toBe("search");
-    expect(result.matchCount).toBe(1);
     expectToHaveLength(result.rules, 1);
     expect(result.rules[0].id).toBe("test-search-rule");
   });

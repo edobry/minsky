@@ -478,7 +478,7 @@ export class StorageErrorRecovery {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        log.info("Attempting storage operation recovery", {
+        log.debug("Attempting storage operation recovery", {
           attempt,
           maxRetries,
           errorType: (storageError as any).type,
@@ -491,7 +491,7 @@ export class StorageErrorRecovery {
 
         const result = await operation();
         
-        log.info("Storage operation recovery successful", {
+        log.debug("Storage operation recovery successful", {
           attempt,
           errorType: (storageError as any).type,
         });

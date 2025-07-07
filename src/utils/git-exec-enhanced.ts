@@ -86,7 +86,7 @@ export async function execGitWithTimeout(
     }
 
     // Handle merge conflicts with enhanced error messages
-    if ((error.stdout as any).includes("CONFLICT") || (error.stderr as any).includes("CONFLICT")) {
+    if (((error as any).stdout && (error.stdout as any).includes("CONFLICT")) || ((error as any).stderr && (error.stderr as any).includes("CONFLICT"))) {
       const conflictFiles = extractConflictFiles((error as any).stdout, (error as any).stderr);
       const conflictTypes = analyzeConflictTypes((error as any).stdout, (error as any).stderr, conflictFiles);
       

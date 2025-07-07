@@ -79,7 +79,7 @@ export class SessionDbHealthMonitor {
       // Determine overall health
       const overall = this.determineOverallHealth(backendHealth, performance);
 
-      log.info("Health check completed", {
+      log.debug("Health check completed", {
         duration: (Date as any).now() - startTime,
         overall,
         backend: (backendHealth as any).backend,
