@@ -450,4 +450,6 @@
 
 - [ ] Add AI-powered task decomposition and analysis [#248](process/tasks/248-add-ai-powered-task-decomposition-and-analysis.md)
 
-- [ ] Investigate and Improve Session-Aware Edit/Reapply MCP Tools with Fast-Apply APIs [#249](/Users/edobry/Projects/minsky/process/tasks/249-investigate-and-improve-session-aware-edit-reapply-mcp-tools-with-fast-apply-apis.md)
+- [ ] Investigate and Improve Session-Aware Edit/Reapply MCP Tools with Fast-Apply APIs [#249](process/tasks/249-investigate-and-improve-session-aware-edit-reapply-mcp-tools-with-fast-apply-apis.md)
+
+- [ ] Investigate and Implement Session-Aware Code Search MCP Tools with Fast Retrieval APIs [#250](/Users/edobry/Projects/minsky/process/tasks/250-investigate-and-implement-session-aware-code-search-mcp-tools-with-fast-retrieval-apis.md)
