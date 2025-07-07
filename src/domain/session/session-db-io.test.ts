@@ -96,7 +96,7 @@ describe("Session DB I/O Functions", () => {
     });
   });
 
-  describe("writeSessionDbFile", () => {
+  describe("writeSessionsToFile", () => {
     test("should write session database file successfully", () => {
       const testState: SessionDbState = initializeSessionDbState({
         baseDir: tempDir,
@@ -112,7 +112,7 @@ describe("Session DB I/O Functions", () => {
         },
       ];
 
-      const success = writeSessionDbFile(testState, { dbPath: testDbPath });
+      await writeSessionsToFile(testState.sessions, { dbPath: testDbPath });
       expect(success).toBe(true);
       expect(existsSync(testDbPath)).toBe(true);
 
@@ -129,7 +129,7 @@ describe("Session DB I/O Functions", () => {
       });
 
       expect(() => {
-        const success = writeSessionDbFile(testState, undefined as any);
+        await writeSessionsToFile(testState.sessions, undefined as any);
         expect(typeof success).toBe("boolean");
       }).not.toThrow();
     });
@@ -141,7 +141,7 @@ describe("Session DB I/O Functions", () => {
       });
 
       expect(() => {
-        const success = writeSessionDbFile(testState, null as any);
+        await writeSessionsToFile(testState.sessions, null as any);
         expect(typeof success).toBe("boolean");
       }).not.toThrow();
     });
@@ -154,7 +154,7 @@ describe("Session DB I/O Functions", () => {
       const options = { dbPath: undefined };
 
       expect(() => {
-        const success = writeSessionDbFile(testState, options);
+        await writeSessionsToFile(testState.sessions, options);
         expect(typeof success).toBe("boolean");
       }).not.toThrow();
     });
