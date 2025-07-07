@@ -36,11 +36,12 @@ When working with AI assistants, having the right rules loaded in context is cru
 
 2. **Retrieval Integration (Primary Approach)**
 
-   - **Coordinate with Task #250**: Leverage fast retrieval APIs (Morph, Relace) for embedding-based search
-   - **Rule Embedding**: Pre-compute embeddings for rule content or descriptions
-   - **Similarity Search**: Use vector similarity to find relevant rules for user queries
-   - **Reranking**: Apply neural reranking to improve result relevance
-   - **Caching Strategy**: Cache embeddings and implement efficient update mechanisms
+   - **Reuse Task #250 Infrastructure**: Leverage the same embedding and reranking services built for session-aware code search
+   - **Shared Provider Abstraction**: Use the same API provider abstraction layer for embeddings and reranking
+   - **Rule Embedding**: Extend the existing embedding service to handle rule content/descriptions
+   - **Shared Similarity Search**: Reuse the same vector similarity search utilities
+   - **Shared Reranking**: Apply the same neural reranking service for improved relevance
+   - **Shared Caching**: Extend the existing embedding cache system for rule content
 
 3. **AI Integration (Fallback Approach)**
 
@@ -82,12 +83,12 @@ When working with AI assistants, having the right rules loaded in context is cru
 
 2. [ ] **Embedding-Based Retrieval (Primary Approach)**
 
-   - [ ] **Coordinate with Task #250**: Leverage embedding infrastructure and provider abstraction
-   - [ ] **Rule Embedding Strategy**: Decide between rule content, descriptions, or hybrid approach
-   - [ ] **Embedding Generation**: Create embeddings for all rules using fast retrieval APIs
-   - [ ] **Similarity Search**: Implement vector similarity search for user queries
-   - [ ] **Reranking Integration**: Apply neural reranking for improved relevance
-   - [ ] **Caching System**: Implement efficient embedding cache with update mechanisms
+   - [ ] **Extend Task #250 Services**: Reuse existing embedding and reranking infrastructure from session-aware code search
+   - [ ] **Rule Embedding Strategy**: Configure existing embedding service for rule content/descriptions
+   - [ ] **Rule Content Integration**: Extend existing embedding generation to include rule documents
+   - [ ] **Reuse Similarity Search**: Configure existing vector similarity search for rule queries
+   - [ ] **Reuse Reranking Service**: Apply existing neural reranking service to rule results
+   - [ ] **Extend Caching System**: Configure existing embedding cache for rule content
 
 3. [ ] **AI Integration (Fallback Approach)**
 
@@ -99,15 +100,16 @@ When working with AI assistants, having the right rules loaded in context is cru
 
    - [ ] Create domain service in `src/domain/context/rule-suggestion.ts`
    - [ ] Extract rule content/descriptions from existing rule system
-   - [ ] Build provider abstraction for both embedding and AI completion approaches
-   - [ ] Implement graceful fallback between approaches
+   - [ ] **Reuse Provider Abstractions**: Leverage existing embedding/reranking provider interfaces from Task #250
+   - [ ] **Extend Search Services**: Configure existing search utilities for rule content
+   - [ ] Implement graceful fallback between embedding and AI completion approaches
 
 5. [ ] **Performance Optimization**
 
-   - [ ] Implement sub-second response time requirements
-   - [ ] Add embedding cache warming strategies
-   - [ ] Optimize for frequent rule suggestion calls
-   - [ ] Implement performance monitoring
+   - [ ] Configure existing services for sub-second response time requirements
+   - [ ] **Extend Cache Warming**: Add rule-specific strategies to existing embedding cache
+   - [ ] **Reuse Optimization**: Apply existing performance optimizations to rule suggestion calls
+   - [ ] **Extend Monitoring**: Add rule suggestion metrics to existing performance monitoring
 
 6. [ ] **Basic Output**
 
@@ -167,8 +169,10 @@ Expected output might include rules like:
 
 ## Technical Considerations
 
+- **Shared Infrastructure**: Reuse all embedding/reranking services from Task #250 to avoid duplication
+- **Service Extension**: Configure existing services for rule content rather than building new ones
 - **Token Efficiency**: Rule descriptions only, not full content, to minimize AI costs
-- **Extensibility**: Design architecture to allow future enhancements
+- **Unified Monitoring**: Extend existing performance monitoring to include rule suggestions
 - **Error Handling**: Ensure graceful fallback when AI services are unavailable
 
 ## Future Enhancement
