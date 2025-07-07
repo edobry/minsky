@@ -46,32 +46,40 @@ Based on industry research and implementations:
 
 ## Goals
 
-1. **Investigate Current Implementation**: Analyze limitations and performance characteristics
-2. **Evaluate Fast-Apply APIs**: Compare Morph, Relace, and other providers
-3. **Design Improved Architecture**: Create integration plan for fast-apply APIs
+1. **Investigate Current Implementation**: Analyze how current approach works and whether it functions properly
+2. **Evaluate Fast-Apply APIs**: Compare Morph, Relace, and other providers using standardized evaluation framework
+3. **Design Improved Architecture**: Create integration plan for fast-apply APIs with evaluation infrastructure
 4. **Implement Reapply Functionality**: Add missing `session_reapply` tool
 5. **Upgrade Existing Tools**: Enhance `session_edit_file` and `session_search_replace`
-6. **Optimize Performance**: Achieve significant speed and accuracy improvements
+6. **Optimize Performance**: Achieve significant speed and accuracy improvements with measurable results
 
 ## Detailed Requirements
 
 ### 1. Current Implementation Analysis
 
-**1.1 Performance Profiling**
+**1.1 Functional Verification**
+
+- **Investigate HOW current approach works**: Deep dive into `applyEditPattern` algorithm and logic
+- **Verify if it functions properly**: Test current implementation against various edit scenarios
+- Document actual behavior vs intended behavior
+- Identify fundamental design flaws or implementation bugs
+- Test edge cases and complex merge scenarios
+
+**1.2 Performance Profiling**
 
 - Profile existing `applyEditPattern` function performance
 - Measure accuracy on complex edit scenarios
 - Document current edge cases and failure modes
 - Analyze token usage and computational overhead
 
-**1.2 Code Quality Assessment**
+**1.3 Code Quality Assessment**
 
 - Review `applyEditPattern` complexity and maintainability
 - Identify brittle pattern matching logic
 - Document test coverage gaps
 - Assess error handling completeness
 
-**1.3 User Experience Evaluation**
+**1.4 User Experience Evaluation**
 
 - Analyze current tool reliability from user perspective
 - Document common failure scenarios
@@ -256,11 +264,15 @@ Ensure backward compatibility:
 
 ## Technical Implementation Plan
 
-### Phase 1: Investigation and Analysis (Week 1-2)
+### Phase 1: Investigation and Analysis
 
 1. **Current State Analysis**:
 
-   - Profile existing `applyEditPattern` performance
+   - **Investigate HOW current approach works**: Deep dive into `applyEditPattern` algorithm and logic
+   - **Verify if it functions properly**: Test current implementation against various edit scenarios
+   - Document actual behavior vs intended behavior
+   - Identify fundamental design flaws or implementation bugs
+   - Profile existing performance characteristics
    - Document edge cases and failure modes
    - Analyze test coverage and identify gaps
    - Create baseline performance metrics
@@ -272,13 +284,14 @@ Ensure backward compatibility:
    - Research alternative providers
    - Document API structures and requirements
 
-3. **Comparative Analysis**:
-   - Create performance benchmarks
+3. **Comparative Analysis with Eval Framework Integration**:
+   - Create performance benchmarks using Task #162 evaluation framework
    - Analyze cost-benefit of each approach
    - Document integration complexity
    - Provide strategic recommendations
+   - Establish evaluation criteria for quality and performance comparison
 
-### Phase 2: Architecture Design (Week 3)
+### Phase 2: Architecture Design
 
 1. **Design Fast-Apply Integration Layer**:
 
@@ -288,12 +301,19 @@ Ensure backward compatibility:
    - Define performance monitoring approach
 
 2. **Session Integration Design**:
+
    - Plan session-aware improvements
    - Design edit history tracking
    - Create conflict detection strategy
    - Define reapply functionality requirements
 
-### Phase 3: Core Implementation (Week 4-5)
+3. **Evaluation Integration Design**:
+   - Define evaluation metrics for edit quality and performance
+   - Design integration with Task #162 AI evals framework
+   - Plan automated comparison testing between approaches
+   - Create evaluation datasets for reliable performance measurement
+
+### Phase 3: Core Implementation
 
 1. **Fast-Apply Service Implementation**:
 
@@ -303,12 +323,19 @@ Ensure backward compatibility:
    - Implement performance monitoring
 
 2. **Session Reapply Tool**:
+
    - Create `session_reapply` MCP tool
    - Implement enhanced model selection
    - Add session-aware edit history
    - Integrate with existing error handling
 
-### Phase 4: Enhanced Edit Tools (Week 6)
+3. **Evaluation Infrastructure**:
+   - Implement evaluation harness for comparing approaches
+   - Create test suites for quality and performance measurement
+   - Integrate with Task #162 evaluation framework
+   - Establish baseline measurements for current implementation
+
+### Phase 4: Enhanced Edit Tools
 
 1. **Upgrade Existing Tools**:
 
@@ -320,23 +347,23 @@ Ensure backward compatibility:
 2. **XML Tool Calls Investigation**:
    - Research XML vs JSON performance
    - Implement proof-of-concept
-   - Measure performance improvements
+   - Measure performance improvements using evaluation framework
    - Plan migration strategy if beneficial
 
-### Phase 5: Testing and Validation (Week 7-8)
+### Phase 5: Testing and Validation
 
-1. **Comprehensive Testing**:
+1. **Comprehensive Evaluation**:
 
-   - Performance benchmarking
-   - Integration testing
-   - Regression testing
-   - User acceptance testing
+   - Performance benchmarking using standardized eval framework
+   - Quality assessment across various edit scenarios
+   - Integration testing with existing systems
+   - Regression testing to ensure compatibility
 
 2. **Documentation and Rollout**:
-   - Document new capabilities
-   - Create migration guide
+   - Document evaluation results and performance improvements
+   - Create migration guide with data-driven recommendations
    - Update MCP tool documentation
-   - Plan phased rollout strategy
+   - Plan phased rollout strategy based on evaluation outcomes
 
 ## Architecture Integration Points
 
@@ -363,6 +390,13 @@ Ensure backward compatibility:
 - **Integrates with**: Existing logging infrastructure
 - **Adds**: Provider performance metrics
 - **Enables**: Cost tracking and optimization
+
+### 5. Evaluation Framework Integration
+
+- **Depends on**: Task #162 - AI Evals Framework for Rules, Context Construction, and Agent Operations
+- **Coordinates with**: Task #202 - Rule Suggestion Evaluation and Optimization
+- **Leverages**: Task #041 - Test Suite for Cursor Rules (eval-like model)
+- **Enables**: Standardized performance and quality measurement across edit approaches
 
 ## Success Metrics
 
