@@ -149,7 +149,15 @@ The configuration audit revealed significant inconsistencies in how configuratio
 - No more hardcoded `.local/state/minsky` paths
 - Consistent path resolution across the codebase
 
-**Next: Phase 2** - Environment variable cleanup and remaining storage backend files
+### 🔄 Phase 2: In Progress - Environment Variable Cleanup
+
+**Priority Files Identified:**
+- `src/domain/storage/enhanced-storage-backend-factory.ts` - 3 hardcoded XDG_STATE_HOME instances
+- `src/utils/logger.ts` - Direct MINSKY_LOG_MODE access
+- `src/domain/session.ts` - 1 remaining XDG_STATE_HOME instance (line 345)
+- Various test files - Environment variable mocking (lower priority)
+
+**Next: Phase 3** - Configuration schema validation
 
 ## References
 
