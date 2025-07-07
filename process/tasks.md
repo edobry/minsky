@@ -440,4 +440,6 @@
 
 - [ ] Advanced Visualization and Database Migration [#243](process/tasks/243-advanced-visualization-and-database-migration.md)
 
-- [ ] Complete configuration system standardization and cleanup [#244](/Users/edobry/Projects/minsky/process/tasks/244-complete-configuration-system-standardization-and-cleanup.md)
+- [+] Complete configuration system standardization and cleanup [#244](process/tasks/244-complete-configuration-system-standardization-and-cleanup.md)
+
+- [ ] Complete configuration system standardization and cleanup [#245](/Users/edobry/Projects/minsky/process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
