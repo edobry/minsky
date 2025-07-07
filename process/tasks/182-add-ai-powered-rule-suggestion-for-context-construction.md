@@ -13,12 +13,15 @@ Implement a minimal viable product (MVP) for AI-powered rule suggestion that use
 
 When working with AI assistants, having the right rules loaded in context is crucial for following project conventions and workflows. Currently, users must manually determine which rules are relevant for their current task. This command automates that selection process using AI to analyze user intent and match it with relevant rule descriptions.
 
+**Performance Requirement**: Since this feature will be used on EVERY action, low latency is critical. Traditional approaches that send all rule descriptions to LLM completion models may be too slow for interactive use.
+
 ## Objectives
 
 1. **Core Command Implementation**: Build `minsky context suggest-rules <query>` with basic functionality
-2. **Basic AI Integration**: Use simple prompts to match queries with rule descriptions
-3. **Essential Output**: Provide rule recommendations with basic explanations
-4. **Foundation for Enhancement**: Create extensible architecture for future improvements
+2. **Fast Retrieval Integration**: Explore embedding-based similarity search and reranking for low-latency responses
+3. **Basic AI Integration**: Use simple prompts to match queries with rule descriptions (fallback approach)
+4. **Essential Output**: Provide rule recommendations with basic explanations
+5. **Foundation for Enhancement**: Create extensible architecture for future improvements
 
 ## Requirements
 
@@ -31,30 +34,43 @@ When working with AI assistants, having the right rules loaded in context is cru
    - Support both quoted strings and space-separated queries
    - Basic `--json` output option
 
-2. **AI Integration**
+2. **Retrieval Integration (Primary Approach)**
+
+   - **Coordinate with Task #250**: Leverage fast retrieval APIs (Morph, Relace) for embedding-based search
+   - **Rule Embedding**: Pre-compute embeddings for rule content or descriptions
+   - **Similarity Search**: Use vector similarity to find relevant rules for user queries
+   - **Reranking**: Apply neural reranking to improve result relevance
+   - **Caching Strategy**: Cache embeddings and implement efficient update mechanisms
+
+3. **AI Integration (Fallback Approach)**
 
    - Send user query along with all available rule descriptions to AI model
    - Use simple prompt to get rule recommendations
    - Focus on rule descriptions only (not full rule content) for efficiency
    - Return list of suggested rule IDs
 
-3. **Rule Integration**
+4. **Rule Integration**
 
    - Work with existing rule management system from task 029
    - Support both Cursor and generic rule formats
    - Read rule descriptions from current workspace (main or session)
    - Basic error handling for missing or malformed rules
 
-4. **Basic Output**
+5. **Basic Output**
    - Default: Simple list of suggested rules with brief explanations
    - JSON: Basic structured output with rule IDs and names
 
 ### Technical Requirements
 
-- **Dependency**: Requires task 160 (AI completion backend) to be completed
-- **Model Selection**: Use configured AI provider from existing backend
-- **Error Handling**: Graceful fallback when AI services are unavailable
-- **Performance**: Responses should be fast enough for interactive use (< 5 seconds)
+- **Primary Dependencies**:
+  - Task #250 (Session-aware code search with fast retrieval APIs) for embedding infrastructure
+  - Task #160 (AI completion backend) for fallback approach
+- **Model Selection**:
+  - Primary: Use embedding and reranking APIs from fast retrieval providers
+  - Fallback: Use configured AI provider from existing backend
+- **Error Handling**: Graceful fallback from embedding approach to AI completion when services unavailable
+- **Performance**: Ultra-fast responses for every-action usage (< 500ms target, < 1 second maximum)
+- **Embedding Strategy**: Determine optimal approach - rule content vs. descriptions vs. hybrid
 
 ## Implementation Steps
 
@@ -64,33 +80,51 @@ When working with AI assistants, having the right rules loaded in context is cru
    - [ ] Add command to CLI routing
    - [ ] Implement basic argument parsing
 
-2. [ ] **Basic AI Integration**
+2. [ ] **Embedding-Based Retrieval (Primary Approach)**
+
+   - [ ] **Coordinate with Task #250**: Leverage embedding infrastructure and provider abstraction
+   - [ ] **Rule Embedding Strategy**: Decide between rule content, descriptions, or hybrid approach
+   - [ ] **Embedding Generation**: Create embeddings for all rules using fast retrieval APIs
+   - [ ] **Similarity Search**: Implement vector similarity search for user queries
+   - [ ] **Reranking Integration**: Apply neural reranking for improved relevance
+   - [ ] **Caching System**: Implement efficient embedding cache with update mechanisms
+
+3. [ ] **AI Integration (Fallback Approach)**
 
    - [ ] Design simple prompt for rule suggestion
    - [ ] Integrate with AICompletionService from task 160
-   - [ ] Implement basic error handling
+   - [ ] Implement fallback logic when embedding approach fails
 
-3. [ ] **Rule Analysis Logic**
+4. [ ] **Rule Analysis Logic**
 
    - [ ] Create domain service in `src/domain/context/rule-suggestion.ts`
-   - [ ] Extract rule descriptions from existing rule system
-   - [ ] Build AI prompt with rule descriptions
-   - [ ] Parse AI responses
+   - [ ] Extract rule content/descriptions from existing rule system
+   - [ ] Build provider abstraction for both embedding and AI completion approaches
+   - [ ] Implement graceful fallback between approaches
 
-4. [ ] **Basic Output**
+5. [ ] **Performance Optimization**
+
+   - [ ] Implement sub-second response time requirements
+   - [ ] Add embedding cache warming strategies
+   - [ ] Optimize for frequent rule suggestion calls
+   - [ ] Implement performance monitoring
+
+6. [ ] **Basic Output**
 
    - [ ] Implement human-readable output
    - [ ] Add simple JSON output support
 
-5. [ ] **Testing**
+7. [ ] **Testing**
 
    - [ ] Unit tests for core logic
-   - [ ] Basic integration tests
+   - [ ] Performance tests for latency requirements
+   - [ ] Integration tests for both approaches
    - [ ] Manual testing with common scenarios
 
-6. [ ] **Documentation**
+8. [ ] **Documentation**
    - [ ] Add command help text
    - [ ] Create basic usage examples
+   - [ ] Document performance characteristics
 
 ## Examples
 
@@ -115,18 +149,21 @@ Expected output might include rules like:
 ## Acceptance Criteria
 
 - [ ] `minsky context suggest-rules <query>` command implemented with basic functionality
-- [ ] AI integration produces rule suggestions based on user queries
+- [ ] **Primary**: Embedding-based retrieval produces fast, relevant rule suggestions
+- [ ] **Fallback**: AI completion integration works when embedding approach fails
 - [ ] Basic human-readable and JSON output formats supported
 - [ ] Command works in both main and session workspaces
-- [ ] Basic error handling for AI service failures
-- [ ] Unit tests for core functionality
+- [ ] Graceful fallback between embedding and AI completion approaches
+- [ ] Unit tests for core functionality and both retrieval approaches
+- [ ] Performance tests validating sub-second response times
 - [ ] Basic documentation and examples provided
-- [ ] Performance is suitable for interactive use (< 5 seconds typical response)
+- [ ] **Performance**: Ultra-fast responses suitable for every-action usage (< 500ms target, < 1 second maximum)
 
 ## Dependencies
 
-- **Task 160**: AI completion backend (required - provides AI model integration)
-- **Task 029**: Rules command system (optional - for rule management integration)
+- **Task #250**: Session-aware code search with fast retrieval APIs (required - provides embedding and reranking infrastructure)
+- **Task #160**: AI completion backend (required - provides fallback AI model integration)
+- **Task #029**: Rules command system (optional - for rule management integration)
 
 ## Technical Considerations
 
