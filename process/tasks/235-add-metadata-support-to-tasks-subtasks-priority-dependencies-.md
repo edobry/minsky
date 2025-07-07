@@ -1,3 +1,7 @@
+---
+user_requirements: "Add the notion of 'original task spec/prompt' - what the human originally said when getting AI to generate a full task spec. Should be a formatted/structured information-preserving summary of accumulated prompts over time, NOT enhanced past what the user originally said. Should be separate from the AI-enhanced full specification. Consider storage in YAML frontmatter, database metadata, or other metadata system."
+---
+
 # Task Metadata Architecture Research and Design
 
 ## Status
@@ -92,27 +96,22 @@ Research and design the architectural foundation for task metadata systems inclu
 
 #### 2.4 User Requirements History Architecture
 
-- [ ] **Original Intent Preservation**: Design system for preserving user's original requirements:
-  - Capture initial user prompts and requests that led to task creation
-  - Track evolution of requirements through iterative user refinement
-  - Maintain user's language and intent WITHOUT AI enhancement
-  - Structure accumulated requirements in information-preserving format
-- [ ] **Requirements Evolution Tracking**: Model how user requirements change over time:
-  - Example flow: "track bookmarks" → "store in database" → "include page downloads"
-  - Result: "Create a system that downloads websites when bookmarked by a user and stores them in a database"
-  - Preserve chronological evolution while maintaining current consolidated view
-- [ ] **Storage Location Analysis**: Evaluate where to store user requirements history:
-  - **YAML frontmatter**: Structured, version-controlled, part of task file
-  - **Database metadata**: Separate storage, queryable, complex versioning
+- [ ] **Original Intent Preservation**: Design system for preserving user's consolidated requirements:
+  - Capture and maintain current consolidated user requirements (not individual iterations)
+  - Preserve user's language and intent WITHOUT AI enhancement
+  - Structure in accessible, readable format (git handles evolution history automatically)
+- [ ] **Storage Location Analysis**: Evaluate where to store consolidated user requirements:
+  - **YAML frontmatter**: Simple field, version-controlled, part of task file
+  - **Database metadata**: Separate storage, queryable across tasks
   - **Markdown section**: Human-readable, part of task content
   - **Separate requirements file**: Dedicated space, structured format
 - [ ] **Separation from AI-Enhanced Specs**: Design clear boundaries:
-  - User requirements (original intent, no AI enhancement)
+  - User requirements (consolidated original intent, no AI enhancement)
   - Task specification (AI-enhanced, detailed implementation plan)
   - Relationship and synchronization between the two
-- [ ] **User Workflow Integration**: Design how requirements history fits into task creation:
+- [ ] **User Workflow Integration**: Design how consolidated requirements fit into task creation:
   - Capture during initial task creation
-  - Update through iterative refinement sessions
+  - Update through iterative refinement sessions (replacing previous version)
   - Display for context during task review/updates
   - Export/import for task replication or migration
 
@@ -289,7 +288,7 @@ Research and design the architectural foundation for task metadata systems inclu
 6. **User Workflow Analysis** - mapping of user scenarios and confusion points
 7. **Minsky Design Philosophy Alignment Document** - how metadata supports core mission
 8. **Source of Truth Decision Document** - clear stance on internal vs. external primary storage
-9. **User Requirements History Architecture** - design for preserving original user intent and prompt evolution
+9. **User Requirements Architecture** - design for preserving consolidated original user intent
 
 ## Related Implementation Tasks
 
@@ -333,11 +332,11 @@ This task must provide clear answers to the following strategic questions:
 
    - Full control over data vs. leveraging existing ecosystems
 
-8. **How do we preserve and structure user requirements history?**
+8. **How do we preserve and structure consolidated user requirements?**
 
-   - Where to store original user prompts vs. AI-enhanced specifications?
-   - How to track evolution of user requirements through iterative refinement?
+   - Where to store consolidated user requirements vs. AI-enhanced specifications?
    - What format best preserves user intent without AI enhancement?
+   - How to integrate into task creation and refinement workflow?
 
 ## Implementation Constraints
 
