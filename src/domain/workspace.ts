@@ -9,6 +9,7 @@ import { readFileSync, existsSync } from "fs";
 import { sep } from "path";
 import { homedir } from "os";
 import { getErrorMessage } from "../errors/index";
+import { getSessionsDir } from "../utils/paths";
 
 const execAsync = promisify(exec);
 
@@ -51,8 +52,7 @@ export function resolveMainWorkspaceFromRepoUrl(repoUrl: string): string {
  * @returns true if inside a session workspace
  */
 export function isSessionWorkspace(workspacePath: string): boolean {
-  const xdgStateHome = (process.env as any).XDG_STATE_HOME || join(homedir(), ".local", "state");
-  const minskySessionsPath = join(xdgStateHome, "minsky", "sessions");
+  const minskySessionsPath = getSessionsDir();
   return (workspacePath as any).startsWith(minskySessionsPath);
 }
 
@@ -78,8 +78,7 @@ export async function getSessionFromWorkspace(
     const gitRoot = (stdout as any).trim();
 
     // Check if this is in the minsky sessions directory structure
-    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join(homedir(), ".local", "state");
-    const minskySessionsPath = join(xdgStateHome, "minsky", "sessions");
+    const minskySessionsPath = getSessionsDir();
 
     if (!gitRoot.startsWith(minskySessionsPath)) {
       // Not in a session workspace
@@ -148,8 +147,7 @@ export async function resolveMainWorkspacePath(deps: TestDependencies = {}): Pro
     const gitRoot = (stdout as any).trim();
 
     // Check if this is in the minsky sessions directory structure
-    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join(homedir(), ".local", "state");
-    const minskySessionsPath = join(xdgStateHome, "minsky", "sessions");
+    const minskySessionsPath = getSessionsDir();
 
     if (gitRoot.startsWith(minskySessionsPath)) {
       // We're in a session workspace, extract session name and get the main workspace path
@@ -239,7 +237,7 @@ export async function getCurrentSession(
   sessionDbOverride?: SessionProviderInterface
 ): Promise<string | undefined> {
   const sessionInfo = await getSessionFromWorkspace(cwd, execAsyncFn, sessionDbOverride);
-  return sessionInfo ? (sessionInfo as any).session : null as any;
+  return sessionInfo ? (sessionInfo as any).session : (null as any);
 }
 
 /**
@@ -285,7 +283,7 @@ export async function getCurrentSessionContext(
     log.error("Error fetching session record", {
       sessionName: sessionId,
       error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack as any : undefined as any,
+      stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
       cwd,
     });
     return null as any;
@@ -361,11 +359,11 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
     isSessionWorkspace,
     getCurrentSession: async (repoPath: string): Promise<string | undefined> => {
       const sessionInfo = await getSessionFromRepo(repoPath);
-      return sessionInfo ? (sessionInfo as any).session : null as any;
+      return sessionInfo ? (sessionInfo as any).session : (null as any);
     },
     getSessionFromWorkspace: async (workspacePath: string): Promise<string | undefined> => {
       const sessionInfo = await getSessionFromWorkspace(workspacePath);
-      return sessionInfo ? (sessionInfo as any).session : null as any;
+      return sessionInfo ? (sessionInfo as any).session : (null as any);
     },
     resolveWorkspacePath: resolveWorkspacePath,
   };

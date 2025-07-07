@@ -8,6 +8,7 @@
 import { join } from "path";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
+import { getDefaultJsonDbPath, getDefaultSqliteDbPath, getMinskyStateDir } from "../../utils/paths";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
 import { JsonFileStorage } from "./backends/json-file-storage";
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
@@ -95,7 +96,7 @@ export class EnhancedStorageBackendFactory {
 
       // Perform integrity check if enabled
       if (enhancedConfig.enableIntegrityCheck !== false && filePath) {
-        log.info("Performing database integrity check...");
+        log.debug("Performing database integrity check...");
 
         const integrityResult = await DatabaseIntegrityChecker.checkIntegrity(
           enhancedConfig.backend,
@@ -139,7 +140,7 @@ export class EnhancedStorageBackendFactory {
         throw new Error("Failed to initialize storage backend");
       }
 
-      log.info("Storage backend created successfully", {
+      log.debug("Storage backend created successfully", {
         backend: enhancedConfig.backend,
         integrityChecked: enhancedConfig.enableIntegrityCheck !== false,
         warnings: result.warnings.length,
@@ -170,12 +171,12 @@ export class EnhancedStorageBackendFactory {
 
       if (migrationActions.length > 0) {
         const action = migrationActions[0];
-        log.info("Auto-migrating database", { action: action.description });
+        log.debug("Auto-migrating database", { action: action.description });
 
         try {
           // For now, we'll log what would be migrated
           // In a real implementation, this would execute the migration
-          log.info("Would execute migration command", { command: action.command });
+          log.debug("Would execute migration command", { command: action.command });
           result.autoMigrationPerformed = true;
           result.shouldContinue = true;
           return result;
@@ -222,23 +223,9 @@ export class EnhancedStorageBackendFactory {
   private getFilePath(config: EnhancedStorageConfig): string | null {
     switch (config.backend) {
     case "json":
-      return (
-        config.json?.filePath ||
-          join(
-            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-            "minsky",
-            "session-db.json"
-          )
-      );
+      return config.json?.filePath || getDefaultJsonDbPath();
     case "sqlite":
-      return (
-        config.sqlite?.dbPath ||
-          join(
-            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-            "minsky",
-            "sessions.db"
-          )
-      );
+      return config.sqlite?.dbPath || getDefaultSqliteDbPath();
     case "postgres":
       return null; // PostgreSQL doesn't have local file paths
     default:
@@ -272,9 +259,7 @@ export class EnhancedStorageBackendFactory {
     switch (config.backend) {
     case "json": {
       const dbPath = config.json?.filePath || getDefaultStorageConfig().json!.filePath;
-      const xdgStateHome =
-          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-      const baseDir = join(xdgStateHome, "minsky");
+      const baseDir = getMinskyStateDir();
       return new JsonFileStorage(dbPath, baseDir);
     }
 
@@ -417,7 +402,7 @@ export async function createAutoMigratingStorageBackend(
   });
 
   if (result.autoMigrationPerformed) {
-    log.info("Auto-migration was performed during storage backend creation");
+    log.debug("Auto-migration was performed during storage backend creation");
   }
 
   if (result.warnings.length > 0) {
