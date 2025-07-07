@@ -19,6 +19,12 @@ import { createStorageBackend } from "../../../domain/storage/storage-backend-fa
 import { log } from "../../../utils/logger.js";
 import type { SessionRecord } from "../../../domain/session/session-db.js";
 import type { StorageBackendType } from "../../../domain/storage/storage-backend-factory.js";
+import {
+  getXdgStateHome,
+  getMinskyStateDir,
+  getDefaultSqliteDbPath,
+  getDefaultJsonDbPath,
+} from "../../../utils/paths";
 
 /**
  * Parameters for the sessiondb migrate command
@@ -105,9 +111,8 @@ sharedCommandRegistry.registerCommand({
         log.info(`Reading from backup file: ${from} (${sourceCount} sessions)`);
       } else {
         // Auto-detect current backend
-        const homeDir = process.env.HOME || "";
-        const jsonPath = join(homeDir, ".local/state/minsky/session-db.json");
-        const currentSqlitePath = join(homeDir, ".local/state/minsky/sessions.db");
+        const jsonPath = getDefaultJsonDbPath();
+        const currentSqlitePath = getDefaultSqliteDbPath();
 
         if (existsSync(jsonPath)) {
           const fileContent = readFileSync(jsonPath, "utf8").toString();
@@ -143,11 +148,7 @@ sharedCommandRegistry.registerCommand({
       // Create backup if requested
       let backupPath: string | undefined;
       if (backup) {
-        backupPath = join(
-          process.env.HOME || "",
-          ".local/state/minsky",
-          `session-backup-${Date.now()}.json`
-        );
+        backupPath = join(getMinskyStateDir(), `session-backup-${Date.now()}.json`);
         const backupDir = dirname(backupPath);
         if (!existsSync(backupDir)) {
           mkdirSync(backupDir, { recursive: true });
@@ -161,7 +162,7 @@ sharedCommandRegistry.registerCommand({
 
       if (to === "sqlite") {
         targetConfig.sqlite = {
-          dbPath: sqlitePath || join(process.env.HOME || "", ".local/state/minsky/sessions.db"),
+          dbPath: sqlitePath || getDefaultSqliteDbPath(),
         };
       } else if (to === "postgres") {
         if (!connectionString) {
@@ -170,7 +171,7 @@ sharedCommandRegistry.registerCommand({
         targetConfig.postgres = { connectionUrl: connectionString };
       } else if (to === "json") {
         targetConfig.json = {
-          filePath: join(process.env.HOME || "", ".local/state/minsky/session-db.json"),
+          filePath: getDefaultJsonDbPath(),
         };
       }
 

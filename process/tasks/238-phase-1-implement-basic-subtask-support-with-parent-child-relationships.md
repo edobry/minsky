@@ -2,176 +2,301 @@
 
 ## Status
 
-BACKLOG
+TODO
 
 ## Priority
 
-MEDIUM
-
-## Description
-
-# Phase 1: Implement Basic Subtask Support with Parent-Child Relationships
-
-Implement foundational subtask support in Minsky's task management system, enabling explicit parent-child task relationships while maintaining full backward compatibility with existing workflows.
+HIGH
 
 ## Parent Task
 
-This is Phase 1 of Task #237: Implement Hierarchical Task System with Subtasks and Dependencies
+Part of [Task #237: Implement Hierarchical Task System with Subtasks and Dependencies](process/tasks/237-implement-hierarchical-task-system-with-subtasks-and-dependencies.md)
 
-## Objectives
+## Summary
 
-1. **Extend Task Data Model**: Add parent/child relationship fields to TaskData
-2. **Backend Support**: Update all task backends to handle hierarchical data
-3. **CLI Commands**: Add subtask management commands
-4. **Backward Compatibility**: Ensure existing workflows continue unchanged
-5. **AI Integration**: Connect with Task #175 AI decomposition for automatic subtask creation
+Implement basic subtask functionality with parent-child relationships while maintaining full backward compatibility with existing task workflows. This foundational phase enables explicit subtask relationships and integrates with Task #175 AI decomposition capabilities.
 
-## Technical Requirements
+## Context & Dependencies
 
-### 1. Data Model Extension
+### Building on Existing Foundation
+
+- **Task #175**: AI-powered task decomposition provides natural subtask creation
+- **Multi-backend architecture**: TaskBackend interface supports extensible data models
+- **Interface-agnostic design**: Command patterns support hierarchical operations
+- **Existing TaskData interface**: Clean extension point for hierarchical fields
+
+### Alignment with Minsky Architecture
+
+- Follows Minsky's domain/adapter separation patterns
+- Extends existing TaskService orchestration model
+- Maintains compatibility with all current task backends
+- Builds on established session-based workflow model
+
+## Requirements
+
+### 1. Data Model Extensions
+
+#### 1.1 Extend TaskData Interface
 
 ```typescript
 interface TaskData {
   // ... existing fields
-  parentTaskId?: string; // Parent task ID (if this is a subtask)
-  subtaskIds?: string[]; // Array of child task IDs
-  taskLevel?: number; // Depth in hierarchy (0 = root task)
-  hierarchyPath?: string; // Full path from root (e.g., '#001.#002.#003')
+
+  // Hierarchical fields (all optional for backward compatibility)
+  parentTaskId?: string; // ID of parent task (null for root tasks)
+  subtaskIds?: string[]; // Array of direct child task IDs
+  taskLevel?: number; // Depth in hierarchy (0 = root, 1 = first level subtask, etc.)
+  hierarchyPath?: string[]; // Full path from root to this task (for efficient queries)
+
+  // Enhanced metadata
+  metadata?: {
+    // AI decomposition context
+    decomposedFrom?: string; // Original task ID if created by AI decomposition
+    decompositionReason?: string; // Why this subtask was created
+
+    // Hierarchical metadata
+    isSubtask?: boolean; // Explicit flag for subtask identification
+    subtaskOrder?: number; // Order within parent's subtasks
+    estimatedEffort?: string; // XS, S, M, L, XL from AI estimation
+
+    // Extensibility
+    [key: string]: any;
+  };
 }
 ```
 
-### 2. Backend Updates
+#### 1.2 Backend Storage Support
 
-- **MarkdownTaskBackend**: Support hierarchical task representation in tasks.md
-- **JsonFileTaskBackend**: Store parent/child relationships in JSON structure
-- **GitHubIssuesTaskBackend**: Use GitHub issue relationships for hierarchy
+- **Markdown Backend**: Extend frontmatter and nested list structures
+- **JSON Backend**: Direct schema support with validation
+- **GitHub Backend**: Use issue labels and linked issues for relationships
+
+### 2. Core Domain Operations
+
+#### 2.1 Subtask Management Functions
+
+```typescript
+// Core pure functions (no side effects)
+function addSubtask(tasks: TaskData[], parentId: string, subtaskId: string): TaskData[];
+function removeSubtask(tasks: TaskData[], parentId: string, subtaskId: string): TaskData[];
+function moveSubtask(tasks: TaskData[], subtaskId: string, newParentId: string): TaskData[];
+function getSubtasks(tasks: TaskData[], parentId: string): TaskData[];
+function getParentTask(tasks: TaskData[], subtaskId: string): TaskData | null;
+function getTaskHierarchy(tasks: TaskData[], rootId: string): HierarchyNode[];
+function validateHierarchy(tasks: TaskData[]): ValidationResult[];
+
+interface HierarchyNode {
+  task: TaskData;
+  children: HierarchyNode[];
+  depth: number;
+  path: string[];
+}
+```
+
+#### 2.2 Hierarchy Validation
+
+- Prevent circular references (task cannot be subtask of itself or descendants)
+- Validate parent-child relationship consistency
+- Ensure hierarchy path accuracy
+- Validate subtask ordering and levels
 
 ### 3. CLI Command Extensions
 
+#### 3.1 New Subtask Commands
+
 ```bash
-# Create subtask
-minsky tasks create-subtask <parent-task-id> --title "Subtask Title" --description "..."
+# Create subtask under existing task
+minsky tasks create-subtask <parent-task-id> --title "Subtask Title" [--description "..."]
 
-# List tasks with hierarchy
-minsky tasks list --hierarchical
-minsky tasks list --parent <task-id>   # Show subtasks of specific parent
+# List tasks with hierarchical view
+minsky tasks list --hierarchical [--depth <max-depth>] [--parent <parent-id>]
 
-# Task management
-minsky tasks move <task-id> --parent <new-parent-id>
-minsky tasks detach <task-id>          # Remove from parent (make root-level)
+# Move subtask to different parent
+minsky tasks move <subtask-id> --parent <new-parent-id>
+
+# Detach subtask (make it a root task)
+minsky tasks detach <subtask-id>
+
+# Show task hierarchy starting from specific task
+minsky tasks hierarchy <task-id> [--depth <max-depth>]
 ```
 
-### 4. Enhanced Task Display
+#### 3.2 Enhanced Existing Commands
 
-- Show task hierarchy in `tasks list` with indentation
-- Include parent/child information in `tasks get` output
-- Support filtering by hierarchy level
+```bash
+# Enhanced task listing with hierarchy indicators
+minsky tasks list --status TODO
+# Output:
+# - #001: Root Task [TODO]
+#   └─ #002: Subtask A [TODO]
+#      └─ #003: Sub-subtask [IN-PROGRESS]
+#   └─ #004: Subtask B [TODO]
 
-### 5. AI Integration (Building on Task #175)
+# Get task details with hierarchy context
+minsky tasks get #002
+# Shows: parent task, sibling subtasks, child subtasks
 
-- `minsky tasks decompose <task-id>` creates actual subtasks (not just suggestions)
-- AI-generated subtasks maintain proper parent-child relationships
-- Integration with existing AI estimation capabilities
+# Task creation with automatic parent detection (from AI decomposition)
+minsky tasks create --parent <parent-id> --title "Generated Subtask"
+```
 
-## Implementation Steps
+### 4. AI Integration (Building on Task #175)
 
-### Step 1: Data Model & Types
+#### 4.1 Enhanced Decomposition
 
-- [ ] Update TaskData interface with hierarchy fields
-- [ ] Add validation for parent-child relationships
-- [ ] Create utility functions for hierarchy operations
-- [ ] Add hierarchy-specific error types
+```bash
+# AI decomposition with automatic subtask creation
+minsky tasks decompose #001 --create-subtasks
+# Result: Creates subtasks under #001 with proper hierarchy
 
-### Step 2: Backend Implementation
+# Estimate subtask complexity in context of parent
+minsky tasks estimate #002 --include-hierarchy-context
+```
 
-- [ ] Update MarkdownTaskBackend for hierarchical tasks
-- [ ] Extend JsonFileTaskBackend with parent/child storage
-- [ ] Implement hierarchy support in GitHubIssuesTaskBackend
-- [ ] Add migration utilities for existing tasks
+#### 4.2 Intelligent Subtask Creation
 
-### Step 3: Core Domain Logic
+- AI analyzes parent task and suggests logical decomposition
+- Creates subtasks with appropriate metadata and relationships
+- Maintains traceability from AI decomposition to task structure
+- Supports iterative refinement of task breakdowns
 
-- [ ] Implement hierarchy validation (prevent cycles, orphans)
-- [ ] Add functions for hierarchy traversal and querying
-- [ ] Create subtask creation/management logic
-- [ ] Implement hierarchy-aware task status propagation
+### 5. Backend Implementation Updates
 
-### Step 4: CLI Commands
+#### 5.1 TaskBackend Interface Extensions
 
-- [ ] Add `create-subtask` command
-- [ ] Extend `list` command with hierarchy options
-- [ ] Update `get` command to show hierarchy information
-- [ ] Add `move` and `detach` commands for hierarchy management
+```typescript
+interface TaskBackend {
+  // ... existing methods
 
-### Step 5: AI Integration
+  // Hierarchical operations (optional - only implemented if backend supports)
+  supportsHierarchy?(): boolean;
+  createSubtask?(parentId: string, subtaskData: TaskData): Promise<TaskWriteOperationResult>;
+  moveTask?(taskId: string, newParentId: string | null): Promise<TaskWriteOperationResult>;
+  getTaskHierarchy?(rootId: string): Promise<TaskReadOperationResult>;
+}
+```
 
-- [ ] Extend Task #175 decompose command to create actual subtasks
-- [ ] Update AI prompts to understand task hierarchy context
-- [ ] Add hierarchy-aware task analysis capabilities
+#### 5.2 Backward Compatibility Strategy
 
-### Step 6: Testing & Documentation
+- All hierarchical fields are optional in TaskData
+- Existing tasks without hierarchy data continue to work normally
+- Legacy task operations remain unchanged
+- Gradual migration path for adding hierarchy to existing tasks
 
-- [ ] Comprehensive test suite for hierarchy operations
-- [ ] Migration testing for existing task workflows
-- [ ] Update documentation with hierarchy examples
-- [ ] Backward compatibility verification
+### 6. Testing Requirements
 
-## Acceptance Criteria
+#### 6.1 Unit Tests
 
-### Core Functionality
+- TaskData extension compatibility
+- Hierarchy validation functions
+- Pure function correctness
+- Backend compatibility across all implementations
 
-- [ ] Users can create subtasks with explicit parent relationships
-- [ ] Task listing shows hierarchical structure with proper indentation
-- [ ] All existing task workflows function without modification
-- [ ] Parent task status reflects subtask completion state
+#### 6.2 Integration Tests
 
-### AI Integration
+- CLI command functionality
+- AI decomposition integration
+- Cross-backend hierarchy support
+- Migration scenarios
 
-- [ ] `minsky tasks decompose` automatically creates subtasks with proper relationships
-- [ ] AI can analyze tasks with hierarchy context
-- [ ] Subtask generation maintains consistency with parent task scope
+#### 6.3 Backward Compatibility Tests
 
-### Data Integrity
+- Existing workflows continue to function
+- Legacy task data remains valid
+- No breaking changes to existing APIs
 
-- [ ] Hierarchy relationships are validated and consistent
-- [ ] No circular dependencies in task relationships
-- [ ] Task deletion properly handles orphaned subtasks
-- [ ] Backend migrations preserve existing task data
+## Implementation Plan
 
-### User Experience
+### Step 1: Core Data Model (Week 1)
 
-- [ ] Hierarchy visualization is clear and intuitive
-- [ ] Commands follow existing Minsky CLI patterns
-- [ ] Error messages are helpful for hierarchy violations
-- [ ] Performance remains good with large task hierarchies
+- [ ] Extend TaskData interface with hierarchical fields
+- [ ] Implement hierarchy validation functions
+- [ ] Add comprehensive unit tests for data model
 
-## Dependencies
+### Step 2: Backend Updates (Week 1-2)
 
-- Task #175: Add AI-powered task management subcommands (for AI integration)
-- Requires understanding of existing task backend architecture
+- [ ] Update JSON backend with hierarchy support
+- [ ] Extend markdown backend parsing/formatting
+- [ ] Add GitHub backend issue linking support
+- [ ] Ensure backward compatibility across all backends
 
-## Future Compatibility
+### Step 3: Domain Service Integration (Week 2)
 
-This implementation sets the foundation for:
+- [ ] Extend TaskService with hierarchy operations
+- [ ] Add subtask management functions
+- [ ] Integrate with existing task creation/updating flows
 
-- Phase 2: Task dependencies and graph relationships
-- Phase 3: Planning vs execution separation
-- Phase 4: Advanced visualization and workflow features
+### Step 4: CLI Commands (Week 2-3)
 
-## Estimated Effort
+- [ ] Implement create-subtask command
+- [ ] Add hierarchical listing options
+- [ ] Create move/detach commands
+- [ ] Update existing commands with hierarchy awareness
 
-Medium-Large (6-10 hours)
+### Step 5: AI Integration (Week 3)
 
-- Data model changes are straightforward
-- Backend updates require careful testing
-- CLI command additions follow existing patterns
-- AI integration builds on established foundation
+- [ ] Integrate with Task #175 decomposition
+- [ ] Add automatic subtask creation
+- [ ] Enhance estimation with hierarchy context
 
+### Step 6: Testing & Documentation (Week 3-4)
 
-## Requirements
-
-[To be filled in]
+- [ ] Comprehensive testing across all components
+- [ ] Documentation updates
+- [ ] Migration guides for existing users
 
 ## Success Criteria
 
-[To be filled in]
+### Functional Requirements
+
+- [ ] Users can create subtasks with explicit parent relationships
+- [ ] Hierarchical task listing displays proper tree structure
+- [ ] AI decomposition automatically creates subtask relationships
+- [ ] All existing task workflows function unchanged
+- [ ] Hierarchy validation prevents circular references
+
+### Technical Requirements
+
+- [ ] All task backends support hierarchical data
+- [ ] Performance impact is minimal for flat task workflows
+- [ ] Data migration is seamless for existing users
+- [ ] API remains backward compatible
+
+### User Experience Requirements
+
+- [ ] Intuitive CLI commands for hierarchy management
+- [ ] Clear visual indicators for parent-child relationships
+- [ ] Helpful error messages for invalid operations
+- [ ] Smooth integration with existing task management workflows
+
+## Future Integration Points
+
+### Phase 2 Preparation
+
+- Data model supports dependency relationships
+- CLI commands provide foundation for dependency operations
+- Backend architecture supports graph-like task relationships
+
+### AI Enhancement Opportunities
+
+- Learning from user hierarchy patterns
+- Suggesting optimal task decomposition strategies
+- Automated hierarchy reorganization based on task progress
+
+## Estimated Effort
+
+**6-10 hours** across 3-4 weeks with incremental delivery and testing
+
+## Risk Mitigation
+
+### Technical Risks
+
+- **Backend compatibility**: Comprehensive testing across all backends
+- **Performance impact**: Benchmark testing with large task sets
+- **Data migration**: Phased rollout with fallback options
+
+### User Experience Risks
+
+- **Workflow disruption**: Maintain exact backward compatibility
+- **Complexity creep**: Keep hierarchical features optional and intuitive
+- **Learning curve**: Comprehensive documentation and examples
