@@ -19,6 +19,32 @@ The current task system treats all tasks as independent entities. To support eff
 
 **⚠️ CRITICAL SEQUENCING**: This task MUST NOT begin implementation until Task #235 has completed its architectural decision and provided implementation guidelines. The technical implementation details described below may need to be significantly revised based on #235's architectural recommendations.
 
+## Future Direction Considerations
+
+### Multi-Level Task Graph Architecture
+
+**RESEARCH REQUIRED**: This implementation should be designed to support future extension to a multi-level task graph with the following hierarchy:
+
+1. **User-specified tasks** (from user requirements)
+2. **AI-decomposed strategic subtasks** (high-level breakdown)
+3. **Tactical subtasks/todos** (immediate action items: tool calls, code generation, thinking steps)
+
+**Key architectural questions to preserve in this implementation:**
+
+- Should tactical subtasks be full task entities or lightweight execution metadata?
+- How to support human-in-the-loop intervention at any graph level?
+- How to enable subgraph recomputation when user requirements change?
+- How to integrate with ephemeral git branches for rollback capabilities?
+
+**Design Constraint**: Implementation must not preclude future addition of:
+
+- **Inspectable task graphs** - Full visibility before execution
+- **Intervention points** - Human review/modification between execution phases
+- **Requirement iteration** - Ability to modify user requirements and recompute affected subgraphs
+- **Execution rollback** - Using ephemeral git branches for safe experimentation
+
+**Architecture Impact**: The parent-child relationship system designed here should be extensible to support different relationship types and task weights (heavyweight strategic vs lightweight tactical).
+
 ## Goal
 
 Implement a parent-child task relationship system that enables:

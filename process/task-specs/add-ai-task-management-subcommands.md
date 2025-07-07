@@ -29,6 +29,33 @@ This enhances the manual task hierarchy system with intelligent automation capab
 
 The AI integration approach described below may need to be revised based on #235's architectural decisions regarding metadata storage and backend capabilities.
 
+## Future Direction Considerations
+
+### Tactical Subtask Generation
+
+**RESEARCH REQUIRED**: This AI-powered decomposition should be designed to support future extension to generate tactical subtasks/todos - immediate action items that represent individual AI operations:
+
+- Tool calls (grep_search, read_file, edit_file, etc.)
+- Code generation steps
+- Thinking/analysis steps
+- Verification operations
+
+**Key architectural questions to preserve in this implementation:**
+
+- Should tactical subtasks be stored as full task entities or lightweight execution metadata?
+- How to support human-in-the-loop intervention before tactical execution?
+- How to enable tactical subgraph recomputation when strategic requirements change?
+- How to balance storage efficiency with full task graph visibility?
+
+**Design Constraint**: The AI decomposition system should be extensible to support:
+
+- **Pre-execution inspection** - Full tactical plan visibility before any actions
+- **Intervention checkpoints** - Human review/modification of tactical plans
+- **Subgraph recomputation** - Regenerating tactical plans when strategic tasks change
+- **Execution rollback** - Using ephemeral git branches for safe tactical experimentation
+
+**Architecture Impact**: Consider how AI-generated tactical subtasks relate to strategic subtasks and user-specified tasks in the overall hierarchy.
+
 ## Proposed Solution
 
 **NOTE**: The technical approach described below is provisional and subject to revision based on Task #235's architectural decisions and the implemented hierarchy system.
