@@ -400,7 +400,7 @@
 
 - [ ] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
 
-- [x] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
+- [+] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
 
 - [x] Remove temporary SessionDB compatibility layer and update all imports [#225](process/tasks/225-remove-temporary-sessiondb-compatibility-layer-and-update-all-imports.md)
 
@@ -440,7 +440,7 @@
 
 - [ ] Advanced Visualization and Database Migration [#243](process/tasks/243-advanced-visualization-and-database-migration.md)
 
-- [+] Complete configuration system standardization and cleanup [#244](process/tasks/244-complete-configuration-system-standardization-and-cleanup.md)
+- [+] Implement comprehensive test isolation framework to eliminate suite interference [#244](process/tasks/244-implement-comprehensive-test-isolation-framework-to-eliminate-suite-interference.md)
 
 - [+] Complete configuration system standardization and cleanup [#245](process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
 
@@ -452,4 +452,4 @@
 
 - [ ] Investigate and Improve Session-Aware Edit/Reapply MCP Tools with Fast-Apply APIs [#249](process/tasks/249-investigate-and-improve-session-aware-edit-reapply-mcp-tools-with-fast-apply-apis.md)
 
-- [ ] Investigate and Implement Session-Aware Code Search MCP Tools with Fast Retrieval APIs [#250](/Users/edobry/Projects/minsky/process/tasks/250-investigate-and-implement-session-aware-code-search-mcp-tools-with-fast-retrieval-apis.md)
+- [ ] Investigate and Implement Session-Aware Code Search MCP Tools with Fast Retrieval APIs [#250](process/tasks/250-investigate-and-implement-session-aware-code-search-mcp-tools-with-fast-retrieval-apis.md)

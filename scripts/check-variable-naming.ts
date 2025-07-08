@@ -36,7 +36,7 @@ function getAllTsFiles(dir: string): string[] {
 function checkFile(filePath: string): VariableNamingIssue[] {
   const issues: VariableNamingIssue[] = [];
   const content = readFileSync(filePath, "utf8");
-  const lines = (content).toString().split("\n");
+  const lines = content.toString().split("\n");
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -111,9 +111,15 @@ function checkFile(filePath: string): VariableNamingIssue[] {
     }
 
     // Check for arrow function parameters with underscores
-    const arrowMatch = line.match(/\(\s*([^)]*_\w+[^)]*)\s*\)\s*=>/);
+    // This regex specifically looks for arrow functions at the start of expressions or after =, :, etc.
+    const arrowMatch = line.match(/(?:^|[=:,\s])\s*\(\s*([^)]*_\w+[^)]*)\s*\)\s*=>/);
     if (arrowMatch) {
       const params = arrowMatch[1];
+      // Skip if the parameters contain string literals (like "child_process")
+      const singleQuote = String.fromCharCode(39); // single quote
+      if (params.includes("\"") || params.includes(singleQuote)) {
+        continue;
+      }
       const underscoreParams = params.match(/_\w+/g) || [];
 
       for (const underscoreParam of underscoreParams) {
