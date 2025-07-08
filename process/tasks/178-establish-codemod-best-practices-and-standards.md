@@ -199,24 +199,21 @@ This task aims to:
 - ✅ Created comprehensive cursor rule (.cursor/rules/codemod-development-standards.mdc)
 - ✅ Developed codemods directory README with full documentation
 
-### Phase 4: Systematic Consolidation and Refactoring (ACTIVE)
-7. **Analyze Current Codemod Redundancy** 🔄 **IN PROGRESS**
-   - [x] Catalog 90+ existing codemods for redundancy analysis
-   - [x] Identify consolidation categories (unused imports, variables, TS errors, etc.)
-   - [ ] Extract additional utility classes beyond the initial 4
-   - [ ] Create consolidation plan for each category
+### Phase 4: Proper Code Treatment with Boundary Validation Testing (ACTIVE)
+7. **Establish Boundary Validation Testing Pattern** ✅ **COMPLETED**
+   - [x] Document comprehensive codemod with exact problem description
+   - [x] Create boundary validation test that verifies codemod does ONLY what it claims
+   - [x] Establish pattern: tests must validate positive AND negative constraints
+   - [x] Codify pattern into automation-approaches.mdc and codemods-directory.mdc rules
+   - [x] Create enforcement protocols for all future codemod development
 
-8. **Systematic One-by-One Refactoring** 🔄 **IN PROGRESS**
-   - [x] Refactor fix-variable-naming-ast.ts to use VariableNamingCodemod
-   - [x] Refactor unused-imports-cleanup.ts to use UnusedImportCodemod  
-   - [x] Refactor prefix-unused-function-params.ts to use UnusedVariableCodemod
-   - [x] Extract TypeScript Error Fixing utility class ✅ **COMPLETED**
-   - [x] Refactor fix-ts2322-ast-based.ts to use TypeScriptErrorCodemod ✅ **COMPLETED**
-   - [x] Refactor fix-ts2345-argument-errors.ts to use TypeScriptErrorCodemod ✅ **COMPLETED**
-   - [ ] Consolidate redundant unused import codemods (6+ variations)
-   - [ ] Consolidate redundant unused variable codemods (15+ variations)
-   - [ ] Consolidate redundant TypeScript error codemods (20+ variations)
-   - [ ] Remove obsolete/wrong/one-off codemods
+8. **Systematic Codemod Documentation and Testing** 🔄 **IN PROGRESS**
+   - [x] Document fix-ts2564-property-initialization.ts with comprehensive problem analysis
+   - [x] Create boundary validation test proving it does ONLY what it claims
+   - [x] Establish testing pattern: configuration mirroring, mixed scenarios, constraint validation
+   - [ ] Apply documentation and boundary testing pattern to remaining 87 codemods
+   - [ ] Identify true duplicates vs different problem solvers based on documented functionality
+   - [ ] Remove obsolete/wrong/one-off codemods after proper analysis
 
 **CONSOLIDATION CATEGORIES IDENTIFIED:**
 
@@ -255,13 +252,22 @@ This task aims to:
 - multi-stage-fixer.ts, phase2-cleanup.ts (likely obsolete)
 
 **Phase 4 Goals:**
-- Reduce 90+ codemods to ~15-20 consolidated, utility-based codemods
-- Extract TypeScriptErrorCodemod utility class for TS error patterns
-- Remove obsolete/wrong/one-off codemods
-- Ensure all remaining codemods use utility class inheritance
-- Document consolidation decisions and rationale
-- ✅ Established migration paths and review processes
-- ✅ Integrated with existing automation-approaches.mdc rule
+- Transform all codemods from "mysterious scripts" to "well-documented, tested tools"
+- Establish boundary validation testing pattern for all codemods
+- Document exact problem each codemod solves with comprehensive analysis
+- Create tests that prove codemods do ONLY what they claim to do
+- Identify true duplicates vs different problem solvers based on documented functionality
+- Remove obsolete/wrong/one-off codemods after proper analysis
+- Codify testing patterns into rules for future development
+
+**Phase 4 Benefits:**
+- Proper understanding of what each codemod actually does through comprehensive documentation
+- Tests that validate codemods do ONLY what they claim (positive AND negative constraints)
+- Clear differentiation between similar-looking but different codemods based on documented functionality
+- Better consolidation decisions based on actual problem analysis, not just file names
+- Improved maintainability and reliability through boundary validation testing
+- Foundation for proper codemod development standards with enforced testing patterns
+- Prevention of codemods accidentally modifying unrelated code through constraint validation
 
 ### Phase 4: Implementation and Utility Development (40% of effort) ✅ **COMPLETED**
 7. **Develop Codemod Utilities Framework** ✅ **COMPLETED**
