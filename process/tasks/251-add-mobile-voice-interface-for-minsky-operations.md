@@ -16,6 +16,10 @@ MEDIUM
 
 Minsky currently operates through CLI and MCP interfaces, requiring text-based interaction. A mobile/voice interface would provide natural language interaction similar to ChatGPT/Claude's voice mode, allowing users to perform any Minsky operation through conversational AI. This would significantly improve accessibility and user experience, especially for mobile users and hands-free scenarios.
 
+## Related Tasks
+
+- **Task #252 (Task Management UI System)**: Shares potential chat UI components and backend architecture. The voice interface could integrate with visual task management components, and both systems could benefit from a unified chat interface that Minsky controls rather than relying on external services permanently.
+
 ## Objectives
 
 1. **Voice-First Mobile Interface**
@@ -89,6 +93,7 @@ Minsky currently operates through CLI and MCP interfaces, requiring text-based i
    - AI conversation service
    - Minsky operation service
    - Mobile API gateway
+   - **Shared Chat UI Service** (potential integration with Task #252)
 
 2. **Real-time Communication**
 
@@ -97,10 +102,16 @@ Minsky currently operates through CLI and MCP interfaces, requiring text-based i
    - Push notifications for async operation completion
 
 3. **Data Management**
+
    - Voice session storage and retrieval
    - Conversation history persistence
    - User preferences and customization
    - Analytics and usage tracking
+
+4. **Integration Considerations**
+   - **Shared Components**: Chat UI, authentication, and backend services could be shared with Task Management UI (#252)
+   - **Migration Strategy**: Initially use external AI services (OpenAI/Claude), with option to migrate to self-hosted AI backend
+   - **Unified Architecture**: Design for eventual integration with visual task management components
 
 ## Implementation Steps
 
@@ -155,10 +166,12 @@ Minsky currently operates through CLI and MCP interfaces, requiring text-based i
 
 ### AI Integration
 
-- **Primary**: OpenAI GPT-4 or Claude 3 for natural language understanding
+- **Phase 1 (External)**: OpenAI GPT-4 or Claude 3 for natural language understanding
+- **Phase 2 (Self-hosted)**: Option to migrate to self-hosted AI backend for full control
 - **Fallback**: Local language models for offline scenarios
 - **Context Window**: Maintain conversation context across sessions
 - **Prompt Engineering**: Custom prompts for Minsky-specific operations
+- **Chat UI Control**: Eventually transition from external chat interfaces to Minsky-controlled chat UI
 
 ### Mobile Technologies
 
@@ -243,7 +256,6 @@ Minsky currently operates through CLI and MCP interfaces, requiring text-based i
    - Custom voice models for organizations
    - Advanced analytics and reporting
    - Compliance and audit trails
-
 
 ## Requirements
 

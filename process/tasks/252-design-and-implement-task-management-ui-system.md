@@ -16,12 +16,17 @@ MEDIUM
 
 Design and implement a comprehensive task management UI for Minsky that provides visualization, interaction, and management capabilities for tasks, dependencies, and workflows. The system should explore multiple implementation approaches and provide a flexible architecture that can integrate with existing task backends while offering Minsky-specific enhancements.
 
+## Related Tasks
+
+- **Task #251 (Mobile/Voice Interface)**: Shares potential chat UI components and backend architecture. The task management UI could include voice capabilities and conversational task management, while both systems could benefit from a unified chat interface that Minsky controls rather than relying on external services permanently.
+
 ## Goals
 
 1. **Provide visual task management**: Create an intuitive interface for viewing, managing, and interacting with tasks
 2. **Support multiple backend integrations**: Explore integration with GitHub Issues, Linear, and other task management platforms
 3. **Enable Minsky-specific workflows**: Support task spec regeneration, session management, and dependency visualization
 4. **Offer flexible deployment options**: Evaluate web app, VSCode extension, and terminal-based approaches
+5. **Chat UI Integration**: Develop a Minsky-controlled chat interface that can be shared with voice/mobile interfaces (Task #251)
 
 ## Requirements
 
@@ -56,10 +61,18 @@ Design and implement a comprehensive task management UI for Minsky that provides
    - Show impact analysis for task changes
 
 5. **Time-based Views**
+
    - Show task timeline and history
    - Display "truncated subgraphs" when specs are recomputed
    - Track changes and evolution over time
    - Support versioning and rollback capabilities
+
+6. **Chat UI and Voice Integration**
+   - Implement Minsky-controlled chat interface for conversational task management
+   - Support natural language task creation and modification
+   - Provide voice command capabilities (integration with Task #251)
+   - Enable text-to-speech for task updates and notifications
+   - Support both external AI services (initial) and self-hosted AI backend (future)
 
 ### Technical Requirements
 
@@ -109,6 +122,13 @@ Design and implement a comprehensive task management UI for Minsky that provides
 - **Cons**: Complex architecture, maintenance overhead
 - **Technologies**: Modular architecture with multiple frontends
 
+### 5. Chat UI Integration Approach
+
+- **Pros**: Natural language interaction, voice integration, unified interface
+- **Cons**: AI integration complexity, potential latency issues
+- **Technologies**: Chat UI components, AI API integration, voice processing
+- **Shared Components**: Can be used by both web and mobile interfaces (Task #251)
+
 ## Backend Integration Strategy
 
 ### 1. Native Backend (JSON/File-based)
@@ -134,6 +154,13 @@ Design and implement a comprehensive task management UI for Minsky that provides
 - Users can choose their preferred backend
 - Synchronization between backends
 - Unified interface regardless of backend choice
+
+### 5. Chat UI Backend Integration
+
+- **Shared Chat Service**: Common chat interface backend for both task management and voice interfaces
+- **AI Integration**: Support for external AI services (OpenAI/Claude) with migration path to self-hosted
+- **Migration Strategy**: Start with external services, provide option to transition to Minsky-controlled AI backend
+- **Cross-Platform Support**: Backend designed to support web, mobile, and voice interfaces simultaneously
 
 ## User Experience Considerations
 
@@ -226,7 +253,6 @@ Design and implement a comprehensive task management UI for Minsky that provides
 3. **Backend Limitations**: Fallback strategies and workarounds
 4. **Performance Issues**: Early performance testing and optimization
 5. **User Adoption**: User research and feedback integration throughout development
-
 
 ## Requirements
 
