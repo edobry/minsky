@@ -461,3 +461,7 @@
 - [ ] Implement Task Similarity Search Using Embeddings [#253](process/tasks/253-implement-task-similarity-search-using-embeddings.md)
 
 - [ ] Implement Commit History Similarity Search Using Embeddings [#254](process/tasks/254-implement-commit-history-similarity-search-using-embeddings.md)
+
+- [ ] Fix session dependency installation error [#255](process/tasks/255-fix-session-dependency-installation-error.md)
+
+- [ ] Implement Context-Aware Tool Management System [#256](process/tasks/256-implement-context-aware-tool-management-system.md)
