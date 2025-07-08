@@ -462,6 +462,10 @@
 
 - [ ] Implement Commit History Similarity Search Using Embeddings [#254](process/tasks/254-implement-commit-history-similarity-search-using-embeddings.md)
 
-- [ ] Fix session dependency installation error [#255](process/tasks/255-fix-session-dependency-installation-error.md)
+- [+] Fix session dependency installation error [#255](process/tasks/255-fix-session-dependency-installation-error.md)
 
 - [ ] Implement Context-Aware Tool Management System [#256](process/tasks/256-implement-context-aware-tool-management-system.md)
+
+- [+] Test session for dependency fix [#257](process/tasks/257-test-session-for-dependency-fix.md)
+
+- [ ] Design multi-agent cybernetic supervision system for AI-to-AI task oversight [#258](/Users/edobry/Projects/minsky/process/tasks/258-design-multi-agent-cybernetic-supervision-system-for-ai-to-ai-task-oversight.md)
