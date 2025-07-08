@@ -1,5 +1,28 @@
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { Project, SourceFile, Node, SyntaxKind } from 'ts-morph';
+import { join, basename } from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as ts from 'typescript';
+
+/**
+ * Options for configuring codemod behavior
+ */
+export interface CodemodOptions {
+  dryRun?: boolean;
+  verbose?: boolean;
+  includeTests?: boolean;
+}
+
+/**
+ * Result of applying a codemod to a file
+ */
+export interface CodemodResult {
+  success: boolean;
+  changesApplied: number;
+  error?: string;
+  details?: string;
+}
 
 /**
  * Base Codemod Class
@@ -414,5 +437,215 @@ export class TypeAssertionCodemod extends BaseCodemod {
     // This is a placeholder for more complex type safety logic
     
     return hasChanges;
+  }
+} 
+
+/**
+ * TypeScript Error Codemod - Handles specific TypeScript error codes systematically
+ * 
+ * This class provides a framework for fixing specific TypeScript error codes
+ * by implementing error-specific patterns while maintaining common functionality
+ * like project initialization, file filtering, and progress reporting.
+ */
+export abstract class TypeScriptErrorCodemod extends BaseCodemod {
+  protected project: Project;
+  protected abstract errorCode: string;
+  protected abstract errorDescription: string;
+  protected abstract targetPatterns: string[];
+
+  constructor(options: CodemodOptions = {}) {
+    super();
+    this.project = new Project({
+      tsConfigFilePath: this.findTsConfig(),
+      skipAddingFilesFromTsConfig: true,
+    });
+  }
+
+  private findTsConfig(): string {
+    const paths = ['./tsconfig.json', '../tsconfig.json', '../../tsconfig.json'];
+    for (const path of paths) {
+      if (fs.existsSync(path)) {
+        return path;
+      }
+    }
+    return './tsconfig.json';
+  }
+
+  protected getSourceFiles(): SourceFile[] {
+    const sourceFiles = this.getAllTsFiles('./src').filter(file => 
+      !file.includes('/scripts/') && 
+      !file.includes('test-utils') &&
+      !file.includes('__tests__') &&
+      !file.includes('.test.ts') &&
+      !file.includes('.spec.ts')
+    );
+
+    sourceFiles.forEach(file => this.project.addSourceFileAtPath(file));
+    return this.project.getSourceFiles();
+  }
+
+  private getAllTsFiles(dir: string): string[] {
+    const files: string[] = [];
+    
+    if (!fs.existsSync(dir)) {
+      return files;
+    }
+
+    const items = fs.readdirSync(dir);
+    
+    for (const item of items) {
+      const fullPath = path.join(dir, item);
+      const stat = fs.statSync(fullPath);
+      
+      if (stat.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+        files.push(...this.getAllTsFiles(fullPath));
+      } else if (item.endsWith('.ts') && !item.endsWith('.d.ts')) {
+        files.push(fullPath);
+      }
+    }
+    
+    return files;
+  }
+
+  /**
+   * Synchronous wrapper for BaseCodemod interface
+   */
+  applyToFile(filePath: string): boolean {
+    const result = this.applyToFileSync(filePath);
+    return result.success && result.changesApplied > 0;
+  }
+
+  /**
+   * Synchronous implementation of file processing
+   */
+  protected applyToFileSync(filePath: string): CodemodResult {
+    const sourceFile = this.project.getSourceFile(filePath);
+    if (!sourceFile) {
+      return {
+        success: false,
+        error: `Source file not found: ${filePath}`,
+        changesApplied: 0
+      };
+    }
+
+    const fileName = path.basename(filePath);
+    let fileChanges = 0;
+
+    try {
+      console.log(`Processing ${fileName} for ${this.errorCode} errors...`);
+
+      // Apply error-specific fixes synchronously
+      const changes = this.applyErrorSpecificFixesSync(sourceFile, fileName);
+      fileChanges += changes;
+
+      if (fileChanges > 0) {
+        console.log(`  ✅ ${fileName}: ${fileChanges} ${this.errorCode} fixes applied`);
+      }
+
+      return {
+        success: true,
+        changesApplied: fileChanges,
+        details: `Applied ${fileChanges} ${this.errorCode} fixes`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: `Error processing ${fileName}: ${error}`,
+        changesApplied: fileChanges
+      };
+    }
+  }
+
+  /**
+   * Abstract method to implement error-specific fixes
+   * Each TypeScript error code should implement this method
+   */
+  protected abstract applyErrorSpecificFixesSync(sourceFile: SourceFile, fileName: string): number;
+
+  /**
+   * Helper method to save all changes to project
+   */
+  protected saveAllChanges(): void {
+    this.project.saveSync();
+  }
+
+  /**
+   * Helper method to get nodes of a specific syntax kind
+   */
+  protected getNodesOfKind<T extends SyntaxKind>(
+    sourceFile: SourceFile,
+    kind: T
+  ): Node<ts.Node>[] {
+    return sourceFile.getDescendantsOfKind(kind);
+  }
+
+  /**
+   * Helper method to safely replace text in a node
+   */
+  protected safeReplace(node: Node, newText: string, description: string): boolean {
+    try {
+      node.replaceWithText(newText);
+      console.log(`    ✅ ${description}`);
+      return true;
+    } catch (error) {
+      console.log(`    ⚠️  Failed to replace: ${description} - ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Helper method to check if a node matches a pattern
+   */
+  protected matchesPattern(node: Node, patterns: string[]): boolean {
+    const nodeText = node.getText();
+    return patterns.some(pattern => nodeText.includes(pattern));
+  }
+
+  /**
+   * Helper method to get function context for a node
+   */
+  protected getFunctionContext(node: Node): Node | undefined {
+    return node.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
+           node.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
+           node.getFirstAncestorByKind(SyntaxKind.MethodDeclaration);
+  }
+
+  /**
+   * Helper method to check if a node is in a specific context
+   */
+  protected isInContext(node: Node, contextKinds: SyntaxKind[]): boolean {
+    return contextKinds.some(kind => node.getFirstAncestorByKind(kind) !== undefined);
+  }
+
+  run(): void {
+    console.log(`🎯 Starting ${this.errorCode} (${this.errorDescription}) error fixer...`);
+    console.log(`📊 Target patterns: ${this.targetPatterns.join(', ')}`);
+
+    const sourceFiles = this.getSourceFiles();
+    console.log(`📁 Processing ${sourceFiles.length} source files...`);
+
+    let totalChanges = 0;
+    let filesModified = 0;
+
+    for (const sourceFile of sourceFiles) {
+      const filePath = sourceFile.getFilePath();
+      const result = this.applyToFileSync(filePath);
+      
+      if (result.success && result.changesApplied > 0) {
+        totalChanges += result.changesApplied;
+        filesModified++;
+      } else if (!result.success) {
+        console.log(`  ❌ ${result.error}`);
+      }
+    }
+
+    // Save all changes
+    console.log(`\n💾 Saving all changes...`);
+    this.saveAllChanges();
+
+    console.log(`\n🎉 ${this.errorCode} error fixer completed!`);
+    console.log(`📊 Total changes applied: ${totalChanges}`);
+    console.log(`📁 Files modified: ${filesModified}`);
+    console.log(`🎯 Target: ${this.errorCode} ${this.errorDescription} errors`);
   }
 } 

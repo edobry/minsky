@@ -198,6 +198,67 @@ This task aims to:
 **Phase 3 Deliverables Completed:**
 - ✅ Created comprehensive cursor rule (.cursor/rules/codemod-development-standards.mdc)
 - ✅ Developed codemods directory README with full documentation
+
+### Phase 4: Systematic Consolidation and Refactoring (ACTIVE)
+7. **Analyze Current Codemod Redundancy** 🔄 **IN PROGRESS**
+   - [x] Catalog 90+ existing codemods for redundancy analysis
+   - [x] Identify consolidation categories (unused imports, variables, TS errors, etc.)
+   - [ ] Extract additional utility classes beyond the initial 4
+   - [ ] Create consolidation plan for each category
+
+8. **Systematic One-by-One Refactoring** 🔄 **IN PROGRESS**
+   - [x] Refactor fix-variable-naming-ast.ts to use VariableNamingCodemod
+   - [x] Refactor unused-imports-cleanup.ts to use UnusedImportCodemod  
+   - [x] Refactor prefix-unused-function-params.ts to use UnusedVariableCodemod
+   - [x] Extract TypeScript Error Fixing utility class ✅ **COMPLETED**
+   - [x] Refactor fix-ts2322-ast-based.ts to use TypeScriptErrorCodemod ✅ **COMPLETED**
+   - [ ] Consolidate redundant unused import codemods (6+ variations)
+   - [ ] Consolidate redundant unused variable codemods (15+ variations)
+   - [ ] Consolidate redundant TypeScript error codemods (20+ variations)
+   - [ ] Remove obsolete/wrong/one-off codemods
+
+**CONSOLIDATION CATEGORIES IDENTIFIED:**
+
+**Unused Imports (6+ codemods to consolidate):**
+- unused-imports-cleanup.ts ✅ (refactored, keep as primary)
+- remove-unused-imports.ts (consolidate)
+- remove-obvious-unused-imports.ts (consolidate) 
+- fix-unused-imports.ts (consolidate)
+- fix-tasks-test-unused-imports.ts (one-off, remove)
+
+**Unused Variables/Parameters (15+ codemods to consolidate):**
+- prefix-unused-function-params.ts ✅ (refactored, keep as primary)
+- Fix variations: fix-unused-vars-{comprehensive,final,patterns,proven,simple,targeted}.ts (consolidate)
+- Simple variations: simple-unused-vars{,-cleanup}.ts, smart-unused-vars-fix.ts (consolidate)
+- Target variations: fix-unused-variables-{final,simple,targeted}.ts (consolidate)
+- unused-variables-codemod.ts, unused-parameters-fix.ts (consolidate)
+- precision-unused-variables-cleanup.ts (consolidate)
+
+**Variable Naming (5+ codemods to consolidate):**
+- fix-variable-naming-ast.ts ✅ (refactored, keep as primary)
+- modern-variable-naming-fix.ts (consolidate)
+- fix-underscore-prefix.ts (consolidate)
+- fix-result-underscore-mismatch.ts (consolidate)
+- fix-repository-naming-issues{,-improved}.ts (consolidate)
+- simple-underscore-fix.ts (consolidate)
+
+**TypeScript Error Fixing (20+ codemods - EXTRACT NEW UTILITY):**
+- TS2322 (12+ variations): fix-ts2322-{ast-based,targeted,remaining,current-patterns,etc}.ts
+- TS2345 (4+ variations): fix-ts2345-{argument-errors,argument-types,specific-patterns,targeted}.ts  
+- TS18048 (2+ variations): fix-ts18048-{precise-patterns,undefined-errors}.ts
+- Other TS errors: fix-ts{2353,2552,2564,2769,18046}-*.ts
+- **ACTION**: Extract TypeScriptErrorCodemod utility class
+
+**Bulk/Generic Fixers (4+ codemods - evaluate necessity):**
+- surgical-bulk-fixer.ts, targeted-bulk-fixer.ts, main-source-fixer.ts (evaluate)
+- multi-stage-fixer.ts, phase2-cleanup.ts (likely obsolete)
+
+**Phase 4 Goals:**
+- Reduce 90+ codemods to ~15-20 consolidated, utility-based codemods
+- Extract TypeScriptErrorCodemod utility class for TS error patterns
+- Remove obsolete/wrong/one-off codemods
+- Ensure all remaining codemods use utility class inheritance
+- Document consolidation decisions and rationale
 - ✅ Established migration paths and review processes
 - ✅ Integrated with existing automation-approaches.mdc rule
 
