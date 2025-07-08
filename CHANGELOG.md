@@ -180,6 +180,16 @@ _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/20
 
 ### Fixed
 
+- **Task #255: Fix Session Dependency Installation Error**
+  - Fixed critical bug where session startup would fail with "null is not an object" error during dependency installation
+  - Issue: execSync returns null when stdio is "ignore" but code was calling .toString() on the null value
+  - Solution: Added proper null check before calling .toString() in src/utils/package-manager.ts
+  - All existing package manager tests pass (17/17)
+  - Session creation now works correctly in quiet mode without dependency installation errors
+  - Maintains backward compatibility with existing functionality for non-quiet mode
+
+_See: SpecStory history [2025-01-29_task-255-fix-session-dependency-installation](mdc:.specstory/history/2025-01-29_task-255-fix-session-dependency-installation.md) for implementation details._
+
 - **Task #166: Complete TypeScript Error Resolution After Removing @types/commander**
   - Successfully eliminated all 700+ TypeScript errors revealed after removing incompatible @types/commander package
   - Fixed TaskBackend interface conflicts by consolidating duplicate interfaces across modules
