@@ -31,47 +31,89 @@
 
 ## 📊 **Current Analysis Results**
 
+### **Latest Test Analysis** (See: [test-failure-analysis.md](../../test-failure-analysis.md))
+
 ### **Test Failure Breakdown** (161 total failures)
 
 **Priority Categories:**
 
 1. **Database/Storage Backend Issues** - 43 failures (26.7%)
 
-   - Pattern: `SQLiteError: unable to open database file`
-   - Root cause: Database backends not properly isolated between tests
+   - Pattern: `SQLiteError: unable to open database file` or `Failed to initialize storage backend`
+   - Root cause: Database backends not properly isolated between tests, causing file conflicts and initialization failures
+   - Example error: `SQLiteError: unable to open database file (errno: 14, code: "SQLITE_CANTOPEN")`
+   - Affected files: `src/domain/storage/__tests__/database-integrity-checker.test.ts`, `src/domain/storage/__tests__/enhanced-storage-backend-factory.test.ts`
 
 2. **Infinite Loop/Timeout Issues** - 27 failures (16.8%)
 
-   - Pattern: Tests running for 4.8+ billion milliseconds
-   - Root cause: Variable naming mismatches causing infinite loops
+   - Pattern: Tests running for 4.8+ billion milliseconds (infinite execution)
+   - Root cause: Variable naming mismatches causing infinite loops in async operations (discovered in Task #224)
+   - Example error: `(fail) SessionPathResolver > Path Resolution > should resolve relative paths correctly [4835260061.02ms]`
+   - Affected files: `src/domain/session/__tests__/session-path-resolver.test.ts`
+   - Impact: Critical - Tests become completely unusable with infinite execution
 
 3. **Mock/Test Isolation Issues** - 35 failures (21.7%)
 
-   - Pattern: Mock state bleeding between test files
-   - Root cause: Improper mock setup/teardown
+   - Pattern: Mock state bleeding between test files, improper mock setup/teardown
+   - Root cause: Mocks aren't properly isolated or reset between tests
+   - Example error: `error: expect(received).not.toBeNull() - Received: null`
+   - Affected files: `src/domain/session/__tests__/session-auto-detection-integration.test.ts`, `src/adapters/__tests__/shared/commands/session.test.ts`
+   - Impact: Medium - Tests failing due to mock state issues
 
 4. **Configuration/Parameter Mismatch** - 31 failures (19.3%)
 
-   - Pattern: Test expectations not matching current parameter formats
-   - Root cause: Parameter normalization changes not reflected in tests
+   - Pattern: Tests expecting different parameter formats or defaults
+   - Root cause: Changes in parameter normalization or default values not reflected in tests
+   - Example error: `error: expect(received).toEqual(expected) - Expected: {"json": true, "name": "test-session", "repo": "/test/repo"} - Received: {"json": false, "name": "test-session", "task": undefined}`
+   - Affected files: `src/adapters/__tests__/shared/commands/session.test.ts`
+   - Impact: Medium - Tests failing due to parameter format changes
 
 5. **Path Resolution Issues** - 15 failures (9.3%)
+
+   - Pattern: Tests related to workspace and path resolution
+   - Root cause: Changes in path resolution logic not reflected in test expectations
+   - Example error: `(fail) resolveWorkspacePath > returns current directory when no workspace option is provided`
+   - Affected files: `src/domain/workspace/__tests__/workspace-domain-methods.test.ts`
+
 6. **Missing Module/Import Issues** - 6 failures (3.7%)
+
+   - Pattern: Tests that can't find required modules
+   - Root cause: Missing or incorrect imports, module restructuring
+   - Example error: `error: Cannot find module '../../shared/command-registry'`
+   - Affected files: `src/adapters/shared/commands/__tests__/sessiondb.test.ts`
+
 7. **Validation/Business Logic Issues** - 4 failures (2.5%)
+   - Pattern: Tests where business logic has changed but tests haven't been updated
+   - Root cause: Changes in validation logic or business rules
+   - Example error: `error: expect(received).toThrow(expected) - Expected: StringContaining "Database integrity check failed"`
+   - Impact: Low - Isolated business logic changes
 
 ### **Current Metrics**
 
 - **Total tests**: 939 tests across 102 files
 - **Failing tests**: 161 tests (17.1% failure rate)
-- **Pass rate**: 82.9% (778 pass / 939 total)
+- **Pass rate**: 82.1% (770 pass / 939 total)
+- **Errors**: 43 errors
+- **Skipped**: 8 tests
 - **Target**: 95%+ pass rate (895+ tests passing)
-- **Gap**: 117 additional tests need to pass
+- **Gap**: 125 additional tests need to pass
+
+### **Priority Analysis**
+
+**High Priority (Fix First):**
+
+1. **Database/Storage Backend Issues** - 43 failures (Implement proper test isolation)
+2. **Infinite Loop/Timeout Issues** - 27 failures (Fix variable naming mismatches)
+
+**Medium Priority (Fix Second):** 3. **Mock/Test Isolation Issues** - 35 failures (Implement proper mock state management) 4. **Configuration/Parameter Mismatch Issues** - 31 failures (Update test expectations)
+
+**Low Priority (Fix Last):** 5. **Path Resolution Issues** - 15 failures 6. **Missing Module/Import Issues** - 6 failures 7. **Validation/Business Logic Issues** - 4 failures
 
 ## 🎯 **Success Criteria**
 
 ### **Primary Objectives**
 
-- [ ] **Test Suite Pass Rate:** Increase from 82.9% to 95%+ (eliminate 117+ interference failures)
+- [ ] **Test Suite Pass Rate:** Increase from 82.1% to 95%+ (eliminate 125+ interference failures)
 - [ ] **Individual vs Suite Consistency:** <2% difference between isolated and suite execution
 - [ ] **Test Execution Time:** Maintain or improve current performance
 - [ ] **Developer Experience:** Zero manual cleanup required between test runs
@@ -223,7 +265,7 @@ export class MockManager {
 
 ### **Quantitative Improvements**
 
-- **Test Success Rate:** 82.9% → 95%+ (eliminate 117+ failures)
+- **Test Success Rate:** 82.1% → 95%+ (eliminate 125+ failures)
 - **Development Velocity:** Eliminate test debugging time
 - **CI/CD Reliability:** Remove flaky test failures
 - **Maintenance Cost:** Reduce test maintenance overhead
