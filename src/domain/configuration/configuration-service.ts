@@ -177,12 +177,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     // PostgreSQL configuration validation
     if ((config as any).postgres) {
       if ((config.postgres as any).connection_string) {
-        this.validateConnectionString(
-          (config.postgres as any).connection_string,
-          "postgres.connection_string",
-          errors,
-          warnings
-        );
+        this.validateConnectionString((config.postgres as any).connection_string, "postgres.connection_string", errors, warnings);
       }
     }
 
@@ -207,8 +202,7 @@ export class DefaultConfigurationService implements ConfigurationService {
 
     // Only auto-detect if we're using the default backend from detection rules
     const defaultBackend =
-      (config.detectionRules.find((rule) => rule.condition === ("always" as any)) as any).backend ||
-      "json-file";
+      (config.detectionRules.find((rule) => rule.condition === "always" as any) as any).backend || "json-file";
     if ((config as any).backend !== defaultBackend) {
       return config; // Backend was explicitly configured
     }
@@ -274,12 +268,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     // SQLite-specific validation (check if sqlite config exists OR backend is sqlite)
     if (sessionDbConfig.backend === "sqlite" || sessionDbConfig.sqlite) {
       if (sessionDbConfig.sqlite?.path !== undefined) {
-        this.validateFilePath(
-          sessionDbConfig.sqlite.path,
-          `${fieldPrefix}.sqlite.path`,
-          errors,
-          warnings
-        );
+        this.validateFilePath(sessionDbConfig.sqlite.path, `${fieldPrefix}.sqlite.path`, errors, warnings);
       } else if (sessionDbConfig.backend === "sqlite") {
         warnings.push({
           field: `${fieldPrefix}.sqlite.path`,
@@ -292,12 +281,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     // PostgreSQL-specific validation (check if postgres config exists OR backend is postgres)
     if (sessionDbConfig.backend === "postgres" || sessionDbConfig.postgres) {
       if (sessionDbConfig.postgres?.connection_string !== undefined) {
-        this.validateConnectionString(
-          sessionDbConfig.postgres.connection_string,
-          `${fieldPrefix}.postgres.connection_string`,
-          errors,
-          warnings
-        );
+        this.validateConnectionString(sessionDbConfig.postgres.connection_string, `${fieldPrefix}.postgres.connection_string`, errors, warnings);
       } else if (sessionDbConfig.backend === "postgres") {
         errors.push({
           field: `${fieldPrefix}.postgres.connection_string`,
@@ -309,12 +293,7 @@ export class DefaultConfigurationService implements ConfigurationService {
 
     // Base directory validation
     if (sessionDbConfig.base_dir !== undefined) {
-      this.validateDirectoryPath(
-        sessionDbConfig.base_dir,
-        `${fieldPrefix}.base_dir`,
-        errors,
-        warnings
-      );
+      this.validateDirectoryPath(sessionDbConfig.base_dir, `${fieldPrefix}.base_dir`, errors, warnings);
     }
   }
 
@@ -343,12 +322,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     if (aiConfig.providers) {
       for (const [providerName, providerConfig] of Object.entries(aiConfig.providers)) {
         if (providerConfig && typeof providerConfig === "object") {
-          this.validateAIProviderConfig(
-            providerConfig as any,
-            errors,
-            warnings,
-            `${fieldPrefix}.providers.${providerName}`
-          );
+          this.validateAIProviderConfig(providerConfig as any, errors, warnings, `${fieldPrefix}.providers.${providerName}`);
         }
       }
     }
@@ -375,11 +349,7 @@ export class DefaultConfigurationService implements ConfigurationService {
       }
 
       // File-based credential validation
-      if (
-        providerConfig.credentials.source === "file" &&
-        !providerConfig.credentials.api_key &&
-        !providerConfig.credentials.api_key_file
-      ) {
+      if (providerConfig.credentials.source === "file" && !providerConfig.credentials.api_key && !providerConfig.credentials.api_key_file) {
         warnings.push({
           field: `${fieldPrefix}.credentials`,
           message: "Neither api_key nor api_key_file specified for file-based credential source",
@@ -389,10 +359,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     }
 
     // Model configuration validation
-    if (
-      providerConfig.max_tokens &&
-      (typeof providerConfig.max_tokens !== "number" || providerConfig.max_tokens <= 0)
-    ) {
+    if (providerConfig.max_tokens && (typeof providerConfig.max_tokens !== "number" || providerConfig.max_tokens <= 0)) {
       errors.push({
         field: `${fieldPrefix}.max_tokens`,
         message: "max_tokens must be a positive number",
@@ -400,12 +367,7 @@ export class DefaultConfigurationService implements ConfigurationService {
       });
     }
 
-    if (
-      providerConfig.temperature &&
-      (typeof providerConfig.temperature !== "number" ||
-        providerConfig.temperature < 0 ||
-        providerConfig.temperature > 2)
-    ) {
+    if (providerConfig.temperature && (typeof providerConfig.temperature !== "number" || providerConfig.temperature < 0 || providerConfig.temperature > 2)) {
       errors.push({
         field: `${fieldPrefix}.temperature`,
         message: "temperature must be a number between 0 and 2",
@@ -453,7 +415,7 @@ export class DefaultConfigurationService implements ConfigurationService {
 
     // Expand and validate the path
     const expandedPath = this.expandPath(filePath);
-
+    
     // Check if path contains unresolved environment variables
     if (expandedPath.includes("${") || expandedPath.includes("$")) {
       warnings.push({
@@ -555,13 +517,12 @@ export class DefaultConfigurationService implements ConfigurationService {
 
     // Expand and validate the path
     const expandedPath = this.expandPath(dirPath);
-
+    
     // Check if path contains unresolved environment variables
     if (expandedPath.includes("${") || expandedPath.includes("$")) {
       warnings.push({
         field: fieldName,
-        message:
-          "Directory path contains environment variables that may not be resolved at runtime",
+        message: "Directory path contains environment variables that may not be resolved at runtime",
         code: "UNRESOLVED_ENV_VARS",
       });
     }
@@ -642,22 +603,16 @@ export class DefaultConfigurationService implements ConfigurationService {
     if (!pgConnectionRegex.test(connectionString)) {
       errors.push({
         field: fieldName,
-        message:
-          "Invalid PostgreSQL connection string format. Expected: postgresql://username:password@host:port/database",
+        message: "Invalid PostgreSQL connection string format. Expected: postgresql://username:password@host:port/database",
         code: "INVALID_CONNECTION_STRING_FORMAT",
       });
     }
 
     // Security warning for plain text passwords
-    if (
-      connectionString.includes("://") &&
-      connectionString.includes(":") &&
-      connectionString.includes("@")
-    ) {
+    if (connectionString.includes("://") && connectionString.includes(":") && connectionString.includes("@")) {
       warnings.push({
         field: fieldName,
-        message:
-          "Consider using environment variables for database credentials instead of plain text",
+        message: "Consider using environment variables for database credentials instead of plain text",
         code: "PLAIN_TEXT_CREDENTIALS",
       });
     }

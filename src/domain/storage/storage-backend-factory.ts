@@ -8,7 +8,7 @@
 import { join } from "path";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import { getDefaultJsonDbPath, getDefaultSqliteDbPath, getMinskyStateDir } from "../../utils/paths";
+import { getMinskyStateDir, getDefaultJsonDbPath, getDefaultSqliteDbPath } from "../../utils/paths";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
 import { JsonFileStorage } from "./backends/json-file-storage";
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
