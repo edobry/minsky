@@ -16,13 +16,18 @@ HIGH
 
 Research and design the architectural foundation for task metadata systems including subtasks, priority, dependencies, and other extended task properties. This task focuses on architectural decision-making and provides the foundation for subsequent implementation tasks. The research will analyze how metadata interacts with different task backends and recommend the optimal architectural approach.
 
-**DIRECTIONAL DECISION**: Minsky will implement a task metadata database to store relationships, dependencies, provenance, and other metadata, while task specifications and content may remain in existing backends (markdown, GitHub Issues, etc.). This task will focus on defining the optimal split between metadata database storage and backend storage.
+**DIRECTIONAL DECISION**: Minsky will implement a task metadata database to store complex relationships, dependencies, provenance, and metadata not supported by task backends. However, the architecture must be sophisticated enough to allow users to continue using their preferred backend interfaces (GitHub Issues UI, markdown editors, etc.) for metadata that backends natively support. This task will focus on designing a hybrid approach that respects backend capabilities and user workflow preferences while providing unified advanced capabilities.
 
 ## Scope
 
 **This task is RESEARCH AND ARCHITECTURE ONLY** - no implementation. Implementation will be handled by subsequent tasks based on the architectural decisions made here.
 
-**PRIMARY FOCUS**: Design the metadata database architecture and determine what should be stored in the metadata database vs. task backends.
+**PRIMARY FOCUS**: Design a sophisticated metadata architecture that balances:
+
+- Backend-native metadata (users can continue using familiar interfaces)
+- Metadata database for advanced capabilities (complex relationships, AI features)
+- Seamless synchronization and conflict resolution between systems
+- Unified query and operation interfaces across all backends
 
 ## Requirements
 
@@ -68,23 +73,40 @@ Research and design the architectural foundation for task metadata systems inclu
 
 #### 2.2 Metadata Database Architecture
 
-- [ ] **Storage Split Design**: Define what goes where:
-  - **Metadata Database**: relationships, dependencies, priority, tags, provenance, user requirements
-  - **Backend Storage**: task specifications, descriptions, status, comments, backend-specific data
-  - **Hybrid/Synchronized**: fields that need to exist in both systems
-- [ ] **Database Schema Design**: Core metadata database structure:
-  - Task entities and unique identification
-  - Relationship tables (parent-child, dependencies, blocking)
-  - Metadata tables (priority, tags, categories, estimates)
-  - Provenance tables (user requirements, creation history)
-  - Backend references and synchronization metadata
-- [ ] **Backend Integration Strategy**: How metadata database connects to backends:
-  - Unique task identification across backends
-  - Synchronization mechanisms and conflict resolution
-  - Backend-agnostic metadata operations
-  - Performance considerations for cross-system queries
+- [ ] **Sophisticated Storage Split Design**: Define nuanced storage strategy:
+  - **Backend-Preferred Metadata**: Priority, labels/tags, assignees, milestones (when backend supports and user prefers backend interface)
+  - **Database-Only Metadata**: Complex relationships, dependencies, provenance, user requirements, AI-generated metadata
+  - **Hybrid Metadata**: Fields that exist in both systems with sophisticated synchronization
+  - **Fallback Metadata**: Backend-native fields that fall back to database when backend doesn't support
+- [ ] **Backend Capability Matrix**: Detailed analysis of what each backend supports:
+  - GitHub Issues: labels, milestones, assignees, linked issues, projects, comments
+  - Markdown: YAML frontmatter fields, content-based metadata
+  - JSON: Flexible schema support for any metadata
+  - Database capabilities when backends lack support
+- [ ] **User Interface Preservation**: Ensure users can continue using preferred interfaces:
+  - GitHub Issues UI for GitHub-native metadata
+  - Markdown editors for frontmatter and content
+  - Minsky CLI/UI for database-only and advanced features
+  - Unified querying across all storage locations
 
-#### 2.3 User Requirements History Architecture
+#### 2.3 Backend Integration Strategy
+
+- [ ] **Bidirectional Synchronization**: Design sophisticated sync mechanisms:
+  - Backend-to-database sync for user-modified metadata
+  - Database-to-backend sync for Minsky-generated metadata
+  - Conflict resolution when same metadata exists in both places
+  - Performance optimization for sync operations
+- [ ] **User Workflow Respect**: Maintain existing user workflows:
+  - GitHub users continue using GitHub Issues interface
+  - Markdown users continue editing files directly
+  - CLI users get unified access to all metadata
+  - No forced migration to Minsky-only interfaces
+- [ ] **Capability-Aware Operations**: Design operations that respect backend capabilities:
+  - Auto-fallback when backend doesn't support specific metadata
+  - Graceful degradation for unsupported features
+  - Clear indication of where metadata is stored and editable
+
+#### 2.4 User Requirements History Architecture
 
 - [ ] **Original Intent Preservation**: Design system for preserving user's consolidated requirements:
   - Capture and maintain current consolidated user requirements (not individual iterations)
@@ -104,24 +126,20 @@ Research and design the architectural foundation for task metadata systems inclu
   - Display for context during task review/updates
   - Export/import for task replication or migration
 
-#### 2.4 User Workflow Analysis
+#### 2.5 User Workflow Analysis
 
-- [ ] **Workflow Scenarios**: Map out different user workflows:
-  - **Pure Minsky**: Users who want to work entirely within Minsky
-  - **GitHub Integration**: Users who primarily use GitHub but want Minsky enhancements
-  - **Multi-tool**: Users who work across multiple project management tools
-  - **Team Collaboration**: Teams with mixed tool preferences
-- [ ] **Workflow Confusion Points**: Identify areas of potential confusion:
-  - Where is the "real" task data?
-  - How do changes propagate between systems?
-  - What happens when systems are out of sync?
-  - How do users know which system to update?
-- [ ] **Workflow Simplification**: Design principles for reducing complexity:
-  - Clear mental models for users
-  - Predictable behavior across different backends
-  - Minimal cognitive overhead for common operations
+- [ ] **Workflow Scenarios**: Map out different user workflows with sophisticated metadata:
+  - **GitHub-Native Users**: Primarily use GitHub Issues UI, want Minsky enhancements
+  - **Markdown-Native Users**: Edit files directly, want metadata in frontmatter when possible
+  - **Hybrid Users**: Use both backend interfaces and Minsky CLI/UI
+  - **Minsky-Primary Users**: Prefer Minsky interfaces but need backend compatibility
+- [ ] **Interface Preference Mapping**: Understand where users want to edit metadata:
+  - Simple metadata (priority, labels) → Backend interfaces when supported
+  - Complex metadata (relationships, dependencies) → Minsky interfaces with database storage
+  - Contextual metadata (comments, descriptions) → Backend interfaces
+  - AI-generated metadata → Database with optional backend sync
 
-#### 2.5 Current Architecture Evaluation
+#### 2.6 Current Architecture Evaluation
 
 - [ ] **Markdown + YAML Frontmatter**: Evaluate current approach:
   - Strengths: Human-readable, version-controllable, flexible
@@ -134,127 +152,134 @@ Research and design the architectural foundation for task metadata systems inclu
 
 ### 3. Architectural Design
 
-#### 3.1 Metadata Database Implementation (PRIMARY APPROACH)
+#### 3.1 Sophisticated Metadata Database Implementation (PRIMARY APPROACH)
 
-- [ ] **Database Technology Selection**: Evaluate options:
+- [ ] **Database Technology Selection**: Evaluate options considering sync requirements:
   - SQLite: Simple, file-based, good for single-user scenarios
-  - PostgreSQL: Full-featured, good for team scenarios
-  - Embedded options: Better integration with Minsky
-- [ ] **Schema Design**: Core metadata database structure:
-  - Task entities and unique identification
-  - Relationship tables (parent-child, dependencies, blocking)
-  - Metadata tables (priority, tags, categories, estimates)
-  - Provenance tables (user requirements, creation history)
-  - Backend synchronization tables
-- [ ] **Backend Integration Layer**: Design abstraction for backend operations:
-  - Task content operations delegated to backends
-  - Metadata operations handled by metadata database
-  - Synchronization and consistency management
-  - Performance optimization for common queries
+  - PostgreSQL: Full-featured, better for complex sync scenarios
+  - Embedded options: Better integration with sophisticated sync logic
+- [ ] **Sophisticated Schema Design**: Database structure supporting hybrid approach:
+  - Task entities with backend references and unique identification
+  - Metadata tables with backend-capability awareness
+  - Synchronization state tracking (last sync, conflict resolution)
+  - Backend-specific metadata mappings and transformations
+- [ ] **Backend Integration Layer**: Design sophisticated abstraction:
+  - Capability-aware routing (backend vs. database storage)
+  - Sophisticated synchronization engine
+  - Conflict resolution and merge strategies
+  - Performance optimization for hybrid queries
 
-#### 3.2 Backend-Specific Adaptations
+#### 3.2 Backend-Specific Sophisticated Integration
 
-- [ ] **Markdown Files**: How to integrate with metadata database:
-  - Minimal frontmatter for backend compatibility
-  - Metadata database as primary source for relationships
-  - File-based task identification and synchronization
-- [ ] **GitHub Issues**: Integration with metadata database:
-  - GitHub issue ID as primary key
-  - Metadata database augments GitHub's native capabilities
-  - Synchronization of overlapping fields (labels, milestones)
-- [ ] **JSON Files**: Enhanced integration:
-  - Metadata database for relationships and complex metadata
-  - JSON files for task content and simple metadata
-  - Hybrid storage optimization
+- [ ] **GitHub Issues**: Sophisticated integration preserving user workflows:
+  - GitHub-native metadata (labels, milestones, assignees) stays in GitHub
+  - Users continue using GitHub Issues UI for supported metadata
+  - Advanced metadata (complex relationships) stored in database
+  - Bidirectional sync with conflict resolution
+- [ ] **Markdown Files**: Sophisticated YAML frontmatter integration:
+  - Simple metadata in frontmatter (priority, tags, status)
+  - Complex metadata in database with file references
+  - Preserve direct file editing workflows
+  - Sync between frontmatter and database for overlapping fields
+- [ ] **JSON Files**: Enhanced hybrid storage:
+  - Flexible schema for backend-supported metadata
+  - Database for advanced relationships and AI features
+  - Sophisticated sync for overlapping capabilities
 
-#### 3.3 Hybrid Storage Strategy
+#### 3.3 Hybrid Storage Strategy with User Interface Preservation
 
-- [ ] **Field-Level Storage Decisions**: Define storage location for each metadata type:
-  - **Metadata DB Only**: relationships, dependencies, user requirements
-  - **Backend Only**: task content, descriptions, backend-specific data
-  - **Synchronized**: status, priority, tags (stored in both with sync)
-- [ ] **Consistency Management**: Ensure data consistency between systems:
-  - Conflict resolution strategies
-  - Synchronization triggers and schedules
-  - Offline operation support
+- [ ] **Field-Level Storage Intelligence**: Sophisticated storage decisions:
+  - **Backend-Preferred**: Use backend when supported AND user prefers backend interface
+  - **Database-Only**: Complex relationships, AI metadata, provenance
+  - **Hybrid-Synchronized**: Fields that need to exist in both systems
+  - **Capability-Based Fallback**: Backend when possible, database when not
+- [ ] **Synchronization Architecture**: Sophisticated sync mechanisms:
+  - Change detection and delta synchronization
+  - Conflict resolution with user preference consideration
+  - Performance optimization for large-scale sync operations
+  - Offline operation support with eventual consistency
 
 #### 3.4 Alternative Approaches (For Comparison)
 
 - [ ] **Pure Backend Storage**: Analysis of storing all metadata in backends
-- [ ] **Pure Metadata Database**: Analysis of storing everything in metadata database
-- [ ] **Federated Metadata Architecture**: Distributed ownership model
+- [ ] **Pure Metadata Database**: Analysis of storing everything in database
+- [ ] **Simple Hybrid**: Basic split without sophisticated sync
+- [ ] **Federated Metadata**: Distributed ownership model
 
 ### 4. Strategic Considerations
 
 #### 4.1 Minsky Design Philosophy
 
-- [ ] **Core Mission Alignment**: How metadata database supports Minsky's mission:
-  - AI-powered task management and decomposition
-  - Workflow automation and optimization
-  - Cross-tool integration and orchestration
-- [ ] **Metadata Database Advantages**: Unique capabilities enabled:
-  - Complex relationship queries across all backends
-  - Advanced AI features (task analysis, recommendation, automation)
-  - Cross-repository and cross-project management
-  - Unified metadata operations regardless of backend
+- [ ] **Core Mission Alignment**: How sophisticated metadata architecture supports Minsky's mission:
+  - AI-powered task management while preserving user workflows
+  - Advanced capabilities without forcing interface changes
+  - Seamless integration with existing tools and workflows
+- [ ] **User Experience Preservation**: Maintain familiar interfaces:
+  - GitHub users keep using GitHub Issues UI
+  - Markdown users keep editing files directly
+  - Advanced users get sophisticated Minsky capabilities
+  - No forced migration to Minsky-only workflows
 
 #### 4.2 User Adoption Strategy
 
-- [ ] **Migration Path**: How metadata database introduction affects users:
-  - Gradual metadata database adoption
-  - Backwards compatibility with current workflows
-  - Clear benefits that justify additional complexity
-- [ ] **Value Proposition**: Compelling benefits of metadata database:
-  - Advanced relationship management
-  - AI-powered task analysis and decomposition
-  - Cross-backend task operations
-  - Enhanced search and filtering capabilities
+- [ ] **Gradual Enhancement**: Sophisticated metadata introduction:
+  - Start with advanced features not available in backends
+  - Gradually sync simple metadata for unified access
+  - Preserve all existing user workflows
+  - Clear value proposition for each enhancement
+- [ ] **Interface Choice Respect**: Allow users to choose their preferred interfaces:
+  - Backend interfaces for backend-native metadata
+  - Minsky interfaces for advanced metadata features
+  - Unified querying across all storage locations
+  - No lock-in to specific interface choices
 
 #### 4.3 Technical Debt and Maintenance
 
-- [ ] **Metadata Database Maintenance**: Long-term considerations:
-  - Database schema evolution and migration
-  - Performance optimization for large task sets
-  - Backup and recovery strategies
-- [ ] **Backend Synchronization**: Ongoing maintenance:
-  - Synchronization mechanism reliability
-  - Error handling and recovery
-  - Performance impact of dual-storage approach
+- [ ] **Sophisticated Synchronization Maintenance**: Long-term considerations:
+  - Sync mechanism reliability and performance
+  - Conflict resolution strategy evolution
+  - Backend API changes and compatibility
+  - Database schema evolution with sync compatibility
+- [ ] **User Interface Compatibility**: Ongoing maintenance:
+  - Backend interface changes and adaptation
+  - User workflow preservation across updates
+  - Performance optimization for hybrid operations
+  - Error handling and graceful degradation
 
 ### 5. Architectural Decision
 
 #### 5.1 Tradeoff Analysis
 
-- [ ] **Metadata Database vs. Pure Backend**: Compare approaches:
-  - Implementation complexity and maintenance overhead
-  - Performance implications of dual storage
-  - Flexibility and extensibility benefits
-- [ ] **Storage Split Optimization**: Evaluate different split strategies:
-  - Minimize synchronization complexity
-  - Maximize backend compatibility
-  - Optimize for common operations
+- [ ] **Sophisticated Hybrid vs. Simple Split**: Compare approaches:
+  - Implementation complexity vs. user experience preservation
+  - Performance implications of sophisticated sync
+  - Maintenance burden vs. user adoption benefits
+- [ ] **Interface Preservation vs. Simplicity**: Evaluate tradeoffs:
+  - User workflow preservation vs. architectural complexity
+  - Backend compatibility vs. unified interface simplicity
+  - Sync reliability vs. performance optimization
 
 #### 5.2 Recommendation
 
-- [ ] **Metadata Database Architecture**: Detailed design for metadata database approach
-- [ ] **Storage Split Specification**: Clear rules for what goes where
-- [ ] **Backend Integration Strategy**: Comprehensive approach for backend compatibility
-- [ ] **Implementation Guidelines**: Principles for subsequent implementation tasks
+- [ ] **Sophisticated Metadata Architecture**: Detailed design for hybrid approach
+- [ ] **Storage Intelligence Specification**: Rules for sophisticated storage decisions
+- [ ] **Backend Integration Strategy**: Comprehensive approach preserving user workflows
+- [ ] **Implementation Guidelines**: Principles for sophisticated implementation
 
 ### 6. Implementation Planning
 
 #### 6.1 Implementation Roadmap
 
-- [ ] **Phase 1**: Metadata database foundation and core schema
-- [ ] **Phase 2**: Backend integration layer and synchronization
-- [ ] **Phase 3**: Advanced metadata features and AI integration
-- [ ] **Phase 4**: Performance optimization and scaling
+- [ ] **Phase 1**: Basic metadata database with simple backend sync
+- [ ] **Phase 2**: Sophisticated synchronization and conflict resolution
+- [ ] **Phase 3**: Advanced metadata features with interface preservation
+- [ ] **Phase 4**: Performance optimization and user workflow enhancement
 
 #### 6.2 Risk Assessment
 
-- [ ] **Technical Risks**: Metadata database-specific challenges
-- [ ] **Migration Risks**: Transitioning existing tasks to metadata database
-- [ ] **Performance Risks**: Dual-storage query performance
+- [ ] **Synchronization Complexity Risks**: Sophisticated sync challenges
+- [ ] **User Interface Compatibility Risks**: Preserving backend workflows
+- [ ] **Performance Risks**: Hybrid storage and sync performance
 
 ## Success Criteria
 
@@ -264,32 +289,33 @@ Research and design the architectural foundation for task metadata systems inclu
 - [ ] Backend capability matrix with detailed feature comparison
 - [ ] Clear identification of core vs. extended metadata categories
 
-### 2. Metadata Database Architecture
+### 2. Sophisticated Metadata Architecture
 
-- [ ] **Detailed metadata database schema design**
-- [ ] **Clear storage split specification** (what goes in metadata DB vs. backends)
-- [ ] **Backend integration strategy** with synchronization mechanisms
-- [ ] **Performance optimization guidelines** for dual-storage queries
+- [ ] **Sophisticated metadata database schema design** supporting hybrid approach
+- [ ] **Storage intelligence specification** with capability-aware routing
+- [ ] **Backend integration strategy** preserving user workflows and interfaces
+- [ ] **Synchronization architecture** with conflict resolution and performance optimization
 
-### 3. Strategic Clarity
+### 3. User Workflow Preservation
 
-- [ ] **Clear metadata database implementation plan** with technology selection
-- [ ] **Storage split philosophy** with clear rules for field-level decisions
-- [ ] **User workflow integration** for metadata database operations
-- [ ] **Minsky design philosophy alignment** with metadata database advantages
+- [ ] **Interface preservation design** allowing users to continue using preferred backend interfaces
+- [ ] **Capability-aware operations** with graceful degradation and fallback mechanisms
+- [ ] **Bidirectional synchronization** maintaining consistency across systems
+- [ ] **User choice respect** for metadata editing preferences
 
 ### 4. Foundation for Implementation
 
-- [ ] **Clear interfaces defined** for metadata database implementation tasks
+- [ ] **Clear interfaces defined** for sophisticated metadata database implementation
 - [ ] **Success criteria established** for each implementation phase
-- [ ] **Risk assessment and mitigation strategies** for metadata database approach
-- [ ] **Migration strategy** from current architecture to metadata database
+- [ ] **Risk assessment and mitigation strategies** for sync complexity and interface compatibility
+- [ ] **Migration strategy** preserving existing workflows during transition
 
-### 5. User Experience Foundation
+### 5. Advanced Capabilities
 
-- [ ] **Workflow confusion elimination** with clear metadata database mental models
-- [ ] **Adoption strategy** for gradual metadata database introduction
-- [ ] **Value proposition** demonstrating compelling benefits of metadata database
+- [ ] **Unified querying design** across all storage locations
+- [ ] **AI-powered features enablement** through database-stored advanced metadata
+- [ ] **Cross-backend operations** while maintaining backend-specific workflows
+- [ ] **Performance optimization** for hybrid storage and sync operations
 
 ## Dependencies
 
@@ -298,78 +324,81 @@ Research and design the architectural foundation for task metadata systems inclu
 - Stakeholder input on priority metadata fields
 - Technical review from architecture team
 - **Analysis of planned AI-powered features (Tasks #246-248)**
-- **User workflow research and feedback**
-- **Minsky mission and design philosophy documentation**
-- **Database technology evaluation and selection criteria**
+- **User workflow research and backend interface preferences**
+- **Backend API analysis for synchronization capabilities**
+- **Performance requirements for hybrid storage operations**
 
 ## Deliverables
 
 1. **Task Metadata Research Report** - comprehensive analysis of existing systems
-2. **Backend Capability Matrix** - detailed comparison of backend capabilities
-3. **Metadata Database Architecture Document** - comprehensive design for metadata database approach
-4. **Storage Split Specification** - clear rules for metadata database vs. backend storage
-5. **Implementation Roadmap** - phased plan for metadata database implementation
-6. **Risk Assessment Report** - metadata database-specific risks and mitigation strategies
-7. **User Workflow Analysis** - mapping of user scenarios with metadata database
-8. **Backend Integration Strategy** - comprehensive approach for backend synchronization
+2. **Backend Capability Matrix** - detailed comparison of backend capabilities and user interfaces
+3. **Sophisticated Metadata Architecture Document** - comprehensive design for hybrid approach
+4. **Storage Intelligence Specification** - rules for capability-aware storage decisions
+5. **Implementation Roadmap** - phased plan for sophisticated metadata implementation
+6. **Risk Assessment Report** - sync complexity and interface compatibility risks
+7. **User Workflow Preservation Analysis** - maintaining existing user interface preferences
+8. **Backend Integration Strategy** - comprehensive approach for bidirectional synchronization
 9. **User Requirements Architecture** - design for preserving consolidated original user intent
 
 ## Related Implementation Tasks
 
-The following tasks will implement the metadata database architecture decisions made in this task:
+The following tasks will implement the sophisticated metadata architecture decisions made in this task:
 
 - **Task #246**: Implement Basic Task Parent-Child Relationships
 - **Task #247**: Implement Task Hierarchy System (Parent-Child Relationships)
 - **Task #248**: Add AI-powered task decomposition and analysis
 
-**These implementation tasks MUST wait for the metadata database architectural decisions from this task before proceeding.**
+**These implementation tasks MUST wait for the sophisticated metadata architectural decisions from this task before proceeding.**
 
 ## Key Questions to Answer
 
 This task must provide clear answers to the following strategic questions:
 
-1. **What is the optimal metadata database technology?**
+1. **What metadata should stay in backends vs. move to database?**
 
-   - SQLite, PostgreSQL, or embedded options for different use cases?
+   - Rules for backend-preferred, database-only, and hybrid metadata
 
-2. **What belongs in the metadata database vs. task backends?**
+2. **How do we preserve user workflow preferences?**
 
-   - Clear field-level storage decisions and synchronization strategies
+   - Allowing continued use of GitHub Issues UI, markdown editors, etc.
 
-3. **How do we handle backend synchronization?**
+3. **What synchronization strategy balances performance and consistency?**
 
-   - Conflict resolution, consistency management, and performance optimization
+   - Bidirectional sync, conflict resolution, and performance optimization
 
-4. **What user workflows do we prioritize with metadata database?**
+4. **How do we handle capability differences between backends?**
 
-   - Pure Minsky users, backend integration users, or hybrid workflows?
+   - Graceful degradation, fallback mechanisms, and auto-routing
 
-5. **How does metadata database support AI-powered features?**
+5. **What database technology supports sophisticated sync requirements?**
 
-   - Task decomposition, analysis, and automation capabilities
+   - SQLite, PostgreSQL, or embedded options for complex synchronization
 
-6. **Where do we store consolidated user requirements?**
+6. **How do we provide unified querying across hybrid storage?**
 
-   - Metadata database, backend storage, or hybrid approach?
+   - Abstraction layer for querying both backend and database metadata
 
-7. **How do we migrate existing tasks to metadata database?**
+7. **How do we migrate existing tasks while preserving workflows?**
 
-   - Gradual migration strategy and backwards compatibility
+   - Gradual migration strategy maintaining user interface preferences
 
 8. **How do we preserve and structure consolidated user requirements?**
 
-   - Where to store consolidated user requirements vs. AI-enhanced specifications?
-   - What format best preserves user intent without AI enhancement?
-   - How to integrate into task creation and refinement workflow?
+   - Metadata database storage while maintaining backend interface compatibility
 
-9. **How do we optimize metadata database performance?**
-   - Query optimization, indexing strategies, and scaling considerations
+9. **How do we optimize performance for hybrid storage operations?**
+
+   - Query optimization, sync efficiency, and scaling considerations
+
+10. **How do we handle conflicts between backend and database metadata?**
+    - Conflict resolution strategies respecting user preferences and data authority
 
 ## Implementation Constraints
 
 - **No implementation in this task** - architecture and research only
-- **Must design for metadata database** - primary architectural direction established
+- **Must design for sophisticated hybrid approach** - balance backend preservation with database capabilities
+- **Must preserve user workflows** - no forced migration to Minsky-only interfaces
 - **Must support planned AI features** - architecture must enable Tasks #246-248
-- **Must address user workflow clarity** - clear mental models for metadata database
-- **Must provide clear storage split decisions** - no ambiguity about what goes where
-- **Must consider long-term maintenance** - sustainable metadata database architecture
+- **Must provide seamless user experience** - unified operations across hybrid storage
+- **Must consider synchronization complexity** - sustainable sync architecture required
+- **Must respect backend capabilities** - leverage existing backend strengths while adding database enhancements
