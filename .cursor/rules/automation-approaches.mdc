@@ -1,8 +1,3 @@
----
-description: Guidelines for creating automated code fixes, codemods, and other automation tools
-globs: 
-alwaysApply: false
----
 # Automation and Codemod Approaches
 
 ## Core Principle: Root Cause vs Symptoms
@@ -52,6 +47,92 @@ Before creating any automated solution, ask:
 - **Raw regex string replacement**: High error rates, syntax breaking
 - **Manual text manipulation**: Unreliable, context-unaware
 - **Ad-hoc pattern matching**: Fragile, hard to maintain
+
+## ⚠️ CRITICAL: Codemod Testing Pattern - Boundary Validation
+
+**MANDATORY**: All codemod tests must validate that codemods do ONLY what they claim to do
+
+### The Testing Pattern (Established in Task #178)
+
+**Key Insight**: Tests must validate both **positive constraints** (what it should do) and **negative constraints** (what it should NOT do).
+
+#### Required Test Structure:
+
+```typescript
+// 1. Copy the exact configuration from the codemod
+const CODEMOD_CONFIG = [
+  { className: "TargetClass", properties: ["prop1", "prop2"] },
+  // ... exact config from codemod
+];
+
+// 2. Test positive constraints (what it SHOULD do)
+test('codemod ONLY processes configured classes and properties', () => {
+  // Create mixed scenario with configured + non-configured elements
+  const sourceFile = project.createSourceFile('test.ts', `
+    export class TargetClass {
+      private prop1: string;        // Should be modified
+      private otherProp: string;    // Should be ignored
+    }
+    
+    export class RandomClass {
+      private prop1: string;        // Should be ignored (wrong class)
+    }
+  `);
+  
+  // Apply codemod logic
+  // ...
+  
+  // Verify positive constraints
+  expect(transformedCode).toContain('modified target');
+  
+  // Verify negative constraints
+  expect(transformedCode).toContain('otherProp: unchanged');
+  expect(randomClassCode).toContain('prop1: unchanged'); // wrong class
+});
+
+// 3. Test boundary cases
+test('codemod handles edge cases gracefully', () => {
+  // Test already-processed items
+  // Test missing properties
+  // Test malformed input
+});
+```
+
+#### Critical Testing Requirements:
+
+1. **Configuration Mirroring**: Test must use the exact same configuration as the codemod
+2. **Mixed Scenarios**: Test both configured and non-configured elements in the same test
+3. **Boundary Verification**: Explicitly verify that non-configured elements are left unchanged
+4. **Scope Validation**: Ensure codemod doesn't accidentally modify unrelated code
+
+#### Example Validation Patterns:
+
+```typescript
+// ✅ CORRECT: Validates boundaries
+expect(transformedCode).toContain('private repoUrl!: string;');     // Should fix
+expect(transformedCode).toContain('private otherProperty: string;'); // Should ignore
+expect(randomClassCode).toContain('private repoUrl: string;');      // Wrong class - ignore
+
+// ❌ WRONG: Only tests positive cases
+expect(transformedCode).toContain('private repoUrl!: string;');     // Missing boundary checks
+```
+
+### Why This Pattern Is Critical
+
+**Problem**: Previous tests only verified "can it do X?" but not "does it ONLY do X?"
+**Solution**: Tests must validate the codemod's constraints and boundaries
+**Benefit**: Prevents codemods from accidentally modifying unrelated code
+
+### Enforcement Protocol
+
+**When creating codemod tests:**
+1. **Copy exact configuration** from the codemod into the test
+2. **Create mixed scenarios** with both target and non-target elements
+3. **Verify positive constraints** (what should be modified)
+4. **Verify negative constraints** (what should be ignored)
+5. **Test boundary cases** (edge cases, missing elements, etc.)
+
+**Test failure indicates**: Codemod has insufficient boundaries or test has insufficient coverage
 
 ## ⚠️ Critical Error Pattern: Complex Pattern-Specific Solutions
 
