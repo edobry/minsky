@@ -513,6 +513,9 @@ export class CliCommandBridge {
               `Task ${taskId} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
             );
           }
+        } else if ((commandDef as any).id === "debug.echo") {
+          // Handle debug.echo results with friendly formatting
+          this.formatDebugEchoDetails(result as any);
         } else {
           // Special handling for delete command - check if this is a user-friendly result
           if ((commandDef as any).id === "tasks.delete") {
@@ -681,6 +684,47 @@ export class CliCommandBridge {
     if ((result as any).taskUpdated) {
       log.cli("✅ Task status updated to IN-REVIEW");
     }
+  }
+
+  /**
+   * Format debug echo details for human-readable output
+   */
+  private formatDebugEchoDetails(result: Record<string, any>): void {
+    if (!result) return;
+
+    // Display a user-friendly debug echo response
+    log.cli("🔍 Debug Echo Response");
+    log.cli("");
+
+    if (result.timestamp) {
+      log.cli(`⏰ Timestamp: ${result.timestamp}`);
+    }
+
+    if (result.interface) {
+      log.cli(`🔗 Interface: ${result.interface}`);
+    }
+
+    if (result.echo && typeof result.echo === "object") {
+      log.cli("📝 Echo Parameters:");
+      const echoParams = result.echo as Record<string, any>;
+      
+      if (Object.keys(echoParams).length === 0) {
+        log.cli("   (no parameters provided)");
+      } else {
+        Object.entries(echoParams).forEach(([key, value]) => {
+          if (typeof value === "string") {
+            log.cli(`   ${key}: "${value}"`);
+          } else if (typeof value === "object" && value !== null) {
+            log.cli(`   ${key}: ${JSON.stringify(value)}`);
+          } else {
+            log.cli(`   ${key}: ${value}`);
+          }
+        });
+      }
+    }
+
+    log.cli("");
+    log.cli("✅ Debug echo completed successfully");
   }
 
   /**
