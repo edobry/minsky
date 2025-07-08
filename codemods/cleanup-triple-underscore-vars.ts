@@ -7,24 +7,19 @@
  * and clutter the codebase.
  *
  * EXACT SITUATION:
- * - Standalone triple-underscore variable declarations: const ___unused = something;
+ * - Standalone triple-underscore variable declarations: const ___unused = something
  * - Catch blocks with triple-underscore parameters: catch (___error) { ... }
- * - Destructuring with triple-underscore variables: const { value, ___unused } = obj;
+ * - Destructuring with triple-underscore variables: const { value, ___unused } = obj
  * - Excessive empty lines left after variable removals
  *
  * TRANSFORMATION APPLIED:
- * Before:
- *   const ___unused = someValue
- *   catch (___error) { }
- *   const { value, ___ignored } = obj
- *
- * After:
- *   (removed completely)
- *   catch { }
- *   const { value } = obj
+ * - Removes standalone triple-underscore variable declarations completely
+ * - Converts catch blocks with triple-underscore parameters to parameterless catch blocks
+ * - Removes triple-underscore variables from destructuring assignments
+ * - Cleans up excessive empty lines left after removals
  *
  * CONFIGURATION:
- * - Processes all TypeScript files in src/**/*.ts
+ * - Processes all TypeScript files in src directory (*.ts files)
  * - Ignores node_modules directory
  * - Uses regex patterns for transformation
  *
