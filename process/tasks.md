@@ -466,12 +466,12 @@
 
 - [ ] Implement Context-Aware Tool Management System [#256](process/tasks/256-implement-context-aware-tool-management-system.md)
 
-- [+] Test session for dependency fix [#257](process/tasks/257-test-session-for-dependency-fix.md)
-
 - [ ] Design multi-agent cybernetic supervision system for AI-to-AI task oversight [#258](process/tasks/258-design-multi-agent-cybernetic-supervision-system-for-ai-to-ai-task-oversight.md)
 
 - [x] Improve CLI error messages for user-friendly output [#259](process/tasks/259-improve-cli-error-messages-for-user-friendly-output.md)
 
 - [ ] Implement prompt templates for AI interaction [#260](process/tasks/260-implement-prompt-templates-for-ai-interaction.md)
 
-- [ ] Add AI Agent Command Structure Export [#261](process/tasks/261-add-ai-agent-command-structure-export.md)
+- [+] Add AI Agent Command Structure Export [#261](process/tasks/261-add-ai-agent-command-structure-export.md)
+
+- [ ] Explore consolidating ESLint rules with codemods [#262](/Users/edobry/Projects/minsky/process/tasks/262-explore-consolidating-eslint-rules-with-codemods.md)
