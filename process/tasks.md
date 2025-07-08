@@ -471,3 +471,5 @@
 - [ ] Design multi-agent cybernetic supervision system for AI-to-AI task oversight [#258](process/tasks/258-design-multi-agent-cybernetic-supervision-system-for-ai-to-ai-task-oversight.md)
 
 - [ ] Improve CLI error messages for user-friendly output [#259](process/tasks/259-improve-cli-error-messages-for-user-friendly-output.md)
+
+- [ ] Implement prompt templates for AI interaction [#260](/Users/edobry/Projects/minsky/process/tasks/260-implement-prompt-templates-for-ai-interaction.md)
