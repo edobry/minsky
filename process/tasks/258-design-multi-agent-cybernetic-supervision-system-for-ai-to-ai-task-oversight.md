@@ -78,7 +78,15 @@ Transform the current human-supervised AI task execution model into a multi-agen
    - Recognize when AI is stuck or going in circles
    - Spot opportunities for optimization
 
-5. **Cybernetic Feedback**
+5. **Enhanced Rule System Integration**
+
+   - **Live AT-INFERENCE Enforcement**: Upgrade existing rule system from prompt-time guidance to real-time enforcement
+   - **Automated Rule Violation Detection**: Monitor for violations of existing rules (e.g., user-preferences, variable-naming-protocol)
+   - **Runtime Rule Application**: Apply rules during execution, not just at prompt time
+   - **Rule-Based Intervention Patterns**: Formalize interventions as executable rules with triggers and responses
+   - **Dynamic Rule Creation**: Generate new rules based on successful intervention patterns
+
+6. **Cybernetic Feedback**
    - Learn from intervention patterns
    - Improve supervision effectiveness over time
    - Adapt to new types of problems
@@ -216,6 +224,137 @@ Current terminology requires refinement for clarity and precision:
 **Intervention**: Specific improvement guidance
 **Learning**: Enhance quality detection algorithms
 
+## Rule System Enhancement: From Prompt-Time to AT-INFERENCE Enforcement
+
+### Current Rule System Analysis
+
+The existing Minsky rule system (`.cursor/rules/`) operates primarily at **prompt-time**, providing guidance when rules are loaded. However, examination of current rules reveals sophisticated enforcement mechanisms that point toward **live AT-INFERENCE enforcement** capabilities:
+
+**Current Enforcement Patterns:**
+
+- **user-preferences.mdc**: Mandatory pre-response verification protocols
+- **variable-naming-protocol.mdc**: Mandatory pre-change verification checklists
+- **self-improvement.mdc**: Systematic error detection and correction frameworks
+
+### Intervention-as-Rules Framework
+
+**Key Insight**: Interventions like "There is no linter error limit, keep going" are essentially **executable rules** with:
+
+- **Trigger condition**: "Use this when the agent mentions a 'linter error limit'"
+- **Response action**: "Immediate interruption with corrective message"
+- **Learning component**: "Build pattern database of similar guideline violations"
+
+### Enhanced Rule System Architecture
+
+**1. Rule Classification by Enforcement Type**
+
+- **Static Rules**: Traditional prompt-time guidance (current system)
+- **Dynamic Rules**: Runtime enforcement with pattern detection
+- **Intervention Rules**: Executable rules triggered by specific agent behaviors
+- **Learning Rules**: Rules that evolve based on intervention outcomes
+
+**2. Runtime Rule Engine**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Runtime Rule Engine                         │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
+│  │  Pattern        │  │  Rule           │  │  Intervention   │  │
+│  │  Matcher        │  │  Evaluator      │  │  Executor       │  │
+│  │                 │  │                 │  │                 │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
+│                                                                 │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
+│  │  Stream         │  │  Rule           │  │  Learning       │  │
+│  │  Monitor        │  │  Repository     │  │  Engine         │  │
+│  │                 │  │                 │  │                 │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**3. Intervention Rule Format**
+
+```yaml
+---
+name: "linter-error-limit-intervention"
+description: "Use when agent mentions 'linter error limit'"
+trigger:
+  type: "pattern_match"
+  pattern: "linter error limit"
+  context: "agent_output_stream"
+intervention:
+  type: "immediate_interruption"
+  message: "There is no linter error limit, keep going"
+  priority: "HIGH"
+learning:
+  track_outcome: true
+  pattern_type: "guideline_violation"
+  update_knowledge_base: true
+---
+```
+
+**4. Rule Enhancement Opportunities**
+
+**Current Rule → Enhanced Version:**
+
+- **variable-naming-protocol.mdc**:
+
+  - Current: Pre-change verification checklist
+  - Enhanced: Real-time detection of underscore additions to working variables
+  - Intervention: Immediate halt with corrective guidance
+
+- **user-preferences.mdc**:
+
+  - Current: Pre-response verification protocols
+  - Enhanced: Real-time detection of prohibited language patterns
+  - Intervention: Automatic rewrite before response submission
+
+- **self-improvement.mdc**:
+  - Current: Post-error correction framework
+  - Enhanced: Predictive error detection and prevention
+  - Intervention: Proactive guidance before errors occur
+
+**5. Implementation Strategy**
+
+**Phase 1: Rule System Integration**
+
+- Extend existing rule metadata format to include intervention specifications
+- Implement runtime rule evaluation engine
+- Create intervention execution framework
+
+**Phase 2: Enhanced Enforcement**
+
+- Upgrade high-impact rules (user-preferences, variable-naming-protocol) to runtime enforcement
+- Implement pattern detection for rule violations
+- Add automatic intervention capabilities
+
+**Phase 3: Learning-Based Evolution**
+
+- Implement rule effectiveness tracking
+- Create automatic rule refinement based on intervention outcomes
+- Build predictive intervention capabilities
+
+**6. Meta-Rule Considerations**
+
+**Rule Creation and Management:**
+
+- New rule type: "intervention-rule" with executable components
+- Enhanced rule-creation-guidelines for intervention rule specification
+- Integration with existing rule management commands (`minsky rules`)
+
+**Rule Conflict Resolution:**
+
+- Priority system for conflicting intervention rules
+- Escalation mechanisms for complex conflicts
+- Human override capabilities
+
+**Rule Performance Monitoring:**
+
+- Track intervention effectiveness
+- Measure rule compliance improvements
+- Identify rule gaps and enhancement opportunities
+
 ## Technical Architecture
 
 ### 1. Supervisor Agent Framework
@@ -343,21 +482,29 @@ Current terminology requires refinement for clarity and precision:
 1. **Architecture Design**: Detailed technical architecture for multi-agent supervision
 2. **Intervention Taxonomy**: Comprehensive catalog of intervention types and patterns
 3. **Communication Protocol**: Standardized messaging system for agent interaction
-4. **Proof of Concept**: Working implementation of basic supervisor agent
-5. **Integration Plan**: Strategy for integrating with existing task graph system
-6. **Learning Framework**: System for continuous improvement of supervision quality
-7. **Safety Guidelines**: AI safety considerations and mitigation strategies
-8. **Performance Metrics**: Measurement and evaluation framework
+4. **Rule System Enhancement**:
+   - Enhanced rule metadata format supporting intervention specifications
+   - Runtime rule evaluation engine design
+   - Migration plan for existing rules to AT-INFERENCE enforcement
+   - Intervention rule creation guidelines and templates
+5. **Proof of Concept**: Working implementation of basic supervisor agent with rule system integration
+6. **Integration Plan**: Strategy for integrating with existing task graph system and rule infrastructure
+7. **Learning Framework**: System for continuous improvement of supervision quality and rule effectiveness
+8. **Safety Guidelines**: AI safety considerations and mitigation strategies
+9. **Performance Metrics**: Measurement and evaluation framework for both supervision and rule enforcement
 
 ## Related Tasks
 
 This task builds upon and integrates with:
 
-- Task graph visualization and management systems
+- Task graph visualization and management systems (#252)
 - Session management and branching
 - AI-powered task creation and specification
 - Quality control and error handling systems
 - Performance monitoring and optimization
+- **Existing rule system infrastructure** (`.cursor/rules/`)
+- **Rule management commands** (`minsky rules`)
+- **Current enforcement mechanisms** (user-preferences, variable-naming-protocol, self-improvement)
 
 ## Future Considerations
 
@@ -366,7 +513,6 @@ This task builds upon and integrates with:
 - **Human-AI Hybrid Supervision**: Seamless collaboration between human and AI supervisors
 - **Cross-domain Learning**: Applying supervision patterns across different domains
 - **Adaptive Supervision**: Supervision strategies that adapt to specific users and contexts
-
 
 ## Requirements
 
