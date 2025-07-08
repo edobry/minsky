@@ -31,10 +31,10 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       try {
         // Build the command with appropriate options
         let command = "minsky tasks list";
-        if (args.filter) {
+        if (args?.filter) {
           command += ` --filter ${args.filter}`;
         }
-        if (args.limit) {
+        if (args?.limit) {
           command += ` --limit ${args.limit}`;
         }
         command += " --json"; // Always return JSON output for MCP
@@ -66,19 +66,19 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args: { taskId: string }) => {
       try {
         // Execute the command
-        const command = `minsky tasks get ${(args as any).taskId} --json`;
+        const command = `minsky tasks get ${(args as any)!.taskId} --json`;
         const output = (execSync(command) as any).toString();
 
         // Parse the JSON output
         return JSON.parse(output as any) as any;
       } catch (error) {
-        log.error(`MCP: Error getting task ${(args as any).taskId} via execSync`, {
+        log.error(`MCP: Error getting task ${(args as any)!.taskId} via execSync`, {
           originalError: getErrorMessage(error as any),
           stack: error instanceof Error ? (error as any).stack as any : undefined as any,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to get task ${(args as any).taskId}: ${getErrorMessage(error as any)}`
+          `Failed to get task ${(args as any)!.taskId}: ${getErrorMessage(error as any)}`
         );
       }
     });
@@ -93,22 +93,22 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args: { taskId: string }) => {
       try {
         // Execute the command
-        const command = `minsky tasks status get ${(args as any).taskId}`;
+        const command = `minsky tasks status get ${(args as any)!.taskId}`;
         const output = ((execSync(command) as any).toString() as any).trim();
 
         // Format output
         return {
-          taskId: (args as any).taskId,
+          taskId: (args as any)!.taskId,
           status: (output as any).split(": ")[1], // Extract the status value
         };
       } catch (error) {
-        log.error(`MCP: Error getting task status for ${(args as any).taskId} via execSync`, {
+        log.error(`MCP: Error getting task status for ${(args as any)!.taskId} via execSync`, {
           originalError: getErrorMessage(error as any),
           stack: error instanceof Error ? (error as any).stack as any : undefined as any,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to get task status for ${(args as any).taskId}: ${getErrorMessage(error as any)}`
+          `Failed to get task status for ${(args as any)!.taskId}: ${getErrorMessage(error as any)}`
         );
       }
     });
@@ -126,23 +126,23 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args: { taskId: string; status: string }) => {
       try {
         // Execute the command
-        const command = `minsky tasks status set ${(args as any).taskId} ${(args as any).status}`;
+        const command = `minsky tasks status set ${(args as any)!.taskId} ${(args as any).status}`;
         execSync(command);
 
         // Return success confirmation
         return {
           success: true,
-          taskId: (args as any).taskId,
+          taskId: (args as any)!.taskId,
           status: (args as any).status,
         };
       } catch (error) {
-        log.error(`MCP: Error setting task status for ${(args as any).taskId} via execSync`, {
+        log.error(`MCP: Error setting task status for ${(args as any)!.taskId} via execSync`, {
           originalError: getErrorMessage(error as any),
           stack: error instanceof Error ? (error as any).stack as any : undefined as any,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to set task status for ${(args as any).taskId}: ${getErrorMessage(error as any)}`
+          `Failed to set task status for ${(args as any)!.taskId}: ${getErrorMessage(error as any)}`
         );
       }
     });
@@ -157,7 +157,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args: { specPath: string }) => {
       try {
         // Execute the command
-        const command = `minsky tasks create ${args.specPath} --json`;
+        const command = `minsky tasks create ${(args as any).specPath} --json`;
         const output = (execSync(command) as any).toString();
 
         // Parse the JSON output

@@ -68,7 +68,7 @@ describe("Session Lookup Bug Integration Test", () => {
 
     // Verify sessions directory structure is also clean
     const sessionsDir = join(tempDir, "github-com-nonexistent-invalid-repo-12345", "sessions");
-    expect(existsSync(sessionsDir)).toBe(false);
+    expect(existsSync(sessionsDir))!.toBe(false);
   });
 
   it("should create session directories when git clone succeeds", async () => {

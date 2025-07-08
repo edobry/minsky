@@ -72,10 +72,10 @@ describe("Network Error handling", () => {
   describe("isNetworkError function", () => {
     test("should identify common network errors", () => {
       const eaddrinuseError = new Error("Address in use");
-      (eaddrinuseError as any).code = "EADDRINUSE";
+      (eaddrinuseError as any)?.code = "EADDRINUSE";
 
       const eaccessError = new Error("Permission denied");
-      (eaccessError as any).code = "EACCES";
+      (eaccessError as any)?.code = "EACCES";
 
       const regularError = new Error("Regular error");
 
@@ -89,7 +89,7 @@ describe("Network Error handling", () => {
   describe("createNetworkError function", () => {
     test("should create a PortInUseError for EADDRINUSE errors", () => {
       const originalError = new Error("Address in use");
-      (originalError as any).code = "EADDRINUSE";
+      (originalError as any)?.code = "EADDRINUSE";
 
       const networkError = createNetworkError(originalError, TEST_PORT);
 
@@ -99,7 +99,7 @@ describe("Network Error handling", () => {
 
     test("should create a NetworkPermissionError for EACCES errors", () => {
       const originalError = new Error("Permission denied");
-      (originalError as any).code = "EACCES";
+      (originalError as any)?.code = "EACCES";
 
       const networkError = createNetworkError(originalError, PRIVILEGED_PORT);
 
@@ -109,7 +109,7 @@ describe("Network Error handling", () => {
 
     test("should create a generic NetworkError for other errors", () => {
       const originalError = new Error("Some other error");
-      (originalError as any).code = "SOMETHING_ELSE";
+      (originalError as any)?.code = "SOMETHING_ELSE";
 
       const networkError = createNetworkError(originalError, TEST_PORT);
 
@@ -121,7 +121,7 @@ describe("Network Error handling", () => {
   describe("formatNetworkErrorMessage function", () => {
     test("should format a PortInUseError with suggestions", () => {
       const error = new PortInUseError(TEST_PORT);
-      const message = formatNetworkErrorMessage(error);
+      const message = formatNetworkErrorMessage(error as Error);
 
       expect(message).toContain(`Port ${TEST_PORT} is already in use`);
       expect(message).toContain("Suggestions:");
@@ -131,7 +131,7 @@ describe("Network Error handling", () => {
 
     test("should not include the debug hint when debug is true", () => {
       const error = new PortInUseError(TEST_PORT);
-      const message = formatNetworkErrorMessage(error, true);
+      const message = formatNetworkErrorMessage(error as Error, true);
 
       // Check that it doesn't contain the debug hint
       const hasDebugHint = message.includes("For detailed error information");

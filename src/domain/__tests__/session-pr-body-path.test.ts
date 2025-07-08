@@ -81,8 +81,8 @@ describe("sessionPrFromParams bodyPath file reading functionality", () => {
 
     // This tests the logic: if both body and bodyPath are provided, 
     // use body (direct) instead of reading from file
-    const shouldReadFile = !params.body && params.bodyPath;
-    const expectedContent = params.body || "content from file";
+    const shouldReadFile = !params!.body && params!.bodyPath;
+    const expectedContent = params!.body || "content from file";
     
     expect(shouldReadFile).toBe(false);
     expect(expectedContent).toBe("Direct body content");

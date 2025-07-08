@@ -97,7 +97,7 @@ export function normalizeRepositoryUri(
 
   // 1. Handle HTTPS URLs
   if ((normalizedUri as any).startsWith("https://")) {
-    format = UriFormat.HTTPS;
+    format = UriFormat?.HTTPS;
     // Extract org/repo from the URL
     const match = (normalizedUri as any).match(/https:\/\/[^\/]+\/([^\/]+)\/([^\/]+?)(\.git)?$/);
     if (!match || !match[1] || !match[2]) {
@@ -112,7 +112,7 @@ export function normalizeRepositoryUri(
   }
   // 2. Handle SSH URLs
   else if ((normalizedUri as any).includes("@") && (normalizedUri as any).includes(":")) {
-    format = UriFormat.SSH;
+    format = UriFormat?.SSH;
     // Extract org/repo from the URL
     const match = (normalizedUri as any).match(/[^@]+@[^:]+:([^\/]+)\/([^\/]+?)(\.git)?$/);
     if (!match || !match[1] || !match[2]) {
@@ -127,7 +127,7 @@ export function normalizeRepositoryUri(
   }
   // 3. Handle local file:// URIs
   else if ((normalizedUri as any).startsWith("file://")) {
-    format = UriFormat.FILE;
+    format = UriFormat?.FILE;
     isLocal = true;
     // Extract local path
     const localPath = (normalizedUri as any).replace(/^file:\/\//, "");
@@ -141,7 +141,7 @@ export function normalizeRepositoryUri(
   }
   // 4. Handle plain filesystem paths
   else if ((normalizedUri as any).startsWith("/") || (normalizedUri as any).match(/^[A-Z]:\\/i)) {
-    format = UriFormat.PATH;
+    format = UriFormat?.PATH;
     isLocal = true;
     // For local repos, use local-<basename> as the name (filesystem-safe)
     normalizedName = `local-${basename(normalizedUri)}`;
@@ -154,19 +154,19 @@ export function normalizeRepositoryUri(
     // Convert to file:// URI if requested
     if (ensureFullyQualified) {
       normalizedUri = `file://${normalizedUri}`;
-      format = UriFormat.FILE;
+      format = UriFormat?.FILE;
     }
   }
   // DEFAULT_RETRY_COUNT. Handle GitHub shorthand notation (org/repo)
   else if ((normalizedUri as any).match(/^[^\/]+\/[^\/]+$/)) {
-    format = UriFormat.SHORTHAND;
+    format = UriFormat?.SHORTHAND;
     // Shorthand is already in org/repo format
     normalizedName = normalizedUri;
 
     // Expand to full HTTPS URL if requested
     if (ensureFullyQualified) {
       normalizedUri = `https://github.com/${normalizedUri}`;
-      format = UriFormat.HTTPS;
+      format = UriFormat?.HTTPS;
     }
   }
   // No recognized format
@@ -212,17 +212,17 @@ export function convertRepositoryUri(uri: string, targetFormat: UriFormat): stri
   const normalized = normalizeRepositoryUri(uri);
 
   // If it's already in the target format, return as is
-  if ((normalized as any).format === targetFormat) {
+  if ((normalized as any)?.format === targetFormat) {
     return (normalized as any).uri;
   }
 
   // Local repositories can only be converted between PATH and FILE formats
-  if ((normalized as any).isLocal) {
-    if (targetFormat === UriFormat.PATH) {
+  if ((normalized as any)?.isLocal) {
+    if (targetFormat === UriFormat?.PATH) {
       return (normalized.uri as any).replace(/^file:\/\//, "");
     }
-    if (targetFormat === UriFormat.FILE) {
-      return (normalized.uri as any).startsWith("file://") ? (normalized as any).uri : `file://${(normalized as any).uri}`;
+    if (targetFormat === UriFormat?.FILE) {
+      return (normalized.uri as any).startsWith("file://") ? (normalized as any)?.uri : `file://${(normalized as any).uri}`;
     }
     throw new ValidationError(`Cannot convert local repository to ${targetFormat} format`);
   }

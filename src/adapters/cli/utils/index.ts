@@ -47,19 +47,19 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
   }
 
   try {
-    if ((options as any).json) {
+    if ((options as any)!.json) {
       // JSON output
       log.cli(JSON.stringify(result as any, undefined, 2));
-    } else if ((options as any).formatter) {
+    } else if ((options as any)!.formatter) {
       // Custom formatter
-      (options as any).formatter(result as any);
+      (options as any)!.formatter(result as any);
     } else {
       // Default output based on result type
       if (typeof result === "string") {
         log.cli(result as any);
       } else if (typeof result === "object" && result !== null) {
         if (Array.isArray(result as any)) {
-          (result as any).forEach((item) => {
+          (result as any)!.forEach((item) => {
             if (typeof item === "string") {
               log.cli(item as any);
             } else {
@@ -86,11 +86,11 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
 export function handleCliError(error: any, options: { debug?: boolean } = {}): void {
   const err = ensureError(error as any);
 
-  if ((options as any).debug) {
+  if ((options as any)!.debug) {
     // Detailed error in debug mode
     log.cliError("Command execution failed");
     log.cliError(String(err as any));
-    if ((err as any).stack) {
+    if ((err as any)?.stack) {
       log.cliError((err as any).stack);
     }
   } else {
@@ -99,11 +99,11 @@ export function handleCliError(error: any, options: { debug?: boolean } = {}): v
   }
 
   // Set appropriate exit code based on error type
-  if ((err as any).name === "ValidationError") {
-    (process as any).exitCode = 2;
-  } else if ((err as any).name === "NotFoundError") {
-    (process as any).exitCode = 4;
+  if ((err as any)?.name === "ValidationError") {
+    (process as any)?.exitCode = 2;
+  } else if ((err as any)?.name === "NotFoundError") {
+    (process as any)?.exitCode = 4;
   } else {
-    (process as any).exitCode = 1;
+    (process as any)?.exitCode = 1;
   }
 }

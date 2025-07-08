@@ -27,11 +27,11 @@ describe("Task 223 Enhanced Error Messages", () => {
         ]
       );
 
-      expect(result).toContain("Cannot Run Session PR from PR Branch");
-      expect(result).toContain("pr/task-123-feature");
-      expect(result).toContain("git switch task-123");
-      expect(result).toContain("git branch -a");
-      expect(result).toContain("pwd | grep sessions");
+      expect(result)!.toContain("Cannot Run Session PR from PR Branch");
+      expect(result)!.toContain("pr/task-123-feature");
+      expect(result)!.toContain("git switch task-123");
+      expect(result)!.toContain("git branch -a");
+      expect(result)!.toContain("pwd | grep sessions");
     });
 
     test("should handle undefined session name gracefully", () => {
@@ -41,9 +41,9 @@ describe("Task 223 Enhanced Error Messages", () => {
         []
       );
 
-      expect(result).toContain("Cannot Run Session PR from PR Branch");
-      expect(result).toContain("pr/feature-branch");
-      expect(result).toContain("git switch <session-branch>");
+      expect(result)!.toContain("Cannot Run Session PR from PR Branch");
+      expect(result)!.toContain("pr/feature-branch");
+      expect(result)!.toContain("git switch <session-branch>");
     });
 
     test("should include context information when provided", () => {
@@ -56,8 +56,8 @@ describe("Task 223 Enhanced Error Messages", () => {
         ]
       );
 
-      expect(result).toContain("Working directory: /path/to/session");
-      expect(result).toContain("Git status: clean");
+      expect(result)!.toContain("Working directory: /path/to/session");
+      expect(result)!.toContain("Git status: clean");
     });
   });
 
@@ -71,16 +71,16 @@ describe("Task 223 Enhanced Error Messages", () => {
         ]
       );
 
-      expect(result).toContain("Invalid Task ID Format");
-      expect(result).toContain("invalid-task-id");
-      expect(result).toContain("123");
-      expect(result).toContain("#123");
-      expect(result).toContain("077");
-      expect(result).toContain("#077");
-      expect(result).toContain("ABC123");
-      expect(result).toContain("#ABC123");
-      expect(result).toContain("minsky tasks get 123");
-      expect(result).toContain("minsky tasks list");
+      expect(result)!.toContain("Invalid Task ID Format");
+      expect(result)!.toContain("invalid-task-id");
+      expect(result)!.toContain("123");
+      expect(result)!.toContain("#123");
+      expect(result)!.toContain("077");
+      expect(result)!.toContain("#077");
+      expect(result)!.toContain("ABC123");
+      expect(result)!.toContain("#ABC123");
+      expect(result)!.toContain("minsky tasks get 123");
+      expect(result)!.toContain("minsky tasks list");
     });
 
     test("should include operation context", () => {
@@ -92,8 +92,8 @@ describe("Task 223 Enhanced Error Messages", () => {
         ]
       );
 
-      expect(result).toContain("Operation: set task status");
-      expect(result).toContain("Status: DONE");
+      expect(result)!.toContain("Operation: set task status");
+      expect(result)!.toContain("Status: DONE");
     });
   });
 
@@ -109,12 +109,12 @@ describe("Task 223 Enhanced Error Messages", () => {
         []
       );
 
-      expect(result).toContain("Variable Declaration/Usage Mismatch");
-      expect(result).toContain("taskId");
-      expect(result).toContain("declared with underscore prefix but used without underscore");
-      expect(result).toContain("Remove underscore from declaration (line 10)");
-      expect(result).toContain("const taskId = ...");
-      expect(result).toContain("variable-naming-protocol.mdc");
+      expect(result)!.toContain("Variable Declaration/Usage Mismatch");
+      expect(result)!.toContain("taskId");
+      expect(result)!.toContain("declared with underscore prefix but used without underscore");
+      expect(result)!.toContain("Remove underscore from declaration (line 10)");
+      expect(result)!.toContain("const taskId = ...");
+      expect(result)!.toContain("variable-naming-protocol.mdc");
     });
 
     test("should identify reverse underscore mismatch (declaration without underscore, usage has underscore)", () => {
@@ -128,10 +128,10 @@ describe("Task 223 Enhanced Error Messages", () => {
         []
       );
 
-      expect(result).toContain("Variable Declaration/Usage Mismatch");
-      expect(result).toContain("sessionName");
-      expect(result).toContain("declared without underscore but used with underscore prefix");
-      expect(result).toContain("Add underscore to declaration (line 20) or remove from usage (line 25)");
+      expect(result)!.toContain("Variable Declaration/Usage Mismatch");
+      expect(result)!.toContain("sessionName");
+      expect(result)!.toContain("declared without underscore but used with underscore prefix");
+      expect(result)!.toContain("Add underscore to declaration (line 20) or remove from usage (line 25)");
     });
 
     test("should include file path and line numbers when provided", () => {
@@ -145,10 +145,10 @@ describe("Task 223 Enhanced Error Messages", () => {
         [{ label: "Function", value: "processTask" }]
       );
 
-      expect(result).toContain("File: src/commands/task.ts");
-      expect(result).toContain("Declaration line: 42");
-      expect(result).toContain("Usage line: 84");
-      expect(result).toContain("Function: processTask");
+      expect(result)!.toContain("File: src/commands/task.ts");
+      expect(result)!.toContain("Declaration line: 42");
+      expect(result)!.toContain("Usage line: 84");
+      expect(result)!.toContain("Function: processTask");
     });
   });
 
@@ -161,13 +161,13 @@ describe("Task 223 Enhanced Error Messages", () => {
         []
       );
 
-      expect(result).toContain("Git Operation Timeout");
-      expect(result).toContain("Git fetch operation timed out after 30 seconds");
-      expect(result).toContain("ping -c 3 github.com");
-      expect(result).toContain("git remote -v");
-      expect(result).toContain("git config --global http.lowSpeedLimit 0");
-      expect(result).toContain("git count-objects -v");
-      expect(result).toContain("git fetch --verbose");
+      expect(result)!.toContain("Git Operation Timeout");
+      expect(result)!.toContain("Git fetch operation timed out after 30 seconds");
+      expect(result)!.toContain("ping -c 3 github.com");
+      expect(result)!.toContain("git remote -v");
+      expect(result)!.toContain("git config --global http.lowSpeedLimit 0");
+      expect(result)!.toContain("git count-objects -v");
+      expect(result)!.toContain("git fetch --verbose");
     });
 
     test("should include timeout duration in context", () => {
@@ -178,9 +178,9 @@ describe("Task 223 Enhanced Error Messages", () => {
         [{ label: "Repository", value: "https://github.com/user/repo.git" }]
       );
 
-      expect(result).toContain("Timeout: 120 seconds");
-      expect(result).toContain("Working directory: /path/to/repo");
-      expect(result).toContain("Repository: https://github.com/user/repo.git");
+      expect(result)!.toContain("Timeout: 120 seconds");
+      expect(result)!.toContain("Working directory: /path/to/repo");
+      expect(result)!.toContain("Repository: https://github.com/user/repo.git");
     });
   });
 
@@ -201,14 +201,14 @@ describe("Task 223 Enhanced Error Messages", () => {
         []
       );
 
-      expect(result).toContain("Merge Conflicts Detected");
-      expect(result).toContain("failed due to conflicts in 3 file(s)");
-      expect(result).toContain("✏️ src/file1.ts (modify/modify conflict)");
-      expect(result).toContain("➕ src/file2.ts (add/add conflict)");
-      expect(result).toContain("🗑️ README.md (delete/modify conflict)");
-      expect(result).toContain("git status");
-      expect(result).toContain("git mergetool");
-      expect(result).toContain("git merge --continue");
+      expect(result)!.toContain("Merge Conflicts Detected");
+      expect(result)!.toContain("failed due to conflicts in 3 file(s)");
+      expect(result)!.toContain("✏️ src/file1.ts (modify/modify conflict)");
+      expect(result)!.toContain("➕ src/file2.ts (add/add conflict)");
+      expect(result)!.toContain("🗑️ README.md (delete/modify conflict)");
+      expect(result)!.toContain("git status");
+      expect(result)!.toContain("git mergetool");
+      expect(result)!.toContain("git merge --continue");
     });
 
     test("should provide resolution strategies", () => {
@@ -220,11 +220,11 @@ describe("Task 223 Enhanced Error Messages", () => {
         []
       );
 
-      expect(result).toContain("git diff --name-only --diff-filter=U");
-      expect(result).toContain("git checkout --theirs .");
-      expect(result).toContain("git checkout --ours .");
-      expect(result).toContain("git add .");
-      expect(result).toContain("git rebase --continue");
+      expect(result)!.toContain("git diff --name-only --diff-filter=U");
+      expect(result)!.toContain("git checkout --theirs .");
+      expect(result)!.toContain("git checkout --ours .");
+      expect(result)!.toContain("git add .");
+      expect(result)!.toContain("git rebase --continue");
     });
   });
 
@@ -244,14 +244,14 @@ describe("Task 223 Enhanced Error Messages", () => {
         []
       );
 
-      expect(result).toContain("Backend Detection Failed");
-      expect(result).toContain("Failed to configure or detect backend 'auto-detect'");
-      expect(result).toContain("• markdown");
-      expect(result).toContain("• json-file (requires: Write permissions)");
-      expect(result).toContain("• github-issues (requires: GitHub token, Repository access)");
-      expect(result).toContain("minsky config show");
-      expect(result).toContain("minsky config set backend markdown");
-      expect(result).toContain("minsky init --backend markdown");
+      expect(result)!.toContain("Backend Detection Failed");
+      expect(result)!.toContain("Failed to configure or detect backend 'auto-detect'");
+      expect(result)!.toContain("• markdown");
+      expect(result)!.toContain("• json-file (requires: Write permissions)");
+      expect(result)!.toContain("• github-issues (requires: GitHub token, Repository access)");
+      expect(result)!.toContain("minsky config show");
+      expect(result)!.toContain("minsky config set backend markdown");
+      expect(result)!.toContain("minsky init --backend markdown");
     });
 
     test("should provide default backend list when no backends provided", () => {
@@ -263,10 +263,10 @@ describe("Task 223 Enhanced Error Messages", () => {
         []
       );
 
-      expect(result).toContain("Failed to automatically detect appropriate task backend");
-      expect(result).toContain("• markdown (default)");
-      expect(result).toContain("• json-file");
-      expect(result).toContain("• github-issues (requires GitHub config)");
+      expect(result)!.toContain("Failed to automatically detect appropriate task backend");
+      expect(result)!.toContain("• markdown (default)");
+      expect(result)!.toContain("• json-file");
+      expect(result)!.toContain("• github-issues (requires GitHub config)");
     });
 
     test("should include workspace path in context", () => {
@@ -278,8 +278,8 @@ describe("Task 223 Enhanced Error Messages", () => {
         [{ label: "Config file", value: ".minsky/config.json" }]
       );
 
-      expect(result).toContain("Workspace path: /Users/test/project");
-      expect(result).toContain("Config file: .minsky/config.json");
+      expect(result)!.toContain("Workspace path: /Users/test/project");
+      expect(result)!.toContain("Config file: .minsky/config.json");
     });
   });
 
@@ -293,20 +293,20 @@ describe("Task 223 Enhanced Error Messages", () => {
       const backendError = createBackendDetectionErrorMessage("test", ["markdown"], {}, "/workspace", []);
 
       // All error messages should have consistent formatting
-      expect(sessionPrError).toMatch(/^🚫/);
-      expect(taskIdError).toMatch(/^❌/);
+      expect(sessionPrError)!.toMatch(/^🚫/);
+      expect(taskIdError)!.toMatch(/^❌/);
       expect(variableError).toMatch(/^❌/);
       expect(gitError).toMatch(/^⚠️/);
       expect(mergeError).toMatch(/^💥/);
-      expect(backendError).toMatch(/^❌/);
+      expect(backendError)!.toMatch(/^❌/);
     });
 
     test("should provide actionable command suggestions", () => {
       const error = createTaskIdParsingErrorMessage("xyz", []);
       
       // Should contain specific commands users can run
-      expect(error).toMatch(/minsky tasks get \d+/);
-      expect(error).toMatch(/minsky tasks list/);
+      expect(error as Error).toMatch(/minsky tasks get \d+/);
+      expect(error as Error).toMatch(/minsky tasks list/);
       
       // Commands should be preceded by emojis for consistency
       const hasCommandEmoji = error.includes("⚡") && error.includes("minsky tasks");
@@ -331,9 +331,9 @@ describe("Task 223 Enhanced Error Messages", () => {
         context
       );
 
-      expect(error).toContain("File: /path/to/file.ts");
-      expect(error).toContain("Line: 42");
-      expect(error).toContain("Function: processTask");
+      expect(error as Error).toContain("File: /path/to/file.ts");
+      expect(error as Error).toContain("Line: 42");
+      expect(error as Error).toContain("Function: processTask");
     });
   });
 }); 

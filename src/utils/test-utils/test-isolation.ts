@@ -32,7 +32,7 @@ export class TestDataFactory {
 
   constructor() {
     TestDataFactory.instanceCount++;
-    this.instanceId = `factory-${TestDataFactory.instanceCount}-${Date.now()}`;
+    this?.instanceId = `factory-${TestDataFactory.instanceCount}-${Date.now()}`;
   }
 
   /**
@@ -54,7 +54,7 @@ export class TestDataFactory {
 
     // Generate numeric task ID in expected format (#001, #002, etc.)
     const numericId = uniqueId 
-      ? String(TestDataFactory.instanceCount + Math.floor(Math.random() * 900) + 100).padStart(3, "0")
+      ? String(TestDataFactory?.instanceCount + Math.floor(Math.random() * 900) + 100).padStart(3, "0")
       : String(TestDataFactory.instanceCount).padStart(3, "0");
     
     const taskId = `#${numericId}`;
@@ -141,7 +141,7 @@ export class DatabaseIsolation {
         }
         DatabaseIsolation.activeDatabases.delete(dbId);
       } catch (error) {
-        log.warn(`Failed to cleanup database ${dbId}: ${error instanceof Error ? error.message : String(error)}`);
+        log.warn(`Failed to cleanup database ${dbId}: ${error instanceof Error ? error?.message : String(error as Error)}`);
       }
     };
 

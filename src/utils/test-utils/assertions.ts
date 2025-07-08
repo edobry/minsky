@@ -14,7 +14,7 @@ import { expect } from "bun:test";
  */
 export function expectToMatch(value: string, pattern: RegExp): void {
   const result = value.match(pattern);
-  expect(result).toBeTruthy();
+  expect(result)!.toBeTruthy();
 }
 
 /**
@@ -63,7 +63,7 @@ export function expectToHaveBeenCalledWith(
   expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
 
   const found = mockFn.mock?.calls.some((call) => {
-    if (call.length !== expectedArgs.length) return false;
+    if (call?.length !== expectedArgs?.length) return false;
     return call.every((arg, index) => {
       try {
         expect(arg).toEqual(expectedArgs[index]);

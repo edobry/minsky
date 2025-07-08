@@ -47,7 +47,7 @@ describe("Shared Git Commands", () => {
 
     // Clear the registry (this is a hacky way to do it since there's no clear method,
     // but it works for testing)
-    (sharedCommandRegistry as any).commands = new Map();
+    (sharedCommandRegistry as any)?.commands = new Map();
   });
 
   afterEach(() => {
@@ -105,7 +105,7 @@ describe("Shared Git Commands", () => {
     });
 
     // Verify result
-    expect(_result).toEqual({
+    expect(_result)!.toEqual({
       success: true,
       commitHash: "mocked-commit-hash",
       message: "mocked-commit-message",
@@ -139,7 +139,7 @@ describe("Shared Git Commands", () => {
     });
 
     // Verify result
-    expect(_result).toEqual({
+    expect(_result)!.toEqual({
       success: true,
       workdir: "/mocked/workdir",
     });
