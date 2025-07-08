@@ -4,32 +4,9 @@ This directory contains automated code transformation tools for the Minsky proje
 
 ## Standards and Guidelines
 
-**Primary Rule**: See [.cursor/rules/codemods-best-practices.mdc](../.cursor/rules/codemods-best-practices.mdc) for comprehensive development standards.
+**Primary Rule**: See [.cursor/rules/codemod-development-standards.mdc](../.cursor/rules/codemod-development-standards.mdc) for comprehensive development standards.
 
-**Core Principle**: **UTILITY-BASED AST DEVELOPMENT** - Use specialized utility classes for consistent, safe, and maintainable transformations.
-
-### Specialized Utility Classes
-
-The codemod system now provides four specialized utility classes that eliminate duplication across 90+ codemods:
-
-- **`VariableNamingCodemod`**: Handles variable naming fixes, specifically underscore prefix issues
-- **`UnusedImportCodemod`**: Manages import cleanup and unused import removal  
-- **`UnusedVariableCodemod`**: Handles unused variable and parameter management
-- **`TypeAssertionCodemod`**: Manages type assertion fixes and safety improvements
-
-### Systematic Refactoring
-
-Use `systematic-refactor-all.ts` to automatically categorize and refactor existing codemods using the utility classes:
-
-```bash
-bun run systematic-refactor-all.ts
-```
-
-This script:
-- Analyzes existing codemods and categorizes them by type
-- Generates utility-based implementations
-- Reduces code duplication and improves maintainability
-- Provides detailed reporting on refactoring success
+**Core Principle**: **AST-FIRST DEVELOPMENT** - Always evaluate AST-based solutions before regex alternatives.
 
 ## Effectiveness Evidence
 
@@ -119,36 +96,11 @@ bun run codemods/fix-variable-naming-ast.ts
 
 ### Development Workflow
 
-1. **Choose Utility Class**: Select appropriate specialized utility class
-2. **Inherit and Customize**: Extend base functionality as needed
-3. **Implement with Standards**: Follow established patterns and safety checks
+1. **Analyze Requirements**: Determine if AST approach is suitable
+2. **Design Transformation**: Use decision trees from standards
+3. **Implement Following Standards**: Use modular design patterns
 4. **Test Thoroughly**: Include unit, integration, and edge case tests
 5. **Document Completely**: Provide usage examples and performance metrics
-
-### Utility-Based Development
-
-**NEW APPROACH**: Instead of creating codemods from scratch, inherit from specialized utility classes:
-
-```typescript
-import { VariableNamingCodemod } from './utils/specialized-codemods';
-
-export class MySpecificFix extends VariableNamingCodemod {
-  constructor() {
-    super();
-    this.name = 'MySpecificFix';
-    this.description = 'Fixes specific variable naming issue';
-  }
-  
-  // Base class handles all standard functionality
-  // Override specific methods only if needed
-}
-```
-
-This approach:
-- Eliminates code duplication across 90+ codemods
-- Enforces consistent safety checks and error handling
-- Provides standardized interfaces and patterns
-- Simplifies maintenance and updates
 
 ### Required Code Structure
 
