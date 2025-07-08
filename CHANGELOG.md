@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task Relationship Establishment (#251 and #252)**
+
+  - Established relationship between Mobile/Voice Interface task (#251) and Task Management UI System task (#252)
+  - Added cross-references between tasks to identify shared components and architecture opportunities
+  - Enhanced task #251 to include shared chat UI architecture considerations and migration strategy from external AI services
+  - Updated task #252 to include chat UI integration and voice capabilities for natural language task management
+  - Defined shared components: chat UI, authentication, and backend services for unified interface approach
+  - Added migration path from external AI services (OpenAI/Claude) to self-hosted AI backend for full control
+  - Established foundation for Minsky-controlled chat interface rather than permanent reliance on external services
+
+_See: SpecStory history [2025-07-08_04-32-add-mobile-and-voice-interface-task](mdc:.specstory/history/2025-07-08_04-32-add-mobile-and-voice-interface-task.md) for task creation and relationship establishment._
+
 - **Task #164: Add Bun Binary Builds and GitHub Actions Release Workflow**
   - Added cross-platform binary compilation using `bun build --compile` with Just command runner
   - Implemented multi-platform support for Linux (x64, ARM64), macOS (x64, ARM64), and Windows (x64)
