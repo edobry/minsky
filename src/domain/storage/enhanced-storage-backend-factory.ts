@@ -8,7 +8,7 @@
 import { join } from "path";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import { getDefaultJsonDbPath, getDefaultSqliteDbPath, getMinskyStateDir } from "../../utils/paths";
+import { getMinskyStateDir, getDefaultJsonDbPath, getDefaultSqliteDbPath } from "../../utils/paths";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
 import { JsonFileStorage } from "./backends/json-file-storage";
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
@@ -171,17 +171,19 @@ export class EnhancedStorageBackendFactory {
 
       if (migrationActions.length > 0) {
         const action = migrationActions[0];
-        log.debug("Auto-migrating database", { action: action.description });
+        if (action) {
+          log.debug("Auto-migrating database", { action: action.description });
 
-        try {
-          // For now, we'll log what would be migrated
-          // In a real implementation, this would execute the migration
-          log.debug("Would execute migration command", { command: action.command });
-          result.autoMigrationPerformed = true;
-          result.shouldContinue = true;
-          return result;
-        } catch (error) {
-          log.error("Auto-migration failed", { error: getErrorMessage(error) });
+          try {
+            // For now, we'll log what would be migrated
+            // In a real implementation, this would execute the migration
+            log.debug("Would execute migration command", { command: action.command });
+            result.autoMigrationPerformed = true;
+            result.shouldContinue = true;
+            return result;
+          } catch (error) {
+            log.error("Auto-migration failed", { error: getErrorMessage(error) });
+          }
         }
       }
     }
