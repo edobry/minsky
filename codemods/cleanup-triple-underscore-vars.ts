@@ -1,3 +1,47 @@
+/**
+ * Triple-Underscore Variable Cleanup Codemod
+ *
+ * PROBLEM SOLVED:
+ * Removes triple-underscore variables (___variableName) that are used to mark
+ * completely unused variables in TypeScript code. These variables serve no purpose
+ * and clutter the codebase.
+ *
+ * EXACT SITUATION:
+ * - Standalone triple-underscore variable declarations: const ___unused = something;
+ * - Catch blocks with triple-underscore parameters: catch (___error) { ... }
+ * - Destructuring with triple-underscore variables: const { value, ___unused } = obj;
+ * - Excessive empty lines left after variable removals
+ *
+ * TRANSFORMATION APPLIED:
+ * Before:
+ *   const ___unused = someValue
+ *   catch (___error) { }
+ *   const { value, ___ignored } = obj
+ *
+ * After:
+ *   (removed completely)
+ *   catch { }
+ *   const { value } = obj
+ *
+ * CONFIGURATION:
+ * - Processes all TypeScript files in src/**/*.ts
+ * - Ignores node_modules directory
+ * - Uses regex patterns for transformation
+ *
+ * SAFETY CONSIDERATIONS:
+ * - Only removes variables that start with triple-underscore prefix
+ * - Preserves all other code structure
+ * - Cleans up formatting after removals
+ * - Does not modify variable names that are actually used
+ *
+ * LIMITATIONS:
+ * - Regex-based approach may miss complex patterns
+ * - Does not perform AST analysis for guaranteed safety
+ * - May leave some formatting inconsistencies
+ * - DISCOVERED: Regex pattern ___\w+ matches variables that START with ___ (not exactly 3 underscores)
+ *   This means ____quadrupleUnderscore variables are also removed, which may be unintended
+ */
+
 import { readFileSync, writeFileSync } from "fs";
 import { globSync } from "glob";
 
