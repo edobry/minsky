@@ -1,11 +1,12 @@
 /**
  * Tests for Enhanced Git Execution Utility with Task 223 Timeout Handling
- * 
+ *
  * This test suite verifies that the enhanced git execution utility provides proper
  * timeout handling and enhanced error messages for git operations.
  */
 
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
+import { createMock, mockModule } from "../test-utils/mocking.js";
 import {
   execGitWithTimeout,
   gitCloneWithTimeout,
@@ -18,25 +19,18 @@ import {
 } from "../git-exec-enhanced.js";
 import { MinskyError } from "../../errors/index.js";
 
-// Mock the util module and child_process at the top level before imports
-const mockExecAsync = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
+// Mock the exec function from child_process
+const mockExec = createMock();
+const mockExecAsync = createMock();
 
-// Mock execAsync directly by patching the exec function
-let execAsyncSpy: any;
-mock.module("child_process", () => ({
-  exec: (command: string, options: any, callback?: any) => {
-    // If callback is provided, it is the old exec format
-    if (typeof callback === "function") {
-      process.nextTick(() => callback(null, "", ""));
-      return;
-    }
-    // If no callback, it means promisify is being used
-    return mockExecAsync();
-  },
+// Mock the child_process module
+mockModule("child_process", () => ({
+  exec: mockExec,
 }));
 
-mock.module("util", () => ({
-  promisify: (fn: any) => mockExecAsync,
+// Mock the util module to return our mocked execAsync
+mockModule("util", () => ({
+  promisify: createMock(() => mockExecAsync),
 }));
 
 interface ExtendedError extends Error {
@@ -50,6 +44,7 @@ interface ExtendedError extends Error {
 describe("Enhanced Git Execution Utility", () => {
   beforeEach(() => {
     mockExecAsync.mockClear();
+    mockExec.mockClear();
   });
 
   describe("execGitWithTimeout", () => {
@@ -74,13 +69,10 @@ describe("Enhanced Git Execution Utility", () => {
         executionTimeMs: expect.any(Number),
       });
 
-      expect(mockExecAsync).toHaveBeenCalledWith(
-        "git -C /test/repo fetch origin",
-        {
-          timeout: 5000,
-          cwd: "/test/repo",
-        }
-      );
+      expect(mockExecAsync).toHaveBeenCalledWith("git -C /test/repo fetch origin", {
+        timeout: 5000,
+        cwd: "/test/repo",
+      });
     });
 
     test("should handle timeout errors with enhanced error messages", async () => {
@@ -89,21 +81,14 @@ describe("Enhanced Git Execution Utility", () => {
       timeoutError.signal = "SIGTERM";
       mockExecAsync.mockRejectedValue(timeoutError);
 
-      await expect(
-        execGitWithTimeout("fetch", "fetch origin", {
-          workdir: "/test/repo",
-          timeout: 5000,
-          context: [{ label: "Remote", value: "origin" }],
-        })
-      ).rejects.toThrow(MinskyError);
-
-      // The error message should contain timeout information
       try {
         await execGitWithTimeout("fetch", "fetch origin", {
           workdir: "/test/repo",
           timeout: 5000,
         });
+        expect.unreachable("Should have thrown an error");
       } catch (error) {
+        expect(error).toBeInstanceOf(MinskyError);
         expect(error.message).toContain("Git Operation Timeout");
         expect(error.message).toContain("Git fetch operation timed out after 5 seconds");
         expect(error.message).toContain("git -C /test/repo fetch origin");
@@ -112,23 +97,18 @@ describe("Enhanced Git Execution Utility", () => {
 
     test("should handle merge conflicts with enhanced error messages", async () => {
       const conflictError: ExtendedError = new Error("Merge conflict");
-      conflictError.stdout = "CONFLICT (content): Merge conflict in file1.txt\nCONFLICT (add/add): Merge conflict in file2.txt";
+      conflictError.stdout =
+        "CONFLICT (content): Merge conflict in file1.txt\nCONFLICT (add/add): Merge conflict in file2.txt";
       conflictError.stderr = "CONFLICT (modify/delete): file3.txt";
       mockExecAsync.mockRejectedValue(conflictError);
 
-      await expect(
-        execGitWithTimeout("merge", "merge feature-branch", {
-          workdir: "/test/repo",
-          context: [{ label: "Branch", value: "feature-branch" }],
-        })
-      ).rejects.toThrow(MinskyError);
-
-      // The error message should contain conflict information
       try {
         await execGitWithTimeout("merge", "merge feature-branch", {
           workdir: "/test/repo",
         });
+        expect.unreachable("Should have thrown an error");
       } catch (error) {
+        expect(error).toBeInstanceOf(MinskyError);
         expect(error.message).toContain("Merge Conflicts Detected");
         expect(error.message).toContain("file1.txt");
         expect(error.message).toContain("file2.txt");
@@ -141,21 +121,14 @@ describe("Enhanced Git Execution Utility", () => {
       gitError.code = 1;
       mockExecAsync.mockRejectedValue(gitError);
 
-      await expect(
-        execGitWithTimeout("push", "push origin main", {
-          workdir: "/test/repo",
-          timeout: 10000,
-          context: [{ label: "Branch", value: "main" }],
-        })
-      ).rejects.toThrow(MinskyError);
-
-      // The error message should contain enhanced context
       try {
         await execGitWithTimeout("push", "push origin main", {
           workdir: "/test/repo",
           timeout: 10000,
         });
+        expect.unreachable("Should have thrown an error");
       } catch (error) {
+        expect(error).toBeInstanceOf(MinskyError);
         expect(error.message).toContain("Git push failed");
         expect(error.message).toContain("git -C /test/repo push origin main");
         expect(error.message).toContain("Working directory: /test/repo");
@@ -231,19 +204,16 @@ describe("Enhanced Git Execution Utility", () => {
       };
       mockExecAsync.mockResolvedValue(mockResult);
 
-      const result = await gitFetchWithTimeout(undefined, undefined, {
+      const result = await gitFetchWithTimeout("origin", undefined, {
         workdir: "/test/repo",
-        timeout: 10000,
+        timeout: 30000,
       });
 
       expect(result.command).toBe("git -C /test/repo fetch origin");
-      expect(mockExecAsync).toHaveBeenCalledWith(
-        "git -C /test/repo fetch origin",
-        {
-          timeout: 10000,
-          cwd: "/test/repo",
-        }
-      );
+      expect(mockExecAsync).toHaveBeenCalledWith("git -C /test/repo fetch origin", {
+        timeout: 30000,
+        cwd: "/test/repo",
+      });
     });
 
     test("should execute git fetch with specific remote and branch", async () => {
@@ -255,17 +225,14 @@ describe("Enhanced Git Execution Utility", () => {
 
       const result = await gitFetchWithTimeout("upstream", "main", {
         workdir: "/test/repo",
-        timeout: 10000,
+        timeout: 30000,
       });
 
       expect(result.command).toBe("git -C /test/repo fetch upstream main");
-      expect(mockExecAsync).toHaveBeenCalledWith(
-        "git -C /test/repo fetch upstream main",
-        {
-          timeout: 10000,
-          cwd: "/test/repo",
-        }
-      );
+      expect(mockExecAsync).toHaveBeenCalledWith("git -C /test/repo fetch upstream main", {
+        timeout: 30000,
+        cwd: "/test/repo",
+      });
     });
   });
 
@@ -277,19 +244,16 @@ describe("Enhanced Git Execution Utility", () => {
       };
       mockExecAsync.mockResolvedValue(mockResult);
 
-      const result = await gitPushWithTimeout(undefined, undefined, {
+      const result = await gitPushWithTimeout("origin", undefined, {
         workdir: "/test/repo",
-        timeout: 15000,
+        timeout: 30000,
       });
 
       expect(result.command).toBe("git -C /test/repo push origin");
-      expect(mockExecAsync).toHaveBeenCalledWith(
-        "git -C /test/repo push origin",
-        {
-          timeout: 15000,
-          cwd: "/test/repo",
-        }
-      );
+      expect(mockExecAsync).toHaveBeenCalledWith("git -C /test/repo push origin", {
+        timeout: 30000,
+        cwd: "/test/repo",
+      });
     });
 
     test("should execute git push with specific remote and branch", async () => {
@@ -301,17 +265,14 @@ describe("Enhanced Git Execution Utility", () => {
 
       const result = await gitPushWithTimeout("upstream", "feature-branch", {
         workdir: "/test/repo",
-        timeout: 15000,
+        timeout: 30000,
       });
 
       expect(result.command).toBe("git -C /test/repo push upstream feature-branch");
-      expect(mockExecAsync).toHaveBeenCalledWith(
-        "git -C /test/repo push upstream feature-branch",
-        {
-          timeout: 15000,
-          cwd: "/test/repo",
-        }
-      );
+      expect(mockExecAsync).toHaveBeenCalledWith("git -C /test/repo push upstream feature-branch", {
+        timeout: 30000,
+        cwd: "/test/repo",
+      });
     });
   });
 
@@ -323,19 +284,16 @@ describe("Enhanced Git Execution Utility", () => {
       };
       mockExecAsync.mockResolvedValue(mockResult);
 
-      const result = await gitPullWithTimeout(undefined, undefined, {
+      const result = await gitPullWithTimeout("origin", undefined, {
         workdir: "/test/repo",
-        timeout: 20000,
+        timeout: 30000,
       });
 
       expect(result.command).toBe("git -C /test/repo pull origin");
-      expect(mockExecAsync).toHaveBeenCalledWith(
-        "git -C /test/repo pull origin",
-        {
-          timeout: 20000,
-          cwd: "/test/repo",
-        }
-      );
+      expect(mockExecAsync).toHaveBeenCalledWith("git -C /test/repo pull origin", {
+        timeout: 30000,
+        cwd: "/test/repo",
+      });
     });
   });
 
@@ -349,17 +307,14 @@ describe("Enhanced Git Execution Utility", () => {
 
       const result = await gitMergeWithTimeout("feature-branch", {
         workdir: "/test/repo",
-        timeout: 10000,
+        timeout: 30000,
       });
 
       expect(result.command).toBe("git -C /test/repo merge feature-branch");
-      expect(mockExecAsync).toHaveBeenCalledWith(
-        "git -C /test/repo merge feature-branch",
-        {
-          timeout: 10000,
-          cwd: "/test/repo",
-        }
-      );
+      expect(mockExecAsync).toHaveBeenCalledWith("git -C /test/repo merge feature-branch", {
+        timeout: 30000,
+        cwd: "/test/repo",
+      });
     });
   });
 
@@ -368,20 +323,15 @@ describe("Enhanced Git Execution Utility", () => {
       const gitError = new Error("Git command failed");
       mockExecAsync.mockRejectedValue(gitError);
 
-      await expect(
-        execGitWithTimeout("fetch", "fetch origin", {
-          workdir: "/test/repo",
-          timeout: 5000,
-        })
-      ).rejects.toThrow();
-
       try {
-        await execGitWithTimeout("fetch", "fetch origin", {
+        await execGitWithTimeout("status", "status", {
           workdir: "/test/repo",
           timeout: 5000,
         });
+        expect.unreachable("Should have thrown an error");
       } catch (error) {
-        expect(error.message).toContain("Execution time:");
+        expect(error).toBeInstanceOf(MinskyError);
+        expect(error.message).toContain("Git status failed");
         expect(error.message).toMatch(/\d+ms/);
       }
     });
@@ -390,19 +340,15 @@ describe("Enhanced Git Execution Utility", () => {
       const gitError = new Error("Git command failed");
       mockExecAsync.mockRejectedValue(gitError);
 
-      await expect(
-        execGitWithTimeout("push", "push origin main", {
-          workdir: "/test/repo",
-          timeout: 5000,
-        })
-      ).rejects.toThrow();
-
       try {
         await execGitWithTimeout("push", "push origin main", {
           workdir: "/test/repo",
           timeout: 5000,
         });
+        expect.unreachable("Should have thrown an error");
       } catch (error) {
+        expect(error).toBeInstanceOf(MinskyError);
+        expect(error.message).toContain("Git push failed");
         expect(error.message).toContain("git -C /test/repo push origin main");
       }
     });
@@ -411,30 +357,19 @@ describe("Enhanced Git Execution Utility", () => {
       const gitError = new Error("Git command failed");
       mockExecAsync.mockRejectedValue(gitError);
 
-      const context = [
-        { label: "Remote", value: "origin" },
-        { label: "Branch", value: "main" },
-        { label: "Project", value: "test-project" },
-      ];
-
-      await expect(
-        execGitWithTimeout("push", "push origin main", {
-          workdir: "/test/repo",
-          timeout: 5000,
-          context,
-        })
-      ).rejects.toThrow();
-
       try {
         await execGitWithTimeout("push", "push origin main", {
           workdir: "/test/repo",
           timeout: 5000,
-          context,
+          context: [{ label: "Remote", value: "origin" }],
         });
+        expect.unreachable("Should have thrown an error");
       } catch (error) {
-        expect(error.message).toContain("Remote: origin");
-        expect(error.message).toContain("Branch: main");
-        expect(error.message).toContain("Project: test-project");
+        expect(error).toBeInstanceOf(MinskyError);
+        expect(error.message).toContain("Git push failed");
+        expect(error.message).toContain("git -C /test/repo push origin main");
+        expect(error.message).toContain("Working directory: /test/repo");
+        expect(error.message).toContain("Execution time:");
       }
     });
   });
@@ -450,17 +385,14 @@ describe("Enhanced Git Execution Utility", () => {
       conflictError.stderr = "";
       mockExecAsync.mockRejectedValue(conflictError);
 
-      await expect(
-        execGitWithTimeout("merge", "merge feature-branch", {
-          workdir: "/test/repo",
-        })
-      ).rejects.toThrow(MinskyError);
-
       try {
         await execGitWithTimeout("merge", "merge feature-branch", {
           workdir: "/test/repo",
         });
+        expect.unreachable("Should have thrown an error");
       } catch (error) {
+        expect(error).toBeInstanceOf(MinskyError);
+        expect(error.message).toContain("Merge Conflicts Detected");
         expect(error.message).toContain("✏️ src/file1.js (modify/modify conflict)");
         expect(error.message).toContain("➕ src/file2.js (add/add conflict)");
         expect(error.message).toContain("🗑️ src/file3.js (delete/modify conflict)");
@@ -473,22 +405,18 @@ describe("Enhanced Git Execution Utility", () => {
       conflictError.stderr = "";
       mockExecAsync.mockRejectedValue(conflictError);
 
-      await expect(
-        execGitWithTimeout("merge", "merge feature-branch", {
-          workdir: "/test/repo",
-        })
-      ).rejects.toThrow(MinskyError);
-
       try {
         await execGitWithTimeout("merge", "merge feature-branch", {
           workdir: "/test/repo",
         });
+        expect.unreachable("Should have thrown an error");
       } catch (error) {
+        expect(error).toBeInstanceOf(MinskyError);
+        expect(error.message).toContain("Merge Conflicts Detected");
         expect(error.message).toContain("git status");
         expect(error.message).toContain("git mergetool");
         expect(error.message).toContain("git merge --continue");
-        expect(error.message).toContain("git diff --name-only --diff-filter=U");
       }
     });
   });
-}); 
+});

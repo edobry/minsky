@@ -2,7 +2,7 @@
 
 ## Status
 
-**NEW** - Critical infrastructure task to resolve systematic test failures
+**IN-PROGRESS** - Critical infrastructure task to resolve systematic test failures
 
 ## Priority
 
@@ -29,11 +29,49 @@
 4. **Resource Leakage** - Database connections, file handles, timers not cleaned up
 5. **Execution Order Dependencies** - Accidental dependencies on test sequence
 
+## 📊 **Current Analysis Results**
+
+### **Test Failure Breakdown** (161 total failures)
+
+**Priority Categories:**
+
+1. **Database/Storage Backend Issues** - 43 failures (26.7%)
+
+   - Pattern: `SQLiteError: unable to open database file`
+   - Root cause: Database backends not properly isolated between tests
+
+2. **Infinite Loop/Timeout Issues** - 27 failures (16.8%)
+
+   - Pattern: Tests running for 4.8+ billion milliseconds
+   - Root cause: Variable naming mismatches causing infinite loops
+
+3. **Mock/Test Isolation Issues** - 35 failures (21.7%)
+
+   - Pattern: Mock state bleeding between test files
+   - Root cause: Improper mock setup/teardown
+
+4. **Configuration/Parameter Mismatch** - 31 failures (19.3%)
+
+   - Pattern: Test expectations not matching current parameter formats
+   - Root cause: Parameter normalization changes not reflected in tests
+
+5. **Path Resolution Issues** - 15 failures (9.3%)
+6. **Missing Module/Import Issues** - 6 failures (3.7%)
+7. **Validation/Business Logic Issues** - 4 failures (2.5%)
+
+### **Current Metrics**
+
+- **Total tests**: 939 tests across 102 files
+- **Failing tests**: 161 tests (17.1% failure rate)
+- **Pass rate**: 82.9% (778 pass / 939 total)
+- **Target**: 95%+ pass rate (895+ tests passing)
+- **Gap**: 117 additional tests need to pass
+
 ## 🎯 **Success Criteria**
 
 ### **Primary Objectives**
 
-- [ ] **Test Suite Pass Rate:** Increase from 82% to 95%+ (eliminate 100+ interference failures)
+- [ ] **Test Suite Pass Rate:** Increase from 82.9% to 95%+ (eliminate 117+ interference failures)
 - [ ] **Individual vs Suite Consistency:** <2% difference between isolated and suite execution
 - [ ] **Test Execution Time:** Maintain or improve current performance
 - [ ] **Developer Experience:** Zero manual cleanup required between test runs
@@ -49,31 +87,131 @@
 
 ## 🏗️ **Implementation Plan**
 
-### **Phase 1: Test Infrastructure Foundation**
+### **Phase 1: Critical Infrastructure Fixes (Immediate)**
 
-#### **1.1 Global State Reset Framework**
+#### **1.1 Database/Storage Backend Isolation (43 failures)**
+
+**Approach:** Use Bun SQLite driver's in-memory capabilities for test isolation
+
+**Reference:** [Bun SQLite In-Memory Implementation](https://chatgpt.com/s/t_686d5b0c59f881918635a1f8898ceaf6)
+
+**Implementation Steps:**
+
+1. **Convert test databases to in-memory:** Use `:memory:` database connections
+2. **Implement per-test database creation:** Each test gets fresh in-memory database
+3. **Add database cleanup utilities:** Automatic cleanup after each test
+4. **Update storage backend factories:** Use in-memory backends for tests
+
+**Key Files to Update:**
+
+- `src/domain/storage/__tests__/database-integrity-checker.test.ts`
+- `src/domain/storage/__tests__/enhanced-storage-backend-factory.test.ts`
+- `src/utils/test-utils/database-isolation.ts` (new)
+
+**Pattern:**
 
 ```typescript
-// Implement in src/test-utils/isolation.ts
-export class TestIsolation {
-  static resetGlobalState(): void;
-  static clearAllMocks(): void;
-  static resetEnvironment(): void;
-  static cleanupResources(): void;
+// Before each test
+const testDb = new Database(":memory:");
+// Test executes with isolated database
+// After each test - automatic cleanup
+```
+
+#### **1.2 Variable Naming Issues Resolution (27 failures)**
+
+**Approach:** Use existing codemods to fix ALL variable naming mismatches
+
+**Implementation Steps:**
+
+1. **Run existing variable naming codemods:** Apply to all failing test files
+2. **Focus on infinite loop patterns:** Fix async operation variable mismatches
+3. **Verify variable-naming-protocol compliance:** Ensure all fixes follow established patterns
+
+**Key Files to Update:**
+
+- `src/domain/session/__tests__/session-path-resolver.test.ts`
+- All files identified by variable naming detection scripts
+
+**Codemods to Apply:**
+
+- `codemods/automated-unused-cleanup.ts`
+- `codemods/bulk-typescript-error-fixer.ts`
+- `scripts/check-variable-naming.ts`
+
+**Pattern:**
+
+```typescript
+// Fix: const _workspacePath = ... but code uses workspacePath
+// To: const workspacePath = ...
+```
+
+### **Phase 2: Mock and Parameter Isolation (66 failures)**
+
+#### **2.1 Mock State Isolation (35 failures)**
+
+**Implementation Steps:**
+
+1. **Implement centralized mock management:** Create MockManager with automatic cleanup
+2. **Add beforeEach/afterEach hooks:** Ensure mock state reset between tests
+3. **Fix mock state bleeding:** Isolate mocks between test files
+
+**Key Files:**
+
+- `src/domain/session/__tests__/session-auto-detection-integration.test.ts`
+- `src/adapters/__tests__/shared/commands/session.test.ts`
+
+#### **2.2 Parameter Mismatch Resolution (31 failures)**
+
+**Implementation Steps:**
+
+1. **Update test parameter expectations:** Match current parameter formats
+2. **Fix parameter normalization:** Align tests with current parameter processing
+3. **Standardize parameter defaults:** Ensure consistent default values
+
+### **Phase 3: Remaining Issues (25 failures)**
+
+#### **3.1 Path Resolution, Import, and Validation Fixes**
+
+**Implementation Steps:**
+
+1. **Fix path resolution logic:** Update workspace and path resolution tests
+2. **Resolve import issues:** Fix missing module imports
+3. **Update validation logic:** Align tests with current business rules
+
+## 🔧 **Technical Implementation Details**
+
+### **Database Isolation Framework**
+
+```typescript
+// Implement in src/utils/test-utils/database-isolation.ts
+export class DatabaseIsolation {
+  static createInMemoryDatabase(): Database {
+    return new Database(":memory:");
+  }
+
+  static setupTestDatabase(testDb: Database): void {
+    // Initialize schema in memory
+  }
+
+  static cleanupTestDatabase(testDb: Database): void {
+    testDb.close();
+  }
 }
 ```
 
-**Key Components:**
+### **Variable Naming Automation**
 
-- **Before/After Hooks:** Suite-level state reset in test setup files
-- **State Registry:** Track and reset all global variables, singletons
-- **Environment Backup/Restore:** Save and restore process.env, globals
-- **Resource Tracking:** Monitor and cleanup database connections, file handles
+```bash
+# Run existing codemods to fix all variable naming issues
+bun run codemods/automated-unused-cleanup.ts
+bun run codemods/bulk-typescript-error-fixer.ts
+bun run scripts/check-variable-naming.ts --fix
+```
 
-#### **1.2 Centralized Mock Management**
+### **Mock Management System**
 
 ```typescript
-// Implement in src/test-utils/mock-manager.ts
+// Implement in src/utils/test-utils/mock-manager.ts
 export class MockManager {
   static createIsolatedMocks(): TestMocks;
   static resetAllMocks(): void;
@@ -81,92 +219,11 @@ export class MockManager {
 }
 ```
 
-**Features:**
-
-- **Mock Factories:** Standardized mock creation for common services
-- **Automatic Cleanup:** Ensure mocks don't persist between tests
-- **Isolation Verification:** Detect mock state leakage between tests
-- **Type Safety:** Proper TypeScript support for all mock scenarios
-
-#### **1.3 Database/Storage Isolation**
-
-```typescript
-// Implement in src/test-utils/database-isolation.ts
-export class DatabaseIsolation {
-  static createTestDatabase(): TestDatabase;
-  static useInMemoryStorage(): void;
-  static cleanupTestData(): void;
-}
-```
-
-**Strategies:**
-
-- **Test-Specific Databases:** Unique database per test file/suite
-- **In-Memory Storage:** Use in-memory backends for unit tests
-- **Transaction Patterns:** Rollback database changes after tests
-- **Connection Pool Management:** Prevent connection leakage
-
-### **Phase 2: Architecture Cleanup**
-
-#### **2.1 Eliminate Global Singletons**
-
-- **Audit all global state:** Identify singletons, module-level variables
-- **Convert to dependency injection:** Make all services injectable
-- **Service factory patterns:** Create services on-demand with proper lifecycle
-
-#### **2.2 Stateless Service Design**
-
-- **Remove shared state:** Convert stateful services to stateless
-- **Configuration injection:** Pass configuration instead of global access
-- **Pure function patterns:** Eliminate side effects where possible
-
-#### **2.3 Module Isolation**
-
-- **Dynamic imports:** Load modules in isolation for tests
-- **Module reset utilities:** Clear require cache and reload modules
-- **Namespace isolation:** Prevent cross-module state pollution
-
-### **Phase 3: Test Suite Optimization**
-
-#### **3.1 Test File Organization**
-
-- **Group by isolation needs:** Separate integration vs unit tests
-- **Parallel execution safety:** Ensure tests can run concurrently
-- **Resource requirements:** Group tests by database/network needs
-
-#### **3.2 Performance Optimization**
-
-- **Lazy loading:** Load test dependencies only when needed
-- **Resource pooling:** Share expensive setup across related tests
-- **Parallel execution:** Enable safe concurrent test execution
-
-#### **3.3 Monitoring and Validation**
-
-- **Isolation verification:** Automated checks for test interference
-- **Performance monitoring:** Track test execution time and resource usage
-- **Failure analysis:** Detailed reporting on test failure patterns
-
-## 🔧 **Technical Requirements**
-
-### **Dependencies**
-
-- **Test Framework:** Bun test with enhanced setup/teardown
-- **Mock Libraries:** Enhanced mock management with isolation
-- **Database:** Test database creation and cleanup utilities
-- **Environment:** Process isolation and restoration tools
-
-### **Implementation Guidelines**
-
-- **Backward Compatibility:** Existing tests continue to work
-- **Incremental Migration:** Roll out framework incrementally
-- **Performance First:** No significant test execution slowdown
-- **Developer Experience:** Minimal changes to test writing patterns
-
 ## 📊 **Expected Impact**
 
 ### **Quantitative Improvements**
 
-- **Test Success Rate:** 82% → 95%+ (eliminate ~100+ failures)
+- **Test Success Rate:** 82.9% → 95%+ (eliminate 117+ failures)
 - **Development Velocity:** Eliminate test debugging time
 - **CI/CD Reliability:** Remove flaky test failures
 - **Maintenance Cost:** Reduce test maintenance overhead
@@ -209,7 +266,7 @@ export class DatabaseIsolation {
 
 ## 📝 **Notes**
 
-**Priority Justification:** This task addresses the root cause of 100+ test failures identified in Task #236. Instead of continuing to fix symptoms individually, this systematic approach will resolve the underlying architecture issues and prevent future test interference problems.
+**Priority Justification:** This task addresses the root cause of 161 test failures with specific, actionable solutions. The focus on database in-memory isolation and automated variable naming fixes targets the highest-impact categories first.
 
 **Risk Mitigation:** Implement incrementally with backward compatibility to ensure existing tests continue working during migration.
 
