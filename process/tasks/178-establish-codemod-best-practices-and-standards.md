@@ -208,9 +208,11 @@ This task aims to:
    - ✅ Created comprehensive utility library (`codemod-framework.ts`) based on AST-first principles
    - ✅ Developed specialized utility classes (`specialized-codemods.ts`) that make it easy for agents to use best practices
 
-8. **Refactor Existing Codemods** ✅ **COMPLETED**
+8. **Refactor Existing Codemods** 🔄 **IN PROGRESS**
    - ✅ Audited all 90+ codemods for redundancy and usage patterns
-   - ✅ Created modern utility-based replacements for high-redundancy categories
+   - 🔄 **ONGOING: Refactoring existing codemods to use utility framework**
+     - ✅ Refactored 5 codemods to use utilities (fix-variable-naming-ast.ts, remove-unused-imports.ts, unused-parameters-fix.ts, fix-this-prefix.ts, unused-imports-cleanup.ts)
+     - 🔄 **167 codemods remaining to refactor**
    - ✅ Identified and removed 16 unused/redundant/deprecated codemods
    - ✅ Validated that utility-based codemods maintain equivalent functionality with improved reporting
 

@@ -1,0 +1,360 @@
+# Codemods Best Practices and Standards
+
+## Core Principles
+
+**MANDATORY: All codemods in the `codemods/` directory must follow these principles:**
+
+1. **AST-First Approach**: Use AST-based transformations (ts-morph, TypeScript Compiler API) over regex-based string manipulation
+2. **Safety First**: Include comprehensive validation and safety checks before applying transformations
+3. **Comprehensive Testing**: Every codemod must include test cases covering success and failure scenarios
+4. **Clear Documentation**: Provide clear purpose, usage, and safety consideration documentation
+5. **Utility-Based Design**: Use specialized utility classes to avoid code duplication
+6. **Incremental Approach**: Apply transformations incrementally with validation at each step
+7. **Proper Error Handling**: Include robust error handling and rollback capabilities
+
+## Architectural Requirements
+
+### 1. Use Specialized Utility Classes
+
+**REQUIRED**: New codemods MUST inherit from one of these specialized utility classes:
+
+- `VariableNamingCodemod`: For variable naming fixes (underscore prefix issues)
+- `UnusedImportCodemod`: For import cleanup and unused import removal
+- `UnusedVariableCodemod`: For unused variable and parameter handling
+- `TypeAssertionCodemod`: For type assertion fixes and safety improvements
+
+**Implementation Pattern:**
+```typescript
+import { VariableNamingCodemod } from './utils/specialized-codemods';
+
+export class MySpecificCodemod extends VariableNamingCodemod {
+  constructor() {
+    super();
+    this.name = 'MySpecificCodemod';
+    this.description = 'Specific description of what this codemod does';
+  }
+  
+  // Override specific methods if needed
+  // Base class handles all standard functionality
+}
+```
+
+### 2. AST-Based Transformations Only
+
+**PROHIBITED**: Regex-based string manipulation for code transformations
+
+**REQUIRED**: Use ts-morph or TypeScript Compiler API for all transformations
+
+**Evidence**: AST-based approaches show 6x effectiveness over regex (231 fixes with 100% success rate vs high failure rates with regex)
+
+### 3. Comprehensive Safety Checks
+
+**MANDATORY**: Every codemod must include these safety mechanisms:
+
+```typescript
+// Validate syntax before applying changes
+protected validateTransformation(sourceFile: SourceFile): boolean {
+  const diagnostics = sourceFile.getPreEmitDiagnostics();
+  if (diagnostics.length > 0) {
+    console.warn(`Validation failed: ${diagnostics.length} diagnostics`);
+    return false;
+  }
+  return true;
+}
+
+// Apply changes with safety checks
+protected safeApplyChanges(filePath: string, transformFn: (sourceFile: SourceFile) => boolean): boolean {
+  try {
+    const sourceFile = this.project.createSourceFile(filePath, content, { overwrite: true });
+    const hasChanges = transformFn(sourceFile);
+    
+    if (!hasChanges) return true;
+    
+    // Validate before saving
+    if (!this.validateTransformation(sourceFile)) {
+      return false;
+    }
+    
+    // Save changes
+    writeFileSync(filePath, sourceFile.getFullText());
+    return true;
+  } catch (error) {
+    console.error(`Error applying changes: ${error}`);
+    return false;
+  }
+}
+```
+
+## File Structure Requirements
+
+### 1. Naming Convention
+
+**REQUIRED**: Use descriptive, action-oriented names:
+- `fix-variable-underscore-prefix.ts` ✅
+- `remove-unused-imports.ts` ✅
+- `convert-type-assertions.ts` ✅
+- `codemod.ts` ❌ (too generic)
+- `utils.ts` ❌ (ambiguous)
+
+### 2. File Organization
+
+**REQUIRED**: All codemods must be in `/codemods/` directory with this structure:
+
+```
+codemods/
+├── utils/
+│   ├── specialized-codemods.ts    # Base utility classes
+│   └── test-helpers.ts           # Testing utilities
+├── templates/
+│   └── codemod-template.ts       # Template for new codemods
+└── [specific-codemods].ts        # Individual codemod implementations
+```
+
+### 3. Documentation Requirements
+
+**MANDATORY**: Every codemod file must include:
+
+```typescript
+/**
+ * [Codemod Name]
+ * 
+ * Purpose: Clear description of what this codemod does
+ * 
+ * Safety Considerations:
+ * - List potential risks and mitigations
+ * - Describe validation steps
+ * - Document rollback procedures
+ * 
+ * Usage:
+ * ```bash
+ * bun run codemods/[filename].ts
+ * ```
+ * 
+ * Testing:
+ * - Describe test coverage
+ * - List test scenarios
+ * 
+ * Based on: [Reference to analysis/task that led to this codemod]
+ */
+```
+
+## Testing Requirements
+
+### 1. Comprehensive Test Coverage
+
+**MANDATORY**: Every codemod must include test cases for:
+
+- **Success scenarios**: Transformations that should work
+- **Edge cases**: Boundary conditions and unusual inputs
+- **Failure scenarios**: Cases where codemod should not apply changes
+- **Rollback scenarios**: Validation that failed transformations don't corrupt files
+
+### 2. Test Structure
+
+**REQUIRED**: Use this test structure:
+
+```typescript
+describe('MyCodemod', () => {
+  let codemod: MyCodemod;
+  
+  beforeEach(() => {
+    codemod = new MyCodemod();
+  });
+  
+  describe('Success Cases', () => {
+    it('should fix [specific case]', () => {
+      // Test successful transformation
+    });
+  });
+  
+  describe('Edge Cases', () => {
+    it('should handle [edge case]', () => {
+      // Test edge case handling
+    });
+  });
+  
+  describe('Safety Checks', () => {
+    it('should not apply changes to invalid syntax', () => {
+      // Test safety validation
+    });
+  });
+});
+```
+
+## Performance Requirements
+
+### 1. Efficient Processing
+
+**REQUIRED**: Optimize for performance:
+
+- Process files in batches when possible
+- Use in-memory file system for ts-morph operations
+- Avoid redundant AST parsing
+- Cache compiled projects when processing multiple files
+
+### 2. Progress Reporting
+
+**MANDATORY**: Include progress reporting for long-running operations:
+
+```typescript
+console.log(`Processing ${filePaths.length} files...`);
+filePaths.forEach((filePath, index) => {
+  // Process file
+  console.log(`[${index + 1}/${filePaths.length}] Processed ${filePath}`);
+});
+```
+
+## Error Handling Requirements
+
+### 1. Robust Error Handling
+
+**MANDATORY**: Include comprehensive error handling:
+
+```typescript
+try {
+  // Apply transformation
+  const result = applyTransformation(sourceFile);
+  return result;
+} catch (error) {
+  console.error(`Failed to process ${filePath}: ${error.message}`);
+  return false;
+}
+```
+
+### 2. Rollback Capabilities
+
+**REQUIRED**: Provide rollback mechanisms:
+
+- Create backups before applying changes
+- Validate changes before committing
+- Provide clear rollback instructions in documentation
+
+## Integration Requirements
+
+### 1. Systematic Refactoring Support
+
+**REQUIRED**: Codemods must be compatible with the systematic refactoring workflow:
+
+- Must work with `/systematic-refactor-all.ts`
+- Must be categorizable by the refactoring system
+- Must support batch processing
+
+### 2. Continuous Integration
+
+**REQUIRED**: Codemods must pass CI checks:
+
+- All tests must pass
+- Code must pass linting
+- Documentation must be complete
+- Performance must meet standards
+
+## Maintenance Requirements
+
+### 1. Regular Updates
+
+**REQUIRED**: Keep codemods updated with:
+
+- TypeScript version changes
+- ts-morph API updates
+- New best practices
+- Performance improvements
+
+### 2. Deprecation Process
+
+**REQUIRED**: For deprecating old codemods:
+
+1. Mark as deprecated in documentation
+2. Provide migration path to new utility-based approach
+3. Maintain backward compatibility for 2 versions
+4. Remove after proper deprecation period
+
+## Enforcement
+
+### 1. Automated Checks
+
+**MANDATORY**: Automated systems will verify:
+
+- All codemods use AST-based approaches
+- All codemods include required documentation
+- All codemods have comprehensive tests
+- All codemods follow naming conventions
+
+### 2. Review Process
+
+**REQUIRED**: All new codemods must undergo:
+
+- Code review for safety and best practices
+- Performance testing
+- Documentation review
+- Integration testing
+
+## Examples
+
+### ✅ Good Example
+
+```typescript
+import { VariableNamingCodemod } from './utils/specialized-codemods';
+
+/**
+ * Fix Variable Underscore Prefix
+ * 
+ * Purpose: Fixes variable naming issues where variables are declared with 
+ * underscores but used without them
+ * 
+ * Safety Considerations:
+ * - Uses AST analysis to ensure syntax correctness
+ * - Validates transformations before applying
+ * - Only renames when usage patterns confirm the intent
+ * 
+ * Usage: bun run codemods/fix-variable-underscore-prefix.ts
+ */
+export class FixVariableUnderscorePrefix extends VariableNamingCodemod {
+  constructor() {
+    super();
+    this.name = 'FixVariableUnderscorePrefix';
+    this.description = 'Fixes variable underscore prefix mismatches';
+  }
+}
+```
+
+### ❌ Bad Example
+
+```typescript
+import { readFileSync, writeFileSync } from 'fs';
+
+// Missing documentation
+export function fixVariables(filePath: string): void {
+  const content = readFileSync(filePath, 'utf-8');
+  
+  // Regex-based approach (prohibited)
+  const fixed = content.replace(/const _(\w+)/g, 'const $1');
+  
+  // No validation (unsafe)
+  writeFileSync(filePath, fixed);
+}
+```
+
+## Rule Violations
+
+**CRITICAL**: Violations of this rule constitute a systematic failure and require immediate correction:
+
+1. **Using regex for code transformations**: Must refactor to AST-based approach
+2. **Missing safety checks**: Must add comprehensive validation
+3. **No test coverage**: Must add complete test suite
+4. **Missing documentation**: Must add required documentation sections
+5. **Not using utility classes**: Must refactor to inherit from specialized utilities
+
+## Integration with Other Rules
+
+- See `automation-approaches.mdc` for detailed automation principles
+- See `testing-boundaries.mdc` for testing requirements
+- See `session-first-workflow.mdc` for development workflow
+- See `variable-naming-protocol.mdc` for variable naming standards
+
+---
+
+This rule represents the culmination of analysis of 90+ codemods and industry best practices research. It enforces proven patterns and prevents anti-patterns that have been identified through extensive codemod development experience.
+description:
+globs:
+alwaysApply: false
+---
