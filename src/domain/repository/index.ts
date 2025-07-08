@@ -154,8 +154,8 @@ export interface BranchResult {
 // Completely rewritten repository backend interface with flexible types
 export interface RepositoryBackend {
   getType(): string;
-  clone(__session: string): Promise<CloneResult>;
-  branch(__session: string, branch: string): Promise<BranchResult>;
+  clone(session: string): Promise<CloneResult>;
+  branch(session: string, branch: string): Promise<BranchResult>;
   getStatus(session?: string): Promise<any>;
   getPath(session?: string): string | Promise<string>;
   validate(): Promise<any>;

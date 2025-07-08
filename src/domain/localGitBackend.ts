@@ -42,9 +42,9 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param config Repository configuration
    */
-  constructor(__config: RepositoryConfig) {
+  constructor(config: RepositoryConfig) {
     this.config = {
-      ...__config,
+      ...config,
       type: (RepositoryBackendType as any).LOCAL,
     };
     const _xdgStateHome =
@@ -270,7 +270,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param name Branch name to create
    * @returns Branch result
    */
-  async branch(__session: string, name: string): Promise<BranchResult> {
+  async branch(session: string, name: string): Promise<BranchResult> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }

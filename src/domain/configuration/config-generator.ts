@@ -162,8 +162,8 @@ export class ConfigurationGenerator {
   /**
    * Get the repository configuration file path
    */
-  static getRepositoryConfigPath(__workingDir: string): string {
-    return join(__workingDir, CONFIG_PATHS.REPOSITORY);
+  static getRepositoryConfigPath(workingDir: string): string {
+    return join(workingDir, CONFIG_PATHS.REPOSITORY);
   }
 
   /**
