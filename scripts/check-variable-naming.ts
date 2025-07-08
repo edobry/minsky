@@ -117,7 +117,8 @@ function checkFile(filePath: string): VariableNamingIssue[] {
       const params = arrowMatch[1];
       // Skip if the parameters contain string literals (like "child_process")
       const singleQuote = String.fromCharCode(39); // single quote
-      if (params.includes("\"") || params.includes(singleQuote)) {
+      const doubleQuote = String.fromCharCode(34); // double quote
+      if (params.includes(doubleQuote) || params.includes(singleQuote)) {
         continue;
       }
       const underscoreParams = params.match(/_\w+/g) || [];
