@@ -237,7 +237,7 @@ export async function getCurrentSession(
   sessionDbOverride?: SessionProviderInterface
 ): Promise<string | undefined> {
   const sessionInfo = await getSessionFromWorkspace(cwd, execAsyncFn, sessionDbOverride);
-  return sessionInfo ? (sessionInfo as any).session : null as any;
+  return sessionInfo ? (sessionInfo as any).session : (null as any);
 }
 
 /**
@@ -283,7 +283,7 @@ export async function getCurrentSessionContext(
     log.error("Error fetching session record", {
       sessionName: sessionId,
       error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack as any : undefined as any,
+      stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
       cwd,
     });
     return null as any;
@@ -359,11 +359,11 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
     isSessionWorkspace,
     getCurrentSession: async (repoPath: string): Promise<string | undefined> => {
       const sessionInfo = await getSessionFromRepo(repoPath);
-      return sessionInfo ? (sessionInfo as any).session : null as any;
+      return sessionInfo ? (sessionInfo as any).session : (null as any);
     },
     getSessionFromWorkspace: async (workspacePath: string): Promise<string | undefined> => {
       const sessionInfo = await getSessionFromWorkspace(workspacePath);
-      return sessionInfo ? (sessionInfo as any).session : null as any;
+      return sessionInfo ? (sessionInfo as any).session : (null as any);
     },
     resolveWorkspacePath: resolveWorkspacePath,
   };

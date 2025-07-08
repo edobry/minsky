@@ -1950,7 +1950,7 @@ Session requested: "${(options as any).session}"
         if (
           err instanceof Error &&
           ((err.message as any).includes("Merge Conflicts Detected") ||
-           (err.message as any).includes("CONFLICT"))
+            (err.message as any).includes("CONFLICT"))
         ) {
           // The error message indicates conflicts
           return { workdir, merged: false, conflicts: true };
