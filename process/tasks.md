@@ -472,4 +472,6 @@
 
 - [ ] Improve CLI error messages for user-friendly output [#259](process/tasks/259-improve-cli-error-messages-for-user-friendly-output.md)
 
-- [ ] Implement prompt templates for AI interaction [#260](/Users/edobry/Projects/minsky/process/tasks/260-implement-prompt-templates-for-ai-interaction.md)
+- [ ] Implement prompt templates for AI interaction [#260](process/tasks/260-implement-prompt-templates-for-ai-interaction.md)
+
+- [ ] Add AI Agent Command Structure Export [#261](/Users/edobry/Projects/minsky/process/tasks/261-add-ai-agent-command-structure-export.md)
