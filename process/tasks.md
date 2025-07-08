@@ -454,4 +454,6 @@
 
 - [ ] Investigate and Implement Session-Aware Code Search MCP Tools with Fast Retrieval APIs [#250](process/tasks/250-investigate-and-implement-session-aware-code-search-mcp-tools-with-fast-retrieval-apis.md)
 
-- [ ] Add Mobile/Voice Interface for Minsky Operations [#251](/Users/edobry/Projects/minsky/process/tasks/251-add-mobile-voice-interface-for-minsky-operations.md)
+- [ ] Add Mobile/Voice Interface for Minsky Operations [#251](process/tasks/251-add-mobile-voice-interface-for-minsky-operations.md)
+
+- [ ] Design and implement task management UI system [#252](/Users/edobry/Projects/minsky/process/tasks/252-design-and-implement-task-management-ui-system.md)
