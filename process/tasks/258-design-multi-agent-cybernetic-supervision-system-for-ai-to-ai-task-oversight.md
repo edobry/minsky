@@ -238,20 +238,18 @@ The existing Minsky rule system (`.cursor/rules/`) operates primarily at **promp
 
 ### Intervention-as-Rules Framework
 
-**Key Insight**: Interventions like "There is no linter error limit, keep going" are essentially **executable rules** with:
+**Key Insight**: Interventions like "There is no linter error limit, keep going" are essentially **executable rules** that can be derived from existing cursor rule files.
 
-- **Trigger condition**: "Use this when the agent mentions a 'linter error limit'"
-- **Response action**: "Immediate interruption with corrective message"
-- **Learning component**: "Build pattern database of similar guideline violations"
+**Current Rule Enhancement Approach**: Rather than creating new rule formats, explore how existing `.cursor/rules/*.mdc` files can be processed, embedded, and enhanced for real-time enforcement.
 
 ### Enhanced Rule System Architecture
 
-**1. Rule Classification by Enforcement Type**
+**1. Existing Rule Processing Pipeline**
 
-- **Static Rules**: Traditional prompt-time guidance (current system)
-- **Dynamic Rules**: Runtime enforcement with pattern detection
-- **Intervention Rules**: Executable rules triggered by specific agent behaviors
-- **Learning Rules**: Rules that evolve based on intervention outcomes
+- **Rule Parsing**: Extract patterns, triggers, and enforcement mechanisms from current .mdc files
+- **Rule Embedding**: Convert rule content into embeddings for pattern matching
+- **Rule Processing**: Analyze existing enforcement language for AT-INFERENCE adaptation
+- **Rule Enhancement**: Augment existing rules with runtime enforcement capabilities
 
 **2. Runtime Rule Engine**
 
@@ -260,39 +258,35 @@ The existing Minsky rule system (`.cursor/rules/`) operates primarily at **promp
 │                    Runtime Rule Engine                         │
 ├─────────────────────────────────────────────────────────────────┤
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │  Pattern        │  │  Rule           │  │  Intervention   │  │
-│  │  Matcher        │  │  Evaluator      │  │  Executor       │  │
+│  │  .mdc Rule      │  │  Pattern        │  │  Intervention   │  │
+│  │  Parser         │  │  Matcher        │  │  Executor       │  │
 │  │                 │  │                 │  │                 │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
 │                                                                 │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
 │  │  Stream         │  │  Rule           │  │  Learning       │  │
-│  │  Monitor        │  │  Repository     │  │  Engine         │  │
+│  │  Monitor        │  │  Embeddings     │  │  Engine         │  │
 │  │                 │  │                 │  │                 │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**3. Intervention Rule Format**
+**3. Existing Rule Analysis for AT-INFERENCE Potential**
 
-```yaml
----
-name: "linter-error-limit-intervention"
-description: "Use when agent mentions 'linter error limit'"
-trigger:
-  type: "pattern_match"
-  pattern: "linter error limit"
-  context: "agent_output_stream"
-intervention:
-  type: "immediate_interruption"
-  message: "There is no linter error limit, keep going"
-  priority: "HIGH"
-learning:
-  track_outcome: true
-  pattern_type: "guideline_violation"
-  update_knowledge_base: true
----
-```
+**Example Analysis of Current Rules:**
+
+- **variable-naming-protocol.mdc**:
+
+  - Current: "NEVER add underscores to variables that are already correctly named"
+  - AT-INFERENCE: Real-time detection of underscore additions to working variables
+  - Processing: Extract prohibition patterns from rule content
+  - Enhancement: Convert to stream monitoring for immediate intervention
+
+- **user-preferences.mdc**:
+  - Current: "Never Use Echo for Progress Summaries" / "Professional Communication Style"
+  - AT-INFERENCE: Real-time detection of prohibited language patterns
+  - Processing: Extract language patterns from existing verification protocols
+  - Enhancement: Automatic rewrite before response submission
 
 **4. Rule Enhancement Opportunities**
 
@@ -317,43 +311,47 @@ learning:
 
 **5. Implementation Strategy**
 
-**Phase 1: Rule System Integration**
+**Phase 1: Rule Analysis and Processing**
 
-- Extend existing rule metadata format to include intervention specifications
-- Implement runtime rule evaluation engine
-- Create intervention execution framework
+- Analyze existing .mdc rule files for enforcement patterns and triggers
+- Develop rule parsing system to extract actionable patterns from current rule content
+- Create rule embedding system for semantic pattern matching
+- Build rule processing pipeline to enhance existing rules for runtime enforcement
 
 **Phase 2: Enhanced Enforcement**
 
-- Upgrade high-impact rules (user-preferences, variable-naming-protocol) to runtime enforcement
-- Implement pattern detection for rule violations
-- Add automatic intervention capabilities
+- Implement runtime monitoring for high-impact rules (user-preferences, variable-naming-protocol)
+- Add real-time pattern detection based on existing rule content
+- Enable automatic intervention using guidance already present in rules
+- Preserve existing rule format while adding runtime capabilities
 
 **Phase 3: Learning-Based Evolution**
 
-- Implement rule effectiveness tracking
-- Create automatic rule refinement based on intervention outcomes
-- Build predictive intervention capabilities
+- Track effectiveness of interventions derived from existing rules
+- Enhance existing rules based on intervention outcomes
+- Build predictive capabilities using current rule patterns
+- Maintain backward compatibility with existing rule system
 
 **6. Meta-Rule Considerations**
 
-**Rule Creation and Management:**
+**Rule Processing and Enhancement:**
 
-- New rule type: "intervention-rule" with executable components
-- Enhanced rule-creation-guidelines for intervention rule specification
-- Integration with existing rule management commands (`minsky rules`)
+- Preserve existing .mdc rule format and structure
+- Enhance rule-creation-guidelines to support AT-INFERENCE considerations
+- Maintain compatibility with existing rule management commands (`minsky rules`)
+- Process existing rules without requiring format changes
 
 **Rule Conflict Resolution:**
 
-- Priority system for conflicting intervention rules
-- Escalation mechanisms for complex conflicts
-- Human override capabilities
+- Analyze existing rule precedence and relationships
+- Handle conflicts between runtime enforcement and prompt-time guidance
+- Maintain human override capabilities from existing rules
 
 **Rule Performance Monitoring:**
 
-- Track intervention effectiveness
-- Measure rule compliance improvements
-- Identify rule gaps and enhancement opportunities
+- Track effectiveness of interventions derived from existing rules
+- Measure improvement in rule compliance
+- Identify opportunities to enhance existing rule content
 
 ## Technical Architecture
 
@@ -483,10 +481,10 @@ learning:
 2. **Intervention Taxonomy**: Comprehensive catalog of intervention types and patterns
 3. **Communication Protocol**: Standardized messaging system for agent interaction
 4. **Rule System Enhancement**:
-   - Enhanced rule metadata format supporting intervention specifications
-   - Runtime rule evaluation engine design
-   - Migration plan for existing rules to AT-INFERENCE enforcement
-   - Intervention rule creation guidelines and templates
+   - Rule parsing and processing system for existing .mdc files
+   - Rule embedding and pattern matching system design
+   - Runtime enforcement engine using existing rule content
+   - Enhancement guidelines for existing rules to support AT-INFERENCE capabilities
 5. **Proof of Concept**: Working implementation of basic supervisor agent with rule system integration
 6. **Integration Plan**: Strategy for integrating with existing task graph system and rule infrastructure
 7. **Learning Framework**: System for continuous improvement of supervision quality and rule effectiveness
