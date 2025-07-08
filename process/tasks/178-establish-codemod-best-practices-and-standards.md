@@ -212,6 +212,7 @@ This task aims to:
    - [x] Refactor prefix-unused-function-params.ts to use UnusedVariableCodemod
    - [x] Extract TypeScript Error Fixing utility class ✅ **COMPLETED**
    - [x] Refactor fix-ts2322-ast-based.ts to use TypeScriptErrorCodemod ✅ **COMPLETED**
+   - [x] Refactor fix-ts2345-argument-errors.ts to use TypeScriptErrorCodemod ✅ **COMPLETED**
    - [ ] Consolidate redundant unused import codemods (6+ variations)
    - [ ] Consolidate redundant unused variable codemods (15+ variations)
    - [ ] Consolidate redundant TypeScript error codemods (20+ variations)

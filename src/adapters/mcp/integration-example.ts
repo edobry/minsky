@@ -84,7 +84,7 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
     return {
       success: true,
       commitHash: "example-hash",
-      message: (params as any).message,
+      message: (params as any)!.message,
     };
   },
 };
@@ -117,7 +117,7 @@ const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
     log.debug("MCP tasks.status.get called with params:", params as any);
     return {
       success: true,
-      taskId: (params as any).taskId,
+      taskId: (params as any)!.taskId,
       _status: "TODO", // Example _status
     };
   },

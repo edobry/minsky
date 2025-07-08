@@ -99,15 +99,15 @@ describe("Session Creation Bug Fix (TDD)", () => {
     }
 
     // Assert: Expected behavior after fix
-    expect(sessionStartFailed).toBe(true); // Session creation should fail
+    expect(sessionStartFailed)!.toBe(true); // Session creation should fail
 
     // CRITICAL: This assertion should PASS after fix but FAILS before fix
     // Currently fails because git.clone creates directories before failing
     const sessionDirPath = join(tempDir, "local-minsky", "sessions", "test-session");
-    expect(existsSync(sessionDirPath)).toBe(false); // No orphaned directories should exist
+    expect(existsSync(sessionDirPath))!.toBe(false); // No orphaned directories should exist
 
     // Session should not be in database either
     const sessions = await mockSessionDB.listSessions();
-    expect(sessions).toHaveLength(0);
+    expect(sessions)!.toHaveLength(0);
   });
 });

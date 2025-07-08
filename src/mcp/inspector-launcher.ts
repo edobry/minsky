@@ -103,11 +103,11 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
 
     // Configure auto-open based on openBrowser option
     if (!openBrowser) {
-      (env as any).MCP_AUTO_OPEN_ENABLED = "false";
+      (env as any)?.MCP_AUTO_OPEN_ENABLED = "false";
     }
 
     // For security, we'll need to set this for auto-open to work
-    (env as any).DANGEROUSLY_OMIT_AUTH = "true";
+    (env as any)?.DANGEROUSLY_OMIT_AUTH = "true";
 
     log.debug("Launching MCP Inspector", {
       clientPort: port,
@@ -146,7 +146,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     });
 
     (inspectorProcess.stderr as any).on("data", (data) => {
-      log.error(`MCP Inspector stderr: ${(data as any).toString()}`);
+      log.error(`MCP Inspector stderr: ${(data as any)!.toString()}`);
     });
 
     (inspectorProcess as any).on("exit", (code, signal) => {

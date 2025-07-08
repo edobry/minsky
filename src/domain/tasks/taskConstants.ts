@@ -152,7 +152,7 @@ export const TASK_PARSING_UTILS = {
    * @returns TaskStatus or default TODO if invalid
    */
   getStatusFromCheckbox(checkbox: string): TaskStatus {
-    return CHECKBOX_TO_STATUS[checkbox] || TASK_STATUS.TODO;
+    return CHECKBOX_TO_STATUS[checkbox] || TASK_STATUS?.TODO;
   },
 
   /**
