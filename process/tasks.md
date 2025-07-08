@@ -453,3 +453,5 @@
 - [ ] Investigate and Improve Session-Aware Edit/Reapply MCP Tools with Fast-Apply APIs [#249](process/tasks/249-investigate-and-improve-session-aware-edit-reapply-mcp-tools-with-fast-apply-apis.md)
 
 - [ ] Investigate and Implement Session-Aware Code Search MCP Tools with Fast Retrieval APIs [#250](process/tasks/250-investigate-and-implement-session-aware-code-search-mcp-tools-with-fast-retrieval-apis.md)
+
+- [ ] Add Mobile/Voice Interface for Minsky Operations [#251](/Users/edobry/Projects/minsky/process/tasks/251-add-mobile-voice-interface-for-minsky-operations.md)
