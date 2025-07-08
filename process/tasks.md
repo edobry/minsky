@@ -457,3 +457,5 @@
 - [ ] Add Mobile/Voice Interface for Minsky Operations [#251](process/tasks/251-add-mobile-voice-interface-for-minsky-operations.md)
 
 - [ ] Design and implement task management UI system [#252](/Users/edobry/Projects/minsky/process/tasks/252-design-and-implement-task-management-ui-system.md)
+
+- [ ] Implement Task Similarity Search Using Embeddings [#253](process/tasks/253-implement-task-similarity-search-using-embeddings.md)
