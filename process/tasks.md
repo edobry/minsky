@@ -338,7 +338,7 @@
 
 - [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
 
-- [ ] Establish Codemod Best Practices and Standards [#178](process/tasks/178-establish-codemod-best-practices-and-standards.md)
+- [+] Establish Codemod Best Practices and Standards [#178](process/tasks/178-establish-codemod-best-practices-and-standards.md)
 
 - [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
 
@@ -456,6 +456,8 @@
 
 - [ ] Add Mobile/Voice Interface for Minsky Operations [#251](process/tasks/251-add-mobile-voice-interface-for-minsky-operations.md)
 
-- [ ] Design and implement task management UI system [#252](/Users/edobry/Projects/minsky/process/tasks/252-design-and-implement-task-management-ui-system.md)
+- [ ] Design and implement task management UI system [#252](process/tasks/252-design-and-implement-task-management-ui-system.md)
 
 - [ ] Implement Task Similarity Search Using Embeddings [#253](process/tasks/253-implement-task-similarity-search-using-embeddings.md)
+
+- [ ] Implement Commit History Similarity Search Using Embeddings [#254](process/tasks/254-implement-commit-history-similarity-search-using-embeddings.md)
