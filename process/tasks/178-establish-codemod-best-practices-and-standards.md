@@ -211,9 +211,29 @@ This task aims to:
    - [x] Document fix-ts2564-property-initialization.ts with comprehensive problem analysis
    - [x] Create boundary validation test proving it does ONLY what it claims
    - [x] Establish testing pattern: configuration mirroring, mixed scenarios, constraint validation
-   - [ ] Apply documentation and boundary testing pattern to remaining 87 codemods
+   - [x] Applied boundary validation testing to 7 priority codemods with critical discoveries
+   - [x] Documented comprehensive analysis revealing critical bugs and fundamental flaws
+   - [x] Removed 4 non-functional/fundamentally-flawed codemods based on boundary validation results
+   - [ ] Apply documentation and boundary testing pattern to remaining ~103 codemods
    - [ ] Identify true duplicates vs different problem solvers based on documented functionality
-   - [ ] Remove obsolete/wrong/one-off codemods after proper analysis
+
+**BOUNDARY VALIDATION TESTING RESULTS:**
+
+**Priority Codemods Analyzed (7 total):**
+- ✅ **fix-quotes-to-double.ts**: Documented and tested - revealed non-functional regex pattern
+- ✅ **simple-underscore-fix.ts**: Documented and tested - boundary violations, scope issues 
+- ✅ **fix-explicit-any-simple.ts**: Documented and tested - regex boundary violations, complex type expression issues
+- ❌ **fix-bun-types-ast.ts**: REMOVED - CRITICAL BUG: insertLeadingComment method doesn't exist
+- ❌ **fix-unused-catch-params.ts**: REMOVED - CRITICAL BUG: blindly prefixes actually used parameters (breaks code)
+- ❌ **fix-unused-imports.ts**: REMOVED - NOT a proper codemod, hardcoded one-time fix script
+- ❌ **bulk-typescript-error-fixer.ts**: REMOVED - fundamentally flawed heuristic approach vs proper type analysis
+- ✅ **modern-variable-naming-fix.ts**: Documented and tested - framework-based approach evolution
+
+**Critical Discoveries:**
+- **4 codemods removed** due to critical bugs, fundamental flaws, or being inappropriate one-off scripts
+- **Boundary validation testing** proven essential for identifying codemods that break working code
+- **Heuristic approaches** shown to be fundamentally inferior to proper AST/type analysis
+- **Framework evolution** demonstrated significant improvement over individual codemods
 
 **CONSOLIDATION CATEGORIES IDENTIFIED:**
 
@@ -281,7 +301,7 @@ This task aims to:
    - 🔄 **ONGOING: Refactoring existing codemods to use utility framework**
      - ✅ Refactored 5 codemods to use utilities (fix-variable-naming-ast.ts, remove-unused-imports.ts, unused-parameters-fix.ts, fix-this-prefix.ts, unused-imports-cleanup.ts)
      - 🔄 **167 codemods remaining to refactor**
-   - ✅ Identified and removed 16 unused/redundant/deprecated codemods
+   - ✅ Identified and removed 20 unused/redundant/deprecated/non-functional codemods (16 + 4 through boundary validation)
    - ✅ Validated that utility-based codemods maintain equivalent functionality with improved reporting
 
 9. **Utility Framework Validation** ✅ **COMPLETED**
@@ -309,7 +329,7 @@ This task aims to:
 - **Performance**: Excellent - comprehensive analysis with fast execution
 
 ### Codemod Consolidation Achieved
-- **Removed**: 16 redundant/obsolete codemods
+- **Removed**: 20 redundant/obsolete/non-functional codemods (16 + 4 through boundary validation)
 - **Utility Classes Created**: 4 specialized codemods (Variable Naming, Unused Imports, Unused Variables, Type Assertions)
 - **Framework Foundation**: Complete AST-first utilities library
 - **Consolidation Potential**: 90+ codemods can be reduced to ~15 utility-based codemods
@@ -319,7 +339,8 @@ This task aims to:
 2. **Specialized Classes**: Developed 4 utility classes that can replace 50+ individual codemods
 3. **Validated Performance**: Tested framework shows 100% success rate with excellent performance
 4. **Documentation**: Complete audit report and usage examples
-5. **Cleanup**: Removed 16 redundant codemods, improving maintainability
+5. **Cleanup**: Removed 20 redundant/non-functional codemods (16 + 4 through boundary validation), improving maintainability
+6. **Boundary Validation Testing**: Established comprehensive testing methodology that reveals critical bugs and fundamental flaws in codemods
 
 ## Verification
 
