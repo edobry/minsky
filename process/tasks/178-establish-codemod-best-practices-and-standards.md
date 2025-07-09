@@ -230,6 +230,13 @@ This task aims to:
 - ❌ **fix-unused-catch-params.ts**: REMOVED - CRITICAL BUG: blindly prefixes actually used parameters (breaks code)
 - ❌ **fix-unused-imports.ts**: REMOVED - NOT a proper codemod, hardcoded one-time fix script
 - ❌ **bulk-typescript-error-fixer.ts**: REMOVED - fundamentally flawed heuristic approach vs proper type analysis
+
+**High-Risk Codemods Analyzed (3 additional):**
+- ❌ **fix-mocking-safe-ast.ts**: REMOVED - hardcoded file paths, misleading name (claims AST-based but uses string manipulation), one-off script
+- ❌ **fix-undef-variables.ts**: REMOVED - blind global find-and-replace, breaks intentional underscore prefixes, creates "variable not defined" errors
+- ❌ **fix-this-prefix.ts**: REMOVED - creates invalid code that won't compile, adds this. prefix in inappropriate contexts (static methods, imports, type annotations)
+
+**CRITICAL FINDING: 100% failure rate on high-risk codemods tested (3/3) - all required deletion due to fundamental flaws that break working code**
 - ✅ **modern-variable-naming-fix.ts**: Documented and tested - framework-based approach evolution
 
 **AUTOMATED ANALYSIS RESULTS:**
@@ -298,7 +305,7 @@ This task aims to:
 
 **CURRENT STATUS AFTER AUTOMATED ANALYSIS:**
 
-**Remaining Codemods: 99** (reduced from 116 after removing 30 total)
+**Remaining Codemods: 94** (reduced from 116 after removing 33 total)
 
 **Next Phase Strategy:**
 - **Priority 1 (35 high-risk codemods)**: Immediate boundary validation testing
@@ -330,7 +337,7 @@ This task aims to:
    - 🔄 **ONGOING: Refactoring existing codemods to use utility framework**
      - ✅ Refactored 5 codemods to use utilities (fix-variable-naming-ast.ts, remove-unused-imports.ts, unused-parameters-fix.ts, fix-this-prefix.ts, unused-imports-cleanup.ts)
      - 🔄 **167 codemods remaining to refactor**
-   - ✅ Identified and removed 30 unused/redundant/deprecated/non-functional codemods (16 + 4 through boundary validation + 10 through automated analysis)
+   - ✅ Identified and removed 33 unused/redundant/deprecated/non-functional codemods (16 + 4 through boundary validation + 10 through automated analysis + 3 through high-risk boundary validation)
    - ✅ Validated that utility-based codemods maintain equivalent functionality with improved reporting
 
 9. **Utility Framework Validation** ✅ **COMPLETED**
@@ -365,7 +372,7 @@ This task aims to:
 - **Performance**: Excellent - comprehensive analysis with fast execution
 
 ### Codemod Consolidation Achieved
-- **Removed**: 30 redundant/obsolete/non-functional codemods (16 + 4 through boundary validation + 10 through automated analysis)
+- **Removed**: 33 redundant/obsolete/non-functional codemods (16 + 4 through boundary validation + 10 through automated analysis + 3 through high-risk boundary validation)
 - **Utility Classes Created**: 4 specialized codemods (Variable Naming, Unused Imports, Unused Variables, Type Assertions)
 - **Framework Foundation**: Complete AST-first utilities library
 - **Consolidation Potential**: 90+ codemods can be reduced to ~15 utility-based codemods
@@ -465,10 +472,10 @@ This task specification has been updated to reflect concrete evidence from Task 
 5. **Performance Targets** - Based on concrete evidence
 
 ### 🎯 Key Achievements
-- **30 Codemods Removed**: Systematic elimination of problematic codemods
+- **33 Codemods Removed**: Systematic elimination of problematic codemods
 - **96% Efficiency Gain**: Automated analysis vs manual review
 - **65-70% Consolidation Potential**: Clear path to streamlined collection
-- **99 Codemods Remaining**: Down from 116 original codemods
+- **94 Codemods Remaining**: Down from 116 original codemods
 - **Production-Ready Framework**: Scalable approach for continued improvement
 
 ### 🔄 Next Phase (In Progress)
