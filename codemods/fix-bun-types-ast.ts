@@ -1,3 +1,57 @@
+/**
+ * AST-Based Bun Type Compatibility Fix Codemod
+ *
+ * PROBLEM SOLVED:
+ * Automatically adds @ts-expect-error comments to suppress TypeScript errors
+ * for Bun-specific runtime features that have incomplete TypeScript type definitions.
+ * Uses AST parsing for precise code analysis and safe comment insertion.
+ *
+ * EXACT SITUATION:
+ * - process.argv usage causes TypeScript errors in Bun projects
+ * - __dirname and ___dirname are available at runtime but not in types
+ * - Buffer instances with string methods cause type compatibility issues
+ * - These are runtime-supported features with incomplete type definitions
+ *
+ * TRANSFORMATION APPLIED:
+ * - Analyzes TypeScript AST using ts-morph library
+ * - Identifies specific patterns: process.argv, __dirname, Buffer string methods
+ * - Adds @ts-expect-error comments with explanatory text
+ * - Only adds comments if they don't already exist (prevents duplication)
+ * - Preserves existing code structure and formatting
+ *
+ * SAFETY FEATURES:
+ * - AST-based analysis ensures precise targeting (no regex boundary issues)
+ * - Checks for existing @ts-expect-error comments to prevent duplication
+ * - Only processes specific target files to limit scope
+ * - Maintains detailed fix reporting for transparency
+ * - Uses ts-morph's safe save operations
+ *
+ * CONFIGURATION:
+ * - Target files are hardcoded in targetFiles array
+ * - Supports tsconfig.json-based project configuration
+ * - Skips adding files from tsconfig to limit processing scope
+ *
+ * LIMITATIONS:
+ * - Only handles predefined patterns (process.argv, __dirname, Buffer methods)
+ * - Hardcoded target files limit flexibility
+ * - Comments are added at statement level, not expression level
+ * - May add comments to already-working code if patterns match
+ * - Doesn't validate if the suppressed errors are actually Bun-specific
+ * - No rollback mechanism if comments become unnecessary
+ *
+ * ARCHITECTURE:
+ * - Uses ts-morph for TypeScript AST manipulation
+ * - Processes files individually for error isolation
+ * - Maintains fix tracking for reporting and debugging
+ * - Designed for specific Bun type compatibility issues
+ *
+ * RISK ASSESSMENT:
+ * - LOW: AST-based approach is much safer than regex
+ * - MEDIUM: Comment insertion may suppress legitimate errors
+ * - HIGH: Hardcoded patterns may not cover all Bun type issues
+ * - CRITICAL: No validation that suppressed errors are actually Bun-related
+ */
+
 import { Project, SyntaxKind, Node } from "ts-morph";
 
 interface Fix {
