@@ -54,8 +54,8 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
 
   // Create a complete mock DateConstructor
   const MockDate = function () {
-      return new originalDate(fixedDate);
-    } as unknown as DateConstructor as any;
+    return new originalDate(fixedDate);
+  } as unknown as DateConstructor as any;
 
   // Copy all the static methods from the original Date
   MockDate?.now = () => fixedDateTime;
