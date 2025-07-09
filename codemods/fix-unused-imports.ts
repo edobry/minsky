@@ -1,3 +1,62 @@
+/**
+ * File-Specific Unused Import Removal Script
+ * 
+ * ⚠️ WARNING: This is NOT a proper codemod but a hardcoded one-time fix ⚠️
+ *
+ * PROBLEM SOLVED:
+ * Removes specific unused imports from a single hardcoded file:
+ * "src/adapters/tests__/integration/session.test.ts"
+ * This was created as a quick fix for a specific linting issue.
+ *
+ * EXACT SITUATION:
+ * - One specific test file had accumulated unused imports
+ * - Manual removal was needed to fix linting errors
+ * - Script was written to automate the manual cleanup
+ * - NOT intended for reuse or general application
+ *
+ * TRANSFORMATION APPLIED:
+ * - Reads one hardcoded file path
+ * - Removes specific hardcoded import names by line filtering
+ * - Filters out lines containing specific import identifiers
+ * - Cleans up trailing commas in import statements
+ * - Writes the modified content back to the same file
+ *
+ * CRITICAL LIMITATIONS:
+ * - HARDCODED FILE PATH: Only works for one specific file
+ * - HARDCODED IMPORT NAMES: Only removes specific predefined imports
+ * - LINE-BASED FILTERING: Uses brittle line index filtering (lines 1-8)
+ * - NO VALIDATION: Doesn't check if imports are actually unused
+ * - NO SYNTAX AWARENESS: No understanding of TypeScript import syntax
+ * - NO ROLLBACK: Permanently modifies the target file
+ *
+ * WHY THIS IS NOT A PROPER CODEMOD:
+ * - Cannot be applied to other files without code changes
+ * - Hardcoded assumptions about file structure and content
+ * - No configuration or parameterization
+ * - No generic logic for detecting unused imports
+ * - No safety checks or validation
+ * - No error handling for different file formats
+ *
+ * PROPER CODEMOD WOULD:
+ * - Accept file paths as parameters or process multiple files
+ * - Analyze actual import usage with AST parsing
+ * - Detect unused imports automatically
+ * - Handle various import syntax patterns
+ * - Provide safety checks and validation
+ * - Be reusable across different projects
+ *
+ * RISK ASSESSMENT:
+ * - CRITICAL: Hardcoded file path makes it useless for other files
+ * - HIGH: Line-based filtering is extremely brittle
+ * - HIGH: No validation that imports are actually unused
+ * - MEDIUM: Could break valid imports if file structure changes
+ * - LOW: Limited scope reduces potential for widespread damage
+ *
+ * RECOMMENDATION:
+ * This script should be deleted and replaced with a proper unused import
+ * detection tool or generic codemod that can analyze import usage.
+ */
+
 // console is a global
 /**
  * Simple script to remove specific unused imports from session.test.ts
