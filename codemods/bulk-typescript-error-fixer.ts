@@ -1,4 +1,91 @@
-#!/usr/bin/env bun
+/**
+ * Bulk TypeScript Error Fixer Codemod
+ *
+ * PROBLEM SOLVED:
+ * Automatically fixes common TypeScript errors in bulk across entire codebase
+ * using AST-based analysis and heuristic pattern matching. Targets specific
+ * error categories that occur frequently in TypeScript projects.
+ *
+ * EXACT SITUATION:
+ * - TS18048: 'X' is possibly 'undefined' (77 errors)
+ * - TS2345: Argument type not assignable (60 errors)
+ * - TS18046: 'X' is of type 'unknown' (30 errors)
+ * - TS2322: Type assignment issues (23 errors)
+ * - TS2339: Property does not exist (22 errors)
+ * Total: 167 errors targeted for bulk fixing
+ *
+ * TRANSFORMATION APPLIED:
+ * 1. Property Access Fixes:
+ *    - Adds non-null assertions (!): obj.prop → obj!.prop
+ *    - Adds optional chaining (?.): obj.prop → obj?.prop
+ *    - Adds type assertions: obj.prop → (obj as any).prop
+ * 
+ * 2. Function Argument Fixes:
+ *    - Type assertions: error → error as Error
+ *    - Null/undefined handling: arg → arg!
+ *    - Array access safety: arr → Array.isArray(arr) ? arr[0] : arr
+ *
+ * 3. Variable Declaration Fixes:
+ *    - Unknown type casting: unknown → unknown as any
+ *    - Error type fixing: error → error as Error
+ *
+ * 4. Assignment Fixes:
+ *    - Buffer conversion: Buffer → Buffer.toString()
+ *    - Type coercion for common patterns
+ *
+ * ARCHITECTURE:
+ * - Uses ts-morph for TypeScript AST parsing and manipulation
+ * - Processes all .ts files in src directory recursively
+ * - Categorizes fixes by TypeScript error codes
+ * - Applies heuristic pattern matching for common error scenarios
+ * - Memory-efficient processing with sourceFile.forget()
+ *
+ * SAFETY FEATURES:
+ * - AST-based analysis (more precise than regex)
+ * - Skips files with existing fixes (!., ?., as any)
+ * - Comprehensive error handling with try/catch
+ * - Detailed logging of all changes applied
+ * - Preserves original code structure
+ *
+ * HEURISTIC PATTERNS:
+ * - Undefined patterns: 'result', 'response', 'data', 'config', 'options'
+ * - Error patterns: 'error', 'catch', 'unknown'
+ * - Property patterns: 'rowCount', 'taskId', 'session', 'repoPath'
+ * - Type patterns: Buffer, string|number unions, null/undefined unions
+ *
+ * CRITICAL LIMITATIONS:
+ * - HEURISTIC-BASED: Uses pattern matching, not actual type analysis
+ * - AGGRESSIVE FIXES: May add unnecessary type assertions
+ * - NO TYPE CHECKING: Doesn't verify fixes are actually correct
+ * - HARDCODED PATTERNS: Limited to predefined error patterns
+ * - BULK APPROACH: May over-fix or under-fix specific cases
+ * - NO ROLLBACK: Applies changes directly to source files
+ *
+ * RISK ASSESSMENT:
+ * - HIGH: Heuristic patterns may not match actual TypeScript error contexts
+ * - HIGH: Type assertions like 'as any' can hide legitimate type errors
+ * - MEDIUM: Non-null assertions (!) can introduce runtime errors
+ * - MEDIUM: May fix code that doesn't actually have errors
+ * - LOW: AST-based approach is safer than regex-based fixes
+ *
+ * POTENTIAL ISSUES:
+ * - False positives: Fixing code that doesn't need fixing
+ * - Type safety erosion: Overuse of 'as any' assertions
+ * - Runtime errors: Non-null assertions on actually null values
+ * - Code smell introduction: Masking design issues with type assertions
+ * - Context ignorance: Fixes may not be appropriate for specific contexts
+ *
+ * CONFIGURATION:
+ * - Hardcoded to process 'src' directory
+ * - Targets specific error codes and counts
+ * - Uses predefined heuristic patterns
+ * - No parameterization or customization options
+ *
+ * RECOMMENDATION:
+ * This codemod should be used with extreme caution and thorough testing.
+ * The bulk approach with heuristics may introduce more problems than it solves.
+ * Consider using TypeScript's built-in error analysis instead of pattern matching.
+ */
 
 import { Project, SyntaxKind, Node, PropertyAccessExpression } from "ts-morph";
 import { readdirSync, statSync } from "fs";
