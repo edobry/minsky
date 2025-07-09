@@ -1,0 +1,56 @@
+# Naming Conventions
+
+## Function and Variable Naming
+
+### Prohibited Process-Thinking Names
+
+**NEVER use process-descriptive adjectives as function/variable names:**
+
+❌ **Prohibited Terms:**
+- `robust` (createRobustTempDir)
+- `enhanced` (enhancedValidator)
+- `smart` (smartSessionUpdate)
+- `advanced` (advancedProcessor)
+- `improved` (improvedHandler)
+- `better` (betterAlgorithm)
+- `optimized` (optimizedQuery)
+- `comprehensive` (comprehensiveCheck)
+
+✅ **Use Domain-Specific Names Instead:**
+- `createTempDirWithFallbacks` (describes what it does)
+- `validateWithRetry` (describes behavior)
+- `updateSessionWithConflictDetection` (describes capability)
+- `processWithErrorHandling` (describes feature)
+
+### Naming Guidelines
+
+1. **Describe WHAT the function does**, not HOW WELL it does it
+2. **Use domain terminology** that users/developers understand
+3. **Avoid subjective quality descriptors** that don't add semantic meaning
+4. **Focus on behavior, inputs, outputs** rather than implementation quality
+
+### Examples
+
+```typescript
+// ❌ Process-thinking names
+function robustFileProcessor() { }
+function enhancedDataValidator() { }
+function smartCacheManager() { }
+
+// ✅ Domain-appropriate names
+function processFileWithRetry() { }
+function validateDataWithSchema() { }
+function manageCacheWithEviction() { }
+```
+
+## Rationale
+
+Process-thinking adjectives:
+- Don't convey semantic meaning to users
+- Reflect internal development concerns rather than functionality
+- Create confusion about what the function actually does
+- Break the abstraction between implementation and interface
+
+## Enforcement
+
+During code review, flag any function/variable names using prohibited process-thinking terms and require renaming with domain-appropriate alternatives.
