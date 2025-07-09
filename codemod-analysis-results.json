@@ -1,70 +1,12 @@
 {
-  "timestamp": "2025-07-09T20:42:56.234Z",
+  "timestamp": "2025-07-09T21:18:35.624Z",
   "results": {
-    "totalCodemods": 107,
+    "totalCodemods": 97,
     "byRiskLevel": {
       "HIGH": [
         {
-          "name": "prefix-unused-function-params",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/prefix-unused-function-params.ts",
-          "size": 16728,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Heuristic pattern matching detected",
-            "Complex regex patterns: 6",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-specific-typescript-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-specific-typescript-errors.ts",
-          "size": 4152,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 15",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "ONE_OFF_SCRIPT"
-          ]
-        },
-        {
-          "name": "fix-unused-vars-final",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-final.ts",
-          "size": 5629,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
           "name": "fix-mocking-safe-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-safe-ast.ts",
+          "path": "codemods/fix-mocking-safe-ast.ts",
           "size": 6760,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -84,7 +26,7 @@
         },
         {
           "name": "fix-undef-variables",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-undef-variables.ts",
+          "path": "codemods/fix-undef-variables.ts",
           "size": 2548,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -99,42 +41,26 @@
           ]
         },
         {
-          "name": "file-specific-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/file-specific-fixer.ts",
-          "size": 4622,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "ONE_OFF_SCRIPT"
-          ]
-        },
-        {
           "name": "fix-this-prefix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-this-prefix.ts",
+          "path": "codemods/fix-this-prefix.ts",
           "size": 3193,
           "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
+            "Hardcoded file paths detected",
             "Hardcoded file paths detected",
             "Complex regex patterns: 18"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
+            "HARDCODED_PATHS",
             "COMPLEX_REGEX"
           ]
         },
         {
           "name": "fix-mocking-comprehensive-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-comprehensive-ast.ts",
+          "path": "codemods/fix-mocking-comprehensive-ast.ts",
           "size": 6151,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -156,7 +82,7 @@
         },
         {
           "name": "fix-repository-naming-issues-improved",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-repository-naming-issues-improved.ts",
+          "path": "codemods/fix-repository-naming-issues-improved.ts",
           "size": 5365,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -174,7 +100,7 @@
         },
         {
           "name": "cleanup-triple-underscore-vars",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/cleanup-triple-underscore-vars.ts",
+          "path": "codemods/cleanup-triple-underscore-vars.ts",
           "size": 3565,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
@@ -194,29 +120,8 @@
           "consolidationGroup": "variable-naming"
         },
         {
-          "name": "fix-tasks-test-unused-imports",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-tasks-test-unused-imports.ts",
-          "size": 2397,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "unused-imports"
-        },
-        {
           "name": "fix-undefined-variables-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-undefined-variables-ast.ts",
+          "path": "codemods/fix-undefined-variables-ast.ts",
           "size": 8731,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -234,7 +139,7 @@
         },
         {
           "name": "fix-unused-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-simple.ts",
+          "path": "codemods/fix-unused-simple.ts",
           "size": 2194,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -250,7 +155,7 @@
         },
         {
           "name": "fix-unused-variables-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-variables-simple.ts",
+          "path": "codemods/fix-unused-variables-simple.ts",
           "size": 3238,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -267,7 +172,7 @@
         },
         {
           "name": "simple-underscore-fix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/simple-underscore-fix.ts",
+          "path": "codemods/simple-underscore-fix.ts",
           "size": 5062,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -286,7 +191,7 @@
         },
         {
           "name": "fix-unused-vars-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-targeted.ts",
+          "path": "codemods/fix-unused-vars-targeted.ts",
           "size": 4626,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -304,31 +209,13 @@
           "consolidationGroup": "unused-variables"
         },
         {
-          "name": "fix-ts2322-final",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-final.ts",
-          "size": 5294,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
           "name": "comprehensive-underscore-fix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/comprehensive-underscore-fix.ts",
+          "path": "codemods/comprehensive-underscore-fix.ts",
           "size": 11002,
           "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
+            "Hardcoded file paths detected",
             "Hardcoded file paths detected",
             "Complex regex patterns: 38",
             "Bulk/generic fixer pattern",
@@ -336,6 +223,7 @@
           ],
           "hasTest": false,
           "flags": [
+            "HARDCODED_PATHS",
             "HARDCODED_PATHS",
             "COMPLEX_REGEX",
             "BULK_FIXER",
@@ -345,18 +233,16 @@
         },
         {
           "name": "fix-parameter-underscore-mismatch",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-parameter-underscore-mismatch.ts",
+          "path": "codemods/fix-parameter-underscore-mismatch.ts",
           "size": 5286,
           "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
-            "Hardcoded file paths detected",
             "Complex regex patterns: 6",
             "Variable/unused parameter fixer"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
             "COMPLEX_REGEX",
             "VARIABLE_FIXER"
           ],
@@ -364,7 +250,7 @@
         },
         {
           "name": "fix-variable-naming-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-variable-naming-ast.ts",
+          "path": "codemods/fix-variable-naming-ast.ts",
           "size": 9487,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
@@ -383,7 +269,7 @@
         },
         {
           "name": "fix-unused-vars-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-patterns.ts",
+          "path": "codemods/fix-unused-vars-patterns.ts",
           "size": 2563,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -404,7 +290,7 @@
         },
         {
           "name": "fix-ts2322-type-assignments-enhanced",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignments-enhanced.ts",
+          "path": "codemods/fix-ts2322-type-assignments-enhanced.ts",
           "size": 6685,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -423,7 +309,7 @@
         },
         {
           "name": "fix-remaining-variable-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-variable-issues.ts",
+          "path": "codemods/fix-remaining-variable-issues.ts",
           "size": 4041,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -441,7 +327,7 @@
         },
         {
           "name": "fix-magic-numbers",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers.ts",
+          "path": "codemods/fix-magic-numbers.ts",
           "size": 5996,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -459,7 +345,7 @@
         },
         {
           "name": "surgical-bulk-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/surgical-bulk-fixer.ts",
+          "path": "codemods/surgical-bulk-fixer.ts",
           "size": 6821,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -476,7 +362,7 @@
         },
         {
           "name": "fix-magic-numbers-domain",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers-domain.ts",
+          "path": "codemods/fix-magic-numbers-domain.ts",
           "size": 3140,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -491,27 +377,8 @@
           ]
         },
         {
-          "name": "fix-ts2345-specific-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-specific-patterns.ts",
-          "size": 9698,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
           "name": "fix-remaining-unused-vars",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-unused-vars.ts",
+          "path": "codemods/fix-remaining-unused-vars.ts",
           "size": 2672,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -530,7 +397,7 @@
         },
         {
           "name": "fix-repository-naming-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-repository-naming-issues.ts",
+          "path": "codemods/fix-repository-naming-issues.ts",
           "size": 3408,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
@@ -548,7 +415,7 @@
         },
         {
           "name": "fix-ts2552-proper-resolution",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2552-proper-resolution.ts",
+          "path": "codemods/fix-ts2552-proper-resolution.ts",
           "size": 5243,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -567,7 +434,7 @@
         },
         {
           "name": "fix-magic-numbers-focused",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers-focused.ts",
+          "path": "codemods/fix-magic-numbers-focused.ts",
           "size": 4012,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -585,7 +452,7 @@
         },
         {
           "name": "fix-syntax-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-syntax-errors.ts",
+          "path": "codemods/fix-syntax-errors.ts",
           "size": 3019,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -601,7 +468,7 @@
         },
         {
           "name": "fix-incorrect-underscore-prefixes",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-incorrect-underscore-prefixes.ts",
+          "path": "codemods/fix-incorrect-underscore-prefixes.ts",
           "size": 3248,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -620,7 +487,7 @@
         },
         {
           "name": "fix-all-parsing-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-all-parsing-errors.ts",
+          "path": "codemods/fix-all-parsing-errors.ts",
           "size": 5195,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -637,27 +504,8 @@
           ]
         },
         {
-          "name": "fix-specific-ts2322-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-specific-ts2322-patterns.ts",
-          "size": 8184,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
           "name": "targeted-bulk-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/targeted-bulk-fixer.ts",
+          "path": "codemods/targeted-bulk-fixer.ts",
           "size": 5146,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -672,7 +520,7 @@
         },
         {
           "name": "fix-bun-compatibility-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-bun-compatibility-ast.ts",
+          "path": "codemods/fix-bun-compatibility-ast.ts",
           "size": 4181,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -686,7 +534,7 @@
         },
         {
           "name": "fix-unused-vars-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-simple.ts",
+          "path": "codemods/fix-unused-vars-simple.ts",
           "size": 4524,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -706,29 +554,8 @@
           "consolidationGroup": "unused-variables"
         },
         {
-          "name": "unused-imports-cleanup",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/unused-imports-cleanup.ts",
-          "size": 12741,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Heuristic pattern matching detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-imports"
-        },
-        {
           "name": "fix-explicit-any-comprehensive",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any-comprehensive.ts",
+          "path": "codemods/fix-explicit-any-comprehensive.ts",
           "size": 3595,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -744,7 +571,7 @@
         },
         {
           "name": "fix-explicit-any",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any.ts",
+          "path": "codemods/fix-explicit-any.ts",
           "size": 3617,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
@@ -762,7 +589,7 @@
         },
         {
           "name": "fix-common-undef",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-common-undef.ts",
+          "path": "codemods/fix-common-undef.ts",
           "size": 4074,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -778,7 +605,7 @@
         },
         {
           "name": "fix-unused-vars-comprehensive",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-comprehensive.ts",
+          "path": "codemods/fix-unused-vars-comprehensive.ts",
           "size": 5365,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -803,7 +630,7 @@
         },
         {
           "name": "fix-unused-variables-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-variables-targeted.ts",
+          "path": "codemods/fix-unused-variables-targeted.ts",
           "size": 2286,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -821,35 +648,12 @@
             "VARIABLE_FIXER"
           ],
           "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-remaining-specific-unused-vars",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-specific-unused-vars.ts",
-          "size": 2287,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 5",
-            "Variable/unused parameter fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "unused-variables"
         }
       ],
       "MEDIUM": [
         {
           "name": "fix-ts2322-type-assignment-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignment-errors.ts",
+          "path": "codemods/fix-ts2322-type-assignment-errors.ts",
           "size": 5565,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -866,7 +670,7 @@
         },
         {
           "name": "eliminate-ts2322-completely",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2322-completely.ts",
+          "path": "codemods/eliminate-ts2322-completely.ts",
           "size": 12885,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -883,7 +687,7 @@
         },
         {
           "name": "fix-unknown-type-assertions",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unknown-type-assertions.ts",
+          "path": "codemods/fix-unknown-type-assertions.ts",
           "size": 4784,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -897,7 +701,7 @@
         },
         {
           "name": "fix-ts2339-property-not-exist",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2339-property-not-exist.ts",
+          "path": "codemods/fix-ts2339-property-not-exist.ts",
           "size": 9459,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -914,23 +718,21 @@
         },
         {
           "name": "source-files-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/source-files-fixer.ts",
+          "path": "codemods/source-files-fixer.ts",
           "size": 4962,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
             "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
             "HARDCODED_PATHS"
           ]
         },
         {
           "name": "fix-ts2552-name-resolution",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2552-name-resolution.ts",
+          "path": "codemods/fix-ts2552-name-resolution.ts",
           "size": 3811,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -947,7 +749,7 @@
         },
         {
           "name": "eliminate-ts2345-completely",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2345-completely.ts",
+          "path": "codemods/eliminate-ts2345-completely.ts",
           "size": 7623,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -964,7 +766,7 @@
         },
         {
           "name": "fix-missing-required-properties",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-missing-required-properties.ts",
+          "path": "codemods/fix-missing-required-properties.ts",
           "size": 7642,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -978,7 +780,7 @@
         },
         {
           "name": "fix-targeted-parsing-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-targeted-parsing-errors.ts",
+          "path": "codemods/fix-targeted-parsing-errors.ts",
           "size": 6371,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -992,7 +794,7 @@
         },
         {
           "name": "fix-property-name-corrections",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-property-name-corrections.ts",
+          "path": "codemods/fix-property-name-corrections.ts",
           "size": 3900,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1006,7 +808,7 @@
         },
         {
           "name": "fix-postgres-storage-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-postgres-storage-types.ts",
+          "path": "codemods/fix-postgres-storage-types.ts",
           "size": 6511,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1020,7 +822,7 @@
         },
         {
           "name": "fix-mocking-unknown-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-unknown-types.ts",
+          "path": "codemods/fix-mocking-unknown-types.ts",
           "size": 3176,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1034,7 +836,7 @@
         },
         {
           "name": "fix-magic-numbers-remaining",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers-remaining.ts",
+          "path": "codemods/fix-magic-numbers-remaining.ts",
           "size": 3910,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -1048,7 +850,7 @@
         },
         {
           "name": "fix-current-globals",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-current-globals.ts",
+          "path": "codemods/fix-current-globals.ts",
           "size": 2417,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -1062,7 +864,7 @@
         },
         {
           "name": "fix-unused-ts-expect-error",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-ts-expect-error.ts",
+          "path": "codemods/fix-unused-ts-expect-error.ts",
           "size": 3077,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1078,7 +880,7 @@
         },
         {
           "name": "fix-undefined-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-undefined-issues.ts",
+          "path": "codemods/fix-undefined-issues.ts",
           "size": 6241,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1092,7 +894,7 @@
         },
         {
           "name": "conservative-ts2345-round2",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/conservative-ts2345-round2.ts",
+          "path": "codemods/conservative-ts2345-round2.ts",
           "size": 9257,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1109,7 +911,7 @@
         },
         {
           "name": "fix-ts2345-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-targeted.ts",
+          "path": "codemods/fix-ts2345-targeted.ts",
           "size": 5706,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1126,7 +928,7 @@
         },
         {
           "name": "fix-type-assertions",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-type-assertions.ts",
+          "path": "codemods/fix-type-assertions.ts",
           "size": 6504,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1140,7 +942,7 @@
         },
         {
           "name": "fix-ts2322-remaining-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-remaining-ast.ts",
+          "path": "codemods/fix-ts2322-remaining-ast.ts",
           "size": 8484,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1157,7 +959,7 @@
         },
         {
           "name": "fix-ts2322-type-assignments",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignments.ts",
+          "path": "codemods/fix-ts2322-type-assignments.ts",
           "size": 7803,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1174,7 +976,7 @@
         },
         {
           "name": "fix-explicit-any-types-proven",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any-types-proven.ts",
+          "path": "codemods/fix-explicit-any-types-proven.ts",
           "size": 6411,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
@@ -1188,7 +990,7 @@
         },
         {
           "name": "fix-ts2322-type-not-assignable",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-not-assignable.ts",
+          "path": "codemods/fix-ts2322-type-not-assignable.ts",
           "size": 12366,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1205,7 +1007,7 @@
         },
         {
           "name": "conservative-ts2345-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/conservative-ts2345-fixer.ts",
+          "path": "codemods/conservative-ts2345-fixer.ts",
           "size": 7977,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1220,7 +1022,7 @@
         },
         {
           "name": "fix-command-registration-overloads",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-command-registration-overloads.ts",
+          "path": "codemods/fix-command-registration-overloads.ts",
           "size": 5212,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1234,7 +1036,7 @@
         },
         {
           "name": "modern-variable-naming-fix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/modern-variable-naming-fix.ts",
+          "path": "codemods/modern-variable-naming-fix.ts",
           "size": 5004,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
@@ -1251,7 +1053,7 @@
         },
         {
           "name": "fix-ts2322-corrected-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-corrected-patterns.ts",
+          "path": "codemods/fix-ts2322-corrected-patterns.ts",
           "size": 6984,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1268,7 +1070,7 @@
         },
         {
           "name": "fix-session-ts-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-session-ts-issues.ts",
+          "path": "codemods/fix-session-ts-issues.ts",
           "size": 5033,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1282,7 +1084,7 @@
         },
         {
           "name": "fix-ts2769-overload-mismatch",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2769-overload-mismatch.ts",
+          "path": "codemods/fix-ts2769-overload-mismatch.ts",
           "size": 10390,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1299,7 +1101,7 @@
         },
         {
           "name": "fix-arrow-function-parameters",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-arrow-function-parameters.ts",
+          "path": "codemods/fix-arrow-function-parameters.ts",
           "size": 2534,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -1313,7 +1115,7 @@
         },
         {
           "name": "fix-ts2564-property-initialization",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2564-property-initialization.ts",
+          "path": "codemods/fix-ts2564-property-initialization.ts",
           "size": 4334,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1330,7 +1132,7 @@
         },
         {
           "name": "fix-ts18046-unknown-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18046-unknown-types.ts",
+          "path": "codemods/fix-ts18046-unknown-types.ts",
           "size": 7017,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1347,7 +1149,7 @@
         },
         {
           "name": "fix-rules-type-assertions",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-rules-type-assertions.ts",
+          "path": "codemods/fix-rules-type-assertions.ts",
           "size": 3657,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1361,7 +1163,7 @@
         },
         {
           "name": "fix-mocking-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-simple.ts",
+          "path": "codemods/fix-mocking-simple.ts",
           "size": 3743,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
@@ -1375,7 +1177,7 @@
         },
         {
           "name": "fix-ts2345-argument-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-argument-errors.ts",
+          "path": "codemods/fix-ts2345-argument-errors.ts",
           "size": 6044,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1392,7 +1194,7 @@
         },
         {
           "name": "fix-ts2322-targeted-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-targeted-ast.ts",
+          "path": "codemods/fix-ts2322-targeted-ast.ts",
           "size": 6552,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1409,7 +1211,7 @@
         },
         {
           "name": "fix-ts2322-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-targeted.ts",
+          "path": "codemods/fix-ts2322-targeted.ts",
           "size": 9436,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1426,7 +1228,7 @@
         },
         {
           "name": "fix-final-syntax-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-final-syntax-errors.ts",
+          "path": "codemods/fix-final-syntax-errors.ts",
           "size": 3582,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -1440,7 +1242,7 @@
         },
         {
           "name": "fix-dependencies-mocks",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-dependencies-mocks.ts",
+          "path": "codemods/fix-dependencies-mocks.ts",
           "size": 2700,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1454,7 +1256,7 @@
         },
         {
           "name": "fix-quotes-to-double",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-quotes-to-double.ts",
+          "path": "codemods/fix-quotes-to-double.ts",
           "size": 3759,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -1470,7 +1272,7 @@
         },
         {
           "name": "fix-ts2322-remaining",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-remaining.ts",
+          "path": "codemods/fix-ts2322-remaining.ts",
           "size": 7679,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1487,7 +1289,7 @@
         },
         {
           "name": "fix-underscore-prefix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-underscore-prefix.ts",
+          "path": "codemods/fix-underscore-prefix.ts",
           "size": 3298,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -1502,7 +1304,7 @@
         },
         {
           "name": "fix-ts2322-precise-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-precise-ast.ts",
+          "path": "codemods/fix-ts2322-precise-ast.ts",
           "size": 7094,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1519,22 +1321,24 @@
         },
         {
           "name": "fix-ts2322-current-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-current-patterns.ts",
+          "path": "codemods/fix-ts2322-current-patterns.ts",
           "size": 8369,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
+            "Hardcoded file paths detected",
             "TypeScript error fixer"
           ],
           "hasTest": false,
           "flags": [
+            "HARDCODED_PATHS",
             "TS_ERROR_FIXER"
           ],
           "consolidationGroup": "ts2322-errors"
         },
         {
           "name": "fix-bun-types-simple-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-bun-types-simple-ast.ts",
+          "path": "codemods/fix-bun-types-simple-ast.ts",
           "size": 3927,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1548,7 +1352,7 @@
         },
         {
           "name": "fix-explicit-any-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any-simple.ts",
+          "path": "codemods/fix-explicit-any-simple.ts",
           "size": 4346,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
@@ -1562,7 +1366,7 @@
         },
         {
           "name": "fix-ts18048-precise-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18048-precise-patterns.ts",
+          "path": "codemods/fix-ts18048-precise-patterns.ts",
           "size": 6593,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1579,7 +1383,7 @@
         },
         {
           "name": "fix-mock-object-properties",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mock-object-properties.ts",
+          "path": "codemods/fix-mock-object-properties.ts",
           "size": 3329,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1593,7 +1397,7 @@
         },
         {
           "name": "fix-result-underscore-mismatch",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-result-underscore-mismatch.ts",
+          "path": "codemods/fix-result-underscore-mismatch.ts",
           "size": 1833,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -1608,7 +1412,7 @@
         },
         {
           "name": "fix-ts2353-object-literals",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2353-object-literals.ts",
+          "path": "codemods/fix-ts2353-object-literals.ts",
           "size": 7801,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1625,7 +1429,7 @@
         },
         {
           "name": "main-source-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/main-source-fixer.ts",
+          "path": "codemods/main-source-fixer.ts",
           "size": 5832,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1641,7 +1445,7 @@
         },
         {
           "name": "eliminate-ts2353-completely",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2353-completely.ts",
+          "path": "codemods/eliminate-ts2353-completely.ts",
           "size": 4820,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1658,7 +1462,7 @@
         },
         {
           "name": "fix-mock-function-signatures",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mock-function-signatures.ts",
+          "path": "codemods/fix-mock-function-signatures.ts",
           "size": 10987,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1672,7 +1476,7 @@
         },
         {
           "name": "fix-ts2345-argument-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-argument-types.ts",
+          "path": "codemods/fix-ts2345-argument-types.ts",
           "size": 9203,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1689,7 +1493,7 @@
         },
         {
           "name": "fix-ts18048-undefined-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18048-undefined-errors.ts",
+          "path": "codemods/fix-ts18048-undefined-errors.ts",
           "size": 6783,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1704,7 +1508,7 @@
         },
         {
           "name": "fix-ts2322-ast-based",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-ast-based.ts",
+          "path": "codemods/fix-ts2322-ast-based.ts",
           "size": 9579,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1719,7 +1523,7 @@
         },
         {
           "name": "fix-mocking-unknown-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-unknown-ast.ts",
+          "path": "codemods/fix-mocking-unknown-ast.ts",
           "size": 4854,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1735,7 +1539,7 @@
       "LOW": [
         {
           "name": "fix-mocking-unknown-types-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-unknown-types-ast.ts",
+          "path": "codemods/fix-mocking-unknown-types-ast.ts",
           "size": 4876,
           "approach": "AST",
           "riskLevel": "LOW",
@@ -1745,7 +1549,7 @@
         },
         {
           "name": "fix-indentation",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-indentation.ts",
+          "path": "codemods/fix-indentation.ts",
           "size": 2441,
           "approach": "HYBRID",
           "riskLevel": "LOW",
@@ -1756,7 +1560,7 @@
         },
         {
           "name": "fix-bun-process-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-bun-process-types.ts",
+          "path": "codemods/fix-bun-process-types.ts",
           "size": 2298,
           "approach": "AST",
           "riskLevel": "LOW",
@@ -1766,7 +1570,7 @@
         },
         {
           "name": "fix-buffer-string-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-buffer-string-issues.ts",
+          "path": "codemods/fix-buffer-string-issues.ts",
           "size": 2965,
           "approach": "AST",
           "riskLevel": "LOW",
@@ -1776,7 +1580,7 @@
         },
         {
           "name": "fix-common-type-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-common-type-issues.ts",
+          "path": "codemods/fix-common-type-issues.ts",
           "size": 1,
           "approach": "UNKNOWN",
           "riskLevel": "LOW",
@@ -1790,7 +1594,7 @@
       "AST": [
         {
           "name": "fix-ts2322-type-assignment-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignment-errors.ts",
+          "path": "codemods/fix-ts2322-type-assignment-errors.ts",
           "size": 5565,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1807,7 +1611,7 @@
         },
         {
           "name": "eliminate-ts2322-completely",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2322-completely.ts",
+          "path": "codemods/eliminate-ts2322-completely.ts",
           "size": 12885,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1824,7 +1628,7 @@
         },
         {
           "name": "fix-unknown-type-assertions",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unknown-type-assertions.ts",
+          "path": "codemods/fix-unknown-type-assertions.ts",
           "size": 4784,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1838,7 +1642,7 @@
         },
         {
           "name": "fix-ts2339-property-not-exist",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2339-property-not-exist.ts",
+          "path": "codemods/fix-ts2339-property-not-exist.ts",
           "size": 9459,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1855,23 +1659,21 @@
         },
         {
           "name": "source-files-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/source-files-fixer.ts",
+          "path": "codemods/source-files-fixer.ts",
           "size": 4962,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
             "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
             "HARDCODED_PATHS"
           ]
         },
         {
           "name": "fix-ts2552-name-resolution",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2552-name-resolution.ts",
+          "path": "codemods/fix-ts2552-name-resolution.ts",
           "size": 3811,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1888,7 +1690,7 @@
         },
         {
           "name": "eliminate-ts2345-completely",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2345-completely.ts",
+          "path": "codemods/eliminate-ts2345-completely.ts",
           "size": 7623,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1905,7 +1707,7 @@
         },
         {
           "name": "fix-missing-required-properties",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-missing-required-properties.ts",
+          "path": "codemods/fix-missing-required-properties.ts",
           "size": 7642,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -1919,7 +1721,7 @@
         },
         {
           "name": "fix-mocking-safe-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-safe-ast.ts",
+          "path": "codemods/fix-mocking-safe-ast.ts",
           "size": 6760,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -1938,26 +1740,8 @@
           ]
         },
         {
-          "name": "file-specific-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/file-specific-fixer.ts",
-          "size": 4622,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "ONE_OFF_SCRIPT"
-          ]
-        },
-        {
           "name": "fix-mocking-comprehensive-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-comprehensive-ast.ts",
+          "path": "codemods/fix-mocking-comprehensive-ast.ts",
           "size": 6151,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -1979,7 +1763,7 @@
         },
         {
           "name": "fix-repository-naming-issues-improved",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-repository-naming-issues-improved.ts",
+          "path": "codemods/fix-repository-naming-issues-improved.ts",
           "size": 5365,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -1997,7 +1781,7 @@
         },
         {
           "name": "fix-property-name-corrections",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-property-name-corrections.ts",
+          "path": "codemods/fix-property-name-corrections.ts",
           "size": 3900,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2011,7 +1795,7 @@
         },
         {
           "name": "fix-postgres-storage-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-postgres-storage-types.ts",
+          "path": "codemods/fix-postgres-storage-types.ts",
           "size": 6511,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2025,7 +1809,7 @@
         },
         {
           "name": "fix-mocking-unknown-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-unknown-types.ts",
+          "path": "codemods/fix-mocking-unknown-types.ts",
           "size": 3176,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2039,7 +1823,7 @@
         },
         {
           "name": "fix-undefined-variables-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-undefined-variables-ast.ts",
+          "path": "codemods/fix-undefined-variables-ast.ts",
           "size": 8731,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -2057,7 +1841,7 @@
         },
         {
           "name": "fix-unused-ts-expect-error",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-ts-expect-error.ts",
+          "path": "codemods/fix-unused-ts-expect-error.ts",
           "size": 3077,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2073,7 +1857,7 @@
         },
         {
           "name": "fix-undefined-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-undefined-issues.ts",
+          "path": "codemods/fix-undefined-issues.ts",
           "size": 6241,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2087,7 +1871,7 @@
         },
         {
           "name": "conservative-ts2345-round2",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/conservative-ts2345-round2.ts",
+          "path": "codemods/conservative-ts2345-round2.ts",
           "size": 9257,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2104,7 +1888,7 @@
         },
         {
           "name": "fix-ts2345-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-targeted.ts",
+          "path": "codemods/fix-ts2345-targeted.ts",
           "size": 5706,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2121,7 +1905,7 @@
         },
         {
           "name": "fix-type-assertions",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-type-assertions.ts",
+          "path": "codemods/fix-type-assertions.ts",
           "size": 6504,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2134,27 +1918,8 @@
           ]
         },
         {
-          "name": "fix-ts2322-final",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-final.ts",
-          "size": 5294,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
           "name": "fix-ts2322-remaining-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-remaining-ast.ts",
+          "path": "codemods/fix-ts2322-remaining-ast.ts",
           "size": 8484,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2171,7 +1936,7 @@
         },
         {
           "name": "fix-mocking-unknown-types-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-unknown-types-ast.ts",
+          "path": "codemods/fix-mocking-unknown-types-ast.ts",
           "size": 4876,
           "approach": "AST",
           "riskLevel": "LOW",
@@ -2181,7 +1946,7 @@
         },
         {
           "name": "fix-ts2322-type-assignments",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignments.ts",
+          "path": "codemods/fix-ts2322-type-assignments.ts",
           "size": 7803,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2198,7 +1963,7 @@
         },
         {
           "name": "fix-ts2322-type-assignments-enhanced",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignments-enhanced.ts",
+          "path": "codemods/fix-ts2322-type-assignments-enhanced.ts",
           "size": 6685,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -2217,7 +1982,7 @@
         },
         {
           "name": "surgical-bulk-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/surgical-bulk-fixer.ts",
+          "path": "codemods/surgical-bulk-fixer.ts",
           "size": 6821,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -2234,7 +1999,7 @@
         },
         {
           "name": "fix-ts2322-type-not-assignable",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-not-assignable.ts",
+          "path": "codemods/fix-ts2322-type-not-assignable.ts",
           "size": 12366,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2251,7 +2016,7 @@
         },
         {
           "name": "conservative-ts2345-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/conservative-ts2345-fixer.ts",
+          "path": "codemods/conservative-ts2345-fixer.ts",
           "size": 7977,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2266,7 +2031,7 @@
         },
         {
           "name": "fix-command-registration-overloads",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-command-registration-overloads.ts",
+          "path": "codemods/fix-command-registration-overloads.ts",
           "size": 5212,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2279,27 +2044,8 @@
           ]
         },
         {
-          "name": "fix-ts2345-specific-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-specific-patterns.ts",
-          "size": 9698,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
           "name": "fix-ts2322-corrected-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-corrected-patterns.ts",
+          "path": "codemods/fix-ts2322-corrected-patterns.ts",
           "size": 6984,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2316,7 +2062,7 @@
         },
         {
           "name": "fix-session-ts-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-session-ts-issues.ts",
+          "path": "codemods/fix-session-ts-issues.ts",
           "size": 5033,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2330,7 +2076,7 @@
         },
         {
           "name": "fix-ts2769-overload-mismatch",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2769-overload-mismatch.ts",
+          "path": "codemods/fix-ts2769-overload-mismatch.ts",
           "size": 10390,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2347,7 +2093,7 @@
         },
         {
           "name": "fix-ts2564-property-initialization",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2564-property-initialization.ts",
+          "path": "codemods/fix-ts2564-property-initialization.ts",
           "size": 4334,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2364,7 +2110,7 @@
         },
         {
           "name": "fix-ts2552-proper-resolution",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2552-proper-resolution.ts",
+          "path": "codemods/fix-ts2552-proper-resolution.ts",
           "size": 5243,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -2383,7 +2129,7 @@
         },
         {
           "name": "fix-bun-process-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-bun-process-types.ts",
+          "path": "codemods/fix-bun-process-types.ts",
           "size": 2298,
           "approach": "AST",
           "riskLevel": "LOW",
@@ -2393,7 +2139,7 @@
         },
         {
           "name": "fix-ts18046-unknown-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18046-unknown-types.ts",
+          "path": "codemods/fix-ts18046-unknown-types.ts",
           "size": 7017,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2410,7 +2156,7 @@
         },
         {
           "name": "fix-rules-type-assertions",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-rules-type-assertions.ts",
+          "path": "codemods/fix-rules-type-assertions.ts",
           "size": 3657,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2424,7 +2170,7 @@
         },
         {
           "name": "fix-ts2345-argument-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-argument-errors.ts",
+          "path": "codemods/fix-ts2345-argument-errors.ts",
           "size": 6044,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2441,7 +2187,7 @@
         },
         {
           "name": "fix-ts2322-targeted-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-targeted-ast.ts",
+          "path": "codemods/fix-ts2322-targeted-ast.ts",
           "size": 6552,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2458,7 +2204,7 @@
         },
         {
           "name": "fix-syntax-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-syntax-errors.ts",
+          "path": "codemods/fix-syntax-errors.ts",
           "size": 3019,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -2474,7 +2220,7 @@
         },
         {
           "name": "fix-ts2322-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-targeted.ts",
+          "path": "codemods/fix-ts2322-targeted.ts",
           "size": 9436,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2491,7 +2237,7 @@
         },
         {
           "name": "fix-dependencies-mocks",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-dependencies-mocks.ts",
+          "path": "codemods/fix-dependencies-mocks.ts",
           "size": 2700,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2504,27 +2250,8 @@
           ]
         },
         {
-          "name": "fix-specific-ts2322-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-specific-ts2322-patterns.ts",
-          "size": 8184,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
           "name": "fix-ts2322-remaining",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-remaining.ts",
+          "path": "codemods/fix-ts2322-remaining.ts",
           "size": 7679,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2541,7 +2268,7 @@
         },
         {
           "name": "targeted-bulk-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/targeted-bulk-fixer.ts",
+          "path": "codemods/targeted-bulk-fixer.ts",
           "size": 5146,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -2556,7 +2283,7 @@
         },
         {
           "name": "fix-ts2322-precise-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-precise-ast.ts",
+          "path": "codemods/fix-ts2322-precise-ast.ts",
           "size": 7094,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2573,7 +2300,7 @@
         },
         {
           "name": "fix-bun-compatibility-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-bun-compatibility-ast.ts",
+          "path": "codemods/fix-bun-compatibility-ast.ts",
           "size": 4181,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -2587,22 +2314,24 @@
         },
         {
           "name": "fix-ts2322-current-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-current-patterns.ts",
+          "path": "codemods/fix-ts2322-current-patterns.ts",
           "size": 8369,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
+            "Hardcoded file paths detected",
             "TypeScript error fixer"
           ],
           "hasTest": false,
           "flags": [
+            "HARDCODED_PATHS",
             "TS_ERROR_FIXER"
           ],
           "consolidationGroup": "ts2322-errors"
         },
         {
           "name": "fix-bun-types-simple-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-bun-types-simple-ast.ts",
+          "path": "codemods/fix-bun-types-simple-ast.ts",
           "size": 3927,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2616,7 +2345,7 @@
         },
         {
           "name": "fix-ts18048-precise-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18048-precise-patterns.ts",
+          "path": "codemods/fix-ts18048-precise-patterns.ts",
           "size": 6593,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2633,7 +2362,7 @@
         },
         {
           "name": "fix-mock-object-properties",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mock-object-properties.ts",
+          "path": "codemods/fix-mock-object-properties.ts",
           "size": 3329,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2647,7 +2376,7 @@
         },
         {
           "name": "fix-buffer-string-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-buffer-string-issues.ts",
+          "path": "codemods/fix-buffer-string-issues.ts",
           "size": 2965,
           "approach": "AST",
           "riskLevel": "LOW",
@@ -2657,7 +2386,7 @@
         },
         {
           "name": "fix-ts2353-object-literals",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2353-object-literals.ts",
+          "path": "codemods/fix-ts2353-object-literals.ts",
           "size": 7801,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2674,7 +2403,7 @@
         },
         {
           "name": "main-source-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/main-source-fixer.ts",
+          "path": "codemods/main-source-fixer.ts",
           "size": 5832,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2690,7 +2419,7 @@
         },
         {
           "name": "eliminate-ts2353-completely",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2353-completely.ts",
+          "path": "codemods/eliminate-ts2353-completely.ts",
           "size": 4820,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2707,7 +2436,7 @@
         },
         {
           "name": "fix-mock-function-signatures",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mock-function-signatures.ts",
+          "path": "codemods/fix-mock-function-signatures.ts",
           "size": 10987,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2721,7 +2450,7 @@
         },
         {
           "name": "fix-ts2345-argument-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-argument-types.ts",
+          "path": "codemods/fix-ts2345-argument-types.ts",
           "size": 9203,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2738,7 +2467,7 @@
         },
         {
           "name": "fix-ts18048-undefined-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18048-undefined-errors.ts",
+          "path": "codemods/fix-ts18048-undefined-errors.ts",
           "size": 6783,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2753,7 +2482,7 @@
         },
         {
           "name": "fix-ts2322-ast-based",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-ast-based.ts",
+          "path": "codemods/fix-ts2322-ast-based.ts",
           "size": 9579,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2768,7 +2497,7 @@
         },
         {
           "name": "fix-mocking-unknown-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-unknown-ast.ts",
+          "path": "codemods/fix-mocking-unknown-ast.ts",
           "size": 4854,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -2783,24 +2512,8 @@
       ],
       "REGEX": [
         {
-          "name": "fix-specific-typescript-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-specific-typescript-errors.ts",
-          "size": 4152,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 15",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "ONE_OFF_SCRIPT"
-          ]
-        },
-        {
           "name": "fix-undef-variables",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-undef-variables.ts",
+          "path": "codemods/fix-undef-variables.ts",
           "size": 2548,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -2816,23 +2529,25 @@
         },
         {
           "name": "fix-this-prefix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-this-prefix.ts",
+          "path": "codemods/fix-this-prefix.ts",
           "size": 3193,
           "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
+            "Hardcoded file paths detected",
             "Hardcoded file paths detected",
             "Complex regex patterns: 18"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
+            "HARDCODED_PATHS",
             "COMPLEX_REGEX"
           ]
         },
         {
           "name": "fix-targeted-parsing-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-targeted-parsing-errors.ts",
+          "path": "codemods/fix-targeted-parsing-errors.ts",
           "size": 6371,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -2846,7 +2561,7 @@
         },
         {
           "name": "fix-magic-numbers-remaining",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers-remaining.ts",
+          "path": "codemods/fix-magic-numbers-remaining.ts",
           "size": 3910,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -2859,29 +2574,8 @@
           ]
         },
         {
-          "name": "fix-tasks-test-unused-imports",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-tasks-test-unused-imports.ts",
-          "size": 2397,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "unused-imports"
-        },
-        {
           "name": "fix-unused-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-simple.ts",
+          "path": "codemods/fix-unused-simple.ts",
           "size": 2194,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -2897,7 +2591,7 @@
         },
         {
           "name": "fix-unused-variables-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-variables-simple.ts",
+          "path": "codemods/fix-unused-variables-simple.ts",
           "size": 3238,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -2914,7 +2608,7 @@
         },
         {
           "name": "fix-current-globals",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-current-globals.ts",
+          "path": "codemods/fix-current-globals.ts",
           "size": 2417,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -2928,7 +2622,7 @@
         },
         {
           "name": "simple-underscore-fix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/simple-underscore-fix.ts",
+          "path": "codemods/simple-underscore-fix.ts",
           "size": 5062,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -2947,7 +2641,7 @@
         },
         {
           "name": "fix-unused-vars-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-targeted.ts",
+          "path": "codemods/fix-unused-vars-targeted.ts",
           "size": 4626,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -2966,11 +2660,12 @@
         },
         {
           "name": "comprehensive-underscore-fix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/comprehensive-underscore-fix.ts",
+          "path": "codemods/comprehensive-underscore-fix.ts",
           "size": 11002,
           "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
+            "Hardcoded file paths detected",
             "Hardcoded file paths detected",
             "Complex regex patterns: 38",
             "Bulk/generic fixer pattern",
@@ -2978,6 +2673,7 @@
           ],
           "hasTest": false,
           "flags": [
+            "HARDCODED_PATHS",
             "HARDCODED_PATHS",
             "COMPLEX_REGEX",
             "BULK_FIXER",
@@ -2987,18 +2683,16 @@
         },
         {
           "name": "fix-parameter-underscore-mismatch",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-parameter-underscore-mismatch.ts",
+          "path": "codemods/fix-parameter-underscore-mismatch.ts",
           "size": 5286,
           "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
-            "Hardcoded file paths detected",
             "Complex regex patterns: 6",
             "Variable/unused parameter fixer"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
             "COMPLEX_REGEX",
             "VARIABLE_FIXER"
           ],
@@ -3006,7 +2700,7 @@
         },
         {
           "name": "fix-unused-vars-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-patterns.ts",
+          "path": "codemods/fix-unused-vars-patterns.ts",
           "size": 2563,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3027,7 +2721,7 @@
         },
         {
           "name": "fix-remaining-variable-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-variable-issues.ts",
+          "path": "codemods/fix-remaining-variable-issues.ts",
           "size": 4041,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3045,7 +2739,7 @@
         },
         {
           "name": "fix-magic-numbers",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers.ts",
+          "path": "codemods/fix-magic-numbers.ts",
           "size": 5996,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3063,7 +2757,7 @@
         },
         {
           "name": "fix-magic-numbers-domain",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers-domain.ts",
+          "path": "codemods/fix-magic-numbers-domain.ts",
           "size": 3140,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3079,7 +2773,7 @@
         },
         {
           "name": "fix-arrow-function-parameters",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-arrow-function-parameters.ts",
+          "path": "codemods/fix-arrow-function-parameters.ts",
           "size": 2534,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -3093,7 +2787,7 @@
         },
         {
           "name": "fix-remaining-unused-vars",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-unused-vars.ts",
+          "path": "codemods/fix-remaining-unused-vars.ts",
           "size": 2672,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3112,7 +2806,7 @@
         },
         {
           "name": "fix-magic-numbers-focused",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers-focused.ts",
+          "path": "codemods/fix-magic-numbers-focused.ts",
           "size": 4012,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3130,7 +2824,7 @@
         },
         {
           "name": "fix-incorrect-underscore-prefixes",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-incorrect-underscore-prefixes.ts",
+          "path": "codemods/fix-incorrect-underscore-prefixes.ts",
           "size": 3248,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3149,7 +2843,7 @@
         },
         {
           "name": "fix-final-syntax-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-final-syntax-errors.ts",
+          "path": "codemods/fix-final-syntax-errors.ts",
           "size": 3582,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -3163,7 +2857,7 @@
         },
         {
           "name": "fix-all-parsing-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-all-parsing-errors.ts",
+          "path": "codemods/fix-all-parsing-errors.ts",
           "size": 5195,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3181,7 +2875,7 @@
         },
         {
           "name": "fix-quotes-to-double",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-quotes-to-double.ts",
+          "path": "codemods/fix-quotes-to-double.ts",
           "size": 3759,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -3197,7 +2891,7 @@
         },
         {
           "name": "fix-underscore-prefix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-underscore-prefix.ts",
+          "path": "codemods/fix-underscore-prefix.ts",
           "size": 3298,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -3212,7 +2906,7 @@
         },
         {
           "name": "fix-unused-vars-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-simple.ts",
+          "path": "codemods/fix-unused-vars-simple.ts",
           "size": 4524,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3233,7 +2927,7 @@
         },
         {
           "name": "fix-explicit-any-comprehensive",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any-comprehensive.ts",
+          "path": "codemods/fix-explicit-any-comprehensive.ts",
           "size": 3595,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3249,7 +2943,7 @@
         },
         {
           "name": "fix-result-underscore-mismatch",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-result-underscore-mismatch.ts",
+          "path": "codemods/fix-result-underscore-mismatch.ts",
           "size": 1833,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -3264,7 +2958,7 @@
         },
         {
           "name": "fix-common-undef",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-common-undef.ts",
+          "path": "codemods/fix-common-undef.ts",
           "size": 4074,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3280,7 +2974,7 @@
         },
         {
           "name": "fix-unused-vars-comprehensive",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-comprehensive.ts",
+          "path": "codemods/fix-unused-vars-comprehensive.ts",
           "size": 5365,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3305,7 +2999,7 @@
         },
         {
           "name": "fix-unused-variables-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-variables-targeted.ts",
+          "path": "codemods/fix-unused-variables-targeted.ts",
           "size": 2286,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -3323,77 +3017,12 @@
             "VARIABLE_FIXER"
           ],
           "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-remaining-specific-unused-vars",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-specific-unused-vars.ts",
-          "size": 2287,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 5",
-            "Variable/unused parameter fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "unused-variables"
         }
       ],
       "HYBRID": [
         {
-          "name": "prefix-unused-function-params",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/prefix-unused-function-params.ts",
-          "size": 16728,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Heuristic pattern matching detected",
-            "Complex regex patterns: 6",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-vars-final",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-final.ts",
-          "size": 5629,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
           "name": "cleanup-triple-underscore-vars",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/cleanup-triple-underscore-vars.ts",
+          "path": "codemods/cleanup-triple-underscore-vars.ts",
           "size": 3565,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
@@ -3414,7 +3043,7 @@
         },
         {
           "name": "fix-variable-naming-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-variable-naming-ast.ts",
+          "path": "codemods/fix-variable-naming-ast.ts",
           "size": 9487,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
@@ -3433,7 +3062,7 @@
         },
         {
           "name": "fix-explicit-any-types-proven",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any-types-proven.ts",
+          "path": "codemods/fix-explicit-any-types-proven.ts",
           "size": 6411,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
@@ -3447,7 +3076,7 @@
         },
         {
           "name": "modern-variable-naming-fix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/modern-variable-naming-fix.ts",
+          "path": "codemods/modern-variable-naming-fix.ts",
           "size": 5004,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
@@ -3464,7 +3093,7 @@
         },
         {
           "name": "fix-repository-naming-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-repository-naming-issues.ts",
+          "path": "codemods/fix-repository-naming-issues.ts",
           "size": 3408,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
@@ -3482,7 +3111,7 @@
         },
         {
           "name": "fix-indentation",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-indentation.ts",
+          "path": "codemods/fix-indentation.ts",
           "size": 2441,
           "approach": "HYBRID",
           "riskLevel": "LOW",
@@ -3493,7 +3122,7 @@
         },
         {
           "name": "fix-mocking-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-simple.ts",
+          "path": "codemods/fix-mocking-simple.ts",
           "size": 3743,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
@@ -3506,29 +3135,8 @@
           ]
         },
         {
-          "name": "unused-imports-cleanup",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/unused-imports-cleanup.ts",
-          "size": 12741,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Heuristic pattern matching detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-imports"
-        },
-        {
           "name": "fix-explicit-any",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any.ts",
+          "path": "codemods/fix-explicit-any.ts",
           "size": 3617,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
@@ -3546,7 +3154,7 @@
         },
         {
           "name": "fix-explicit-any-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any-simple.ts",
+          "path": "codemods/fix-explicit-any-simple.ts",
           "size": 4346,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
@@ -3562,7 +3170,7 @@
       "UNKNOWN": [
         {
           "name": "fix-common-type-issues",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-common-type-issues.ts",
+          "path": "codemods/fix-common-type-issues.ts",
           "size": 1,
           "approach": "UNKNOWN",
           "riskLevel": "LOW",
@@ -3576,7 +3184,7 @@
       "ts2322-errors": [
         {
           "name": "fix-ts2322-type-assignment-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignment-errors.ts",
+          "path": "codemods/fix-ts2322-type-assignment-errors.ts",
           "size": 5565,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3593,7 +3201,7 @@
         },
         {
           "name": "eliminate-ts2322-completely",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2322-completely.ts",
+          "path": "codemods/eliminate-ts2322-completely.ts",
           "size": 12885,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3609,27 +3217,8 @@
           "consolidationGroup": "ts2322-errors"
         },
         {
-          "name": "fix-ts2322-final",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-final.ts",
-          "size": 5294,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
           "name": "fix-ts2322-remaining-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-remaining-ast.ts",
+          "path": "codemods/fix-ts2322-remaining-ast.ts",
           "size": 8484,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3646,7 +3235,7 @@
         },
         {
           "name": "fix-ts2322-type-assignments",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignments.ts",
+          "path": "codemods/fix-ts2322-type-assignments.ts",
           "size": 7803,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3663,7 +3252,7 @@
         },
         {
           "name": "fix-ts2322-type-assignments-enhanced",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignments-enhanced.ts",
+          "path": "codemods/fix-ts2322-type-assignments-enhanced.ts",
           "size": 6685,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -3682,7 +3271,7 @@
         },
         {
           "name": "fix-ts2322-type-not-assignable",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-not-assignable.ts",
+          "path": "codemods/fix-ts2322-type-not-assignable.ts",
           "size": 12366,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3699,7 +3288,7 @@
         },
         {
           "name": "fix-ts2322-corrected-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-corrected-patterns.ts",
+          "path": "codemods/fix-ts2322-corrected-patterns.ts",
           "size": 6984,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3716,7 +3305,7 @@
         },
         {
           "name": "fix-ts2322-targeted-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-targeted-ast.ts",
+          "path": "codemods/fix-ts2322-targeted-ast.ts",
           "size": 6552,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3733,7 +3322,7 @@
         },
         {
           "name": "fix-ts2322-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-targeted.ts",
+          "path": "codemods/fix-ts2322-targeted.ts",
           "size": 9436,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3749,27 +3338,8 @@
           "consolidationGroup": "ts2322-errors"
         },
         {
-          "name": "fix-specific-ts2322-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-specific-ts2322-patterns.ts",
-          "size": 8184,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
           "name": "fix-ts2322-remaining",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-remaining.ts",
+          "path": "codemods/fix-ts2322-remaining.ts",
           "size": 7679,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3786,7 +3356,7 @@
         },
         {
           "name": "fix-ts2322-precise-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-precise-ast.ts",
+          "path": "codemods/fix-ts2322-precise-ast.ts",
           "size": 7094,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3803,22 +3373,24 @@
         },
         {
           "name": "fix-ts2322-current-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-current-patterns.ts",
+          "path": "codemods/fix-ts2322-current-patterns.ts",
           "size": 8369,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
+            "Hardcoded file paths detected",
             "TypeScript error fixer"
           ],
           "hasTest": false,
           "flags": [
+            "HARDCODED_PATHS",
             "TS_ERROR_FIXER"
           ],
           "consolidationGroup": "ts2322-errors"
         },
         {
           "name": "fix-ts2322-ast-based",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-ast-based.ts",
+          "path": "codemods/fix-ts2322-ast-based.ts",
           "size": 9579,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -3832,220 +3404,10 @@
           "consolidationGroup": "ts2322-errors"
         }
       ],
-      "unused-variables": [
-        {
-          "name": "prefix-unused-function-params",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/prefix-unused-function-params.ts",
-          "size": 16728,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Heuristic pattern matching detected",
-            "Complex regex patterns: 6",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-vars-final",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-final.ts",
-          "size": 5629,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-variables-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-variables-simple.ts",
-          "size": 3238,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-vars-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-targeted.ts",
-          "size": 4626,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Heuristic pattern matching detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HEURISTIC_APPROACH",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-vars-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-patterns.ts",
-          "size": 2563,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 5",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-remaining-unused-vars",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-unused-vars.ts",
-          "size": 2672,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-vars-simple",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-simple.ts",
-          "size": 4524,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-vars-comprehensive",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-comprehensive.ts",
-          "size": 5365,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 18",
-            "Bulk/generic fixer pattern",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-variables-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-variables-targeted.ts",
-          "size": 2286,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-remaining-specific-unused-vars",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-specific-unused-vars.ts",
-          "size": 2287,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 5",
-            "Variable/unused parameter fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "unused-variables"
-        }
-      ],
       "typescript-errors": [
         {
           "name": "fix-ts2339-property-not-exist",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2339-property-not-exist.ts",
+          "path": "codemods/fix-ts2339-property-not-exist.ts",
           "size": 9459,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4062,7 +3424,7 @@
         },
         {
           "name": "fix-ts2552-name-resolution",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2552-name-resolution.ts",
+          "path": "codemods/fix-ts2552-name-resolution.ts",
           "size": 3811,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4079,7 +3441,7 @@
         },
         {
           "name": "fix-ts2769-overload-mismatch",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2769-overload-mismatch.ts",
+          "path": "codemods/fix-ts2769-overload-mismatch.ts",
           "size": 10390,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4096,7 +3458,7 @@
         },
         {
           "name": "fix-ts2552-proper-resolution",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2552-proper-resolution.ts",
+          "path": "codemods/fix-ts2552-proper-resolution.ts",
           "size": 5243,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -4115,7 +3477,7 @@
         },
         {
           "name": "fix-ts18046-unknown-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18046-unknown-types.ts",
+          "path": "codemods/fix-ts18046-unknown-types.ts",
           "size": 7017,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4132,7 +3494,7 @@
         },
         {
           "name": "fix-ts18048-precise-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18048-precise-patterns.ts",
+          "path": "codemods/fix-ts18048-precise-patterns.ts",
           "size": 6593,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4149,7 +3511,7 @@
         },
         {
           "name": "fix-ts2353-object-literals",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2353-object-literals.ts",
+          "path": "codemods/fix-ts2353-object-literals.ts",
           "size": 7801,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4166,7 +3528,7 @@
         },
         {
           "name": "eliminate-ts2353-completely",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2353-completely.ts",
+          "path": "codemods/eliminate-ts2353-completely.ts",
           "size": 4820,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4183,7 +3545,7 @@
         },
         {
           "name": "fix-ts18048-undefined-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18048-undefined-errors.ts",
+          "path": "codemods/fix-ts18048-undefined-errors.ts",
           "size": 6783,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4200,7 +3562,7 @@
       "ts2345-errors": [
         {
           "name": "eliminate-ts2345-completely",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2345-completely.ts",
+          "path": "codemods/eliminate-ts2345-completely.ts",
           "size": 7623,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4217,7 +3579,7 @@
         },
         {
           "name": "conservative-ts2345-round2",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/conservative-ts2345-round2.ts",
+          "path": "codemods/conservative-ts2345-round2.ts",
           "size": 9257,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4234,7 +3596,7 @@
         },
         {
           "name": "fix-ts2345-targeted",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-targeted.ts",
+          "path": "codemods/fix-ts2345-targeted.ts",
           "size": 5706,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4251,7 +3613,7 @@
         },
         {
           "name": "conservative-ts2345-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/conservative-ts2345-fixer.ts",
+          "path": "codemods/conservative-ts2345-fixer.ts",
           "size": 7977,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4265,27 +3627,8 @@
           "consolidationGroup": "ts2345-errors"
         },
         {
-          "name": "fix-ts2345-specific-patterns",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-specific-patterns.ts",
-          "size": 9698,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
           "name": "fix-ts2345-argument-errors",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-argument-errors.ts",
+          "path": "codemods/fix-ts2345-argument-errors.ts",
           "size": 6044,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4302,7 +3645,7 @@
         },
         {
           "name": "fix-ts2345-argument-types",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-argument-types.ts",
+          "path": "codemods/fix-ts2345-argument-types.ts",
           "size": 9203,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4321,7 +3664,7 @@
       "variable-naming": [
         {
           "name": "cleanup-triple-underscore-vars",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/cleanup-triple-underscore-vars.ts",
+          "path": "codemods/cleanup-triple-underscore-vars.ts",
           "size": 3565,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
@@ -4342,7 +3685,7 @@
         },
         {
           "name": "simple-underscore-fix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/simple-underscore-fix.ts",
+          "path": "codemods/simple-underscore-fix.ts",
           "size": 5062,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -4361,11 +3704,12 @@
         },
         {
           "name": "comprehensive-underscore-fix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/comprehensive-underscore-fix.ts",
+          "path": "codemods/comprehensive-underscore-fix.ts",
           "size": 11002,
           "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
+            "Hardcoded file paths detected",
             "Hardcoded file paths detected",
             "Complex regex patterns: 38",
             "Bulk/generic fixer pattern",
@@ -4373,6 +3717,7 @@
           ],
           "hasTest": false,
           "flags": [
+            "HARDCODED_PATHS",
             "HARDCODED_PATHS",
             "COMPLEX_REGEX",
             "BULK_FIXER",
@@ -4382,18 +3727,16 @@
         },
         {
           "name": "fix-parameter-underscore-mismatch",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-parameter-underscore-mismatch.ts",
+          "path": "codemods/fix-parameter-underscore-mismatch.ts",
           "size": 5286,
           "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
-            "Hardcoded file paths detected",
             "Complex regex patterns: 6",
             "Variable/unused parameter fixer"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
             "COMPLEX_REGEX",
             "VARIABLE_FIXER"
           ],
@@ -4401,7 +3744,7 @@
         },
         {
           "name": "fix-variable-naming-ast",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-variable-naming-ast.ts",
+          "path": "codemods/fix-variable-naming-ast.ts",
           "size": 9487,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
@@ -4420,7 +3763,7 @@
         },
         {
           "name": "modern-variable-naming-fix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/modern-variable-naming-fix.ts",
+          "path": "codemods/modern-variable-naming-fix.ts",
           "size": 5004,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
@@ -4437,7 +3780,7 @@
         },
         {
           "name": "fix-incorrect-underscore-prefixes",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-incorrect-underscore-prefixes.ts",
+          "path": "codemods/fix-incorrect-underscore-prefixes.ts",
           "size": 3248,
           "approach": "REGEX",
           "riskLevel": "HIGH",
@@ -4456,7 +3799,7 @@
         },
         {
           "name": "fix-underscore-prefix",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-underscore-prefix.ts",
+          "path": "codemods/fix-underscore-prefix.ts",
           "size": 3298,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -4471,7 +3814,7 @@
         },
         {
           "name": "fix-result-underscore-mismatch",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-result-underscore-mismatch.ts",
+          "path": "codemods/fix-result-underscore-mismatch.ts",
           "size": 1833,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
@@ -4485,54 +3828,155 @@
           "consolidationGroup": "variable-naming"
         }
       ],
-      "unused-imports": [
+      "unused-variables": [
         {
-          "name": "fix-tasks-test-unused-imports",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-tasks-test-unused-imports.ts",
-          "size": 2397,
+          "name": "fix-unused-variables-simple",
+          "path": "codemods/fix-unused-variables-simple.ts",
+          "size": 3238,
+          "approach": "REGEX",
+          "riskLevel": "HIGH",
+          "riskFactors": [
+            "Complex regex patterns: 4",
+            "Variable/unused parameter fixer"
+          ],
+          "hasTest": false,
+          "flags": [
+            "COMPLEX_REGEX",
+            "VARIABLE_FIXER"
+          ],
+          "consolidationGroup": "unused-variables"
+        },
+        {
+          "name": "fix-unused-vars-targeted",
+          "path": "codemods/fix-unused-vars-targeted.ts",
+          "size": 4626,
+          "approach": "REGEX",
+          "riskLevel": "HIGH",
+          "riskFactors": [
+            "Heuristic pattern matching detected",
+            "Complex regex patterns: 4",
+            "Variable/unused parameter fixer"
+          ],
+          "hasTest": false,
+          "flags": [
+            "HEURISTIC_APPROACH",
+            "COMPLEX_REGEX",
+            "VARIABLE_FIXER"
+          ],
+          "consolidationGroup": "unused-variables"
+        },
+        {
+          "name": "fix-unused-vars-patterns",
+          "path": "codemods/fix-unused-vars-patterns.ts",
+          "size": 2563,
           "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
             "Hardcoded file paths detected",
-            "Variable/unused parameter fixer",
-            "Possible one-off script"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER",
-            "ONE_OFF_SCRIPT"
-          ],
-          "consolidationGroup": "unused-imports"
-        },
-        {
-          "name": "unused-imports-cleanup",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/unused-imports-cleanup.ts",
-          "size": 12741,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Heuristic pattern matching detected",
+            "Complex regex patterns: 5",
             "Variable/unused parameter fixer"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
             "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
+            "COMPLEX_REGEX",
             "VARIABLE_FIXER"
           ],
-          "consolidationGroup": "unused-imports"
+          "consolidationGroup": "unused-variables"
+        },
+        {
+          "name": "fix-remaining-unused-vars",
+          "path": "codemods/fix-remaining-unused-vars.ts",
+          "size": 2672,
+          "approach": "REGEX",
+          "riskLevel": "HIGH",
+          "riskFactors": [
+            "Hardcoded file paths detected",
+            "Complex regex patterns: 7",
+            "Variable/unused parameter fixer"
+          ],
+          "hasTest": false,
+          "flags": [
+            "HARDCODED_PATHS",
+            "COMPLEX_REGEX",
+            "VARIABLE_FIXER"
+          ],
+          "consolidationGroup": "unused-variables"
+        },
+        {
+          "name": "fix-unused-vars-simple",
+          "path": "codemods/fix-unused-vars-simple.ts",
+          "size": 4524,
+          "approach": "REGEX",
+          "riskLevel": "HIGH",
+          "riskFactors": [
+            "Hardcoded file paths detected",
+            "Hardcoded file paths detected",
+            "Complex regex patterns: 4",
+            "Variable/unused parameter fixer"
+          ],
+          "hasTest": false,
+          "flags": [
+            "HARDCODED_PATHS",
+            "HARDCODED_PATHS",
+            "COMPLEX_REGEX",
+            "VARIABLE_FIXER"
+          ],
+          "consolidationGroup": "unused-variables"
+        },
+        {
+          "name": "fix-unused-vars-comprehensive",
+          "path": "codemods/fix-unused-vars-comprehensive.ts",
+          "size": 5365,
+          "approach": "REGEX",
+          "riskLevel": "HIGH",
+          "riskFactors": [
+            "Hardcoded file paths detected",
+            "Hardcoded file paths detected",
+            "Hardcoded file paths detected",
+            "Complex regex patterns: 18",
+            "Bulk/generic fixer pattern",
+            "Variable/unused parameter fixer"
+          ],
+          "hasTest": false,
+          "flags": [
+            "HARDCODED_PATHS",
+            "HARDCODED_PATHS",
+            "HARDCODED_PATHS",
+            "COMPLEX_REGEX",
+            "BULK_FIXER",
+            "VARIABLE_FIXER"
+          ],
+          "consolidationGroup": "unused-variables"
+        },
+        {
+          "name": "fix-unused-variables-targeted",
+          "path": "codemods/fix-unused-variables-targeted.ts",
+          "size": 2286,
+          "approach": "REGEX",
+          "riskLevel": "HIGH",
+          "riskFactors": [
+            "Hardcoded file paths detected",
+            "Hardcoded file paths detected",
+            "Complex regex patterns: 7",
+            "Variable/unused parameter fixer"
+          ],
+          "hasTest": false,
+          "flags": [
+            "HARDCODED_PATHS",
+            "HARDCODED_PATHS",
+            "COMPLEX_REGEX",
+            "VARIABLE_FIXER"
+          ],
+          "consolidationGroup": "unused-variables"
         }
       ],
       "bulk-fixers": [
         {
           "name": "surgical-bulk-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/surgical-bulk-fixer.ts",
+          "path": "codemods/surgical-bulk-fixer.ts",
           "size": 6821,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -4549,7 +3993,7 @@
         },
         {
           "name": "targeted-bulk-fixer",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/targeted-bulk-fixer.ts",
+          "path": "codemods/targeted-bulk-fixer.ts",
           "size": 5146,
           "approach": "AST",
           "riskLevel": "HIGH",
@@ -4566,7 +4010,7 @@
       "ts2564-errors": [
         {
           "name": "fix-ts2564-property-initialization",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2564-property-initialization.ts",
+          "path": "codemods/fix-ts2564-property-initialization.ts",
           "size": 4334,
           "approach": "AST",
           "riskLevel": "MEDIUM",
@@ -4585,7 +4029,7 @@
       "formatting": [
         {
           "name": "fix-indentation",
-          "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-indentation.ts",
+          "path": "codemods/fix-indentation.ts",
           "size": 2441,
           "approach": "HYBRID",
           "riskLevel": "LOW",
@@ -4596,212 +4040,13 @@
         }
       ]
     },
-    "flaggedForRemoval": [
-      {
-        "name": "prefix-unused-function-params",
-        "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/prefix-unused-function-params.ts",
-        "size": 16728,
-        "approach": "HYBRID",
-        "riskLevel": "HIGH",
-        "riskFactors": [
-          "Hardcoded file paths detected",
-          "Hardcoded file paths detected",
-          "Heuristic pattern matching detected",
-          "Complex regex patterns: 6",
-          "Variable/unused parameter fixer"
-        ],
-        "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "HARDCODED_PATHS",
-          "HEURISTIC_APPROACH",
-          "COMPLEX_REGEX",
-          "VARIABLE_FIXER"
-        ],
-        "consolidationGroup": "unused-variables"
-      },
-      {
-        "name": "fix-specific-typescript-errors",
-        "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-specific-typescript-errors.ts",
-        "size": 4152,
-        "approach": "REGEX",
-        "riskLevel": "HIGH",
-        "riskFactors": [
-          "Complex regex patterns: 15",
-          "Possible one-off script"
-        ],
-        "hasTest": false,
-        "flags": [
-          "COMPLEX_REGEX",
-          "ONE_OFF_SCRIPT"
-        ]
-      },
-      {
-        "name": "fix-unused-vars-final",
-        "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-final.ts",
-        "size": 5629,
-        "approach": "HYBRID",
-        "riskLevel": "HIGH",
-        "riskFactors": [
-          "Complex regex patterns: 4",
-          "Variable/unused parameter fixer",
-          "Possible one-off script"
-        ],
-        "hasTest": false,
-        "flags": [
-          "COMPLEX_REGEX",
-          "VARIABLE_FIXER",
-          "ONE_OFF_SCRIPT"
-        ],
-        "consolidationGroup": "unused-variables"
-      },
-      {
-        "name": "file-specific-fixer",
-        "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/file-specific-fixer.ts",
-        "size": 4622,
-        "approach": "AST",
-        "riskLevel": "HIGH",
-        "riskFactors": [
-          "Hardcoded file paths detected",
-          "Hardcoded file paths detected",
-          "Possible one-off script"
-        ],
-        "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "HARDCODED_PATHS",
-          "ONE_OFF_SCRIPT"
-        ]
-      },
-      {
-        "name": "fix-tasks-test-unused-imports",
-        "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-tasks-test-unused-imports.ts",
-        "size": 2397,
-        "approach": "REGEX",
-        "riskLevel": "HIGH",
-        "riskFactors": [
-          "Hardcoded file paths detected",
-          "Hardcoded file paths detected",
-          "Variable/unused parameter fixer",
-          "Possible one-off script"
-        ],
-        "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "HARDCODED_PATHS",
-          "VARIABLE_FIXER",
-          "ONE_OFF_SCRIPT"
-        ],
-        "consolidationGroup": "unused-imports"
-      },
-      {
-        "name": "fix-ts2322-final",
-        "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-final.ts",
-        "size": 5294,
-        "approach": "AST",
-        "riskLevel": "HIGH",
-        "riskFactors": [
-          "Hardcoded file paths detected",
-          "TypeScript error fixer",
-          "Possible one-off script"
-        ],
-        "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "TS_ERROR_FIXER",
-          "ONE_OFF_SCRIPT"
-        ],
-        "consolidationGroup": "ts2322-errors"
-      },
-      {
-        "name": "fix-ts2345-specific-patterns",
-        "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-specific-patterns.ts",
-        "size": 9698,
-        "approach": "AST",
-        "riskLevel": "HIGH",
-        "riskFactors": [
-          "Hardcoded file paths detected",
-          "TypeScript error fixer",
-          "Possible one-off script"
-        ],
-        "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "TS_ERROR_FIXER",
-          "ONE_OFF_SCRIPT"
-        ],
-        "consolidationGroup": "ts2345-errors"
-      },
-      {
-        "name": "fix-specific-ts2322-patterns",
-        "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-specific-ts2322-patterns.ts",
-        "size": 8184,
-        "approach": "AST",
-        "riskLevel": "HIGH",
-        "riskFactors": [
-          "Hardcoded file paths detected",
-          "TypeScript error fixer",
-          "Possible one-off script"
-        ],
-        "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "TS_ERROR_FIXER",
-          "ONE_OFF_SCRIPT"
-        ],
-        "consolidationGroup": "ts2322-errors"
-      },
-      {
-        "name": "unused-imports-cleanup",
-        "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/unused-imports-cleanup.ts",
-        "size": 12741,
-        "approach": "HYBRID",
-        "riskLevel": "HIGH",
-        "riskFactors": [
-          "Hardcoded file paths detected",
-          "Hardcoded file paths detected",
-          "Heuristic pattern matching detected",
-          "Variable/unused parameter fixer"
-        ],
-        "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "HARDCODED_PATHS",
-          "HEURISTIC_APPROACH",
-          "VARIABLE_FIXER"
-        ],
-        "consolidationGroup": "unused-imports"
-      },
-      {
-        "name": "fix-remaining-specific-unused-vars",
-        "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-specific-unused-vars.ts",
-        "size": 2287,
-        "approach": "REGEX",
-        "riskLevel": "HIGH",
-        "riskFactors": [
-          "Hardcoded file paths detected",
-          "Hardcoded file paths detected",
-          "Complex regex patterns: 5",
-          "Variable/unused parameter fixer",
-          "Possible one-off script"
-        ],
-        "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "HARDCODED_PATHS",
-          "COMPLEX_REGEX",
-          "VARIABLE_FIXER",
-          "ONE_OFF_SCRIPT"
-        ],
-        "consolidationGroup": "unused-variables"
-      }
-    ],
-    "summary": "\nSTRATEGY RECOMMENDATIONS:\n- Immediately remove 10 flagged codemods\n- Priority test 45 high-risk codemods\n- Batch test 57 medium-risk codemods\n- Consolidate 9 groups\n- Expected final count: ~43 codemods\n"
+    "flaggedForRemoval": [],
+    "summary": "\nSTRATEGY RECOMMENDATIONS:\n- Immediately remove 0 flagged codemods\n- Priority test 35 high-risk codemods\n- Batch test 57 medium-risk codemods\n- Consolidate 8 groups\n- Expected final count: ~39 codemods\n"
   },
   "detailedAnalyses": [
     {
       "name": "fix-ts2322-type-assignment-errors",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignment-errors.ts",
+      "path": "codemods/fix-ts2322-type-assignment-errors.ts",
       "size": 5565,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -4817,47 +4062,8 @@
       "consolidationGroup": "ts2322-errors"
     },
     {
-      "name": "prefix-unused-function-params",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/prefix-unused-function-params.ts",
-      "size": 16728,
-      "approach": "HYBRID",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Heuristic pattern matching detected",
-        "Complex regex patterns: 6",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "HEURISTIC_APPROACH",
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "unused-variables"
-    },
-    {
-      "name": "fix-specific-typescript-errors",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-specific-typescript-errors.ts",
-      "size": 4152,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Complex regex patterns: 15",
-        "Possible one-off script"
-      ],
-      "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX",
-        "ONE_OFF_SCRIPT"
-      ]
-    },
-    {
       "name": "eliminate-ts2322-completely",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2322-completely.ts",
+      "path": "codemods/eliminate-ts2322-completely.ts",
       "size": 12885,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -4874,7 +4080,7 @@
     },
     {
       "name": "fix-unknown-type-assertions",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unknown-type-assertions.ts",
+      "path": "codemods/fix-unknown-type-assertions.ts",
       "size": 4784,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -4888,7 +4094,7 @@
     },
     {
       "name": "fix-ts2339-property-not-exist",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2339-property-not-exist.ts",
+      "path": "codemods/fix-ts2339-property-not-exist.ts",
       "size": 9459,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -4904,43 +4110,22 @@
       "consolidationGroup": "typescript-errors"
     },
     {
-      "name": "fix-unused-vars-final",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-final.ts",
-      "size": 5629,
-      "approach": "HYBRID",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Complex regex patterns: 4",
-        "Variable/unused parameter fixer",
-        "Possible one-off script"
-      ],
-      "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER",
-        "ONE_OFF_SCRIPT"
-      ],
-      "consolidationGroup": "unused-variables"
-    },
-    {
       "name": "source-files-fixer",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/source-files-fixer.ts",
+      "path": "codemods/source-files-fixer.ts",
       "size": 4962,
       "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
-        "Hardcoded file paths detected",
         "Hardcoded file paths detected"
       ],
       "hasTest": false,
       "flags": [
-        "HARDCODED_PATHS",
         "HARDCODED_PATHS"
       ]
     },
     {
       "name": "fix-ts2552-name-resolution",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2552-name-resolution.ts",
+      "path": "codemods/fix-ts2552-name-resolution.ts",
       "size": 3811,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -4957,7 +4142,7 @@
     },
     {
       "name": "eliminate-ts2345-completely",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2345-completely.ts",
+      "path": "codemods/eliminate-ts2345-completely.ts",
       "size": 7623,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -4974,7 +4159,7 @@
     },
     {
       "name": "fix-missing-required-properties",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-missing-required-properties.ts",
+      "path": "codemods/fix-missing-required-properties.ts",
       "size": 7642,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -4988,7 +4173,7 @@
     },
     {
       "name": "fix-mocking-safe-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-safe-ast.ts",
+      "path": "codemods/fix-mocking-safe-ast.ts",
       "size": 6760,
       "approach": "AST",
       "riskLevel": "HIGH",
@@ -5008,7 +4193,7 @@
     },
     {
       "name": "fix-undef-variables",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-undef-variables.ts",
+      "path": "codemods/fix-undef-variables.ts",
       "size": 2548,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5023,42 +4208,26 @@
       ]
     },
     {
-      "name": "file-specific-fixer",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/file-specific-fixer.ts",
-      "size": 4622,
-      "approach": "AST",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Possible one-off script"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "ONE_OFF_SCRIPT"
-      ]
-    },
-    {
       "name": "fix-this-prefix",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-this-prefix.ts",
+      "path": "codemods/fix-this-prefix.ts",
       "size": 3193,
       "approach": "REGEX",
       "riskLevel": "HIGH",
       "riskFactors": [
+        "Hardcoded file paths detected",
         "Hardcoded file paths detected",
         "Complex regex patterns: 18"
       ],
       "hasTest": false,
       "flags": [
         "HARDCODED_PATHS",
+        "HARDCODED_PATHS",
         "COMPLEX_REGEX"
       ]
     },
     {
       "name": "fix-mocking-comprehensive-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-comprehensive-ast.ts",
+      "path": "codemods/fix-mocking-comprehensive-ast.ts",
       "size": 6151,
       "approach": "AST",
       "riskLevel": "HIGH",
@@ -5080,7 +4249,7 @@
     },
     {
       "name": "fix-targeted-parsing-errors",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-targeted-parsing-errors.ts",
+      "path": "codemods/fix-targeted-parsing-errors.ts",
       "size": 6371,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
@@ -5094,7 +4263,7 @@
     },
     {
       "name": "fix-repository-naming-issues-improved",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-repository-naming-issues-improved.ts",
+      "path": "codemods/fix-repository-naming-issues-improved.ts",
       "size": 5365,
       "approach": "AST",
       "riskLevel": "HIGH",
@@ -5112,7 +4281,7 @@
     },
     {
       "name": "fix-property-name-corrections",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-property-name-corrections.ts",
+      "path": "codemods/fix-property-name-corrections.ts",
       "size": 3900,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5126,7 +4295,7 @@
     },
     {
       "name": "fix-postgres-storage-types",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-postgres-storage-types.ts",
+      "path": "codemods/fix-postgres-storage-types.ts",
       "size": 6511,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5140,7 +4309,7 @@
     },
     {
       "name": "fix-mocking-unknown-types",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-unknown-types.ts",
+      "path": "codemods/fix-mocking-unknown-types.ts",
       "size": 3176,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5154,7 +4323,7 @@
     },
     {
       "name": "cleanup-triple-underscore-vars",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/cleanup-triple-underscore-vars.ts",
+      "path": "codemods/cleanup-triple-underscore-vars.ts",
       "size": 3565,
       "approach": "HYBRID",
       "riskLevel": "HIGH",
@@ -5175,7 +4344,7 @@
     },
     {
       "name": "fix-magic-numbers-remaining",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers-remaining.ts",
+      "path": "codemods/fix-magic-numbers-remaining.ts",
       "size": 3910,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
@@ -5188,29 +4357,8 @@
       ]
     },
     {
-      "name": "fix-tasks-test-unused-imports",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-tasks-test-unused-imports.ts",
-      "size": 2397,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Variable/unused parameter fixer",
-        "Possible one-off script"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "VARIABLE_FIXER",
-        "ONE_OFF_SCRIPT"
-      ],
-      "consolidationGroup": "unused-imports"
-    },
-    {
       "name": "fix-undefined-variables-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-undefined-variables-ast.ts",
+      "path": "codemods/fix-undefined-variables-ast.ts",
       "size": 8731,
       "approach": "AST",
       "riskLevel": "HIGH",
@@ -5228,7 +4376,7 @@
     },
     {
       "name": "fix-unused-simple",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-simple.ts",
+      "path": "codemods/fix-unused-simple.ts",
       "size": 2194,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5244,7 +4392,7 @@
     },
     {
       "name": "fix-unused-variables-simple",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-variables-simple.ts",
+      "path": "codemods/fix-unused-variables-simple.ts",
       "size": 3238,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5261,7 +4409,7 @@
     },
     {
       "name": "fix-current-globals",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-current-globals.ts",
+      "path": "codemods/fix-current-globals.ts",
       "size": 2417,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
@@ -5275,7 +4423,7 @@
     },
     {
       "name": "fix-unused-ts-expect-error",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-ts-expect-error.ts",
+      "path": "codemods/fix-unused-ts-expect-error.ts",
       "size": 3077,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5291,7 +4439,7 @@
     },
     {
       "name": "simple-underscore-fix",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/simple-underscore-fix.ts",
+      "path": "codemods/simple-underscore-fix.ts",
       "size": 5062,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5310,7 +4458,7 @@
     },
     {
       "name": "fix-unused-vars-targeted",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-targeted.ts",
+      "path": "codemods/fix-unused-vars-targeted.ts",
       "size": 4626,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5329,7 +4477,7 @@
     },
     {
       "name": "fix-undefined-issues",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-undefined-issues.ts",
+      "path": "codemods/fix-undefined-issues.ts",
       "size": 6241,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5343,7 +4491,7 @@
     },
     {
       "name": "conservative-ts2345-round2",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/conservative-ts2345-round2.ts",
+      "path": "codemods/conservative-ts2345-round2.ts",
       "size": 9257,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5360,7 +4508,7 @@
     },
     {
       "name": "fix-ts2345-targeted",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-targeted.ts",
+      "path": "codemods/fix-ts2345-targeted.ts",
       "size": 5706,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5377,7 +4525,7 @@
     },
     {
       "name": "fix-type-assertions",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-type-assertions.ts",
+      "path": "codemods/fix-type-assertions.ts",
       "size": 6504,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5390,31 +4538,13 @@
       ]
     },
     {
-      "name": "fix-ts2322-final",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-final.ts",
-      "size": 5294,
-      "approach": "AST",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer",
-        "Possible one-off script"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER",
-        "ONE_OFF_SCRIPT"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
       "name": "comprehensive-underscore-fix",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/comprehensive-underscore-fix.ts",
+      "path": "codemods/comprehensive-underscore-fix.ts",
       "size": 11002,
       "approach": "REGEX",
       "riskLevel": "HIGH",
       "riskFactors": [
+        "Hardcoded file paths detected",
         "Hardcoded file paths detected",
         "Complex regex patterns: 38",
         "Bulk/generic fixer pattern",
@@ -5422,6 +4552,7 @@
       ],
       "hasTest": false,
       "flags": [
+        "HARDCODED_PATHS",
         "HARDCODED_PATHS",
         "COMPLEX_REGEX",
         "BULK_FIXER",
@@ -5431,18 +4562,16 @@
     },
     {
       "name": "fix-parameter-underscore-mismatch",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-parameter-underscore-mismatch.ts",
+      "path": "codemods/fix-parameter-underscore-mismatch.ts",
       "size": 5286,
       "approach": "REGEX",
       "riskLevel": "HIGH",
       "riskFactors": [
-        "Hardcoded file paths detected",
         "Complex regex patterns: 6",
         "Variable/unused parameter fixer"
       ],
       "hasTest": false,
       "flags": [
-        "HARDCODED_PATHS",
         "COMPLEX_REGEX",
         "VARIABLE_FIXER"
       ],
@@ -5450,7 +4579,7 @@
     },
     {
       "name": "fix-ts2322-remaining-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-remaining-ast.ts",
+      "path": "codemods/fix-ts2322-remaining-ast.ts",
       "size": 8484,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5467,7 +4596,7 @@
     },
     {
       "name": "fix-variable-naming-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-variable-naming-ast.ts",
+      "path": "codemods/fix-variable-naming-ast.ts",
       "size": 9487,
       "approach": "HYBRID",
       "riskLevel": "HIGH",
@@ -5486,7 +4615,7 @@
     },
     {
       "name": "fix-mocking-unknown-types-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-unknown-types-ast.ts",
+      "path": "codemods/fix-mocking-unknown-types-ast.ts",
       "size": 4876,
       "approach": "AST",
       "riskLevel": "LOW",
@@ -5496,7 +4625,7 @@
     },
     {
       "name": "fix-unused-vars-patterns",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-patterns.ts",
+      "path": "codemods/fix-unused-vars-patterns.ts",
       "size": 2563,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5517,7 +4646,7 @@
     },
     {
       "name": "fix-ts2322-type-assignments",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignments.ts",
+      "path": "codemods/fix-ts2322-type-assignments.ts",
       "size": 7803,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5534,7 +4663,7 @@
     },
     {
       "name": "fix-ts2322-type-assignments-enhanced",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-assignments-enhanced.ts",
+      "path": "codemods/fix-ts2322-type-assignments-enhanced.ts",
       "size": 6685,
       "approach": "AST",
       "riskLevel": "HIGH",
@@ -5553,7 +4682,7 @@
     },
     {
       "name": "fix-remaining-variable-issues",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-variable-issues.ts",
+      "path": "codemods/fix-remaining-variable-issues.ts",
       "size": 4041,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5571,7 +4700,7 @@
     },
     {
       "name": "fix-magic-numbers",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers.ts",
+      "path": "codemods/fix-magic-numbers.ts",
       "size": 5996,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5589,7 +4718,7 @@
     },
     {
       "name": "surgical-bulk-fixer",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/surgical-bulk-fixer.ts",
+      "path": "codemods/surgical-bulk-fixer.ts",
       "size": 6821,
       "approach": "AST",
       "riskLevel": "HIGH",
@@ -5606,7 +4735,7 @@
     },
     {
       "name": "fix-explicit-any-types-proven",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any-types-proven.ts",
+      "path": "codemods/fix-explicit-any-types-proven.ts",
       "size": 6411,
       "approach": "HYBRID",
       "riskLevel": "MEDIUM",
@@ -5620,7 +4749,7 @@
     },
     {
       "name": "fix-ts2322-type-not-assignable",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-type-not-assignable.ts",
+      "path": "codemods/fix-ts2322-type-not-assignable.ts",
       "size": 12366,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5637,7 +4766,7 @@
     },
     {
       "name": "conservative-ts2345-fixer",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/conservative-ts2345-fixer.ts",
+      "path": "codemods/conservative-ts2345-fixer.ts",
       "size": 7977,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5652,7 +4781,7 @@
     },
     {
       "name": "fix-command-registration-overloads",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-command-registration-overloads.ts",
+      "path": "codemods/fix-command-registration-overloads.ts",
       "size": 5212,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5666,7 +4795,7 @@
     },
     {
       "name": "modern-variable-naming-fix",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/modern-variable-naming-fix.ts",
+      "path": "codemods/modern-variable-naming-fix.ts",
       "size": 5004,
       "approach": "HYBRID",
       "riskLevel": "MEDIUM",
@@ -5683,7 +4812,7 @@
     },
     {
       "name": "fix-magic-numbers-domain",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers-domain.ts",
+      "path": "codemods/fix-magic-numbers-domain.ts",
       "size": 3140,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5698,27 +4827,8 @@
       ]
     },
     {
-      "name": "fix-ts2345-specific-patterns",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-specific-patterns.ts",
-      "size": 9698,
-      "approach": "AST",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer",
-        "Possible one-off script"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER",
-        "ONE_OFF_SCRIPT"
-      ],
-      "consolidationGroup": "ts2345-errors"
-    },
-    {
       "name": "fix-ts2322-corrected-patterns",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-corrected-patterns.ts",
+      "path": "codemods/fix-ts2322-corrected-patterns.ts",
       "size": 6984,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5735,7 +4845,7 @@
     },
     {
       "name": "fix-session-ts-issues",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-session-ts-issues.ts",
+      "path": "codemods/fix-session-ts-issues.ts",
       "size": 5033,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5749,7 +4859,7 @@
     },
     {
       "name": "fix-ts2769-overload-mismatch",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2769-overload-mismatch.ts",
+      "path": "codemods/fix-ts2769-overload-mismatch.ts",
       "size": 10390,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5766,7 +4876,7 @@
     },
     {
       "name": "fix-arrow-function-parameters",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-arrow-function-parameters.ts",
+      "path": "codemods/fix-arrow-function-parameters.ts",
       "size": 2534,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
@@ -5780,7 +4890,7 @@
     },
     {
       "name": "fix-remaining-unused-vars",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-unused-vars.ts",
+      "path": "codemods/fix-remaining-unused-vars.ts",
       "size": 2672,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5799,7 +4909,7 @@
     },
     {
       "name": "fix-repository-naming-issues",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-repository-naming-issues.ts",
+      "path": "codemods/fix-repository-naming-issues.ts",
       "size": 3408,
       "approach": "HYBRID",
       "riskLevel": "HIGH",
@@ -5817,7 +4927,7 @@
     },
     {
       "name": "fix-ts2564-property-initialization",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2564-property-initialization.ts",
+      "path": "codemods/fix-ts2564-property-initialization.ts",
       "size": 4334,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5834,7 +4944,7 @@
     },
     {
       "name": "fix-indentation",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-indentation.ts",
+      "path": "codemods/fix-indentation.ts",
       "size": 2441,
       "approach": "HYBRID",
       "riskLevel": "LOW",
@@ -5845,7 +4955,7 @@
     },
     {
       "name": "fix-ts2552-proper-resolution",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2552-proper-resolution.ts",
+      "path": "codemods/fix-ts2552-proper-resolution.ts",
       "size": 5243,
       "approach": "AST",
       "riskLevel": "HIGH",
@@ -5864,7 +4974,7 @@
     },
     {
       "name": "fix-bun-process-types",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-bun-process-types.ts",
+      "path": "codemods/fix-bun-process-types.ts",
       "size": 2298,
       "approach": "AST",
       "riskLevel": "LOW",
@@ -5874,7 +4984,7 @@
     },
     {
       "name": "fix-ts18046-unknown-types",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18046-unknown-types.ts",
+      "path": "codemods/fix-ts18046-unknown-types.ts",
       "size": 7017,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5891,7 +5001,7 @@
     },
     {
       "name": "fix-rules-type-assertions",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-rules-type-assertions.ts",
+      "path": "codemods/fix-rules-type-assertions.ts",
       "size": 3657,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5905,7 +5015,7 @@
     },
     {
       "name": "fix-mocking-simple",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-simple.ts",
+      "path": "codemods/fix-mocking-simple.ts",
       "size": 3743,
       "approach": "HYBRID",
       "riskLevel": "MEDIUM",
@@ -5919,7 +5029,7 @@
     },
     {
       "name": "fix-magic-numbers-focused",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-magic-numbers-focused.ts",
+      "path": "codemods/fix-magic-numbers-focused.ts",
       "size": 4012,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -5937,7 +5047,7 @@
     },
     {
       "name": "fix-ts2345-argument-errors",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-argument-errors.ts",
+      "path": "codemods/fix-ts2345-argument-errors.ts",
       "size": 6044,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5954,7 +5064,7 @@
     },
     {
       "name": "fix-ts2322-targeted-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-targeted-ast.ts",
+      "path": "codemods/fix-ts2322-targeted-ast.ts",
       "size": 6552,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -5971,7 +5081,7 @@
     },
     {
       "name": "fix-syntax-errors",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-syntax-errors.ts",
+      "path": "codemods/fix-syntax-errors.ts",
       "size": 3019,
       "approach": "AST",
       "riskLevel": "HIGH",
@@ -5987,7 +5097,7 @@
     },
     {
       "name": "fix-ts2322-targeted",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-targeted.ts",
+      "path": "codemods/fix-ts2322-targeted.ts",
       "size": 9436,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6004,7 +5114,7 @@
     },
     {
       "name": "fix-incorrect-underscore-prefixes",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-incorrect-underscore-prefixes.ts",
+      "path": "codemods/fix-incorrect-underscore-prefixes.ts",
       "size": 3248,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -6023,7 +5133,7 @@
     },
     {
       "name": "fix-final-syntax-errors",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-final-syntax-errors.ts",
+      "path": "codemods/fix-final-syntax-errors.ts",
       "size": 3582,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
@@ -6037,7 +5147,7 @@
     },
     {
       "name": "fix-all-parsing-errors",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-all-parsing-errors.ts",
+      "path": "codemods/fix-all-parsing-errors.ts",
       "size": 5195,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -6055,7 +5165,7 @@
     },
     {
       "name": "fix-dependencies-mocks",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-dependencies-mocks.ts",
+      "path": "codemods/fix-dependencies-mocks.ts",
       "size": 2700,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6069,7 +5179,7 @@
     },
     {
       "name": "fix-quotes-to-double",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-quotes-to-double.ts",
+      "path": "codemods/fix-quotes-to-double.ts",
       "size": 3759,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
@@ -6084,27 +5194,8 @@
       ]
     },
     {
-      "name": "fix-specific-ts2322-patterns",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-specific-ts2322-patterns.ts",
-      "size": 8184,
-      "approach": "AST",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer",
-        "Possible one-off script"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER",
-        "ONE_OFF_SCRIPT"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
       "name": "fix-ts2322-remaining",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-remaining.ts",
+      "path": "codemods/fix-ts2322-remaining.ts",
       "size": 7679,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6121,7 +5212,7 @@
     },
     {
       "name": "fix-underscore-prefix",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-underscore-prefix.ts",
+      "path": "codemods/fix-underscore-prefix.ts",
       "size": 3298,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
@@ -6136,7 +5227,7 @@
     },
     {
       "name": "targeted-bulk-fixer",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/targeted-bulk-fixer.ts",
+      "path": "codemods/targeted-bulk-fixer.ts",
       "size": 5146,
       "approach": "AST",
       "riskLevel": "HIGH",
@@ -6151,7 +5242,7 @@
     },
     {
       "name": "fix-ts2322-precise-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-precise-ast.ts",
+      "path": "codemods/fix-ts2322-precise-ast.ts",
       "size": 7094,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6168,7 +5259,7 @@
     },
     {
       "name": "fix-bun-compatibility-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-bun-compatibility-ast.ts",
+      "path": "codemods/fix-bun-compatibility-ast.ts",
       "size": 4181,
       "approach": "AST",
       "riskLevel": "HIGH",
@@ -6182,7 +5273,7 @@
     },
     {
       "name": "fix-unused-vars-simple",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-simple.ts",
+      "path": "codemods/fix-unused-vars-simple.ts",
       "size": 4524,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -6202,44 +5293,25 @@
       "consolidationGroup": "unused-variables"
     },
     {
-      "name": "unused-imports-cleanup",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/unused-imports-cleanup.ts",
-      "size": 12741,
-      "approach": "HYBRID",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Heuristic pattern matching detected",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "HEURISTIC_APPROACH",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "unused-imports"
-    },
-    {
       "name": "fix-ts2322-current-patterns",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-current-patterns.ts",
+      "path": "codemods/fix-ts2322-current-patterns.ts",
       "size": 8369,
       "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
+        "Hardcoded file paths detected",
         "TypeScript error fixer"
       ],
       "hasTest": false,
       "flags": [
+        "HARDCODED_PATHS",
         "TS_ERROR_FIXER"
       ],
       "consolidationGroup": "ts2322-errors"
     },
     {
       "name": "fix-explicit-any-comprehensive",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any-comprehensive.ts",
+      "path": "codemods/fix-explicit-any-comprehensive.ts",
       "size": 3595,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -6255,7 +5327,7 @@
     },
     {
       "name": "fix-bun-types-simple-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-bun-types-simple-ast.ts",
+      "path": "codemods/fix-bun-types-simple-ast.ts",
       "size": 3927,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6269,7 +5341,7 @@
     },
     {
       "name": "fix-explicit-any",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any.ts",
+      "path": "codemods/fix-explicit-any.ts",
       "size": 3617,
       "approach": "HYBRID",
       "riskLevel": "HIGH",
@@ -6287,7 +5359,7 @@
     },
     {
       "name": "fix-explicit-any-simple",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-explicit-any-simple.ts",
+      "path": "codemods/fix-explicit-any-simple.ts",
       "size": 4346,
       "approach": "HYBRID",
       "riskLevel": "MEDIUM",
@@ -6301,7 +5373,7 @@
     },
     {
       "name": "fix-ts18048-precise-patterns",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18048-precise-patterns.ts",
+      "path": "codemods/fix-ts18048-precise-patterns.ts",
       "size": 6593,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6318,7 +5390,7 @@
     },
     {
       "name": "fix-mock-object-properties",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mock-object-properties.ts",
+      "path": "codemods/fix-mock-object-properties.ts",
       "size": 3329,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6332,7 +5404,7 @@
     },
     {
       "name": "fix-buffer-string-issues",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-buffer-string-issues.ts",
+      "path": "codemods/fix-buffer-string-issues.ts",
       "size": 2965,
       "approach": "AST",
       "riskLevel": "LOW",
@@ -6342,7 +5414,7 @@
     },
     {
       "name": "fix-result-underscore-mismatch",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-result-underscore-mismatch.ts",
+      "path": "codemods/fix-result-underscore-mismatch.ts",
       "size": 1833,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
@@ -6357,7 +5429,7 @@
     },
     {
       "name": "fix-ts2353-object-literals",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2353-object-literals.ts",
+      "path": "codemods/fix-ts2353-object-literals.ts",
       "size": 7801,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6374,7 +5446,7 @@
     },
     {
       "name": "fix-common-undef",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-common-undef.ts",
+      "path": "codemods/fix-common-undef.ts",
       "size": 4074,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -6390,7 +5462,7 @@
     },
     {
       "name": "fix-unused-vars-comprehensive",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-vars-comprehensive.ts",
+      "path": "codemods/fix-unused-vars-comprehensive.ts",
       "size": 5365,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -6415,7 +5487,7 @@
     },
     {
       "name": "fix-common-type-issues",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-common-type-issues.ts",
+      "path": "codemods/fix-common-type-issues.ts",
       "size": 1,
       "approach": "UNKNOWN",
       "riskLevel": "LOW",
@@ -6425,7 +5497,7 @@
     },
     {
       "name": "main-source-fixer",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/main-source-fixer.ts",
+      "path": "codemods/main-source-fixer.ts",
       "size": 5832,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6441,7 +5513,7 @@
     },
     {
       "name": "eliminate-ts2353-completely",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/eliminate-ts2353-completely.ts",
+      "path": "codemods/eliminate-ts2353-completely.ts",
       "size": 4820,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6458,7 +5530,7 @@
     },
     {
       "name": "fix-mock-function-signatures",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mock-function-signatures.ts",
+      "path": "codemods/fix-mock-function-signatures.ts",
       "size": 10987,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6472,7 +5544,7 @@
     },
     {
       "name": "fix-ts2345-argument-types",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2345-argument-types.ts",
+      "path": "codemods/fix-ts2345-argument-types.ts",
       "size": 9203,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6489,7 +5561,7 @@
     },
     {
       "name": "fix-ts18048-undefined-errors",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts18048-undefined-errors.ts",
+      "path": "codemods/fix-ts18048-undefined-errors.ts",
       "size": 6783,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6504,7 +5576,7 @@
     },
     {
       "name": "fix-unused-variables-targeted",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-unused-variables-targeted.ts",
+      "path": "codemods/fix-unused-variables-targeted.ts",
       "size": 2286,
       "approach": "REGEX",
       "riskLevel": "HIGH",
@@ -6525,7 +5597,7 @@
     },
     {
       "name": "fix-ts2322-ast-based",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-ts2322-ast-based.ts",
+      "path": "codemods/fix-ts2322-ast-based.ts",
       "size": 9579,
       "approach": "AST",
       "riskLevel": "MEDIUM",
@@ -6539,31 +5611,8 @@
       "consolidationGroup": "ts2322-errors"
     },
     {
-      "name": "fix-remaining-specific-unused-vars",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-remaining-specific-unused-vars.ts",
-      "size": 2287,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 5",
-        "Variable/unused parameter fixer",
-        "Possible one-off script"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER",
-        "ONE_OFF_SCRIPT"
-      ],
-      "consolidationGroup": "unused-variables"
-    },
-    {
       "name": "fix-mocking-unknown-ast",
-      "path": "/Users/edobry/.local/state/minsky/sessions/task#178/codemods/fix-mocking-unknown-ast.ts",
+      "path": "codemods/fix-mocking-unknown-ast.ts",
       "size": 4854,
       "approach": "AST",
       "riskLevel": "MEDIUM",

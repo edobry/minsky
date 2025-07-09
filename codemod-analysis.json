@@ -1,0 +1,124 @@
+Analyzing 97 codemods...
+
+=== CODEMOD ANALYSIS REPORT ===
+
+Total codemods analyzed: 97
+
+Risk Level Distribution:
+  HIGH: 35 codemods
+  MEDIUM: 57 codemods
+  LOW: 5 codemods
+
+Approach Distribution:
+  AST: 58 codemods
+  REGEX: 29 codemods
+  HYBRID: 9 codemods
+  UNKNOWN: 1 codemods
+
+Consolidation Groups:
+  ts2322-errors: 13 codemods
+    - fix-ts2322-type-assignment-errors
+    - eliminate-ts2322-completely
+    - fix-ts2322-remaining-ast
+    - fix-ts2322-type-assignments
+    - fix-ts2322-type-assignments-enhanced
+    - fix-ts2322-type-not-assignable
+    - fix-ts2322-corrected-patterns
+    - fix-ts2322-targeted-ast
+    - fix-ts2322-targeted
+    - fix-ts2322-remaining
+    - fix-ts2322-precise-ast
+    - fix-ts2322-current-patterns
+    - fix-ts2322-ast-based
+  typescript-errors: 9 codemods
+    - fix-ts2339-property-not-exist
+    - fix-ts2552-name-resolution
+    - fix-ts2769-overload-mismatch
+    - fix-ts2552-proper-resolution
+    - fix-ts18046-unknown-types
+    - fix-ts18048-precise-patterns
+    - fix-ts2353-object-literals
+    - eliminate-ts2353-completely
+    - fix-ts18048-undefined-errors
+  ts2345-errors: 6 codemods
+    - eliminate-ts2345-completely
+    - conservative-ts2345-round2
+    - fix-ts2345-targeted
+    - conservative-ts2345-fixer
+    - fix-ts2345-argument-errors
+    - fix-ts2345-argument-types
+  variable-naming: 9 codemods
+    - cleanup-triple-underscore-vars
+    - simple-underscore-fix
+    - comprehensive-underscore-fix
+    - fix-parameter-underscore-mismatch
+    - fix-variable-naming-ast
+    - modern-variable-naming-fix
+    - fix-incorrect-underscore-prefixes
+    - fix-underscore-prefix
+    - fix-result-underscore-mismatch
+  unused-variables: 7 codemods
+    - fix-unused-variables-simple
+    - fix-unused-vars-targeted
+    - fix-unused-vars-patterns
+    - fix-remaining-unused-vars
+    - fix-unused-vars-simple
+    - fix-unused-vars-comprehensive
+    - fix-unused-variables-targeted
+  bulk-fixers: 2 codemods
+    - surgical-bulk-fixer
+    - targeted-bulk-fixer
+  ts2564-errors: 1 codemods
+    - fix-ts2564-property-initialization
+  formatting: 1 codemods
+    - fix-indentation
+
+Flagged for Immediate Removal (0):
+
+High Risk Codemods Requiring Priority Testing:
+  - fix-mocking-safe-ast (Hardcoded file paths detected, Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 4)
+  - fix-undef-variables (Complex regex patterns: 15, Variable/unused parameter fixer)
+  - fix-this-prefix (Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 18)
+  - fix-mocking-comprehensive-ast (Hardcoded file paths detected, Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 11, Bulk/generic fixer pattern)
+  - fix-repository-naming-issues-improved (Hardcoded file paths detected, Hardcoded file paths detected, Variable/unused parameter fixer)
+  - cleanup-triple-underscore-vars (Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 4, Variable/unused parameter fixer)
+  - fix-undefined-variables-ast (Hardcoded file paths detected, Hardcoded file paths detected, Variable/unused parameter fixer)
+  - fix-unused-simple (Complex regex patterns: 4, Variable/unused parameter fixer)
+  - fix-unused-variables-simple (Complex regex patterns: 4, Variable/unused parameter fixer)
+  - simple-underscore-fix (Hardcoded file paths detected, Hardcoded file paths detected, Variable/unused parameter fixer)
+  - fix-unused-vars-targeted (Heuristic pattern matching detected, Complex regex patterns: 4, Variable/unused parameter fixer)
+  - comprehensive-underscore-fix (Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 38, Bulk/generic fixer pattern, Variable/unused parameter fixer)
+  - fix-parameter-underscore-mismatch (Complex regex patterns: 6, Variable/unused parameter fixer)
+  - fix-variable-naming-ast (Hardcoded file paths detected, Hardcoded file paths detected, Variable/unused parameter fixer)
+  - fix-unused-vars-patterns (Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 5, Variable/unused parameter fixer)
+  - fix-ts2322-type-assignments-enhanced (Hardcoded file paths detected, Complex regex patterns: 8, TypeScript error fixer)
+  - fix-remaining-variable-issues (Hardcoded file paths detected, Complex regex patterns: 15, Variable/unused parameter fixer)
+  - fix-magic-numbers (Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 7)
+  - surgical-bulk-fixer (Complex regex patterns: 14, Bulk/generic fixer pattern)
+  - fix-magic-numbers-domain (Hardcoded file paths detected, Complex regex patterns: 8)
+  - fix-remaining-unused-vars (Hardcoded file paths detected, Complex regex patterns: 7, Variable/unused parameter fixer)
+  - fix-repository-naming-issues (Hardcoded file paths detected, Hardcoded file paths detected, Variable/unused parameter fixer)
+  - fix-ts2552-proper-resolution (Hardcoded file paths detected, Complex regex patterns: 3, TypeScript error fixer)
+  - fix-magic-numbers-focused (Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 7)
+  - fix-syntax-errors (Hardcoded file paths detected, Complex regex patterns: 7)
+  - fix-incorrect-underscore-prefixes (Hardcoded file paths detected, Complex regex patterns: 21, Variable/unused parameter fixer)
+  - fix-all-parsing-errors (Hardcoded file paths detected, Complex regex patterns: 7, Bulk/generic fixer pattern)
+  - targeted-bulk-fixer (Bulk/generic fixer pattern)
+  - fix-bun-compatibility-ast (Heuristic pattern matching detected)
+  - fix-unused-vars-simple (Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 4, Variable/unused parameter fixer)
+  - fix-explicit-any-comprehensive (Complex regex patterns: 19, Bulk/generic fixer pattern)
+  - fix-explicit-any (Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 18)
+  - fix-common-undef (Hardcoded file paths detected, Complex regex patterns: 29)
+  - fix-unused-vars-comprehensive (Hardcoded file paths detected, Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 18, Bulk/generic fixer pattern, Variable/unused parameter fixer)
+  - fix-unused-variables-targeted (Hardcoded file paths detected, Hardcoded file paths detected, Complex regex patterns: 7, Variable/unused parameter fixer)
+
+
+STRATEGY RECOMMENDATIONS:
+- Immediately remove 0 flagged codemods
+- Priority test 35 high-risk codemods
+- Batch test 57 medium-risk codemods
+- Consolidate 8 groups
+- Expected final count: ~39 codemods
+
+
+Detailed results written to: /Users/edobry/.local/state/minsky/sessions/task#178/codemod-analysis-results.json
