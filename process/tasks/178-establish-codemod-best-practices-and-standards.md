@@ -232,6 +232,19 @@ This task aims to:
 - ❌ **bulk-typescript-error-fixer.ts**: REMOVED - fundamentally flawed heuristic approach vs proper type analysis
 
 **HIGH-RISK CODEMODS ANALYZED (6 total):**
+- ❌ **fix-mocking-comprehensive-ast.ts**: REMOVED - Hardcoded file path, misleading name (claims AST but uses string manipulation), destructive string replacement
+- ❌ **fix-repository-naming-issues-improved.ts**: REMOVED - Hardcoded file path, breaks intentional underscore prefixes, dangerous global replacements
+- ❌ **cleanup-triple-underscore-vars.ts**: REMOVED - Overly broad regex patterns, removes used variables, dangerous file modifications without backup
+- ❌ **fix-undefined-variables-ast.ts**: REMOVED - CRITICAL BUG: Hardcoded './tsconfig.json' path causes runtime failure, completely non-functional
+- ❌ **fix-unused-simple.ts**: REMOVED - EXTREMELY DANGEROUS: Hardcoded path operates on wrong files, made 558 changes to unrelated files
+- ❌ **fix-unused-variables-simple.ts**: REMOVED - Hardcoded 'src' directory dependency, blindly destructive patterns, no usage analysis
+
+**CRITICAL DISCOVERY: 100% FAILURE RATE CONFIRMED**
+- **Tested**: 6 high-risk codemods total (100% failure rate maintained)
+- **Common Issues**: Hardcoded file paths, misleading names, dangerous global replacements, context ignorance, overly broad regex patterns
+- **Systematic Pattern**: ALL high-risk codemods have fundamental design flaws that break working code or are completely non-functional
+
+**HIGH-RISK CODEMODS ANALYZED (6 total):**
 - ❌ **fix-mocking-safe-ast.ts**: REMOVED - Hardcoded paths, misleading name (claims AST-based but uses string manipulation)
 - ❌ **fix-undef-variables.ts**: REMOVED - Blind global replacement, breaks intentional underscore prefixes
 - ❌ **fix-this-prefix.ts**: REMOVED - Creates invalid code, inappropriate this. prefix additions
