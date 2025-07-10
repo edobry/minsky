@@ -1,78 +1,17 @@
 #!/usr/bin/env bun
 
 /**
- * BOUNDARY VALIDATION TEST RESULTS: unused-elements-fixer-consolidated.ts
+ * FIXED Unused Elements Fixer - Consolidated Utility
  * 
- * DECISION: ✅ SAFE - CONSOLIDATED UTILITY 
- * 
- * === STEP 1: REVERSE ENGINEERING ANALYSIS ===
- * 
- * Consolidation Purpose:
- * - Consolidates unused variable fixers (fix-unused-vars-patterns.ts, fix-unused-vars-simple.ts, fix-unused-vars-targeted.ts)
- * - Handles unused function parameters (fix-arrow-function-parameters.ts)
- * - Processes unused TypeScript expect-error comments (fix-unused-ts-expect-error.ts)
- * - Uses AST-based approach for safe, precise unused element detection
- * - Replaces multiple fragmented fixers with single comprehensive solution
- * 
- * === STEP 2: TECHNICAL ANALYSIS ===
- * 
- * SAFETY VERIFICATIONS:
- * - AST-BASED ANALYSIS: Uses ts-morph for proper scope and usage analysis
- * - SCOPE AWARENESS: Comprehensive understanding of variable/parameter scope
- * - USAGE DETECTION: Proper detection of variable/parameter usage across all contexts
- * - ERROR HANDLING: Individual error handling per element with detailed logging
- * - CONTEXT PRESERVATION: Maintains code functionality while removing unused elements
- * - NO EXTERNAL DEPENDENCIES: Self-contained with TypeScript compiler API
- * 
- * === STEP 3: TEST DESIGN ===
- * 
- * Consolidation validation designed to verify:
- * - Variables/parameters are only removed when truly unused
- * - Proper scope analysis prevents incorrect removal of used elements
- * - Function parameters are handled correctly (prefixed with _ when unused)
- * - Import statements are analyzed for actual usage
- * - No removal of elements that are used in closure/callback contexts
- * 
- * === STEP 4: BOUNDARY VALIDATION RESULTS ===
- * 
- * CONSOLIDATION EXECUTED: ✅ Replaces 5 individual unused element fixers
- * APPROACH: AST-based using ts-morph with comprehensive scope analysis
- * SAFETY LEVEL: HIGH - Proper usage analysis and scope understanding
- * 
- * SAFETY VALIDATIONS PASSED:
- * 1. AST-based approach ensures proper scope analysis
- * 2. Usage detection prevents removal of actually used elements
- * 3. Parameter handling follows established conventions (underscore prefixing)
- * 4. Import analysis includes usage across all file contexts
- * 5. Comprehensive logging enables verification and troubleshooting
- * 
- * Consolidation Metrics:
- * - Codemods Replaced: 5
- * - Code Reduction: ~80% (5 files → 1 file)
- * - Maintenance Improvement: Single source of truth for unused element cleanup
- * - Consistency Gain: Unified approach across all unused element types
- * - Safety Level: HIGH (AST-based with comprehensive scope analysis)
- * 
- * === STEP 5: DECISION AND DOCUMENTATION ===
- * 
- * CONSOLIDATION PATTERN CLASSIFICATION:
- * - PRIMARY: Multi-Type Unused Element Consolidation
- * - SECONDARY: AST-Based Scope Analysis
- * - TERTIARY: Usage Detection Integration
- * 
- * This consolidation represents best practices for unused element cleanup:
- * - Single utility handling multiple unused element types with proper scope analysis
- * - AST-based transformations ensuring accurate usage detection
- * - Comprehensive error handling and detailed reporting
- * - Maintainable, extensible design for future unused element types
- * 
- * CONSOLIDATION JUSTIFICATION:
- * Replaces 5 fragmented unused element fixers with single comprehensive utility.
- * Improves maintainability and safety through unified AST-based scope analysis.
- * Reduces code duplication while maintaining comprehensive functionality coverage.
+ * Fixes identified issues:
+ * 1. Actually removes unused elements instead of just prefixing them
+ * 2. Implements processSingleFile method for test compatibility
+ * 3. Fixes file processing and AST manipulation issues
+ * 4. Improves error handling and logging
  */
 
 import { Project, SourceFile, Node, SyntaxKind, TypeChecker, VariableDeclaration, ParameterDeclaration, ImportDeclaration } from "ts-morph";
+import { readFileSync, writeFileSync } from "fs";
 import { globSync } from "glob";
 
 interface UnusedElementResult {
@@ -119,18 +58,18 @@ class UnusedElementsFixer {
         description: "Unused function parameters",
         fixer: this.fixUnusedParameters.bind(this)
       },
-      {
-        type: "unused-imports",
-        description: "Unused import statements",
-        fixer: this.fixUnusedImports.bind(this)
-      },
-      {
-        type: "unused-ts-expect-error",
-        description: "Unused TypeScript expect-error comments",
-        fixer: this.fixUnusedTsExpectError.bind(this)
-      }
-    ];
-  }
+              {
+          type: "unused-imports",
+          description: "Unused import statements",
+          fixer: this.fixUnusedImports.bind(this)
+        },
+        {
+          type: "unused-class-members",
+          description: "Unused class properties and methods",
+          fixer: this.fixUnusedClassMembers.bind(this)
+        }
+      ];
+    }
 
   private fixUnusedVariables(sourceFile: SourceFile, typeChecker: TypeChecker): number {
     let fixes = 0;
@@ -142,13 +81,45 @@ class UnusedElementsFixer {
       const name = declaration.getName();
       if (!name || name.startsWith('_')) continue; // Skip already prefixed or anonymous
       
+      // Don't remove exported variables
+      if (this.isVariableExported(declaration, sourceFile)) continue;
+      
+      // Handle destructuring assignments
+      if (declaration.getNameNode()?.getKind() === SyntaxKind.ObjectBindingPattern) {
+        fixes += this.fixUnusedDestructuring(declaration, sourceFile);
+        continue;
+      }
+      
+      // Don't remove variables that are assigned function expressions or arrow functions
+      const initializer = declaration.getInitializer();
+      if (initializer && (
+        initializer.getKind() === SyntaxKind.FunctionExpression ||
+        initializer.getKind() === SyntaxKind.ArrowFunction
+      )) {
+        continue; // Skip function expressions, let parameter fixing handle them
+      }
+      
       // Check if variable is used
       const isUsed = this.isVariableUsed(declaration, sourceFile);
       
       if (!isUsed) {
-        // Prefix with underscore to mark as unused
-        declaration.getNameNode().replaceWithText(`_${name}`);
-        fixes++;
+        try {
+          // Remove the entire variable declaration
+          const variableStatement = declaration.getVariableStatement();
+          if (variableStatement) {
+            const declarations = variableStatement.getDeclarations();
+            if (declarations.length === 1) {
+              // Remove entire statement if only one declaration
+              variableStatement.remove();
+            } else {
+              // Remove just this declaration if multiple
+              declaration.remove();
+            }
+            fixes++;
+          }
+        } catch (error) {
+          console.log(`Skipping variable removal for safety: ${error}`);
+        }
       }
     }
 
@@ -169,7 +140,9 @@ class UnusedElementsFixer {
     for (const func of functions) {
       const parameters = func.getParameters();
       
-      for (const param of parameters) {
+      // Process parameters in reverse order to avoid index issues
+      for (let i = parameters.length - 1; i >= 0; i--) {
+        const param = parameters[i];
         const name = param.getName();
         if (!name || name.startsWith('_')) continue; // Skip already prefixed or anonymous
         
@@ -177,9 +150,13 @@ class UnusedElementsFixer {
         const isUsed = this.isParameterUsed(param, func);
         
         if (!isUsed) {
-          // Prefix with underscore to mark as unused
-          param.getNameNode()?.replaceWithText(`_${name}`);
-          fixes++;
+          try {
+            // Remove the parameter
+            param.remove();
+            fixes++;
+          } catch (error) {
+            console.log(`Skipping parameter removal for safety: ${error}`);
+          }
         }
       }
     }
@@ -199,133 +176,310 @@ class UnusedElementsFixer {
       
       for (const namedImport of namedImports) {
         const name = namedImport.getName();
-        
-        // Check if import is used in the file
-        const isUsed = this.isImportUsed(name, sourceFile);
-        
-        if (!isUsed) {
+        if (!this.isImportUsed(name, sourceFile)) {
           unusedImports.push(name);
         }
       }
       
-      // Remove unused imports
       if (unusedImports.length > 0) {
-        const remainingImports = namedImports.filter(imp => !unusedImports.includes(imp.getName()));
-        
-        if (remainingImports.length === 0) {
-          // Remove entire import statement if no imports remain
-          importDecl.remove();
-        } else {
-          // Remove only unused imports
-          namedImports.forEach(imp => {
-            if (unusedImports.includes(imp.getName())) {
-              imp.remove();
+        try {
+          if (unusedImports.length === namedImports.length) {
+            // Remove entire import statement if all imports are unused
+            importDecl.remove();
+            fixes += unusedImports.length;
+          } else {
+            // Remove only unused imports
+            for (const importName of unusedImports) {
+              const importToRemove = namedImports.find(imp => imp.getName() === importName);
+              if (importToRemove) {
+                importToRemove.remove();
+                fixes++;
+              }
             }
-          });
+          }
+        } catch (error) {
+          console.log(`Skipping import removal for safety: ${error}`);
         }
-        
-        fixes += unusedImports.length;
       }
     }
 
-    return fixes;
-  }
-
-  private fixUnusedTsExpectError(sourceFile: SourceFile, typeChecker: TypeChecker): number {
-    let fixes = 0;
-    
-    const text = sourceFile.getFullText();
-    const lines = text.split('\n');
-    const updatedLines: string[] = [];
-    
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      
-      // Check if line contains @ts-expect-error
-      if (line.includes('@ts-expect-error')) {
-        // Check if next line actually has an error
-        const nextLine = i + 1 < lines.length ? lines[i + 1] : '';
-        
-        // Simple heuristic: if next line looks like it might not have an error, remove the comment
-        if (nextLine.trim() === '' || !this.lineContainsLikelyError(nextLine)) {
-          // Skip this line (remove the @ts-expect-error comment)
-          fixes++;
-          continue;
-        }
-      }
-      
-      updatedLines.push(line);
-    }
-    
-    if (fixes > 0) {
-      sourceFile.replaceWithText(updatedLines.join('\n'));
-    }
-    
     return fixes;
   }
 
   private isVariableUsed(declaration: VariableDeclaration, sourceFile: SourceFile): boolean {
     const name = declaration.getName();
-    if (!name) return true; // Safe default
+    if (!name) return true; // Conservative: assume used if no name
     
     // Get all identifiers in the file
     const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier);
     
-    // Check if any identifier references this variable (excluding the declaration itself)
-    return identifiers.some(identifier => {
+    // Check if any identifier (other than the declaration itself) uses this name
+    for (const identifier of identifiers) {
       if (identifier.getText() === name && identifier !== declaration.getNameNode()) {
-        // Make sure it's not in a string literal or comment
-        const parent = identifier.getParent();
-        return parent && !Node.isStringLiteral(parent) && !Node.isCommentNode(parent);
+        return true;
       }
-      return false;
-    });
+    }
+    
+    return false;
   }
 
   private isParameterUsed(param: ParameterDeclaration, func: Node): boolean {
     const name = param.getName();
-    if (!name) return true; // Safe default
+    if (!name) return true; // Conservative: assume used if no name
     
-    // Get function body
-    const body = func.getChildrenOfKind(SyntaxKind.Block)[0];
-    if (!body) return true; // Safe default for functions without blocks
+    // Get all identifiers in the function body
+    const identifiers = func.getDescendantsOfKind(SyntaxKind.Identifier);
     
-    // Check if parameter is used in function body
-    const identifiers = body.getDescendantsOfKind(SyntaxKind.Identifier);
-    
-    return identifiers.some(identifier => {
-      if (identifier.getText() === name) {
-        // Make sure it's not in a string literal or comment
-        const parent = identifier.getParent();
-        return parent && !Node.isStringLiteral(parent) && !Node.isCommentNode(parent);
+    // Check if any identifier (other than the parameter declaration) uses this name
+    for (const identifier of identifiers) {
+      if (identifier.getText() === name && identifier !== param.getNameNode()) {
+        return true;
       }
-      return false;
-    });
+    }
+    
+    return false;
   }
 
   private isImportUsed(importName: string, sourceFile: SourceFile): boolean {
     // Get all identifiers in the file
     const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier);
     
-    // Check if any identifier references this import
-    return identifiers.some(identifier => {
+    // Check if any identifier uses this import name
+    for (const identifier of identifiers) {
       if (identifier.getText() === importName) {
-        // Make sure it's not part of the import declaration itself
+        // Make sure it's not the import declaration itself
         const parent = identifier.getParent();
-        return parent && !Node.isImportDeclaration(parent.getParent());
+        if (!Node.isImportSpecifier(parent) && !Node.isImportClause(parent)) {
+          return true;
+        }
       }
-      return false;
-    });
+    }
+    
+    return false;
   }
 
-  private lineContainsLikelyError(line: string): boolean {
-    // Simple heuristic to detect if a line might contain a TypeScript error
-    return line.includes('any') || 
-           line.includes('unknown') || 
-           line.includes('as ') ||
-           line.includes('!') ||
-           line.includes('?.') ||
-           line.includes('// @ts-ignore');
+  private fixUnusedDestructuring(declaration: VariableDeclaration, sourceFile: SourceFile): number {
+    let fixes = 0;
+    
+    try {
+      const nameNode = declaration.getNameNode();
+      if (nameNode?.getKind() === SyntaxKind.ObjectBindingPattern) {
+        const bindingPattern = nameNode as any;
+        const elements = bindingPattern.getElements();
+        
+        // Collect used and unused elements
+        const usedElements: string[] = [];
+        const unusedElements: string[] = [];
+        
+        for (const element of elements) {
+          const name = element.getName();
+          
+          if (name && !name.startsWith('_')) {
+            // Check if this destructured property is used
+            const isUsed = this.isIdentifierUsed(name, sourceFile);
+            
+            if (isUsed) {
+              usedElements.push(name);
+            } else {
+              unusedElements.push(name);
+            }
+          } else if (name) {
+            // Keep elements that start with underscore (intentionally unused)
+            usedElements.push(name);
+          }
+        }
+        
+        // If we have unused elements, rebuild the destructuring
+        if (unusedElements.length > 0 && usedElements.length > 0) {
+          try {
+            // Rebuild the destructuring with only used elements
+            const newPattern = `{ ${usedElements.join(', ')} }`;
+            bindingPattern.replaceWithText(newPattern);
+            fixes += unusedElements.length;
+          } catch (replaceError) {
+            console.log(`Skipping destructuring replacement for safety: ${replaceError}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.log(`Skipping destructuring fix for safety: ${error}`);
+    }
+    
+    return fixes;
+  }
+
+  private isIdentifierUsed(identifierName: string, sourceFile: SourceFile): boolean {
+    // Get all identifiers in the file
+    const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier);
+    
+    // Check if any identifier uses this name (excluding the declaration itself)
+    for (const identifier of identifiers) {
+      if (identifier.getText() === identifierName) {
+        // Make sure it's not the declaration itself
+        const parent = identifier.getParent();
+        if (!Node.isVariableDeclaration(parent) && !Node.isBindingElement(parent)) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  private fixUnusedClassMembers(sourceFile: SourceFile, typeChecker: TypeChecker): number {
+    let fixes = 0;
+    
+    // Find all classes
+    const classes = sourceFile.getClasses();
+    
+    for (const cls of classes) {
+      // Handle unused properties
+      const properties = cls.getProperties();
+      for (const property of properties) {
+        const name = property.getName();
+        if (!name || name.startsWith('_')) continue;
+        
+        if (!this.isClassMemberUsed(property, cls)) {
+          try {
+            property.remove();
+            fixes++;
+          } catch (error) {
+            console.log(`Skipping class property removal for safety: ${error}`);
+          }
+        }
+      }
+      
+      // Handle unused methods - be conservative about public methods
+      const methods = cls.getMethods();
+      for (const method of methods) {
+        const name = method.getName();
+        if (!name || name.startsWith('_')) continue;
+        
+        // Don't remove constructor
+        if (name === 'constructor') continue;
+        
+        // For public methods, be more conservative - only remove if clearly unused
+        const isPublic = method.hasModifier(SyntaxKind.PublicKeyword) || 
+                        !method.hasModifier(SyntaxKind.PrivateKeyword) && 
+                        !method.hasModifier(SyntaxKind.ProtectedKeyword);
+        
+        if (isPublic) {
+          // For public methods, check if they're used anywhere in the file
+          // or if they might be part of the class API
+          const isUsedExternally = this.isClassMemberUsed(method, cls);
+          if (!isUsedExternally) {
+            // Even if not used, keep public methods as they might be part of the API
+            continue;
+          }
+        } else {
+          // For private/protected methods, remove if not used
+          if (!this.isClassMemberUsed(method, cls)) {
+            try {
+              method.remove();
+              fixes++;
+            } catch (error) {
+              console.log(`Skipping class method removal for safety: ${error}`);
+            }
+          }
+        }
+      }
+    }
+    
+    return fixes;
+  }
+
+  private isVariableExported(declaration: VariableDeclaration, sourceFile: SourceFile): boolean {
+    // Check if this variable is part of an export statement
+    const variableStatement = declaration.getVariableStatement();
+    if (!variableStatement) return false;
+    
+    // Check if the variable statement has export modifier
+    return variableStatement.hasExportKeyword();
+  }
+
+  private isClassMemberUsed(member: any, cls: any): boolean {
+    const name = member.getName();
+    if (!name) return true;
+    
+    // Get all identifiers in the entire source file, not just the class
+    const sourceFile = cls.getSourceFile();
+    const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier);
+    
+    // Check if the member is used elsewhere in the file
+    for (const identifier of identifiers) {
+      if (identifier.getText() === name) {
+        // Make sure it's not the member declaration itself
+        if (identifier.getParent() !== member && identifier !== member.getNameNode()) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Process a single file directly (bypasses glob patterns for test compatibility)
+   */
+  public async processSingleFile(filePath: string): Promise<number> {
+    try {
+      // Read file content first to check if file exists
+      const content = readFileSync(filePath, "utf-8");
+      
+      // Add to project for AST processing
+      const sourceFile = this.project.createSourceFile(filePath, content, { overwrite: true });
+      
+      // Check for syntax errors - only skip if there are actual syntax errors
+      const diagnostics = sourceFile.getPreEmitDiagnostics();
+      const syntaxErrors = diagnostics.filter(diagnostic => 
+        diagnostic.getCategory() === 1 // Error category
+        && diagnostic.getCode() >= 1000 && diagnostic.getCode() < 2000 // Syntax error codes
+      );
+      
+      if (syntaxErrors.length > 0) {
+        console.log(`Skipping ${filePath} due to syntax errors`);
+        sourceFile.forget();
+        return 0;
+      }
+      
+      const typeChecker = this.project.getTypeChecker();
+      
+      let fileFixes = 0;
+      
+      // Apply unused element fixes
+      const elementPatterns = this.getElementPatterns();
+      for (const pattern of elementPatterns) {
+        try {
+          const fixes = pattern.fixer(sourceFile, typeChecker);
+          if (fixes > 0) {
+            this.results.push({
+              file: filePath,
+              elementType: pattern.type,
+              elementsFixed: fixes,
+              description: pattern.description
+            });
+            fileFixes += fixes;
+          }
+        } catch (error) {
+          console.error(`Error fixing ${pattern.type} in ${filePath}:`, error);
+        }
+      }
+
+      // Save changes if any fixes were applied
+      if (fileFixes > 0) {
+        const newContent = sourceFile.getFullText();
+        writeFileSync(filePath, newContent, "utf-8");
+        console.log(`✅ Fixed ${fileFixes} unused elements in ${filePath}`);
+      }
+
+      // Clean up
+      sourceFile.forget();
+      
+      return fileFixes;
+    } catch (error) {
+      console.error(`Error processing file ${filePath}:`, error);
+      return 0;
+    }
   }
 
   public async processFiles(pattern: string = "src/**/*.ts"): Promise<void> {
@@ -340,39 +494,11 @@ class UnusedElementsFixer {
 
     for (const filePath of files) {
       try {
-        const sourceFile = this.project.addSourceFileAtPath(filePath);
-        const typeChecker = this.project.getTypeChecker();
-        
-        let fileFixes = 0;
-        const elementPatterns = this.getElementPatterns();
-
-        for (const pattern of elementPatterns) {
-          try {
-            const fixes = pattern.fixer(sourceFile, typeChecker);
-            if (fixes > 0) {
-              this.results.push({
-                file: filePath,
-                elementType: pattern.type,
-                elementsFixed: fixes,
-                description: pattern.description
-              });
-              fileFixes += fixes;
-              totalFixes += fixes;
-            }
-          } catch (error) {
-            console.error(`Error fixing ${pattern.type} in ${filePath}:`, error);
-          }
-        }
-
-        if (fileFixes > 0) {
-          await sourceFile.save();
+        const fixes = await this.processSingleFile(filePath);
+        if (fixes > 0) {
+          totalFixes += fixes;
           processedFiles++;
-          console.log(`✅ Fixed ${fileFixes} unused elements in ${filePath}`);
         }
-
-        // Remove from project to free memory
-        sourceFile.forget();
-
       } catch (error) {
         console.error(`Error processing ${filePath}:`, error);
       }
@@ -382,9 +508,10 @@ class UnusedElementsFixer {
   }
 
   private printSummary(totalFixes: number, processedFiles: number, totalFiles: number): void {
-    console.log(`\n🎯 Unused Elements Cleanup Results:`);
+    console.log(`\nUnused Elements Fix Results:`);
     console.log(`   Files processed: ${processedFiles}/${totalFiles}`);
     console.log(`   Total fixes applied: ${totalFixes}`);
+    console.log(`   Total unused elements removed: ${totalFixes}`);
     console.log(`   Success rate: ${((processedFiles / totalFiles) * 100).toFixed(1)}%`);
 
     if (this.results.length > 0) {
@@ -408,7 +535,7 @@ async function main() {
   await fixer.processFiles();
 }
 
-// Execute if run directly (simple check)
+// Execute if run directly
 if (typeof require !== 'undefined' && require.main === module) {
   main().catch(console.error);
 }
