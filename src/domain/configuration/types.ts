@@ -45,6 +45,12 @@ export interface PostgresConfig {
   connection_string?: string;
 }
 
+export interface LoggerConfig {
+  mode?: "HUMAN" | "STRUCTURED" | "auto";
+  level?: "debug" | "info" | "warn" | "error";
+  enableAgentLogs?: boolean;
+}
+
 // Repository and Global User Configuration
 
 export interface RepositoryConfig {
@@ -74,6 +80,7 @@ export interface RepositoryConfig {
   };
   ai?: AIConfig;
   github?: GitHubConfig;
+  logger?: LoggerConfig;
 }
 
 export interface GlobalUserConfig {
@@ -87,6 +94,7 @@ export interface GlobalUserConfig {
   };
   ai?: AIConfig;
   postgres?: PostgresConfig;
+  logger?: LoggerConfig;
 }
 
 // Core Configuration Types
@@ -104,6 +112,7 @@ export interface ResolvedConfig {
   github?: GitHubConfig;
   ai?: AIConfig;
   postgres?: PostgresConfig;
+  logger?: LoggerConfig;
 }
 
 export interface BackendConfig {
@@ -198,6 +207,11 @@ export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
     dbPath: undefined as any,
     connectionString: undefined as any,
   },
+  logger: {
+    mode: "auto",
+    level: "info",
+    enableAgentLogs: false,
+  },
 };
 
 // Configuration file paths
@@ -214,4 +228,7 @@ export const ENV_VARS = {
   SESSIONDB_SQLITE_PATH: "MINSKY_SESSIONDB_SQLITE_PATH",
   SESSIONDB_POSTGRES_URL: "MINSKY_SESSIONDB_POSTGRES_URL",
   SESSIONDB_BASE_DIR: "MINSKY_SESSIONDB_BASE_DIR",
+  LOGGER_MODE: "MINSKY_LOG_MODE",
+  LOGGER_LEVEL: "LOGLEVEL",
+  LOGGER_ENABLE_AGENT_LOGS: "ENABLE_AGENT_LOGS",
 } as const;
