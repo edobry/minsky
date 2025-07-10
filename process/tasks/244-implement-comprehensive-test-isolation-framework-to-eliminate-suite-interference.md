@@ -79,6 +79,30 @@ const currentDir = process.cwd();
 ```
 **Impact:** Tests that change directory affect subsequent tests
 
+**4. Configuration System Process.env Pollution:**
+```typescript
+// src/domain/configuration/__tests__/sessiondb-config.test.ts
+process.env.MINSKY_SESSIONDB_BACKEND = "sqlite";
+process.env.MINSKY_SESSIONDB_SQLITE_PATH = "/custom/path/sessions.db";
+process.env.MINSKY_SESSIONDB_BASE_DIR = "/custom/base";
+```
+**Impact:** Environment variable pollution causes configuration tests to fail in suite but pass individually. Tests that pass individually fail in full suite due to environment variable pollution across test processes.
+
+**Root Cause:** Tests were setting `process.env` variables instead of using the configuration system's built-in dependency injection via the `cliFlags` parameter (which should be renamed to `configOverrides`).
+
+**Solution:** Use proper dependency injection:
+```typescript
+// ✅ CORRECT - Use configuration system's dependency injection
+const testConfig: Partial<ResolvedConfig> = {
+  sessiondb: {
+    backend: "sqlite",
+    dbPath: "/custom/path/sessions.db",
+    baseDir: "/custom/base",
+  } as SessionDbConfig,
+};
+const config = await loader.loadConfiguration(testDir, testConfig);
+```
+
 ## ✅ **Correct Solution - Testing-Boundaries Approach**
 
 ### **Domain Function Testing Pattern**
@@ -218,6 +242,37 @@ test("should detect backend", () => {
   const mockFiles = { '.minsky/tasks.json': true, 'process/tasks.md': false };
   const result = detectBackendFromFiles(mockFiles);
   expect(result).toBe('json-file');
+});
+```
+
+### **Configuration System Process.env Pollution Fix**
+
+```typescript
+// ❌ WRONG: Tests were polluting process.env (causes global state interference)
+beforeEach(() => {
+  process.env.MINSKY_SESSIONDB_BACKEND = "sqlite";
+  process.env.MINSKY_SESSIONDB_SQLITE_PATH = "/custom/path/sessions.db";
+  process.env.MINSKY_SESSIONDB_BASE_DIR = "/custom/base";
+});
+
+afterEach(() => {
+  delete process.env.MINSKY_SESSIONDB_BACKEND;
+  delete process.env.MINSKY_SESSIONDB_SQLITE_PATH;
+  delete process.env.MINSKY_SESSIONDB_BASE_DIR;
+});
+
+// ✅ CORRECT: Use configuration system's dependency injection
+test("should load custom sessiondb config", async () => {
+  const testConfig: Partial<ResolvedConfig> = {
+    sessiondb: {
+      backend: "sqlite",
+      dbPath: "/custom/path/sessions.db",
+      baseDir: "/custom/base",
+    } as SessionDbConfig,
+  };
+  const config = await loader.loadConfiguration(testDir, testConfig);
+  expect(config.resolved.sessiondb.backend).toBe("sqlite");
+  expect(config.resolved.sessiondb.dbPath).toBe("/custom/path/sessions.db");
 });
 ```
 

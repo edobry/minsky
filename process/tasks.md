@@ -478,4 +478,8 @@
 
 - [ ] Investigate PaaS Deployment Options for Minsky Sessions [#263](process/tasks/263-investigate-paas-deployment-options-for-minsky-sessions.md)
 
-- [ ] Explore Adding Standard API Interface Alongside MCP Using Shared Command Registry [#264](/Users/edobry/Projects/minsky/process/tasks/264-explore-adding-standard-api-interface-alongside-mcp-using-shared-command-registry.md)
+- [ ] Explore Adding Standard API Interface Alongside MCP Using Shared Command Registry [#264](process/tasks/264-explore-adding-standard-api-interface-alongside-mcp-using-shared-command-registry.md)
+
+- [ ] Refactor configuration system parameter naming and improve developer ergonomics [#265](process/tasks/265-refactor-configuration-system-parameter-naming-and-improve-developer-ergonomics.md)
+
+- [ ] Investigate Enhanced Storage Backend Factory Redundancy [#266](process/tasks/266-investigate-enhanced-storage-backend-factory-redundancy.md)
