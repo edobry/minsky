@@ -1,5 +1,42 @@
 #!/usr/bin/env bun
 
+/**
+ * Boundary Validation Test: fix-underscore-prefix.ts
+ * 
+ * BOUNDARY VALIDATION RESULT: This codemod is CRITICALLY DANGEROUS
+ * 
+ * Step 1: Reverse Engineering Analysis
+ * Claims: Add underscore prefixes to unused variables identified by ESLint warnings to comply with no-unused-vars rule
+ * Method: Parse ESLint output, then apply 8 different regex pattern replacements to add underscore prefixes
+ * Scope: All files identified by ESLint warnings for unused variables
+ * 
+ * Step 2: Technical Analysis  
+ * Method: ESLint output parsing + 8 regex patterns for variable renaming
+ * Scope Analysis: None - pure textual replacement without understanding variable usage
+ * Context Awareness: None - relies solely on ESLint line numbers and variable names
+ * Error Handling: Basic file I/O error handling, no rollback capability
+ * Dependencies: Requires ESLint to be working and configured correctly
+ * 
+ * Step 3: Boundary Validation Results
+ * CRITICAL FAILURES DISCOVERED:
+ * - ESLint dependency makes it fragile - fails if ESLint config changes
+ * - Line-number based approach breaks with file modifications
+ * - No scope analysis - can rename variables that are actually used elsewhere
+ * - Multiple regex patterns create unpredictable interactions
+ * - No verification that variable is truly unused after rename
+ * - Hard-coded session path assumptions break reusability
+ * - No conflict detection with existing underscore variables
+ * 
+ * Step 4: Decision
+ * REMOVED - Critical dependency on ESLint output, unsafe variable renaming, no scope verification
+ * 
+ * Anti-Pattern Identified: "ESLint-Dependent Variable Renaming Without Scope Verification"
+ * 
+ * Original Claims:
+ * Get the specific variables that need underscore prefixes from ESLint warnings
+ * Add underscore prefixes to comply with no-unused-vars rule
+ */
+
 import { readFileSync, writeFileSync } from "fs";
 import { execSync } from "child_process";
 
