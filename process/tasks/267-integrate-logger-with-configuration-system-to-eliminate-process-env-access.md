@@ -12,6 +12,7 @@ MEDIUM
 
 The logger currently accesses process.env.MINSKY_LOG_MODE directly, which violates the test isolation principle. It should use the configuration system instead to properly support dependency injection and avoid global state interference in tests.
 
+<<<<<<< HEAD
 ## Background
 
 The current logger implementation in `src/utils/logger.ts` directly accesses several environment variables:
@@ -124,3 +125,12 @@ This creates several issues:
 - Existing configuration system
 - node-config integration
 - Test framework (bun:test) 
+=======
+## Requirements
+
+[To be filled in]
+
+## Success Criteria
+
+[To be filled in]
+>>>>>>> origin/main

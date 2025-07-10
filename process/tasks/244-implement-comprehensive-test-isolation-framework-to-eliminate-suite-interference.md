@@ -372,4 +372,12 @@ describe("Session Commands", () => {
 - **Validated solution pattern** - Pure function testing eliminates global state issues
 - **Maintained stable test results** - 808 pass / 146 fail (84.8% pass rate) with significant quality improvements
 
-**Status:** Primary objectives achieved. Core testing-boundaries approach validated and implemented successfully.
+### **🔧 INFRASTRUCTURE IMPROVEMENTS**
+- [x] **FileSystemService dependency injection** - Implemented comprehensive filesystem abstraction with mock support
+- [x] **EnvironmentService dependency injection** - Implemented environment variable abstraction with mock support
+- [x] **ESLint rule: no-process-env-in-tests** - Prevents future process.env pollution in test files
+  - Detects direct process.env assignments, deletions, and access patterns
+  - Provides clear error messages suggesting EnvironmentService dependency injection
+  - Found 48 violations across 7 test files that need to be fixed
+
+**Status:** Primary objectives achieved. Core testing-boundaries approach validated and implemented successfully. Infrastructure improvements completed to prevent future global state interference.
