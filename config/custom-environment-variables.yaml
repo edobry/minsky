@@ -4,6 +4,12 @@
 # Backend selection
 backend: "MINSKY_BACKEND"
 
+# Logger configuration
+logger:
+  mode: "MINSKY_LOG_MODE"
+  level: "LOGLEVEL"
+  enableAgentLogs: "ENABLE_AGENT_LOGS"
+
 # GitHub credentials
 github:
   credentials:
