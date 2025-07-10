@@ -153,6 +153,24 @@ class VariableNamingFixer {
       }
     }
     
+    // Handle destructuring patterns with underscore prefixes
+    const bindingElements = sourceFile.getDescendantsOfKind(SyntaxKind.BindingElement);
+    for (const element of bindingElements) {
+      const name = element.getName();
+      if (!name || !name.startsWith('_')) continue;
+      
+      const nameWithoutUnderscore = name.substring(1);
+      
+      // Check if the destructured variable is used without underscore
+      const isUsedWithoutUnderscore = this.isVariableUsedWithName(nameWithoutUnderscore, sourceFile);
+      
+      if (isUsedWithoutUnderscore) {
+        // Remove underscore from destructuring element to match usage
+        element.getNameNode()?.replaceWithText(nameWithoutUnderscore);
+        fixes++;
+      }
+    }
+    
     // Check for reverse case: parameters with underscore, usage without
     const functions = [
       ...sourceFile.getFunctions(),
@@ -301,15 +319,35 @@ class VariableNamingFixer {
 
   private isParameterUsedWithName(name: string, func: Node): boolean {
     const body = func.getChildrenOfKind(SyntaxKind.Block)[0];
-    if (!body) return false;
+    if (!body) {
+      // Try to get function body from arrow function
+      const arrowFunc = func.asKind(SyntaxKind.ArrowFunction);
+      if (arrowFunc) {
+        const bodyNode = arrowFunc.getBody();
+        if (Node.isBlock(bodyNode)) {
+          return this.findIdentifierUsage(name, bodyNode);
+        } else {
+          // Single expression arrow function
+          return this.findIdentifierUsage(name, bodyNode);
+        }
+      }
+      return false;
+    }
     
-    const identifiers = body.getDescendantsOfKind(SyntaxKind.Identifier);
+    return this.findIdentifierUsage(name, body);
+  }
+
+  private findIdentifierUsage(name: string, node: Node): boolean {
+    const identifiers = node.getDescendantsOfKind(SyntaxKind.Identifier);
     
     return identifiers.some(identifier => {
       if (identifier.getText() === name) {
         // Make sure it's not in a string literal or comment
         const parent = identifier.getParent();
-        return parent && !Node.isStringLiteral(parent) && !Node.isCommentNode(parent);
+        if (parent && !Node.isStringLiteral(parent) && !Node.isCommentNode(parent)) {
+          // Make sure it's not a parameter declaration itself
+          return !Node.isParameterDeclaration(parent);
+        }
       }
       return false;
     });
@@ -347,6 +385,47 @@ class VariableNamingFixer {
     return str.replace(/_([a-z])/g, (match, letter) => letter.toUpperCase());
   }
 
+  public async processSingleFile(filePath: string): Promise<number> {
+    try {
+      // Add source file to project
+      const sourceFile = this.project.addSourceFileAtPath(filePath);
+      const typeChecker = this.project.getTypeChecker();
+      
+      let fileFixes = 0;
+      const namingPatterns = this.getNamingPatterns();
+
+      for (const pattern of namingPatterns) {
+        try {
+          const fixes = pattern.fixer(sourceFile, typeChecker);
+          if (fixes > 0) {
+            this.results.push({
+              file: filePath,
+              fixType: pattern.type,
+              variablesFixed: fixes,
+              description: pattern.description
+            });
+            fileFixes += fixes;
+          }
+        } catch (error) {
+          console.error(`Error fixing ${pattern.type} in ${filePath}:`, error);
+        }
+      }
+
+      if (fileFixes > 0) {
+        await sourceFile.save();
+      }
+
+      // Remove from project to free memory
+      sourceFile.forget();
+      
+      return fileFixes;
+
+    } catch (error) {
+      console.error(`Error processing ${filePath}:`, error);
+      return 0;
+    }
+  }
+
   public async processFiles(pattern: string = "src/**/*.ts"): Promise<void> {
     const files = globSync(pattern, {
       ignore: ["**/*.test.ts", "**/*.spec.ts", "**/node_modules/**", "**/*.d.ts"]
@@ -359,6 +438,7 @@ class VariableNamingFixer {
 
     for (const filePath of files) {
       try {
+        // Add source file to project  
         const sourceFile = this.project.addSourceFileAtPath(filePath);
         const typeChecker = this.project.getTypeChecker();
         
@@ -384,9 +464,15 @@ class VariableNamingFixer {
         }
 
         if (fileFixes > 0) {
-          await sourceFile.save();
-          processedFiles++;
-          console.log(`✅ Fixed ${fileFixes} naming issues in ${filePath}`);
+          try {
+            await sourceFile.save();
+            processedFiles++;
+            console.log(`✅ Fixed ${fileFixes} naming issues in ${filePath}`);
+          } catch (saveError) {
+            console.error(`Error saving ${filePath}:`, saveError);
+            // Don't count as processed if save failed
+            totalFixes -= fileFixes;
+          }
         }
 
         // Remove from project to free memory
