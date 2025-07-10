@@ -484,4 +484,4 @@
 
 - [ ] Investigate Enhanced Storage Backend Factory Redundancy [#266](process/tasks/266-investigate-enhanced-storage-backend-factory-redundancy.md)
 
-- [+] Integrate logger with configuration system to eliminate process.env access [#267](process/tasks/267-integrate-logger-with-configuration-system-to-eliminate-process-env-access.md)
+- [x] Integrate logger with configuration system to eliminate process.env access [#267](process/tasks/267-integrate-logger-with-configuration-system-to-eliminate-process-env-access.md)
