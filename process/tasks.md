@@ -474,4 +474,6 @@
 
 - [+] Add AI Agent Command Structure Export [#261](process/tasks/261-add-ai-agent-command-structure-export.md)
 
-- [ ] Explore consolidating ESLint rules with codemods [#262](/Users/edobry/Projects/minsky/process/tasks/262-explore-consolidating-eslint-rules-with-codemods.md)
+- [ ] Explore consolidating ESLint rules with codemods [#262](process/tasks/262-explore-consolidating-eslint-rules-with-codemods.md)
+
+- [ ] Investigate PaaS Deployment Options for Minsky Sessions [#263](/Users/edobry/Projects/minsky/process/tasks/263-investigate-paas-deployment-options-for-minsky-sessions.md)
