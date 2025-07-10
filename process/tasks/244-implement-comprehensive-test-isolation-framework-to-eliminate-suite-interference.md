@@ -1,4 +1,4 @@
-# Implement comprehensive test isolation framework to eliminate suite interference
+# Fix test failures by following testing-boundaries rules and eliminating global state interference
 
 ## Status
 
@@ -8,393 +8,247 @@
 
 **HIGH** - Blocks development productivity and CI/CD reliability
 
-## 🚀 **Progress Made**
+## 🎯 **Key Discovery: Testing-Boundaries Rule Violations**
 
-### **Phase 1: Critical Infrastructure Fixes - PARTIALLY COMPLETE**
+### **Root Cause Analysis - BREAKTHROUGH**
 
-#### **✅ Database/Storage Backend Isolation (Significant Progress)**
+**The real problem:** We've been violating established `testing-boundaries` rules by:
+- ❌ **Testing interface layers** (CLI commands, MCP tools) instead of domain logic
+- ❌ **Using global singletons** like `SessionDB` that share state across tests
+- ❌ **Over-engineering solutions** with complex "TestIsolationFramework" instead of following established patterns
 
-**Implemented Solutions:**
+**Evidence:**
+- **Domain tests pass individually** (95-100% success rate)
+- **Same tests fail in full suite** due to global state interference
+- **Interface tests are less reliable** but we were focusing on them
 
-- **InMemoryTestStorage class** - Implements `DatabaseStorage` interface using in-memory SQLite
-- **TestStorageFactory** - Centralized test storage management with automatic cleanup
-- **Database isolation utilities** - Proper test database isolation patterns
+### **Testing-Boundaries Compliance Issues**
 
-**Test Results:**
+According to our established rules:
 
-- JSON File Storage tests now pass consistently (no isolation issues)
-- Database integrity checker tests working with proper isolation
-- Eliminated database file conflicts and initialization failures
+**✅ SHOULD Test:**
+- Domain logic and business rules
+- Pure functions with predictable inputs/outputs
+- Error handling and edge cases
+- Data transformations
 
-**Key Learning:** In-memory databases should only be used for tests doing actual database operations (CRUD), not for tests validating configuration/integrity checking logic around databases.
+**❌ SHOULD NOT Test:**
+- CLI command interfaces directly
+- MCP tool interaction patterns
+- Framework internals (Commander.js, Winston, etc.)
+- Console output formatting
 
-#### **✅ Variable Naming Issues Resolution (COMPLETE)**
+**Current Violations:**
+- Most failing tests are testing **adapters/interfaces** instead of **domain logic**
+- Using `spyOn()` to mock domain functions from command tests
+- Testing "command calls domain function" instead of testing domain behavior
 
-**Implemented Solutions:**
+## 📊 **Current Status**
 
-- Applied existing codemods to fix variable naming mismatches
-- Resolved infinite loop patterns in async operations
-- Fixed variable definition vs usage errors (e.g., `const _spec =` but `spec.id` used)
+### **Test Results by Layer**
+- **Domain tests**: 465 pass, 121 fail = **79.3% pass rate**
+- **Interface tests**: 150 pass, 28 fail = **84.3% pass rate**
+- **Overall**: 774 pass, 168 fail = **81.5% pass rate**
 
-**Test Results:**
+### **Key Insight**
+Domain tests should be our focus because they test **business logic**, even though interface tests currently have higher pass rates.
 
-- **Eliminated infinite loops** - Tests that were running for 4+ billion milliseconds now complete in normal time
-- **Performance improvements** - JsonFileTaskBackend: 4,319,673,451ms → 241ms (99.999% improvement)
-- **SessionPathResolver** - 4,319,805,914ms → 143ms (99.999% improvement)
+## 🚨 **Global State Issues Identified**
 
-**Key Learning:** Variable naming mismatches can cause infinite loops in tests, not just compilation errors - this is a critical performance issue.
+### **Major Culprits Causing Test Interference**
 
-#### **✅ Test Isolation Framework (IMPLEMENTED)**
+**1. Global Singleton (SessionDB):**
+```typescript
+// src/domain/session/index.ts - Line 38
+export const SessionDB = createSessionProviderInternal();
+```
+**Impact:** Shared singleton persists state across ALL tests
 
-**Implemented Solutions:**
+**2. Global Configuration Variables:**
+```typescript
+// src/domain/session/session-db-adapter.ts
+let sessionDbConfig: any;
+```
+**Impact:** Global variable modified by tests, leaks to other tests
 
-- **TestIsolationFramework class** - Automatic cleanup between tests
-- **Global state reset** - Command registry, mock state, and shared state cleanup
-- **Enhanced TestDataFactory** - Isolation support for test data generation
+**3. Process.cwd() Dependencies:**
+```typescript
+// Many domain files
+workspacePath: process.cwd(),
+const currentDir = process.cwd();
+```
+**Impact:** Tests that change directory affect subsequent tests
 
-**Test Results:**
+## ✅ **Correct Solution - Testing-Boundaries Approach**
 
-- Session auto-detection tests now pass when run together
-- Shared command tests pass consistently
-- Applied to multiple test files with `enableTestIsolation()`
+### **Domain Function Testing Pattern**
 
-### **🐛 Mistakes Made and Corrections**
-
-#### **Database Format Checking Non-Strict Mode (CORRECTED)**
-
-- **Mistake:** Added unwanted "non-strict mode" to database format checking
-- **Correction:** Removed all non-strict mode logic - database format checking is now always strict
-- **Learning:** Database format should always be strict - no fallback or "proceed anyway" logic
-
-#### **Task Creation Workflow Violation (CORRECTED)**
-
-- **Mistake:** Manually edited `process/tasks.md` instead of using `minsky tasks create`
-- **Correction:** Restored proper tasks.md format and committed workflow violation acknowledgment
-- **Learning:** ONLY use `minsky tasks create` command for task creation - never bypass CLI
-
-### **📊 Current Status Update**
-
-#### **Test Results Evolution**
-
-- **Initial:** 159 failing tests → **Current:** 174 failing tests
-- **Analysis:** The increase may indicate **better detection** of real issues rather than hidden failures
-- **Progress:** Variable naming infinite loops eliminated, database isolation working
-
-#### **Success Areas**
-
-- **Database isolation** - Working for JSON File Storage and database integrity tests
-- **Variable naming** - No infinite loops detected, dramatic performance improvements
-- **Test isolation framework** - Successfully applied to session and command tests
-
-#### **Remaining Challenge Areas**
-
-- **Enhanced Storage Backend Factory tests** - Still failing due to initialization issues after format mismatch detection
-- **Mock state isolation** - Not yet fully implemented across all test files
-- **Parameter mismatch issues** - Test expectations not updated for current parameter formats
-
-## Description
-
-**Root Cause Resolution Task**: Systematic test suite failures are caused by test interference and lack of proper isolation, not business logic bugs. This task implements comprehensive test infrastructure to eliminate 100+ failing tests by addressing architectural root causes.
-
-## 🔍 **Problem Analysis (From Task #236)**
-
-### **Evidence of Systemic Issues**
-
-- **Individual test files:** 95-100% pass rate when run in isolation
-- **Full test suite:** 82% pass rate (743/903 tests) with same tests failing
-- **Gap:** 13-18% failure rate represents pure test interference
-- **Pattern:** Tests fail in full suite but pass individually = infrastructure problem
-
-### **Root Causes Identified**
-
-1. **Global State Pollution** - Shared singletons and module-level state
-2. **Mock Persistence** - Mock state bleeding between test files
-3. **Environment Contamination** - Tests modifying globals without cleanup
-4. **Resource Leakage** - Database connections, file handles, timers not cleaned up
-5. **Execution Order Dependencies** - Accidental dependencies on test sequence
-
-## 📊 **Current Analysis Results**
-
-### **Test Failure Breakdown** (161 total failures)
-
-**Priority Categories:**
-
-1. **Database/Storage Backend Issues** - 43 failures (26.7%)
-
-   - Pattern: `SQLiteError: unable to open database file`
-   - Root cause: Database backends not properly isolated between tests
-
-2. **Infinite Loop/Timeout Issues** - 27 failures (16.8%)
-
-   - Pattern: Tests running for 4.8+ billion milliseconds
-   - Root cause: Variable naming mismatches causing infinite loops
-
-3. **Mock/Test Isolation Issues** - 35 failures (21.7%)
-
-   - Pattern: Mock state bleeding between test files
-   - Root cause: Improper mock setup/teardown
-
-4. **Configuration/Parameter Mismatch** - 31 failures (19.3%)
-
-   - Pattern: Test expectations not matching current parameter formats
-   - Root cause: Parameter normalization changes not reflected in tests
-
-5. **Path Resolution Issues** - 15 failures (9.3%)
-6. **Missing Module/Import Issues** - 6 failures (3.7%)
-7. **Validation/Business Logic Issues** - 4 failures (2.5%)
-
-### **Current Metrics**
-
-- **Total tests**: 939 tests across 102 files
-- **Failing tests**: 161 tests (17.1% failure rate)
-- **Pass rate**: 82.9% (778 pass / 939 total)
-- **Target**: 95%+ pass rate (895+ tests passing)
-- **Gap**: 117 additional tests need to pass
-
-## 🎯 **Success Criteria**
-
-### **Primary Objectives**
-
-- [ ] **Test Suite Pass Rate:** Increase from 82.9% to 95%+ (eliminate 117+ interference failures)
-- [ ] **Individual vs Suite Consistency:** <2% difference between isolated and suite execution
-- [ ] **Test Execution Time:** Maintain or improve current performance
-- [ ] **Developer Experience:** Zero manual cleanup required between test runs
-- [ ] **CI/CD Reliability:** Eliminate flaky test failures in build pipeline
-
-### **Technical Deliverables**
-
-- [ ] **Global test isolation framework** with comprehensive state reset
-- [ ] **Centralized mock management system** with automatic cleanup
-- [ ] **Resource management protocols** for databases, files, network connections
-- [ ] **Environment variable isolation** and restoration
-- [ ] **Dependency injection patterns** to eliminate global singletons
-
-## 🏗️ **Implementation Plan**
-
-### **Phase 1: Critical Infrastructure Fixes (Immediate)**
-
-#### **1.1 Database/Storage Backend Isolation (43 failures)**
-
-**Approach:** Use Bun SQLite driver's in-memory capabilities for test isolation
-
-**Reference:** [Bun SQLite In-Memory Implementation](https://chatgpt.com/s/t_686d5b0c59f881918635a1f8898ceaf6)
-
-**Implementation Steps:**
-
-1. **Convert test databases to in-memory:** Use `:memory:` database connections
-2. **Implement per-test database creation:** Each test gets fresh in-memory database
-3. **Add database cleanup utilities:** Automatic cleanup after each test
-4. **Update storage backend factories:** Use in-memory backends for tests
-
-**Key Files to Update:**
-
-- `src/domain/storage/__tests__/database-integrity-checker.test.ts`
-- `src/domain/storage/__tests__/enhanced-storage-backend-factory.test.ts`
-- `src/utils/test-utils/database-isolation.ts` (new)
-
-**Pattern:**
+Instead of testing global singletons, test the **pure domain functions** directly:
 
 ```typescript
-// Before each test
-const testDb = new Database(":memory:");
-// Test executes with isolated database
-// After each test - automatic cleanup
+// ✅ GOOD - Test pure domain functions
+import { listSessionsFn, getSessionFn, addSessionFn } from "../../domain/session";
+
+test("listSessionsFn returns sessions from state", () => {
+  const mockState = { sessions: [mockSession1, mockSession2] };
+  const result = listSessionsFn(mockState);
+  expect(result).toEqual([mockSession1, mockSession2]);
+});
 ```
-
-#### **1.2 Variable Naming Issues Resolution (27 failures)**
-
-**Approach:** Use existing codemods to fix ALL variable naming mismatches
-
-**Implementation Steps:**
-
-1. **Run existing variable naming codemods:** Apply to all failing test files
-2. **Focus on infinite loop patterns:** Fix async operation variable mismatches
-3. **Verify variable-naming-protocol compliance:** Ensure all fixes follow established patterns
-
-**Key Files to Update:**
-
-- `src/domain/session/__tests__/session-path-resolver.test.ts`
-- All files identified by variable naming detection scripts
-
-**Codemods to Apply:**
-
-- `codemods/automated-unused-cleanup.ts`
-- `codemods/bulk-typescript-error-fixer.ts`
-- `scripts/check-variable-naming.ts`
-
-**Pattern:**
 
 ```typescript
-// Fix: const _workspacePath = ... but code uses workspacePath
-// To: const workspacePath = ...
+// ❌ BAD - Test global singleton (causes interference)
+import { SessionDB } from "../../domain/session";
+
+test("SessionDB lists sessions", async () => {
+  await SessionDB.addSession(mockSession); // Modifies global state!
+  const result = await SessionDB.listSessions(); // State leaks to other tests!
+});
 ```
 
-## 🔄 **Remaining Work**
+### **Standard Bun Test Patterns**
 
-### **Phase 2: Mock and Parameter Isolation (66 failures) - IN PROGRESS**
-
-#### **2.1 Mock State Isolation (35 failures) - PARTIALLY COMPLETE**
-
-**Status:** Test isolation framework implemented, but not yet applied to all failing test files
-
-**Remaining Work:**
-
-1. **Apply TestIsolationFramework** to remaining mock-related test files
-2. **Implement centralized mock management** - Create MockManager with automatic cleanup
-3. **Fix mock state bleeding** - Isolate mocks between test files that still fail
-
-**Key Files Still Needing Isolation:**
-
-- Additional adapter tests with mock state issues
-- Domain tests with shared mock dependencies
-
-#### **2.2 Parameter Mismatch Resolution (31 failures) - NOT STARTED**
-
-**Status:** Test expectations not yet updated for current parameter formats
-
-**Implementation Steps:**
-
-1. **Update test parameter expectations:** Match current parameter formats
-2. **Fix parameter normalization:** Align tests with current parameter processing
-3. **Standardize parameter defaults:** Ensure consistent default values
-
-### **Phase 3: Remaining Issues (25 failures) - NOT STARTED**
-
-#### **3.1 Enhanced Storage Backend Factory Tests - CRITICAL**
-
-**Status:** Tests failing due to initialization issues after format mismatch detection
-
-**Root Cause:** Factory detects format mismatches (JSON where SQLite expected) but still tries to create SQLite backends with JSON files, causing initialization failures
-
-**Solution Needed:** Fix factory logic to handle format mismatch detection properly
-
-#### **3.2 Path Resolution, Import, and Validation Fixes**
-
-**Implementation Steps:**
-
-1. **Fix path resolution logic:** Update workspace and path resolution tests
-2. **Resolve import issues:** Fix missing module imports
-3. **Update validation logic:** Align tests with current business rules
-
-## 🔧 **Technical Implementation Details**
-
-### **Database Isolation Framework**
+Simple, effective patterns without over-engineering:
 
 ```typescript
-// Implement in src/utils/test-utils/database-isolation.ts
-export class DatabaseIsolation {
-  static createInMemoryDatabase(): Database {
-    return new Database(":memory:");
-  }
+describe("Domain Logic Tests", () => {
+  let testData: SomeType;
 
-  static setupTestDatabase(testDb: Database): void {
-    // Initialize schema in memory
-  }
+  beforeEach(() => {
+    // Setup fresh test data (no global state)
+    testData = createMockObjects();
+  });
 
-  static cleanupTestDatabase(testDb: Database): void {
-    testDb.close();
-  }
-}
+  // Only use afterEach if you modify global state (rarely needed)
+});
 ```
 
-### **Variable Naming Automation**
+## 🎯 **Updated Implementation Plan**
 
-```bash
-# Run existing codemods to fix all variable naming issues
-bun run codemods/automated-unused-cleanup.ts
-bun run codemods/bulk-typescript-error-fixer.ts
-bun run scripts/check-variable-naming.ts --fix
-```
+### **Phase 1: Fix Domain Tests (Primary Focus)**
 
-### **Mock Management System**
+**Approach:** Refactor domain tests to test pure functions instead of global singletons
 
-```typescript
-// Implement in src/utils/test-utils/mock-manager.ts
-export class MockManager {
-  static createIsolatedMocks(): TestMocks;
-  static resetAllMocks(): void;
-  static verifyMockCleanup(): void;
-}
-```
+**Priority Tests to Fix:**
+1. **DefaultBackendDetector** - 13/13 pass individually, fail in suite
+2. **EnhancedStorageBackendFactory** - 18/18 pass individually, fail in suite
+3. **Configuration Integration** - Pure logic tests
+
+**Implementation Steps:**
+1. **Identify domain tests using global singletons**
+2. **Replace singleton calls with pure function calls**
+3. **Pass state as parameters** instead of relying on global state
+4. **Remove unnecessary test complexity** (no mock.restore() unless using spyOn)
+
+### **Phase 2: Eliminate Interface Test Dependencies (Secondary)**
+
+**Approach:** Reduce dependency on interface layer tests
+
+**Implementation Steps:**
+1. **Convert interface tests to domain tests** where possible
+2. **Remove spyOn() usage** in favor of dependency injection
+3. **Focus on integration tests** that test actual behavior end-to-end
+
+### **Phase 3: Simple Global State Management (If Needed)**
+
+**Only if domain testing doesn't resolve interference:**
+1. **Isolate global singletons** in tests
+2. **Reset global state** between test files (simple approach)
+3. **Use dependency injection** in production code
 
 ## 📊 **Expected Impact**
 
 ### **Quantitative Improvements**
-
-- **Test Success Rate:** 82.9% → 95%+ (eliminate 117+ failures)
-- **Development Velocity:** Eliminate test debugging time
-- **CI/CD Reliability:** Remove flaky test failures
-- **Maintenance Cost:** Reduce test maintenance overhead
+- **Domain test pass rate:** 79.3% → 95%+ by eliminating global state interference
+- **Overall test pass rate:** 81.5% → 95%+
+- **Test reliability:** Consistent results between individual and suite execution
 
 ### **Qualitative Benefits**
+- **Simpler test code** - No complex isolation frameworks
+- **Better test design** - Testing actual business logic
+- **Faster debugging** - Clear separation of concerns
+- **Maintainable tests** - Following established patterns
 
-- **Developer Confidence:** Reliable test results
-- **Code Quality:** Better isolation encourages better design
-- **Debugging Efficiency:** Clear separation between test and business logic issues
-- **New Feature Development:** Safe test additions without interference risk
+## 🎯 **Success Criteria**
 
-## 🎯 **Acceptance Criteria**
+### **Primary Objectives**
+- [ ] **Domain test consistency:** <2% difference between individual and suite execution
+- [ ] **Overall pass rate:** Increase from 81.5% to 95%+ (774 → 902+ passing tests)
+- [ ] **Testing-boundaries compliance:** All tests follow established rules
+- [ ] **Simplified test code:** Remove over-engineered isolation complexity
 
-### **Test Suite Health**
+### **Technical Deliverables**
+- [ ] **Domain tests refactored** to test pure functions instead of singletons
+- [ ] **Global state issues resolved** through proper test design
+- [ ] **Standard Bun test patterns** applied consistently
+- [ ] **Interface test dependencies reduced** in favor of domain logic testing
 
-- [ ] Full test suite pass rate ≥ 95% (Current: 82.1%, Target: 95%+)
-- [ ] Individual vs suite execution difference < 2%
-- [ ] Zero test interference failures in CI/CD pipeline
-- [ ] Test execution time within 10% of current performance
+## 🔧 **Implementation Examples**
 
-### **Developer Experience**
+### **SessionDB Singleton Refactor**
 
-- [x] No manual cleanup required between test runs (✅ TestIsolationFramework implemented)
-- [ ] Clear error messages for test isolation failures
-- [x] Simple test writing patterns maintained (✅ enableTestIsolation() pattern)
-- [ ] Comprehensive documentation and examples
+```typescript
+// Before: Testing global singleton (causes interference)
+import { SessionDB } from "../../domain/session";
+test("should list sessions", async () => {
+  const sessions = await SessionDB.listSessions(); // Global state!
+});
 
-### **Infrastructure Quality**
+// After: Testing pure domain function (no interference)
+import { listSessionsFn } from "../../domain/session";
+test("should list sessions", () => {
+  const mockState = { sessions: [session1, session2] };
+  const result = listSessionsFn(mockState);
+  expect(result).toEqual([session1, session2]);
+});
+```
 
-- [x] All global state properly tracked and reset (✅ TestIsolationFramework handles this)
-- [ ] Mock state isolated between test files (⚠️ Partially complete - framework exists, not applied everywhere)
-- [x] Database/storage cleanup automated (✅ InMemoryTestStorage and TestStorageFactory)
-- [ ] Environment variables restored after tests
+### **Configuration Testing Refactor**
 
-### **Progress Summary**
+```typescript
+// Before: Testing through singleton with global state
+import { configService } from "../../domain/configuration";
+test("should detect backend", async () => {
+  const backend = await configService.detectBackend(); // Global file system state!
+});
 
-**✅ Completed:**
+// After: Testing pure detection logic
+import { detectBackendFromFiles } from "../../domain/configuration";
+test("should detect backend", () => {
+  const mockFiles = { '.minsky/tasks.json': true, 'process/tasks.md': false };
+  const result = detectBackendFromFiles(mockFiles);
+  expect(result).toBe('json-file');
+});
+```
 
-- Database isolation framework with in-memory storage
-- Variable naming issue resolution (eliminated infinite loops)
-- Test isolation framework foundation
-- Global state reset mechanisms
+## 📝 **Key Learnings**
 
-**🚧 In Progress:**
-
-- Mock state isolation (framework exists, applying to remaining tests)
-- Enhanced storage backend factory test fixes
-
-**⏳ Not Started:**
-
-- Parameter mismatch resolution
-- Path resolution and import fixes
-- Environment variable isolation
+1. **Testing-boundaries rules exist for a reason** - Interface testing leads to brittle, complex tests
+2. **Global singletons are the enemy of reliable tests** - Pure functions are testable by design
+3. **Simple is better than complex** - Standard patterns work better than custom frameworks
+4. **Domain logic is what matters** - Focus testing effort on business rules, not wiring
+5. **Individual test success ≠ suite success** - Global state interference is the gap
 
 ## 🔗 **Related Tasks**
 
-- **Task #236:** Fix test failures and infinite loops (identified root causes)
-- **Future Tasks:** Migration of existing tests to new framework
-- **Future Tasks:** Advanced test orchestration and parallel execution
+- **Task #236:** Fix test failures and infinite loops (identified symptoms)
+- **Follow-up:** Remove over-engineered test utilities that aren't needed
+- **Follow-up:** Document domain testing patterns for future development
 
-## 📝 **Notes**
+## 📊 **Progress Tracking**
 
-**Priority Justification:** This task addresses the root cause of 174 test failures with specific, actionable solutions. The focus on database in-memory isolation and automated variable naming fixes targets the highest-impact categories first.
+### **✅ Completed**
+- [x] **Root cause analysis** - Identified testing-boundaries violations and global state issues
+- [x] **Database Integrity Checker** - Fixed permission error test (24/24 pass individually)
+- [x] **Parameter Schemas** - Fixed missing import (test now passes)
+- [x] **Simplified test patterns** - Removed over-engineered TestIsolationFramework complexity
 
-**Risk Mitigation:** Implement incrementally with backward compatibility to ensure existing tests continue working during migration.
+### **🚧 In Progress**
+- [ ] **Domain test refactoring** - Convert singleton tests to pure function tests
+- [ ] **Global state elimination** - Remove test dependencies on shared singletons
 
-**Success Measurement:** Primary metric is elimination of test interference (individual vs suite execution consistency), not just overall pass rate improvement.
+### **⏳ Not Started**
+- [ ] **Interface test reduction** - Focus on domain logic instead of command layer
+- [ ] **Final verification** - Achieve 95%+ pass rate through proper test design
 
-**Key Learnings:**
-
-- **Performance Impact:** Variable naming mismatches can cause infinite loops (4+ billion milliseconds), not just compilation errors
-- **Database Isolation:** In-memory databases work well for CRUD operations but real files needed for configuration/integrity testing
-- **Test Detection:** Improved isolation may initially show more failures as hidden issues become visible
-- **Workflow Discipline:** Task creation and implementation are separate operations - always use `minsky tasks create`
-
-**Current Focus:** Enhanced storage backend factory tests are the next critical blocker - factory logic needs fixing to handle format mismatch detection properly.
+**Current Focus:** Refactor domain tests to test pure functions instead of global singletons, starting with DefaultBackendDetector and EnhancedStorageBackendFactory tests.
