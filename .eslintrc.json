@@ -2,6 +2,16 @@
   "extends": ["@typescript-eslint/recommended"],
   "parser": "@typescript-eslint/parser",
   "plugins": ["@typescript-eslint"],
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/*.d.ts",
+    "**/*.min.js",
+    "**/*.map",
+    ".git/**"
+  ],
   "rules": {
     // Prevent underscore-prefixed variables that are actually used
     "@typescript-eslint/no-unused-vars": [
