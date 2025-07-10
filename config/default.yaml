@@ -27,6 +27,12 @@ sessiondb:
   dbPath: null
   connectionString: null
 
+# Logger configuration
+logger:
+  mode: "auto"          # "HUMAN" | "STRUCTURED" | "auto"
+  level: "info"         # "debug" | "info" | "warn" | "error"
+  enableAgentLogs: false # Enable JSON logs in HUMAN mode
+
 # GitHub configuration
 github:
   credentials:
