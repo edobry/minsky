@@ -476,4 +476,6 @@
 
 - [ ] Explore consolidating ESLint rules with codemods [#262](process/tasks/262-explore-consolidating-eslint-rules-with-codemods.md)
 
-- [ ] Investigate PaaS Deployment Options for Minsky Sessions [#263](/Users/edobry/Projects/minsky/process/tasks/263-investigate-paas-deployment-options-for-minsky-sessions.md)
+- [ ] Investigate PaaS Deployment Options for Minsky Sessions [#263](process/tasks/263-investigate-paas-deployment-options-for-minsky-sessions.md)
+
+- [ ] Explore Adding Standard API Interface Alongside MCP Using Shared Command Registry [#264](/Users/edobry/Projects/minsky/process/tasks/264-explore-adding-standard-api-interface-alongside-mcp-using-shared-command-registry.md)
