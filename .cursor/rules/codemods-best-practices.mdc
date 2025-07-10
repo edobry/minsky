@@ -47,47 +47,66 @@ Before creating any automated solution, ask:
 4. **Reliable Transformations**: Built-in validation and error handling
 5. **Maintainable Code**: Clear, readable transformation logic
 
-## 🔬 MANDATORY: 5-Step Boundary Validation Methodology
+## 🛡️ Mandatory 5-Step Boundary Validation Methodology
 
-**CRITICAL REQUIREMENT**: All codemods MUST undergo boundary validation testing before deployment
+**CRITICAL**: ALL codemods must complete this methodology before deployment. No exceptions.
 
 ### Step 1: Reverse Engineering Analysis
-**Document what the codemod claims to do:**
-- Identify stated purpose and transformation logic
-- Map the intended workflow and scope
-- Understand target problems and expected solutions
-- Document method (AST vs regex) and dependencies
+**Objective**: Understand what the codemod claims to do and how it approaches the problem.
+
+**Required Documentation**:
+- **Claims**: What does the codemod claim to accomplish?
+- **Target Variables/Patterns**: What specific code elements does it modify?
+- **Method**: Regex patterns, AST manipulation, or hybrid approach?
+- **Scope**: What files and code contexts does it target?
 
 ### Step 2: Technical Analysis
-**Analyze implementation safety and approach:**
-- Evaluate transformation method (prefer AST over regex)
-- Assess scope analysis capabilities
-- Check context awareness (comments vs code vs strings)
-- Verify error handling and rollback mechanisms
-- Identify external dependencies (ESLint, file system, etc.)
+**Objective**: Assess the safety and implementation approach of the codemod.
+
+**Required Analysis**:
+- **Scope Analysis**: Does it understand variable scope and context?
+- **Usage Verification**: Does it verify variables are actually unused before modification?
+- **Conflict Detection**: Does it prevent naming conflicts and collisions?
+- **Context Awareness**: Does it distinguish code vs comments vs strings?
+- **Error Handling**: Does it include rollback capability and safety mechanisms?
+- **Dependencies**: Does it rely on external tools (ESLint, etc.) that may fail?
 
 ### Step 3: Test Design
-**Create comprehensive boundary violation tests:**
-- Design test cases for each claimed capability
-- Include scope collision scenarios (duplicate identifiers)
-- Test false positive scenarios (legitimate underscore usage)
-- Create edge cases (nested functions, complex destructuring)
-- Test context blindness (comments, strings, unrelated code)
+**Objective**: Create comprehensive boundary violation test cases.
+
+**Required Test Cases**:
+- Actually used variables that should NOT be changed
+- Scope conflicts where same variable names exist in different contexts  
+- Legitimate naming conventions that should be preserved
+- Error variables that are referenced after catch blocks
+- Complex scoping scenarios with nested functions
+- Edge cases that expose assumptions
 
 ### Step 4: Boundary Validation Results
-**Execute tests and document failures:**
-- Run comprehensive test suite
-- Measure compilation errors introduced
-- Document specific failure patterns
-- Calculate fix success rates and reliability metrics
-- Identify any breaking changes or regressions
+**Objective**: Execute the codemod on boundary violation tests and document failures.
+
+**Required Execution**:
+1. Create temporary test directory with boundary violation scenarios
+2. Run codemod on test scenarios
+3. Check for compilation errors using TypeScript compiler
+4. Document all changes made and failures discovered
+5. Calculate success rate and false positive rate
+
+**Required Documentation**:
+- **Changes Made**: Number and type of modifications
+- **Compilation Errors**: Specific errors introduced
+- **Critical Failures**: Detailed analysis of each boundary violation
+- **Evidence**: Concrete examples of inappropriate changes
+- **Performance Metrics**: Success rate, false positive rate, danger level
 
 ### Step 5: Decision and Documentation
-**Make evidence-based keep/remove decision:**
-- Provide clear justification based on test results
-- Document any new anti-patterns discovered
-- Update safety guidelines with learnings
-- Add comprehensive docstring to codemod file (if keeping)
+**Objective**: Make evidence-based keep/remove decision with comprehensive justification.
+
+**Required Decision Documentation**:
+- **Anti-Pattern Classification**: Primary, secondary, tertiary patterns
+- **Removal Justification**: Why the codemod violates safety principles
+- **Recommended Alternative**: AST-based approach that would be safe
+- **Evidence Summary**: Key metrics and failure examples
 
 ## Task #178: Critical Anti-Patterns Discovered
 
@@ -194,57 +213,70 @@ Before creating any automated solution, ask:
 3. **Safety Guidelines Update**: Document any new anti-patterns discovered
 4. **Deployment**: Only deploy codemods that pass all boundary validation tests
 
-## 📝 Documentation Standards
+## 📋 Documentation Requirements
 
-### Required Docstring Format
-All codemods MUST include comprehensive documentation at the top of the file:
+### MANDATORY: Documentation Location
+**ALL boundary validation documentation MUST be placed at the top of the codemod file itself**, not in separate files.
 
+**Format**:
 ```typescript
 /**
- * Boundary Validation Test: [codemod-name].ts
+ * BOUNDARY VALIDATION TEST RESULTS: [codemod-name].ts
  * 
- * BOUNDARY VALIDATION RESULT: [SAFE/DANGEROUS - decision with evidence]
+ * DECISION: ✅ SAFE / ❌ REMOVE IMMEDIATELY - [DANGER LEVEL]
  * 
- * Step 1: Reverse Engineering Analysis
- * Claims: [What the codemod claims to do]
- * Method: [AST/regex transformation approach]
- * Scope: [Files and code elements targeted]
+ * === STEP 1: REVERSE ENGINEERING ANALYSIS ===
  * 
- * Step 2: Technical Analysis  
- * Method: [Detailed transformation method analysis]
- * Scope Analysis: [Scope handling capabilities]
- * Context Awareness: [Comment/string/code distinction]
- * Error Handling: [Safety mechanisms and rollback]
- * Dependencies: [External tool dependencies]
+ * Codemod Claims:
+ * - Purpose: [What it claims to do]
+ * - Targets: [What it modifies]  
+ * - Method: [How it works]
+ * - Scope: [What files it processes]
  * 
- * Step 3: Boundary Validation Results
- * [If DANGEROUS] CRITICAL FAILURES DISCOVERED:
- * - [Specific failure pattern 1]
- * - [Specific failure pattern 2]
- * - [Additional safety violations]
+ * === STEP 2: TECHNICAL ANALYSIS ===
  * 
- * [If SAFE] VALIDATION PASSED:
- * - [Safety verification results]
- * - [Performance metrics]
- * - [Reliability confirmation]
+ * CRITICAL SAFETY VIOLATIONS: / SAFETY VERIFICATIONS:
+ * - [Analysis point 1]
+ * - [Analysis point 2]
  * 
- * Step 4: Decision
- * [REMOVED/KEPT] - [Evidence-based justification]
+ * === STEP 3: TEST DESIGN ===
  * 
- * [If new anti-pattern discovered]
- * Anti-Pattern Identified: "[Anti-Pattern Name]"
+ * Boundary violation test cases designed to validate:
+ * - [Test scenario 1]
+ * - [Test scenario 2]
  * 
- * Original Claims:
- * [Direct quotes from original codemod documentation]
+ * === STEP 4: BOUNDARY VALIDATION RESULTS ===
+ * 
+ * TEST EXECUTED: ✅ [Results summary]
+ * CHANGES MADE: [Number and type]
+ * COMPILATION ERRORS: ✅ None / ❌ [Specific errors]
+ * 
+ * CRITICAL FAILURES DISCOVERED: / VALIDATION PASSED:
+ * 1. [Specific failure/success 1]
+ * 2. [Specific failure/success 2]
+ * 
+ * Performance Metrics:
+ * - Files Processed: [number]
+ * - Changes Made: [number]
+ * - Compilation Errors Introduced: [number]
+ * - Success Rate: [percentage]
+ * - False Positive Rate: [percentage]
+ * 
+ * === STEP 5: DECISION AND DOCUMENTATION ===
+ * 
+ * ANTI-PATTERN CLASSIFICATION: / SAFE PATTERN CLASSIFICATION:
+ * - PRIMARY: [Main pattern]
+ * - SECONDARY: [Supporting pattern]
+ * 
+ * [Detailed decision justification and alternative recommendations]
  */
 ```
 
-### Test File Requirements
-Each codemod MUST have a corresponding `.test.ts` file that:
-- Imports and tests the transformation logic in isolation
-- Includes all boundary validation test cases
-- Documents the specific failures discovered
-- Provides evidence for the keep/remove decision
+### Test File Requirements (When Needed)
+- Test files MUST import transformation logic from codemod, never copy it
+- Test files focus on isolated testing of transformation logic
+- Boundary validation tests can be in temporary directories (cleaned up after)
+- Test files document specific failures discovered during boundary validation
 
 ## 🔧 Approved Tools and Libraries
 
