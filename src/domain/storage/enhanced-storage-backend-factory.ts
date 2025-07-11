@@ -44,11 +44,6 @@ export interface EnhancedStorageConfig extends StorageConfig {
    * Whether to automatically migrate when safe migrations are available
    */
   autoMigrate?: boolean;
-
-  /**
-   * Whether to throw errors on integrity failures (vs returning warnings)
-   */
-  strictIntegrity?: boolean;
 }
 
 /**
@@ -115,13 +110,10 @@ export class EnhancedStorageBackendFactory {
 
           if (handled.shouldContinue) {
             result.warnings.push(...integrityResult.warnings);
-          } else if (enhancedConfig.strictIntegrity) {
+          } else {
             throw new Error(
               `Database integrity check failed:\n${DatabaseIntegrityChecker.formatIntegrityReport(integrityResult)}`
             );
-          } else {
-            result.warnings.push("Database integrity issues detected but proceeding anyway");
-            result.warnings.push(...integrityResult.issues);
           }
         }
 
@@ -246,7 +238,6 @@ export class EnhancedStorageBackendFactory {
       enableIntegrityCheck: config?.enableIntegrityCheck ?? true,
       promptOnIntegrityIssues: config?.promptOnIntegrityIssues ?? false,
       autoMigrate: config?.autoMigrate ?? false,
-      strictIntegrity: config?.strictIntegrity ?? true,
     };
   }
 
@@ -379,7 +370,6 @@ export async function createStrictStorageBackend(
   const result = await createEnhancedStorageBackend({
     ...config,
     enableIntegrityCheck: true,
-    strictIntegrity: true,
     autoMigrate: false,
   });
 
@@ -400,7 +390,6 @@ export async function createAutoMigratingStorageBackend(
     ...config,
     enableIntegrityCheck: true,
     autoMigrate: true,
-    strictIntegrity: false,
   });
 
   if (result.autoMigrationPerformed) {

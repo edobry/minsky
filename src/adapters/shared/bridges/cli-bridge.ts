@@ -513,6 +513,9 @@ export class CliCommandBridge {
               `Task ${taskId} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
             );
           }
+        } else if ((commandDef as any).id === "debug.echo") {
+          // Handle debug.echo results with friendly formatting
+          this.formatDebugEchoDetails(result as any);
         } else {
           // Special handling for delete command - check if this is a user-friendly result
           if ((commandDef as any).id === "tasks.delete") {
@@ -552,7 +555,7 @@ export class CliCommandBridge {
               } else {
                 // For complex objects, try to show a meaningful summary
                 if (key === "session" && value && typeof value === "object") {
-                  this.formatSessionDetails(value as Record<string, any>);
+                  this.formatSessionStartSuccess(value as Record<string, any>);
                 } else {
                   log.cli(`${key}: ${JSON.stringify(value as any)}`);
                 }
@@ -584,6 +587,41 @@ export class CliCommandBridge {
     if ((session as any).repoUrl && (session as any).repoUrl !== (session as any).repoName) {
       log.cli(`Repository URL: ${(session as any).repoUrl}`);
     }
+  }
+
+  /**
+   * Format session start success message for human-readable output
+   */
+  private formatSessionStartSuccess(session: Record<string, any>): void {
+    if (!session) return;
+
+    // Display a user-friendly success message for session creation
+    log.cli("✅ Session started successfully!");
+    log.cli("");
+
+    if ((session as any).session) {
+      log.cli(`📁 Session: ${(session as any).session}`);
+    }
+
+    if ((session as any).taskId) {
+      log.cli(`🎯 Task: ${(session as any).taskId}`);
+    }
+
+    if ((session as any).repoName) {
+      log.cli(`📦 Repository: ${(session as any).repoName}`);
+    }
+
+    if ((session as any).branch) {
+      log.cli(`🌿 Branch: ${(session as any).branch}`);
+    }
+
+    log.cli("");
+    log.cli("🚀 Ready to start development!");
+    log.cli("");
+    log.cli("💡 Next steps:");
+    log.cli("   • Your session workspace is ready for editing");
+    log.cli("   • All changes will be tracked on your session branch");
+    log.cli("   • Run \"minsky session pr\" when ready to create a pull request");
   }
 
   /**
@@ -646,6 +684,47 @@ export class CliCommandBridge {
     if ((result as any).taskUpdated) {
       log.cli("✅ Task status updated to IN-REVIEW");
     }
+  }
+
+  /**
+   * Format debug echo details for human-readable output
+   */
+  private formatDebugEchoDetails(result: Record<string, any>): void {
+    if (!result) return;
+
+    // Display a user-friendly debug echo response
+    log.cli("🔍 Debug Echo Response");
+    log.cli("");
+
+    if (result.timestamp) {
+      log.cli(`⏰ Timestamp: ${result.timestamp}`);
+    }
+
+    if (result.interface) {
+      log.cli(`🔗 Interface: ${result.interface}`);
+    }
+
+    if (result.echo && typeof result.echo === "object") {
+      log.cli("📝 Echo Parameters:");
+      const echoParams = result.echo as Record<string, any>;
+      
+      if (Object.keys(echoParams).length === 0) {
+        log.cli("   (no parameters provided)");
+      } else {
+        Object.entries(echoParams).forEach(([key, value]) => {
+          if (typeof value === "string") {
+            log.cli(`   ${key}: "${value}"`);
+          } else if (typeof value === "object" && value !== null) {
+            log.cli(`   ${key}: ${JSON.stringify(value)}`);
+          } else {
+            log.cli(`   ${key}: ${value}`);
+          }
+        });
+      }
+    }
+
+    log.cli("");
+    log.cli("✅ Debug echo completed successfully");
   }
 
   /**

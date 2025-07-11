@@ -3,6 +3,7 @@ description: Use this when creating a new task
 globs:
 alwaysApply: false
 ---
+
 # Task Creation Process
 
 ## ⚠️ MANDATORY: Use the Minsky CLI for Task Creation
@@ -16,6 +17,7 @@ alwaysApply: false
 
 1. **Check for existing tasks first**: Run `minsky tasks list | grep "relevant-keywords"` to verify no duplicate exists
 2. **Create task with title and description**:
+
    ```bash
    # Method 1: Inline description (for short descriptions)
    minsky tasks create --title "Task Title" --description "Task description text"
@@ -23,6 +25,7 @@ alwaysApply: false
    # Method 2: Description from file (for comprehensive descriptions)
    minsky tasks create --title "Task Title" --description-path path/to/description.md
    ```
+
 3. The CLI will:
    - Assign the next available task ID
    - Generate a complete task specification file
@@ -41,6 +44,7 @@ alwaysApply: false
 ### For Comprehensive Task Descriptions:
 
 1. **Create a temporary description file** with the full task specification:
+
    ```bash
    # Create temporary file with complete description
    cat > temp-task-desc.md << 'EOF'
@@ -53,6 +57,7 @@ alwaysApply: false
    ```
 
 2. **Use --description-path flag** to create the complete task in one operation:
+
    ```bash
    minsky tasks create --title "Setup semantic-release..." --description-path temp-task-desc.md
    ```
@@ -73,6 +78,7 @@ alwaysApply: false
 ### Legacy Interface (Deprecated)
 
 The old spec-path interface is still supported but deprecated:
+
 ```bash
 # Legacy method (still works but discouraged)
 minsky tasks create process/tasks/temp-task-spec.md
@@ -81,6 +87,7 @@ minsky tasks create process/tasks/temp-task-spec.md
 ### Viewing Task Specifications
 
 To view an existing task specification:
+
 ```bash
 minsky tasks spec <task-id>
 ```
@@ -88,13 +95,16 @@ minsky tasks spec <task-id>
 This command displays the full content of the task specification document, allowing you to review task details without needing to locate or open the file directly.
 
 ## ⚠️ CRITICAL: Always Create Tasks in Main Workspace
+
 Tasks MUST always be created in the main workspace, not in session directories:
+
 - Task creation is a metadata operation that affects the project's task tracking system
 - Creating tasks in session directories can lead to lost or inconsistent task data
 - Always ensure you are in the main workspace (`cd /path/to/main/workspace`) before creating tasks
 - Use the Minsky CLI from the main workspace for all task operations
 
 ## ⚠️ IMPORTANT: Task Creation vs. Task Implementation
+
 In Minsky, "creating a task" means authoring a task specification document and adding it to the tracking system - **not** implementing the code for that task.
 
 - When the user requests to "create a task", always produce a task specification document
@@ -102,6 +112,7 @@ In Minsky, "creating a task" means authoring a task specification document and a
 - If there is any ambiguity, confirm with the user whether they want task specification or implementation
 
 ## ⚠️ IMPORTANT: Always Check for Existing Tasks First
+
 - Before creating a new task, always check `process/tasks.md` and the `process/tasks/` directory for existing tasks that match the user's request
 - If a matching task already exists:
   - Inform the user that the task already exists
@@ -111,7 +122,9 @@ In Minsky, "creating a task" means authoring a task specification document and a
   - Never attempt to implement a task when only asked to create one
 
 ## Overview
+
 All tasks and work items must be tracked using the canonical process described here. Ad-hoc or freeform task files (e.g., TODO.something.md) are NOT permitted. All tasks must be:
+
 - Listed in `/process/tasks.md` as a checklist item
 - Linked to a detailed task spec in `/process/tasks/{id}-{name}.md`
 
@@ -120,6 +133,7 @@ All tasks and work items must be tracked using the canonical process described h
 ### Method 1: Using the `minsky tasks create` Command (Recommended)
 
 **New Interface (Preferred):**
+
 ```bash
 # Create task with inline description
 minsky tasks create --title "Task Title" --description "Task description text"
@@ -131,12 +145,14 @@ minsky tasks create --title "Task Title" path/to/description.md
 **Legacy Interface (Deprecated):**
 ⚠️ **IMPORTANT: Task ID Assignment**
 The task ID is assigned by the system when you run `minsky tasks create`. You must:
+
 1. Create a temporary spec file (e.g., `temp-task-spec.md`)
 2. Run `minsky tasks create temp-task-spec.md`
 3. Note the assigned task ID from the command output
 4. Rename the file to match the assigned ID: `{assigned-id}-task-title.md`
 
 Example workflow:
+
 ```bash
 # 1. Create temporary spec file
 touch process/tasks/temp-task-spec.md
@@ -151,25 +167,30 @@ mv process/tasks/temp-task-spec.md process/tasks/042-add-new-feature.md
 ```
 
 The command will:
+
 - Extract the title and description from the spec document
 - Find and assign the next available task ID
 - Add the task to process/tasks.md with the correct formatting
 - Return the details of the created task
 
 The command also supports these options:
+
 - `--session <session>`: Use a specific session for repository resolution
 - `--repo <repoPath>`: Specify a repository path (overrides session)
 - `--backend <backend>`: Use a specific task backend
 - `--json`: Output the task in JSON format
 
 ### Method 2: Manual Task Creation
+
 If you need to create a task manually, follow these steps:
 
 #### 1. Check for Existing Tasks
+
 - Before starting any new work, check `/process/tasks.md` for an existing task that matches your intended work.
 - If a relevant task exists, follow its linked specification.
 
 #### 2. Add a New Task
+
 - If no relevant task exists, add a new checklist item to `/process/tasks.md` using the following format:
   ```markdown
   - [ ] Task Title [#NNN](mdc:tasks/NNN-task-title.md)
@@ -178,6 +199,7 @@ If you need to create a task manually, follow these steps:
   - The title should be concise but descriptive.
 
 #### 3. Create the Task Specification Document
+
 - Create a new file in `/process/tasks/` named `{NNN}-task-title.md`.
 - The task spec should include:
   - **Objective**: What is the goal of the task?
@@ -192,7 +214,7 @@ If you need to create a task manually, follow these steps:
 
 Here's a complete example of a properly formatted task specification document:
 
-```markdown
+````markdown
 # Task #007: Add `minsky tasks create` Command
 
 ## Context
@@ -202,6 +224,7 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
 ## Requirements
 
 1. **CLI Behavior**
+
    - Command signature:
      ```
      minsky tasks create --title "Title" --description "Description"
@@ -214,11 +237,13 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
      - Return the created task details
 
 2. **Integration with Domain Module**
+
    - Use the TaskService domain module to record the task
    - Add a createTaskFromTitleAndDescription method to the TaskService class
    - Implement createTaskFromTitleAndDescription in the task commands
 
 3. **Error Handling**
+
    - Validate that title is provided
    - Ensure either description or descriptionPath is provided
    - Handle errors gracefully with informative messages
@@ -260,13 +285,30 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
 - [ ] All options work as expected
 - [ ] Error handling works correctly for invalid inputs
 - [ ] Tests pass
-```
+````
+
+## Task Specification Content Guidelines
+
+### Time Estimates Are Prohibited
+
+- **NEVER include time estimates** in task specifications (e.g., "Week 1-2", "3 days", "2 weeks")
+- Use logical phase names without time references (e.g., "Phase 1: Research", not "Phase 1: Research (Week 1-2)")
+- Focus on deliverables and outcomes rather than time-based planning
+- Let implementers determine their own timeline based on priorities and resources
+
+### Phase Organization
+
+- Organize work into logical phases based on dependencies and natural progression
+- Use descriptive phase names that indicate the type of work (Research, Proof of Concept, Implementation, Documentation)
+- Structure phases to build upon each other logically
+- Include clear success criteria for each phase
 
 ## Task Type Recognition
 
 Always distinguish between:
 
 1. **Task Specification Requests**:
+
    - "Create a task for..."
    - "Add a task to..."
    - "Make a task that describes..."
