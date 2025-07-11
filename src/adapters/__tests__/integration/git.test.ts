@@ -36,7 +36,7 @@ async function initGitRepo(repoPath: string) {
 // Execute git command safely and return stdout
 function execGit(_command: string, cwd: string): string {
   const result = execSync(`git ${_command}`, { cwd, encoding: "utf8" });
-  return result.toString();
+  return result!.toString();
 }
 
 // Temporarily disabled - these tests pass individually but hang in full suite due to test isolation issues
@@ -74,7 +74,7 @@ describe.skip("Git Integration Tests", () => {
     const result = await gitService.execInRepository(repoPath, "git log --oneline -n 1");
 
     // Assert
-    expect(result).toContain("Initial commit");
+    expect(result)!.toContain("Initial commit");
   }, TEST_TIMEOUT_MS);
 
   test("getSessionWorkdir returns the correct workdir path", () => {
@@ -154,8 +154,8 @@ describe.skip("Git Integration Tests", () => {
     );
 
     // Assert
-    expect(result).toContain("Add file2");
-    expect(result).toContain("Add file1");
+    expect(result)!.toContain("Add file2");
+    expect(result)!.toContain("Add file1");
   }, TEST_TIMEOUT_MS);
 
   // Skip tests that require stashing for now, as they're more complex

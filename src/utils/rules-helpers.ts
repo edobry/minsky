@@ -29,7 +29,7 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
     return contentPath;
   } catch (error) {
     // Handle missing files by returning the original path as content
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
       return contentPath;
     }
 

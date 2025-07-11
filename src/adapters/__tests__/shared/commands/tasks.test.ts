@@ -27,17 +27,17 @@ describe("Shared Tasks Commands", () => {
 
   beforeEach(() => {
     // Set up spies
-    getTaskStatusSpy = spyOn(tasksDomain, "getTaskStatusFromParams").mockImplementation(() =>
+    getTaskStatusSpy = spyOn(tasksDomain, "getTaskStatusFromParams")!.mockImplementation(() =>
       Promise.resolve("TODO")
     );
 
-    setTaskStatusSpy = spyOn(tasksDomain, "setTaskStatusFromParams").mockImplementation(() =>
+    setTaskStatusSpy = spyOn(tasksDomain, "setTaskStatusFromParams")!.mockImplementation(() =>
       Promise.resolve()
     );
 
     // Clear the registry (this is a hacky way to do it since there's no clear method,
     // but it works for testing)
-    (sharedCommandRegistry as any).commands = new Map();
+    (sharedCommandRegistry as any)?.commands = new Map();
 
     // Register commands for each test
     registerTasksCommands();
@@ -105,7 +105,7 @@ describe("Shared Tasks Commands", () => {
     });
 
     // Verify result
-    expect(_result).toEqual({
+    expect(_result)!.toEqual({
       status: "TODO",
       success: true,
       taskId: "#123",
@@ -151,7 +151,7 @@ describe("Shared Tasks Commands", () => {
     });
 
     // Verify result
-    expect(_result).toEqual({
+    expect(_result)!.toEqual({
       success: true,
       taskId: "#123",
       status: "IN-PROGRESS",

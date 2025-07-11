@@ -217,7 +217,7 @@ export interface RepositoryBackend {
    * @param branch Branch name to checkout
    * @returns void
    */
-  checkout(__branch: string): Promise<void>;
+  checkout(branch: string): Promise<void>;
 
   /**
    * Get the repository configuration.

@@ -1,0 +1,172 @@
+# Codemods Directory Standards
+
+All codemods in the `codemods/` directory must follow these mandatory standards established in Task #178.
+
+## Required Documentation Pattern
+
+Every codemod must include comprehensive documentation as comments at the top of the file:
+
+```typescript
+/**
+ * [Codemod Name]
+ *
+ * PROBLEM SOLVED:
+ * [Exact TypeScript error or issue being addressed]
+ *
+ * EXACT SITUATION:
+ * [Specific circumstances where this codemod applies]
+ *
+ * TRANSFORMATION APPLIED:
+ * [Before/after code examples showing the transformation]
+ *
+ * TARGETED PATTERNS:
+ * [Specific classes, properties, functions, or patterns affected]
+ *
+ * SAFETY CONSIDERATIONS:
+ * [Limitations, risks, and boundaries of the codemod]
+ *
+ * EXPECTED INPUTS:
+ * [What kind of code this codemod expects to process]
+ *
+ * EXPECTED OUTPUTS:
+ * [What the transformed code should look like]
+ *
+ * LIMITATIONS:
+ * [What this codemod cannot or will not handle]
+ *
+ * USAGE:
+ * [How to run the codemod]
+ */
+```
+
+## Mandatory Testing Pattern
+
+**CRITICAL**: All codemods must have tests that validate they do ONLY what they claim to do.
+
+### Required Test Structure
+
+Following the pattern established in `fix-ts2564-property-initialization.test.ts`:
+
+```typescript
+// 1. Mirror the exact configuration from the codemod
+const CODEMOD_CONFIG = [
+  // Copy exact configuration from the codemod
+];
+
+// 2. Test positive constraints (what it SHOULD do)
+test('codemod ONLY processes configured elements', () => {
+  // Create mixed scenario with both target and non-target elements
+  const sourceFile = project.createSourceFile('test.ts', `
+    // Target elements that should be modified
+    // Non-target elements that should be ignored
+  `);
+  
+  // Apply codemod logic
+  // ...
+  
+  // Verify positive constraints
+  expect(transformedCode).toContain('expected modification');
+  
+  // Verify negative constraints  
+  expect(transformedCode).toContain('unchanged non-target element');
+});
+
+// 3. Test boundary cases
+test('codemod handles edge cases gracefully', () => {
+  // Test already-processed items
+  // Test missing elements
+  // Test malformed input
+});
+```
+
+### Critical Testing Requirements
+
+1. **Configuration Mirroring**: Test must use the exact same configuration as the codemod
+2. **Mixed Scenarios**: Test both configured and non-configured elements in the same test
+3. **Boundary Verification**: Explicitly verify that non-configured elements are left unchanged
+4. **Scope Validation**: Ensure codemod doesn't accidentally modify unrelated code
+
+### Test Validation Checklist
+
+- [ ] Test includes exact configuration from codemod
+- [ ] Test verifies positive constraints (what should be modified)
+- [ ] Test verifies negative constraints (what should be ignored)
+- [ ] Test includes boundary cases (edge cases, missing elements)
+- [ ] Test uses mixed scenarios with target and non-target elements
+- [ ] Test confirms codemod doesn't modify unrelated code
+
+## AST-Based Implementation Requirement
+
+**MANDATORY**: Use AST-based approaches, not regex-based string replacement.
+
+### Approved Tools
+- **ts-morph**: For TypeScript AST manipulation
+- **jscodeshift**: For JavaScript transformations  
+- **babel-codemod**: For Babel-based transformations
+
+### Prohibited Approaches
+- Raw regex string replacement
+- Manual text manipulation
+- Ad-hoc pattern matching
+
+## Safety Requirements
+
+### Error Handling
+- Wrap all operations in try-catch blocks
+- Continue processing other files if one fails
+- Log specific errors for debugging
+- Generate detailed reports of all changes
+
+### Validation
+- Verify changes don't break syntax
+- Test on representative samples before full application
+- Measure effectiveness with before/after error counts
+- Document success rates and fix counts
+
+## File Naming and Organization
+
+### Naming Convention
+- Use descriptive names that indicate the specific problem solved
+- Include the TypeScript error code if applicable (e.g., `fix-ts2564-property-initialization.ts`)
+- Avoid generic names like `fix-errors.ts` or `cleanup.ts`
+
+### Required Files
+- `[codemod-name].ts` - The main codemod implementation
+- `[codemod-name].test.ts` - Comprehensive test suite
+- Optional: `[codemod-name].md` - Additional documentation if needed
+
+## Integration with Existing Rules
+
+This rule works with:
+- **automation-approaches.mdc**: Provides the technical foundation and testing patterns
+- **testable-design.mdc**: Ensures codemods are properly testable
+- **test-expectations.mdc**: Guides test assertion updates
+
+## Enforcement
+
+**Any codemod that doesn't follow these standards must be updated before use.**
+
+### Violations Include:
+- Missing comprehensive documentation
+- Tests that only verify positive cases (missing boundary validation)
+- Regex-based implementations
+- Insufficient error handling
+- Generic or unclear naming
+
+### Remediation Process:
+1. Add comprehensive documentation using the required pattern
+2. Create tests that validate boundaries and constraints
+3. Refactor to use AST-based approaches if using regex
+4. Add proper error handling and reporting
+5. Rename files to follow naming conventions
+
+## Success Criteria
+
+A compliant codemod:
+- Has comprehensive documentation explaining exactly what it does
+- Has tests that prove it does ONLY what it claims to do
+- Uses AST-based transformations for reliability
+- Handles errors gracefully and reports progress
+- Follows naming conventions and file organization standards
+
+This ensures all codemods are "well-documented, tested tools" rather than "mysterious scripts."

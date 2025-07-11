@@ -71,7 +71,7 @@ export async function installDependencies(
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   try {
     // Detect or use provided package manager
-    const detectedPackageManager = (options as any).packageManager || detectPackageManager(repoPath);
+    const detectedPackageManager = (options as any)!.packageManager || detectPackageManager(repoPath);
 
     if (!detectedPackageManager) {
       return {
@@ -90,14 +90,14 @@ export async function installDependencies(
     }
 
     // Log installation start unless quiet
-    if (!(options as any).quiet) {
+    if (!(options as any)!.quiet) {
       log.debug(`Installing dependencies using ${detectedPackageManager}...`);
     }
 
     // Execute the install command
     const result = execSync(installCmd, {
       cwd: repoPath,
-      stdio: (options as any).quiet ? "ignore" : "inherit",
+      stdio: (options as any)!.quiet ? "ignore" : "inherit",
     }) as any;
 
     // Handle the case where execSync returns null when stdio is "ignore"
@@ -107,7 +107,7 @@ export async function installDependencies(
   } catch (error) {
     const errorMessage = getErrorMessage(error as any);
 
-    if (!(options as any).quiet) {
+    if (!(options as any)!.quiet) {
       log.error(`Failed to install dependencies: ${errorMessage}`);
     }
 

@@ -10,27 +10,27 @@ describe("Task Status Bug Regression Tests", () => {
   describe("TASK_PARSING_UTILS.getCheckboxFromStatus", () => {
     test("should return correct checkbox for TODO status", () => {
       const result = TASK_PARSING_UTILS.getCheckboxFromStatus("TODO");
-      expect(result).toBe(" ");
+      expect(result)!.toBe(" ");
     });
 
     test("should return correct checkbox for IN-PROGRESS status", () => {
       const result = TASK_PARSING_UTILS.getCheckboxFromStatus("IN-PROGRESS");
-      expect(result).toBe("+");
+      expect(result)!.toBe("+");
     });
 
     test("should return correct checkbox for IN-REVIEW status", () => {
       const result = TASK_PARSING_UTILS.getCheckboxFromStatus("IN-REVIEW");
-      expect(result).toBe("-");
+      expect(result)!.toBe("-");
     });
 
     test("should return correct checkbox for DONE status", () => {
       const result = TASK_PARSING_UTILS.getCheckboxFromStatus("DONE");
-      expect(result).toBe("x");
+      expect(result)!.toBe("x");
     });
 
     test("should return correct checkbox for BLOCKED status", () => {
       const result = TASK_PARSING_UTILS.getCheckboxFromStatus("BLOCKED");
-      expect(result).toBe("~");
+      expect(result)!.toBe("~");
     });
 
     test("should not throw 'status is not defined' error", () => {

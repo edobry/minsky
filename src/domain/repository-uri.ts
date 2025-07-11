@@ -72,52 +72,52 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
     // Set the type based on the format
     switch ((normalizedInfo as any).format) {
     case UriFormat.HTTPS:
-      (components as any).type = (RepositoryURIType as any).HTTPS;
-      (components as any).scheme = "https";
+      (components as any)?.type = (RepositoryURIType as any)?.HTTPS;
+      (components as any)?.scheme = "https";
       break;
     case UriFormat.SSH:
-      (components as any).type = (RepositoryURIType as any).SSH;
-      (components as any).scheme = "ssh";
+      (components as any)?.type = (RepositoryURIType as any)?.SSH;
+      (components as any)?.scheme = "ssh";
       break;
     case UriFormat.FILE:
-      (components as any).type = (RepositoryURIType as any).LOCAL_FILE;
-      (components as any).scheme = "file";
+      (components as any)?.type = (RepositoryURIType as any)?.LOCAL_FILE;
+      (components as any)?.scheme = "file";
       break;
     case UriFormat.PATH:
-      (components as any).type = (RepositoryURIType as any).LOCAL_PATH;
+      (components as any)?.type = (RepositoryURIType as any)?.LOCAL_PATH;
       break;
     case UriFormat.SHORTHAND:
-      (components as any).type = (RepositoryURIType as any).GITHUB_SHORTHAND;
+      (components as any)?.type = (RepositoryURIType as any)?.GITHUB_SHORTHAND;
       break;
     }
 
     // For non-local repositories, extract owner and repo
     if (!(normalizedInfo as any).isLocal) {
       const { owner, repo } = extractRepositoryInfo(uri);
-      (components as any).owner = owner;
-      (components as any).repo = repo;
+      (components as any)?.owner = owner;
+      (components as any)!.repo = repo;
 
       // For URLs, also extract host
-      if ((components as any).type === (RepositoryURIType as any).HTTPS) {
+      if ((components as any)?.type === (RepositoryURIType as any)?.HTTPS) {
         try {
           const url = new URL((normalizedInfo as any).uri);
-          (components as any).host = url.hostname;
+          (components as any)?.host = url?.hostname;
         } catch (error) {
           // Ignore URL parsing errors
         }
-      } else if ((components as any).type === (RepositoryURIType as any).SSH) {
+      } else if ((components as any)?.type === (RepositoryURIType as any)?.SSH) {
         // Extract host from SSH URL
         const match = uri.match(/^[^@]+@([^:]+):/);
         if (match && match[1]) {
-          (components as any).host = match[1];
+          (components as any)?.host = match[1];
         }
       }
     } else {
       // For local repositories, extract path
-      if ((components as any).type === (RepositoryURIType as any).LOCAL_FILE) {
-        (components as any).path = (normalizedInfo.uri as any).replace(/^file:\/\//, "");
+      if ((components as any)?.type === (RepositoryURIType as any)?.LOCAL_FILE) {
+        (components as any)?.path = (normalizedInfo.uri as any).replace(/^file:\/\//, "");
       } else {
-        (components as any).path = (normalizedInfo as any).uri;
+        (components as any)?.path = (normalizedInfo as any)?.uri;
       }
     }
 
@@ -142,7 +142,7 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
 export function normalizeRepositoryURI(uri: string): string {
   try {
     const result = normalizeRepositoryUri(uri, { validateLocalExists: false });
-    return (result as any).name as any;
+    return (result as any)!.name as any;
   } catch (error) {
     // Fallback to simple basename normalization (filesystem-safe)
     return `local-${basename(uri)}`;
@@ -231,7 +231,7 @@ export function expandGitHubShorthand(
   format: "https" | "ssh" = "https"
 ): string | undefined {
   try {
-    const targetFormat = format === "https" ? UriFormat.HTTPS : UriFormat.SSH;
+    const targetFormat = format === "https" ? UriFormat?.HTTPS : UriFormat?.SSH;
     return convertRepositoryUri(shorthand, targetFormat);
   } catch (error) {
     return null as any;

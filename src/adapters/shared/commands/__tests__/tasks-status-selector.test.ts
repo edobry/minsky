@@ -24,9 +24,9 @@ describe("Task Status Selector Pre-selection (Task #153 Fix)", () => {
 
     // This is the logic from the fixed code
     const currentStatusIndex = statusOptions.findIndex(
-      (option) => option.value === previousStatus
+      (option) => option?.value === previousStatus
     );
-    const initialValue = currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO;
+    const initialValue = currentStatusIndex >= 0 ? previousStatus : TASK_STATUS?.TODO;
 
     // Verify BLOCKED status is found and selected
     expect(currentStatusIndex).toBe(BLOCKED_STATUS_INDEX); // BLOCKED is at index 4
@@ -44,9 +44,9 @@ describe("Task Status Selector Pre-selection (Task #153 Fix)", () => {
     ];
 
     const currentStatusIndex = statusOptions.findIndex(
-      (option) => option.value === previousStatus
+      (option) => option?.value === previousStatus
     );
-    const initialValue = currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO;
+    const initialValue = currentStatusIndex >= 0 ? previousStatus : TASK_STATUS?.TODO;
 
     expect(currentStatusIndex).toBe(0); // TODO is at index 0
     expect(initialValue).toBe("TODO");
@@ -63,9 +63,9 @@ describe("Task Status Selector Pre-selection (Task #153 Fix)", () => {
     ];
 
     const currentStatusIndex = statusOptions.findIndex(
-      (option) => option.value === previousStatus
+      (option) => option?.value === previousStatus
     );
-    const initialValue = currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO;
+    const initialValue = currentStatusIndex >= 0 ? previousStatus : TASK_STATUS?.TODO;
 
     expect(currentStatusIndex).toBe(-1); // Not found
     expect(initialValue).toBe("TODO"); // Should default to TODO
@@ -82,9 +82,9 @@ describe("Task Status Selector Pre-selection (Task #153 Fix)", () => {
     ];
 
     const currentStatusIndex = statusOptions.findIndex(
-      (option) => option.value === previousStatus
+      (option) => option?.value === previousStatus
     );
-    const initialValue = currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO;
+    const initialValue = currentStatusIndex >= 0 ? previousStatus : TASK_STATUS?.TODO;
 
     expect(currentStatusIndex).toBe(1); // IN-PROGRESS is at index 1
     expect(initialValue).toBe("IN-PROGRESS");

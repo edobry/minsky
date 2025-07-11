@@ -79,7 +79,7 @@ export function formatCommandSuggestions(suggestions: CommandSuggestion[]): stri
  * Format context information for error messages
  */
 export function formatContextInfo(contexts: ContextInfo[]): string {
-  if ((contexts as any).length === 0) return "";
+  if ((contexts as any)?.length === 0) return "";
   
   const formatted = ((contexts as any).map(({ label, value }) => `${label}: ${value}`) as any).join("\n");
     
@@ -96,7 +96,7 @@ export function buildErrorMessage(template: ErrorTemplate, context?: ContextInfo
   parts.push((template as any).title);
   
   // Add description if provided
-  if ((template as any).description) {
+  if ((template as any)?.description) {
     (parts as any).push("");
     parts.push((template as any).description);
   }
@@ -105,8 +105,8 @@ export function buildErrorMessage(template: ErrorTemplate, context?: ContextInfo
   (template.sections as any).forEach(section => {
     (parts as any).push("");
     
-    if ((section as any).title) {
-      const title = (section as any).emoji ? `${(section as any).emoji} ${(section as any).title}` : (section as any).title;
+    if ((section as any)?.title) {
+      const title = (section as any)?.emoji ? `${(section as any).emoji} ${(section as any).title}` : (section as any)?.title;
       (parts as any).push(title);
       (parts as any).push("");
     }
@@ -115,7 +115,7 @@ export function buildErrorMessage(template: ErrorTemplate, context?: ContextInfo
   });
   
   // Add context information if provided
-  if (context && (context as any).length > 0) {
+  if (context && (context as any)?.length > 0) {
     (parts as any).push("");
     parts.push(formatContextInfo(context as any));
   }
@@ -296,13 +296,13 @@ export function createSessionErrorMessage(
   
   const config = templates[errorType];
   const template: ErrorTemplate = {
-    title: (config as any).title,
-    description: (config as any).description,
+    title: (config as any)!.title,
+    description: (config as any)!.description,
     sections: [
       {
         title: "What you can do:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions((config as any).suggestions)
+        content: formatCommandSuggestions((config as any)!.suggestions)
       }
     ]
   };

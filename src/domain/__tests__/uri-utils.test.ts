@@ -15,7 +15,7 @@ describe("URI Utilities", () => {
       const uri = "https://github.com/org/repo.git";
       const _result = normalizeRepositoryUri(uri, { validateLocalExists: false });
 
-      expect(_result).toEqual({
+      expect(_result)!.toEqual({
         uri: "https://github.com/org/repo",
         name: "org/repo",
         format: UriFormat.HTTPS,
@@ -27,7 +27,7 @@ describe("URI Utilities", () => {
       const uri = "git@github.com:org/repo.git";
       const _result = normalizeRepositoryUri(uri, { validateLocalExists: false });
 
-      expect(_result).toEqual({
+      expect(_result)!.toEqual({
         uri: "git@github.com:org/repo",
         name: "org/repo",
         format: UriFormat.SSH,
@@ -39,7 +39,7 @@ describe("URI Utilities", () => {
       const uri = "org/repo";
       const _result = normalizeRepositoryUri(uri, { validateLocalExists: false });
 
-      expect(_result).toEqual({
+      expect(_result)!.toEqual({
         uri: "https://github.com/org/repo",
         name: "org/repo",
         format: UriFormat.HTTPS,
@@ -52,25 +52,25 @@ describe("URI Utilities", () => {
     test("converts HTTPS to SSH", () => {
       const uri = "https://github.com/org/repo";
       const _result = convertRepositoryUri(uri, UriFormat.SSH);
-      expect(_result).toBe("git@github.com:org/repo.git");
+      expect(_result)!.toBe("git@github.com:org/repo.git");
     });
 
     test("converts SSH to HTTPS", () => {
       const uri = "git@github.com:org/repo.git";
       const _result = convertRepositoryUri(uri, UriFormat.HTTPS);
-      expect(_result).toBe("https://github.com/org/repo");
+      expect(_result)!.toBe("https://github.com/org/repo");
     });
 
     test("converts shorthand to HTTPS", () => {
       const uri = "org/repo";
       const _result = convertRepositoryUri(uri, UriFormat.HTTPS);
-      expect(_result).toBe("https://github.com/org/repo");
+      expect(_result)!.toBe("https://github.com/org/repo");
     });
 
     test("returns same URI if already in target format", () => {
       const uri = "https://github.com/org/repo";
       const _result = convertRepositoryUri(uri, UriFormat.HTTPS);
-      expect(_result).toBe(uri);
+      expect(_result)!.toBe(uri);
     });
   });
 
@@ -78,19 +78,19 @@ describe("URI Utilities", () => {
     test("extracts info from HTTPS URL", () => {
       const uri = "https://github.com/org/repo.git";
       const _result = extractRepositoryInfo(uri);
-      expect(_result).toEqual({ owner: "org", repo: "repo" });
+      expect(_result)!.toEqual({ owner: "org", repo: "repo" });
     });
 
     test("extracts info from SSH URL", () => {
       const uri = "git@github.com:org/repo.git";
       const _result = extractRepositoryInfo(uri);
-      expect(_result).toEqual({ owner: "org", repo: "repo" });
+      expect(_result)!.toEqual({ owner: "org", repo: "repo" });
     });
 
     test("extracts info from shorthand", () => {
       const uri = "org/repo";
       const _result = extractRepositoryInfo(uri);
-      expect(_result).toEqual({ owner: "org", repo: "repo" });
+      expect(_result)!.toEqual({ owner: "org", repo: "repo" });
     });
   });
 });

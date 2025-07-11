@@ -38,10 +38,10 @@ export class RepositoryMetadataCache {
    * @returns The singleton instance
    */
   static getInstance(): RepositoryMetadataCache {
-    if (!(RepositoryMetadataCache as any).instance) {
-      (RepositoryMetadataCache as any).instance = new RepositoryMetadataCache();
+    if (!(RepositoryMetadataCache as any)!.instance) {
+      (RepositoryMetadataCache as any)!.instance = new RepositoryMetadataCache();
     }
-    return (RepositoryMetadataCache as any).instance;
+    return (RepositoryMetadataCache as any)!.instance;
   }
 
   /**
@@ -57,8 +57,8 @@ export class RepositoryMetadataCache {
     const now = (Date as any).now();
 
     // If the entry exists and is not expired, return it
-    if (cacheEntry && now - (cacheEntry as any).timestamp < ttl) {
-      return (cacheEntry as any).data;
+    if (cacheEntry && now - (cacheEntry as any)?.timestamp < ttl) {
+      return (cacheEntry as any)!.data;
     }
 
     // Otherwise fetch the data and update the cache
@@ -145,6 +145,6 @@ export class RepositoryError extends Error {
     public readonly cause?: Error
   ) {
     super(message);
-    (this as any).name = "RepositoryError";
+    (this as any)?.name = "RepositoryError";
   }
 }

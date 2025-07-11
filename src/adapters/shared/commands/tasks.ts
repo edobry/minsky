@@ -168,10 +168,10 @@ const tasksStatusGetRegistration = {
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
   execute: async (params, ctx: CommandExecutionContext) => {
-    const normalizedTaskId = normalizeTaskId((params as any).taskId);
+    const normalizedTaskId = normalizeTaskId((params as any)!.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${(params as any).taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${(params as any)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const status = await getTaskStatusFromParams({
@@ -197,14 +197,14 @@ const tasksStatusSetRegistration = {
   parameters: tasksStatusSetParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
     log.debug("Starting tasks.status.set execution");
-    if (!(params as any).taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!(params as any)!.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Normalize and validate task ID first
     log.debug("About to normalize task ID");
-    const normalizedTaskId = normalizeTaskId((params as any).taskId);
+    const normalizedTaskId = normalizeTaskId((params as any)!.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${(params as any).taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${(params as any)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
 
@@ -213,14 +213,14 @@ const tasksStatusSetRegistration = {
     log.debug("About to get previous status");
     const previousStatus = await getTaskStatusFromParams({
       taskId: normalizedTaskId,
-      repo: (params as any).repo,
-      workspace: (params as any).workspace,
-      session: (params as any).session,
-      backend: (params as any).backend,
+      repo: (params as any)!.repo,
+      workspace: (params as any)!.workspace,
+      session: (params as any)!.session,
+      backend: (params as any)!.backend,
     });
     log.debug("Previous status retrieved successfully");
 
-    let status = (params as any).status;
+    let status = (params as any)!.status;
 
     // If status is not provided, prompt for it interactively
     if (!status) {
@@ -241,7 +241,7 @@ const tasksStatusSetRegistration = {
 
       // Find the index of the current status to pre-select it
       const currentStatusIndex = statusOptions.findIndex(
-        (option) => (option as any).value === previousStatus
+        (option) => (option as any)?.value === previousStatus
       );
       const initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0; // Default to TODO if current status not found
 
@@ -249,7 +249,7 @@ const tasksStatusSetRegistration = {
       const selectedStatus = await select({
         message: "Select a status:",
         options: statusOptions,
-        initialValue: currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO, // Pre-select the current status
+        initialValue: currentStatusIndex >= 0 ? previousStatus : TASK_STATUS?.TODO, // Pre-select the current status
       });
 
       // Handle cancellation
@@ -267,10 +267,10 @@ const tasksStatusSetRegistration = {
     await setTaskStatusFromParams({
       taskId: normalizedTaskId,
       status: status,
-      repo: (params as any).repo,
-      workspace: (params as any).workspace,
-      session: (params as any).session,
-      backend: (params as any).backend,
+      repo: (params as any)!.repo,
+      workspace: (params as any)!.workspace,
+      session: (params as any)!.session,
+      backend: (params as any)!.backend,
     });
 
     return {
@@ -293,10 +293,10 @@ const tasksSpecRegistration = {
   parameters: tasksSpecParams,
   execute: async (params, ctx: CommandExecutionContext) => {
     try {
-      const normalizedTaskId = normalizeTaskId((params as any).taskId);
+      const normalizedTaskId = normalizeTaskId((params as any)!.taskId);
       if (!normalizedTaskId) {
         throw new ValidationError(
-          `Invalid task ID: '${(params as any).taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+          `Invalid task ID: '${(params as any)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
       const result = await getTaskSpecContentFromParams({
@@ -490,13 +490,13 @@ const tasksGetRegistration = {
   description: "Get a task by ID",
   parameters: tasksGetParams,
   execute: async (params, ctx) => {
-    if (!(params as any).taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!(params as any)!.taskId) throw new ValidationError("Missing required parameter: taskId");
     return await getTaskFromParams({
-      taskId: (params as any).taskId,
-      backend: (params as any).backend,
-      repo: (params as any).repo,
-      workspace: (params as any).workspace,
-      session: (params as any).session,
+      taskId: (params as any)!.taskId,
+      backend: (params as any)!.backend,
+      repo: (params as any)!.repo,
+      workspace: (params as any)!.workspace,
+      session: (params as any)!.session,
     });
   },
 };
@@ -512,31 +512,31 @@ const tasksCreateRegistration = {
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
     // Title is required by schema, but validate it's provided
-    if (!(params as any).title) {
+    if (!(params as any)!.title) {
       throw new ValidationError("Title is required");
     }
 
     // Validate that either description or descriptionPath is provided
-    if (!(params as any).description && !(params as any).descriptionPath) {
+    if (!(params as any)!.description && !(params as any)!.descriptionPath) {
       throw new ValidationError("Either --description or --description-path must be provided");
     }
 
     // Both description and descriptionPath provided is an error
-    if ((params as any).description && (params as any).descriptionPath) {
+    if ((params as any)!.description && (params as any)!.descriptionPath) {
       throw new ValidationError(
         "Cannot provide both --description and --description-path - use one or the other"
       );
     }
 
     return await createTaskFromTitleAndDescription({
-      title: (params as any).title,
-      description: (params as any).description,
-      descriptionPath: (params as any).descriptionPath,
-      force: (params as any).force ?? false,
-      backend: (params as any).backend,
-      repo: (params as any).repo,
-      workspace: (params as any).workspace,
-      session: (params as any).session,
+      title: (params as any)!.title,
+      description: (params as any)!.description,
+      descriptionPath: (params as any)!.descriptionPath,
+      force: (params as any)!.force ?? false,
+      backend: (params as any)!.backend,
+      repo: (params as any)!.repo,
+      workspace: (params as any)!.workspace,
+      session: (params as any)!.session,
     });
   },
 };
@@ -593,55 +593,55 @@ const tasksDeleteRegistration = {
   description: "Delete a task",
   parameters: tasksDeleteParams,
   execute: async (params, ctx) => {
-    if (!(params as any).taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!(params as any)!.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Handle confirmation if force is not set and we're in interactive mode
-    if (!(params as any).force && !(params as any).json) {
+    if (!(params as any)!.force && !(params as any)!.json) {
       // Get task details for confirmation
       const task = await getTaskFromParams({
-        taskId: (params as any).taskId,
-        backend: (params as any).backend,
-        repo: (params as any).repo,
-        workspace: (params as any).workspace,
-        session: (params as any).session,
+        taskId: (params as any)!.taskId,
+        backend: (params as any)!.backend,
+        repo: (params as any)!.repo,
+        workspace: (params as any)!.workspace,
+        session: (params as any)!.session,
       });
 
       // Import confirm from @clack/prompts for confirmation
       const { confirm, isCancel } = await import("@clack/prompts");
 
       const shouldDelete = await confirm({
-        message: `Are you sure you want to delete task ${(task as any).id}: "${(task as any).title}"?`,
+        message: `Are you sure you want to delete task ${(task as any)!.id}: "${(task as any)!.title}"?`,
       });
 
       if (isCancel(shouldDelete) || !shouldDelete) {
         return {
           success: false,
           message: "Task deletion cancelled",
-          taskId: (params as any).taskId,
+          taskId: (params as any)!.taskId,
         };
       }
     }
 
     const result = await deleteTaskFromParams({
-      taskId: (params as any).taskId,
-      force: (params as any).force ?? false,
-      backend: (params as any).backend,
-      repo: (params as any).repo,
-      workspace: (params as any).workspace,
-      session: (params as any).session,
+      taskId: (params as any)!.taskId,
+      force: (params as any)!.force ?? false,
+      backend: (params as any)!.backend,
+      repo: (params as any)!.repo,
+      workspace: (params as any)!.workspace,
+      session: (params as any)!.session,
     }) as any;
 
-    const message = (result as any).success
-      ? `Task ${(result as any).taskId} deleted successfully`
-      : `Failed to delete task ${(result as any).taskId}`;
+    const message = (result as any)!.success
+      ? `Task ${(result as any)!.taskId} deleted successfully`
+      : `Failed to delete task ${(result as any)!.taskId}`;
 
     // Return different formats based on --json flag
-    if ((params as any).json) {
+    if ((params as any)!.json) {
       // Structured output for programmatic use
       return {
-        success: (result as any).success,
-        taskId: (result as any).taskId,
-        task: (result as any).task,
+        success: (result as any)!.success,
+        taskId: (result as any)!.taskId,
+        task: (result as any)!.task,
         message: message,
       } as any;
     } else {

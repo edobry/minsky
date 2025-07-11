@@ -23,8 +23,8 @@ export interface SessionDbFileOptions {
  */
 export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionRecord[] {
   const stateDir = getMinskyStateDir();
-  const dbPath = options?.dbPath || getDefaultJsonDbPath();
-  const baseDir = options?.baseDir || stateDir;
+  const dbPath = options!?.dbPath || getDefaultJsonDbPath();
+  const baseDir = options!?.baseDir || stateDir;
 
   try {
     if (!existsSync(dbPath)) {
@@ -49,7 +49,7 @@ export async function writeSessionsToFile(
   options?: SessionDbFileOptions
 ): Promise<void> {
   const stateDir = getMinskyStateDir();
-  const dbPath = options?.dbPath || getDefaultJsonDbPath();
+  const dbPath = options!?.dbPath || getDefaultJsonDbPath();
 
   try {
     // Ensure directory exists

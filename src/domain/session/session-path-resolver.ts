@@ -12,7 +12,7 @@ export class SessionNotFoundError extends Error {
     message?: string
   ) {
     super(message || `Session not found: ${sessionId}`);
-    (this as any).name = "SessionNotFoundError";
+    (this as any)?.name = "SessionNotFoundError";
   }
 }
 
@@ -167,7 +167,7 @@ export class SessionPathResolver {
       }
     }
     
-    if (errors.length > 0) {
+    if (errors?.length > 0) {
       throw new InvalidPathError(
         `Multiple path validation errors:\n${errors.join("\n")}`,
         sessionDir
