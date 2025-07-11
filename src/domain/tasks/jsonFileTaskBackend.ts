@@ -25,6 +25,7 @@ import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
+import { getTaskSpecRelativePath } from "./taskIO";
 
 // Define TaskState interface
 interface TaskState {
@@ -389,9 +390,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   }
 
   getTaskSpecPath(taskId: string, title: string): string {
-    const id = taskId.startsWith("#") ? (taskId as any).slice(1) : taskId;
-    const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
-    return join("process", "tasks", `${id}-${normalizedTitle}.md`);
+    return getTaskSpecRelativePath(taskId, title, this.workspacePath);
   }
 
   async fileExists(path: string): Promise<boolean> {

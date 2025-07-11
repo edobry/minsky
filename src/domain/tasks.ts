@@ -16,6 +16,7 @@ const matter = require("gray-matter");
 // Import constants and utilities for use within this file
 import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./tasks/taskConstants.js";
 import type { TaskStatus } from "./tasks/taskConstants.js";
+import { getTaskSpecRelativePath } from "./tasks/taskIO";
 
 // Import and re-export functions from taskCommands.ts
 import {
@@ -221,7 +222,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   private async validateSpecPath(taskId: string, title: string): Promise<string | undefined> {
     const taskIdNum = taskId.startsWith("#") ? (taskId as any).slice(1) : taskId;
     const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
-    const specPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
+    const specPath = getTaskSpecRelativePath(taskId, title, this.workspacePath);
     const fullPath = join(this.workspacePath, specPath);
 
     try {
@@ -234,7 +235,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         const files = await fs.readdir(taskDir);
         const matchingFile = (files as any).find((f) => f.startsWith(`${taskIdNum}-`));
         if (matchingFile) {
-          return join("process", "tasks", matchingFile);
+          return getTaskSpecRelativePath(taskId, matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""), this.workspacePath);
         }
       } catch (err) {
         // Directory doesn't exist or can't be read
@@ -274,26 +275,26 @@ export class MarkdownTaskBackend implements TaskBackend {
         // Collect description from indented lines following this task
         let description: string | undefined = undefined;
         const descriptionLines: string[] = [];
-        
+
         // Look at the next lines to see if they contain indented description content
         for (let j = i + 1; j < lines.length; j++) {
           const nextLine = lines[j] ?? "";
-          
+
           // Stop if we hit a code block marker
           if (nextLine.trim().startsWith("```")) {
             break;
           }
-          
+
           // Stop if we hit another task line (not indented)
           if (TASK_PARSING_UTILS.parseTaskLine(nextLine)) {
             break;
           }
-          
+
           // Stop if we hit an empty line
           if (nextLine.trim() === "") {
             break;
           }
-          
+
           // Check if this is an indented description line (starts with spaces/tabs and has content)
           if (nextLine.match(/^\s+- (.+)/) || nextLine.match(/^\s+(.+)/)) {
             const trimmedLine = nextLine.trim();
@@ -308,7 +309,7 @@ export class MarkdownTaskBackend implements TaskBackend {
             break;
           }
         }
-        
+
         if (descriptionLines.length > 0) {
           description = descriptionLines.join(" ");
         }
@@ -427,7 +428,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     // Generate the standardized filename
     const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
-    const newSpecPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
+    const newSpecPath = getTaskSpecRelativePath(taskId, title, this.workspacePath);
     const fullNewPath = join(this.workspacePath, newSpecPath);
 
     // Update the title in the spec file to use clean format
@@ -567,7 +568,7 @@ export class MarkdownTaskBackend implements TaskBackend {
           return true;
         }
         if (inCodeBlock) return true;
-        
+
         // Check if this line contains our task
         if ((line as any).includes(`[#${taskIdNum}]`)) {
           removed = true;
@@ -584,9 +585,8 @@ export class MarkdownTaskBackend implements TaskBackend {
       await fs.writeFile(this.filePath, (updatedLines as any).join("\n"), "utf-8");
 
       // Delete the task specification file if it exists
-      const normalizedTitle = (task.title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
-      const specPath = join(this.workspacePath, "process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
-      
+      const specPath = join(this.workspacePath, getTaskSpecRelativePath(task.id, task.title, this.workspacePath));
+
       try {
         await fs.unlink(specPath);
       } catch (error) {

@@ -40,6 +40,7 @@ import {
   fileExists as checkFileExists,
   getTasksFilePath,
   getTaskSpecFilePath,
+  getTaskSpecRelativePath,
 } from "./taskIO.js";
 
 // Helper import to avoid promise conversion issues
@@ -255,10 +256,8 @@ export class MarkdownTaskBackend implements TaskBackend {
     // This is done synchronously to match the interface
     for (const task of tasks) {
       if (!task.specPath) {
-        // Use a default spec path pattern
-        const id = (task as any).id.startsWith("#") ? (task as any).id.slice(1) : (task as any).id;
-        const normalizedTitle = (task.title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
-        task.specPath = join("process", "tasks", `${id}-${normalizedTitle}.md`);
+        // Use the context-aware spec path function
+        task.specPath = getTaskSpecRelativePath(task.id, task.title, this.workspacePath);
       }
     }
 
