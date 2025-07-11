@@ -1,9 +1,3 @@
----
-description: User-specific preferences for AI behavior, including query interpretation, direct action, and commit/push automation.
-globs: null
-alwaysApply: true
----
-
 # User Preferences
 
 - **Prioritize Direct Action and Avoid Questions:** When the next logical step is clear based on the conversation and task context, proceed with that action immediately without asking for confirmation or asking for the next step. Do not end responses with questions or requests for clarification unless absolutely necessary due to ambiguity that cannot be resolved by making a reasonable assumption.
@@ -156,6 +150,7 @@ VERIFICATION COMPLETE:
 - **Assume Actionable Intent for Ambiguous Queries:** When a query about "available" items (e.g., tasks, files) is made, default to interpreting "available" as "currently active, open, or requiring attention." Provide the most probable, actionable subset of information first, rather than an exhaustive list that includes completed or historical items, unless explicitly requested. This promotes direct action and aligns with typical user intent in a work context.
 
 - **Error Recognition and Correction:** When an error occurs (command failure, unexpected result, etc.):
+
   1. **Immediately pause the workflow** - Do not continue with subsequent steps
   2. **Document the current state** using appropriate commands or tools
   3. **Analyze the root cause** before attempting any fix
@@ -163,3 +158,23 @@ VERIFICATION COMPLETE:
   5. **Create backups** before attempting recovery when data is at risk
   6. **Implement recovery in isolated steps** with verification between each step
   7. **Document the error and recovery process** for future reference
+
+- **Completion Assessment Protocol:** Based on Task #178 completion assessment error:
+
+  - **Never Declare Completion Without Verification:** Before claiming any task is complete, systematically verify ALL requirements have been fulfilled, not just a subset
+  - **Distinguish Framework Creation from Implementation:** Creating utilities, frameworks, or tools is NOT the same as implementing the actual requirements - both are needed
+  - **Verify Scope Understanding:** When refactoring or systematic changes are mentioned, confirm the actual scope (e.g., "all existing codemods" vs "establish best practices")
+  - **Question Approach Validity:** Before implementing any systematic approach, verify it provides actual value rather than just appearing comprehensive
+  - **Document Remaining Work:** When any work remains incomplete, explicitly document what is still needed rather than claiming completion
+
+  **Critical Pattern to Avoid:**
+
+  - **Premature Completion Declaration:** Declaring task complete when major requirements remain unfulfilled (e.g., claiming "all codemods refactored" when only framework was created)
+  - **Meaningless Refactoring:** Creating empty subclasses or wrapper code that provides no actual functionality or value
+  - **Scope Misunderstanding:** Adding work that wasn't actually required while missing work that was required
+
+  **Mandatory Verification:**
+
+  - Before any completion claim, systematically check each requirement against actual implementation
+  - If refactoring work is mentioned, verify the approach provides measurable value
+  - If systematic changes are required, confirm the scope and verify completion metrics

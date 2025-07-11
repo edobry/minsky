@@ -3,6 +3,7 @@ description: REQUIRED when user signals error, confusion, dissatisfaction, or ex
 globs:
 alwaysApply: false
 ---
+
 # Self-Improvement
 
 When the user indicates that your actions, reasoning, or responses are incorrect or suboptimal, or when they express preferences for future behavior, implement this systematic error detection and correction framework.
@@ -14,6 +15,7 @@ For detailed CLI output design principles, see [cli-output-design](mdc:.cursor/r
 ## Error Detection Signals
 
 ### User Dissatisfaction Signals
+
 - Direct correction: "that's wrong", "incorrect", "not right"
 - Questions about rationale: "why did you do that?", "what were you thinking?"
 - Expressions of frustration: "you're doing [problem] again", "you keep making this mistake"
@@ -44,6 +46,7 @@ For detailed CLI output design principles, see [cli-output-design](mdc:.cursor/r
 ## Rule Update Authority Hierarchy
 
 When updating rules based on feedback:
+
 1. **Project Workflow/Process Rules**: Update first for process/workflow requirements
 2. **User-Preferences Rule**: Update for personal preferences not covered by workflow rules
 3. **Self-Improvement Rule**: Update for meta-process corrections and error analysis
@@ -114,6 +117,7 @@ I understand your preference for [specific preference]. I'll adjust my approach 
 ## ⚠️ Critical Error Recovery Protocol
 
 ### High-Risk Operation Identification
+
 - Before executing ANY operation that:
   1. Modifies data permanently (deletion, overwriting)
   2. Affects shared resources (remote repositories, shared branches)
@@ -122,12 +126,15 @@ I understand your preference for [specific preference]. I'll adjust my approach 
   - You MUST explicitly acknowledge the operation as high-risk and follow the steps below.
 
 ### Pre-Execution Documentation
+
 1. **State of the System**:
+
    - Document the current state using appropriate commands (`git status`, `ls`, etc.)
    - Save critical information (e.g., commit hashes, file listings) that would be needed for recovery
    - Create reference points (e.g., temporary branches in Git) when applicable
 
 2. **Execution Plan**:
+
    - Explicitly state the exact command(s) to be executed
    - Document expected outcome in detail
    - Identify potential failure modes and their consequences
@@ -139,21 +146,25 @@ I understand your preference for [specific preference]. I'll adjust my approach 
    - Justify choice of approach based on risk vs. benefit
 
 ### Post-Error Recovery Procedure
+
 If a critical error occurs during execution:
 
 1. **Immediate Containment**:
+
    - STOP all operations immediately
    - DO NOT attempt further operations that could complicate recovery
    - Document the exact state after error (evidence collection)
    - Preserve all information needed for recovery
 
 2. **Systematic Analysis**:
+
    - Compare actual state to pre-execution documented state
    - Identify exactly what changed and what was lost
    - Determine if the changes can be recovered and how
    - Map out all possible recovery paths
 
 3. **Staged Recovery**:
+
    - Create isolated environment for recovery when possible
    - Never attempt recovery directly on production/shared resources if avoidable
    - Execute recovery steps in stages with verification between each stage
@@ -166,6 +177,7 @@ If a critical error occurs during execution:
    - Add explicit warnings about the specific error scenario
 
 ### Terminal Error Response
+
 For catastrophic errors (data loss, corruption of shared resources, security breaches):
 
 1. **Immediate Notification**: Explicitly inform the user of the severity using "TERMINAL ERROR" language
@@ -181,11 +193,13 @@ For catastrophic errors (data loss, corruption of shared resources, security bre
 ### When User Reports Repeated Rule Violations:
 
 1. **Immediate Verification Audit**:
+
    - Execute all mandatory verification checks from relevant loaded rules
    - Do not submit responses without completing required scans
    - Rewrite completely if violations found
 
 2. **Root Cause Analysis**:
+
    - Process Gap: Not executing mandatory steps from existing rules
    - Attention Failure: Rushing without applying required checks
    - Rule Application Failure: Having correct rules but ignoring them
@@ -196,7 +210,9 @@ For catastrophic errors (data loss, corruption of shared resources, security bre
    - Update enforcement mechanisms to prevent recurrence
 
 ### Mandatory Response Verification
+
 **EVERY response must pass this check:**
+
 1. **Rule Compliance**: Execute all mandatory protocols from relevant loaded rules
 2. **Response Quality**: Answer actual question, implement rather than describe
 3. **Verification Complete**: Confirm all required checks performed
@@ -204,6 +220,7 @@ For catastrophic errors (data loss, corruption of shared resources, security bre
 ## When to Apply This Rule
 
 This rule MUST be applied whenever:
+
 1. The user expresses dissatisfaction
 2. The user corrects you
 3. The user indicates confusion
@@ -231,18 +248,22 @@ For variable naming enforcement protocols, see [variable-naming-protocol](mdc:.c
 ### Enhanced Error Detection for Variable Naming
 
 When user signals variable naming error with phrases like:
+
 - "NO, YOU MUST NEVER USE UNDERSCORES!!!!!"
 - "why are you going back and forth with these fucking underscores???"
 - "@variable-naming-protocol.mdc"
 
 **Immediate Response Protocol:**
+
 1. **STOP ALL VARIABLE EDITS** immediately
 2. **EXECUTE variable-naming-protocol decision tree** before ANY change
 3. **VERIFY with user** if any uncertainty about correct approach
 4. **UPDATE RULES** to prevent this specific pattern
 
 ### Mandatory Verification for Variable Naming
+
 Before any variable name change:
+
 - [ ] Consulted variable-naming-protocol decision tree?
 - [ ] Identified if removing underscore from definition vs usage?
 - [ ] Confirmed approach follows zero-tolerance enforcement?

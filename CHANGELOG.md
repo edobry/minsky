@@ -72,6 +72,18 @@ _See: SpecStory history [2025-01-28_task-229-mandatory-session-task-association]
 
 ### Changed
 
+- **Task #244: Refactored Task Specification to Focus on Testing-Boundaries Compliance**
+
+  - Completely rewrote task specification to address real root causes of test failures
+  - Removed over-engineered TestIsolationFramework approach in favor of simple, standard patterns
+  - Identified global singleton state interference (SessionDB, global variables) as primary issue
+  - Established focus on testing pure domain functions instead of global singletons
+  - Applied established testing-boundaries rules: test domain logic, not interface layers
+  - Simplified approach using standard Bun test patterns instead of complex frameworks
+  - Updated success criteria to reflect actual findings from testing-boundaries analysis
+  - Key insight: Domain tests pass individually but fail in suite due to global state interference
+  - Solution: Test pure functions with mock state parameters, not shared global singletons
+
 - **Enhanced Session PR Command with Required PR Descriptions**
 
   - Added validation to `minsky session pr` command to require either `--body` or `--body-path` parameter
@@ -84,6 +96,8 @@ _See: SpecStory history [2025-01-28_task-229-mandatory-session-task-association]
 - Task #216: Updated to include investigation of existing agent framework libraries (claude-code SDK, OpenHands/OpenCode, LangChain, LlamaIndex, AutoGen, Semantic Kernel, etc.) before implementing from scratch, with evaluation criteria and decision framework for build vs. buy vs. extend
 - Task 082: Simplified to focus only on context analysis and visualization, removing obsolete concepts that don't match how AI context actually works
 - Task 182: Reduced scope to MVP functionality (1-2 weeks effort) with advanced features moved to Task 183
+
+_See: SpecStory history [2025-01-29_task-244-testing-boundaries-compliance](mdc:.specstory/history/2025-01-29_task-244-testing-boundaries-compliance.md) for task specification refactoring._
 
 ### Added
 
@@ -179,6 +193,16 @@ _See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specst
 _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
 
 ### Fixed
+
+- **Task #255: Fix Session Dependency Installation Error**
+  - Fixed critical bug where session startup would fail with "null is not an object" error during dependency installation
+  - Issue: execSync returns null when stdio is "ignore" but code was calling .toString() on the null value
+  - Solution: Added proper null check before calling .toString() in src/utils/package-manager.ts
+  - All existing package manager tests pass (17/17)
+  - Session creation now works correctly in quiet mode without dependency installation errors
+  - Maintains backward compatibility with existing functionality for non-quiet mode
+
+_See: SpecStory history [2025-01-29_task-255-fix-session-dependency-installation](mdc:.specstory/history/2025-01-29_task-255-fix-session-dependency-installation.md) for implementation details._
 
 - **Task #166: Complete TypeScript Error Resolution After Removing @types/commander**
   - Successfully eliminated all 700+ TypeScript errors revealed after removing incompatible @types/commander package

@@ -101,7 +101,7 @@ export async function installDependencies(
     }) as any;
 
     // Handle the case where execSync returns null when stdio is "ignore"
-    const output = (result as any)!.toString() || "";
+    const output = result ? (result as any).toString() : "";
 
     return { success: true, output };
   } catch (error) {

@@ -1,8 +1,3 @@
----
-description: REQUIRED workflow for implementing tasks from start to completion
-globs: 
-alwaysApply: false
----
 # Task Implementation Workflow
 
 This rule provides a detailed, step-by-step process for implementing tasks in the Minsky workflow.
@@ -72,6 +67,27 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
      git add process/tasks/<task-id>-<task-name>.md
      git commit -m "Add implementation plan for task #<task-id>"
      ```
+
+### Documentation Consolidation Protocol
+
+**CRITICAL REQUIREMENT**: ALL progress, findings, and updates MUST be documented directly in the task specification file.
+
+**NEVER create separate files for:**
+- Progress summaries
+- Implementation summaries
+- Status updates
+- Results documentation
+- Analysis reports
+
+**ALWAYS update the task specification (`process/tasks/<task-id>-<task-name>.md`) directly with:**
+- Implementation progress
+- Test results
+- Design decisions
+- Problem findings
+- Solution implementations
+- Verification outcomes
+
+**Rationale**: The task specification is the single source of truth for all task-related information. Creating separate summary/progress documents leads to documentation fragmentation and makes it harder to track the complete task history.
 
 ### 4. Development Phase
 

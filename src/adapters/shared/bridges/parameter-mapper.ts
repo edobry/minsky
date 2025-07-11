@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { CommandParameterDefinition } from "../command-registry";
 import { paramNameToFlag } from "../schema-bridge";
 import { getErrorMessage } from "../../../errors/index";
+import { formatZodError } from "../../../utils/zod-error-formatter";
 
 /**
  * Configuration options for parameter mapping
@@ -36,7 +37,7 @@ export interface ParameterMappingOptions {
 }
 
 /**
- * Maps a parameter name to Commander options with additional config
+ * Represents a parameter mapping with its definition and options
  */
 export interface ParameterMapping {
   name: string;
@@ -45,38 +46,36 @@ export interface ParameterMapping {
 }
 
 /**
- * Creates an array of Command Option objects from parameter mappings
+ * Creates Commander.js options from parameter mappings
  */
 export function createOptionsFromMappings(mappings: ParameterMapping[]): Option[] {
-  return ((mappings as any).filter((mapping) => !mapping.options.asArgument) as any).map(createOptionFromMapping);
+  return mappings.filter((mapping) => !(mapping.options as any).asArgument).map(createOptionFromMapping);
 }
 
 /**
- * Adds arguments to a command from parameter mappings
+ * Adds Commander.js arguments from parameter mappings
  */
 export function addArgumentsFromMappings(command: Command, mappings: ParameterMapping[]): Command {
-  ((mappings as any).filter((mapping) => mapping.options.asArgument)
-    .sort((a, b) => {
-      // Required arguments come first
-      if (a.paramDef.required && !b.paramDef.required) return -1;
-      if (!a.paramDef.required && b.paramDef.required) return 1;
-      return 0;
-    }) as any).forEach((mapping) => {
-    // Schema type not needed for arguments, only for options
+  const argumentMappings = mappings.filter((mapping) => (mapping.options as any).asArgument);
 
-    // Format the argument name
-    const argName = formatArgumentName(
-      (mapping as any).name,
-      (mapping.paramDef as any).required,
-      (mapping.options as any).variadic
-    );
+  argumentMappings.forEach((mapping) => {
+    const { name, paramDef, options } = mapping;
 
-    // Add the argument to the command
-    command.argument(
-      argName,
-      (mapping.options as any).description || (mapping.paramDef as any).description || "",
-      (mapping.options as any).parser
-    );
+    // Format argument name
+    const argName = formatArgumentName(name, (paramDef as any).required, (options as any).variadic);
+
+    // Add argument to command
+    if ((options as any).variadic) {
+      command.argument(argName, (options as any).description || (paramDef as any).description || "");
+    } else {
+      command.argument(argName, (options as any).description || (paramDef as any).description || "");
+    }
+
+    // Add custom parser if provided
+    if ((options as any).parser) {
+      // Note: Commander.js doesn't have a direct way to add parsers to arguments
+      // This would need to be handled in the action function
+    }
   });
 
   return command;
@@ -270,7 +269,13 @@ export function normalizeCliParameters(
         const parsedValue = (paramDef.schema as any).parse(rawValue);
         (result as any)[paramName] = parsedValue;
       } catch (error) {
-        throw new Error(`Invalid value for parameter '${paramName}': ${getErrorMessage(error as any)}`);
+        // Use user-friendly error formatting for Zod validation errors
+        if (error instanceof z.ZodError) {
+          const userFriendlyMessage = formatZodError(error, paramName);
+          throw new Error(`Invalid value for parameter '${paramName}': ${userFriendlyMessage}`);
+        } else {
+          throw new Error(`Invalid value for parameter '${paramName}': ${getErrorMessage(error as any)}`);
+        }
       }
     }
   }

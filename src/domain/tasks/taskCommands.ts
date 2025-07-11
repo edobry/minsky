@@ -18,6 +18,7 @@ import { readFile } from "fs/promises";
 import { 
   createTaskIdParsingErrorMessage 
 } from "../../errors/enhanced-error-templates.js";
+import { createFormattedValidationError } from "../../utils/zod-error-formatter.js";
 // Re-export task data types
 export type {} from "../../types/tasks/taskData.js";
 
