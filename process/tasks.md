@@ -490,4 +490,4 @@
 
 - [ ] Restructure and improve test architecture for clarity and maintainability [#269](process/tasks/269-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
 
-- [ ] Restructure and improve test architecture for clarity and maintainability [#270](/Users/edobry/Projects/minsky/process/tasks/270-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
+- [ ] Restructure and improve test architecture for clarity and maintainability [#270](process/tasks/270-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
