@@ -485,3 +485,9 @@
 - [ ] Investigate Enhanced Storage Backend Factory Redundancy [#266](process/tasks/266-investigate-enhanced-storage-backend-factory-redundancy.md)
 
 - [x] Integrate logger with configuration system to eliminate process.env access [#267](process/tasks/267-integrate-logger-with-configuration-system-to-eliminate-process-env-access.md)
+
+- [ ] Complete AST-Only Codemod Framework Development [#268](process/tasks/268-complete-ast-only-codemod-framework-development.md)
+
+- [ ] Restructure and improve test architecture for clarity and maintainability [#269](process/tasks/269-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
+
+- [ ] Restructure and improve test architecture for clarity and maintainability [#270](/Users/edobry/Projects/minsky/process/tasks/270-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
