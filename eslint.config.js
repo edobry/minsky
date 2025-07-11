@@ -8,8 +8,12 @@ export default [
   js.configs.recommended,
   {
     ignores: [
+      // Exclude dependencies and build artifacts
+      "node_modules/**",
       // Exclude codemod scripts from linting
       "codemods/**",
+      // Exclude source files copied from main workspace
+      "src/**",
       // Exclude other development/temporary files
       "test-tmp/**",
       "test-analysis/**",
