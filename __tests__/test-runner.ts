@@ -37,7 +37,7 @@ class ConsolidatedUtilityTestRunner {
     try {
       const files = readdirSync(this.testDir);
       return files
-        .filter(file => file.endsWith('.test.ts'))
+        .filter(file => file.endsWith(".test.ts"))
         .map(file => join(this.testDir, file));
     } catch (error) {
       console.error("❌ Error finding test files:", error);
@@ -46,29 +46,29 @@ class ConsolidatedUtilityTestRunner {
   }
 
   private async runTestFile(testFile: string): Promise<void> {
-    const testName = testFile.split('/').pop()?.replace('.test.ts', '') || 'unknown';
+    const testName = testFile.split("/").pop()?.replace(".test.ts", "") || "unknown";
     const startTime = Date.now();
 
     console.log(`\n🔍 Running ${testName} tests...`);
 
     return new Promise((resolve) => {
-      const testProcess = spawn('bun', ['test', testFile], {
-        stdio: 'pipe',
-        cwd: join(__dirname, '../..')
+      const testProcess = spawn("bun", ["test", testFile], {
+        stdio: "pipe",
+        cwd: join(__dirname, "../..")
       });
 
-      let output = '';
-      let errorOutput = '';
+      let output = "";
+      let errorOutput = "";
 
-      testProcess.stdout.on('data', (data) => {
+      testProcess.stdout.on("data", (data) => {
         output += data.toString();
       });
 
-      testProcess.stderr.on('data', (data) => {
+      testProcess.stderr.on("data", (data) => {
         errorOutput += data.toString();
       });
 
-      testProcess.on('close', (code) => {
+      testProcess.on("close", (code) => {
         const duration = Date.now() - startTime;
         const passed = code === 0;
 
@@ -85,19 +85,19 @@ class ConsolidatedUtilityTestRunner {
         } else {
           console.log(`❌ ${testName} - FAILED (${duration}ms)`);
           if (errorOutput.trim()) {
-            console.log(`   Error: ${errorOutput.trim().split('\n')[0]}`);
+            console.log(`   Error: ${errorOutput.trim().split("\n")[0]}`);
           }
         }
 
         resolve();
       });
 
-      testProcess.on('error', (error) => {
+      testProcess.on("error", (error) => {
         const duration = Date.now() - startTime;
         this.results.push({
           name: testName,
           passed: false,
-          output: '',
+          output: "",
           error: error.message,
           duration
         });
@@ -110,7 +110,7 @@ class ConsolidatedUtilityTestRunner {
   }
 
   private printSummary(): void {
-    console.log("\n" + "=" .repeat(50));
+    console.log(`\n${  "=" .repeat(50)}`);
     console.log("📊 TEST SUMMARY");
     console.log("=" .repeat(50));
 
@@ -146,7 +146,7 @@ class ConsolidatedUtilityTestRunner {
       console.log(`   ${status} ${result.name} (${result.duration}ms)`);
     });
 
-    console.log("\n" + "=" .repeat(50));
+    console.log(`\n${  "=" .repeat(50)}`);
     
     if (passedTests === totalTests) {
       console.log("🎉 All tests passed! Consolidated utilities are working correctly.");

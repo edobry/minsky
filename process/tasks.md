@@ -492,8 +492,4 @@
 
 - [ ] Restructure and improve test architecture for clarity and maintainability [#270](process/tasks/270-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
 
-- [ ] Complete configuration system standardization and cleanup [#244](process/tasks/244-complete-configuration-system-standardization-and-cleanup.md)
-
-- [ ] Find and Fix All Unsafe Type Casts (as any) in Codebase [#245](process/tasks/245-find-and-fix-all-unsafe-type-casts-as-any-in-codebase.md)
-
 - [ ] Find and Fix All Unsafe Type Casts (as any) in Codebase [#271](process/tasks/271-find-and-fix-all-unsafe-type-casts-as-any-in-codebase.md)
