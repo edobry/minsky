@@ -25,26 +25,41 @@ export enum LogMode {
 }
 
 /**
- * Get logger configuration from config system with fallback to environment variables
- * This maintains backward compatibility while using the configuration system
+ * Get logger configuration from environment variables first, then config system
+ * This prevents early initialization of node-config which can cause warnings
  */
 function getLoggerConfig(): LoggerConfig {
+  // First try environment variables to avoid early node-config initialization
+  const envMode = (process.env.MINSKY_LOG_MODE as any) || null;
+  const envLevel = (process.env.LOGLEVEL as any) || null;
+  const envAgentLogs = (process.env.ENABLE_AGENT_LOGS as any) === "true";
+
+  // If we have all config from environment, use it
+  if (envMode && envLevel) {
+    return {
+      mode: envMode,
+      level: envLevel,
+      enableAgentLogs: envAgentLogs,
+    };
+  }
+
+  // Otherwise try config system with fallback to environment/defaults
   let loggerConfig: LoggerConfig;
 
   try {
     // Try to get configuration from the config system
     loggerConfig = {
-      mode: config.has("logger.mode") ? config.get("logger.mode") : "auto",
-      level: config.has("logger.level") ? config.get("logger.level") : "info",
-      enableAgentLogs: config.has("logger.enableAgentLogs") ? config.get("logger.enableAgentLogs") : false,
+      mode: config.has("logger.mode") ? config.get("logger.mode") : (envMode || "auto"),
+      level: config.has("logger.level") ? config.get("logger.level") : (envLevel || "info"),
+      enableAgentLogs: config.has("logger.enableAgentLogs") ? config.get("logger.enableAgentLogs") : envAgentLogs,
     };
   } catch (error) {
     // Fallback to environment variables if config system is unavailable
     // This ensures the logger works even during early initialization
     loggerConfig = {
-      mode: (process.env.MINSKY_LOG_MODE as any) || "auto",
-      level: (process.env.LOGLEVEL as any) || "info",
-      enableAgentLogs: (process.env.ENABLE_AGENT_LOGS as any) === "true",
+      mode: envMode || "auto",
+      level: envLevel || "info",
+      enableAgentLogs: envAgentLogs,
     };
   }
 
@@ -62,7 +77,7 @@ function getLoggerConfig(): LoggerConfig {
  */
 export function getLogMode(configOverride?: LoggerConfig): LogMode {
   const config = configOverride || getLoggerConfig();
-  
+
   // If explicitly set via configuration, respect that
   if (config.mode === "STRUCTURED") {
     return LogMode.STRUCTURED;

@@ -314,7 +314,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   getTaskSpecPath(taskId: string, title: string): string {
-    return getTaskSpecFilePath(taskId, title, this.workspacePath);
+    return getTaskSpecRelativePath(taskId, title, this.workspacePath);
   }
 
   async fileExists(path: string): Promise<boolean> {
