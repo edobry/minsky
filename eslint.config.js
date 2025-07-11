@@ -14,6 +14,23 @@ export default [
       "test-tmp/**",
       "test-analysis/**",
       "test-verification/**",
+      // Exclude vendor modules and generated files
+      "node_modules/**",
+      "build/**",
+      "dist/**",
+      "vendor/**",
+      "*.min.js",
+      "*.bundle.js",
+      // Exclude generated TypeScript files
+      "**/*.d.ts",
+      "**/*.js.map",
+      "**/*.ts.map",
+      // Exclude backup and temporary directories
+      ".task-migration-backup/**",
+      "session-backups/**",
+      "backups/**",
+      "*.backup",
+      "*.tmp",
     ],
   },
   {
@@ -76,28 +93,28 @@ export default [
       "no-useless-catch": "error", // Catches pointless try/catch blocks
       "no-var": "error", // Prevents var hoisting issues
       "prefer-template": "error", // Prevents string concatenation bugs
-      
+
       // === VARIABLE NAMING RULES ===
       "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
-      
+
       // === STYLE RULES (DISABLED FOR NOW) ===
       "@typescript-eslint/no-explicit-any": "off", // Disabled - style preference
       "@typescript-eslint/no-unused-vars": "off", // Disabled - too noisy
       "no-unused-vars": "off", // Disabled - duplicate of above + too noisy
       "no-magic-numbers": "off", // Disabled - style preference
       "no-console": "off", // Disabled - useful for debugging
-      
+
       // === TYPESCRIPT SPECIFIC ===
       "@typescript-eslint/explicit-function-return-type": "off",
       "@typescript-eslint/ban-types": "off",
       "no-undef": "off", // TypeScript handles this better
-      
+
       // === FORMATTING (KEEP MINIMAL) ===
       indent: ["error", 2],
       "linebreak-style": ["error", "unix"],
       quotes: ["error", "double"],
       semi: ["error", "always"],
-      
+
       // === OTHER ===
       "prefer-const": "off",
       "max-lines": "off",
