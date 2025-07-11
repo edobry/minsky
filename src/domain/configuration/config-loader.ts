@@ -153,93 +153,93 @@ export class ConfigurationLoader {
 
     // Start with defaults
     const resolved: ResolvedConfig = {
-      backend: (defaults as any).backend || "json-file",
-      backendConfig: { ...(defaults as any).backendConfig },
-      detectionRules: [...((defaults as any).detectionRules || [])],
+      backend: defaults.backend || "json-file",
+      backendConfig: { ...defaults.backendConfig },
+      detectionRules: [...(defaults.detectionRules || [])],
       sessiondb: defaultSessionDb,
     };
 
     // Apply repository config
     if (repository) {
-      if ((repository.backends as any).default) {
-        (resolved as any).backend = (repository.backends as any).default;
+      if (repository.backends?.default) {
+        resolved.backend = repository.backends.default;
       }
 
       // Merge backend-specific configs
-      if ((repository as any).backends) {
-        (resolved as any).backendConfig = this.mergeBackendConfig(
-          (resolved as any).backendConfig,
-          (repository as any).backends
+      if (repository.backends) {
+        resolved.backendConfig = this.mergeBackendConfig(
+          resolved.backendConfig,
+          repository.backends
         );
       }
 
       // Use repository detection rules if available
-      if ((repository.repository as any).detection_rules) {
-        (resolved as any).detectionRules = (repository.repository as any).detection_rules;
+      if (repository.repository?.detection_rules) {
+        resolved.detectionRules = repository.repository.detection_rules;
       }
 
       // Merge sessiondb config from repository
-      if ((repository as any).sessiondb) {
+      if (repository.sessiondb) {
         // Convert repository sessiondb format to SessionDbConfig format
         const repoSessionDb: Partial<SessionDbConfig> = {
-          backend: (repository.sessiondb as any).backend,
-          dbPath: (repository?.sessiondb?.sqlite as any).path,
-          baseDir: (repository.sessiondb as any).base_dir,
-          connectionString: (repository?.sessiondb?.postgres as any).connection_string,
+          backend: repository.sessiondb.backend,
+          dbPath: repository.sessiondb.sqlite?.path,
+          baseDir: repository.sessiondb.base_dir,
+          connectionString: repository.sessiondb.postgres?.connection_string,
         };
-        (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, repoSessionDb);
+        resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, repoSessionDb);
       }
 
       // Merge GitHub config from repository
-      if ((repository as any).github) {
-        (resolved as any).github = this.mergeGitHubConfig((resolved as any).github, (repository as any).github);
+      if (repository.github) {
+        resolved.github = this.mergeGitHubConfig(resolved.github, repository.github);
       }
 
       // Merge AI config from repository
-      if ((repository as any).ai) {
-        (resolved as any).ai = this.mergeAIConfig((resolved as any).ai, (repository as any).ai);
+      if (repository.ai) {
+        resolved.ai = this.mergeAIConfig(resolved.ai, repository.ai);
       }
     }
 
     // Apply global user config
-    if (globalUser && (globalUser as any).github) {
-      (resolved as any).github = this.mergeGitHubConfig((resolved as any).github, (globalUser as any).github);
+    if (globalUser?.github) {
+      resolved.github = this.mergeGitHubConfig(resolved.github, globalUser.github);
     }
-    if (globalUser && globalUser.sessiondb) {
+    if (globalUser?.sessiondb) {
       // Convert global user sessiondb format to SessionDbConfig format
       const globalSessionDb: Partial<SessionDbConfig> = {
-        dbPath: globalUser?.sessiondb?.sqlite?.path,
+        dbPath: globalUser.sessiondb.sqlite?.path,
         baseDir: globalUser.sessiondb.base_dir,
       };
-      (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, globalSessionDb);
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, globalSessionDb);
     }
-    if (globalUser && (globalUser as any).ai) {
-      (resolved as any).ai = this.mergeAIConfig((resolved as any).ai, (globalUser as any).ai);
+    if (globalUser?.ai) {
+      resolved.ai = this.mergeAIConfig(resolved.ai, globalUser.ai);
     }
-    if (globalUser && (globalUser as any).postgres) {
-      (resolved as any).postgres = { ...(globalUser as any).postgres };
+    if (globalUser?.postgres) {
+      resolved.postgres = { ...globalUser.postgres };
     }
 
     // Apply environment overrides
-    if ((environment as any).backend) {
-      (resolved as any).backend = (environment as any).backend;
+    if (environment.backend) {
+      resolved.backend = environment.backend;
     }
-    if ((environment as any).github) {
-      (resolved as any).github = this.mergeGitHubConfig((resolved as any).github, (environment as any).github);
+    if (environment.github) {
+      resolved.github = this.mergeGitHubConfig(resolved.github, environment.github);
     }
-    if ((environment as any).sessiondb) {
-      (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, (environment as any).sessiondb);
+    if (environment.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, environment.sessiondb);
     }
 
     // Apply CLI flags (highest priority)
     if (cliFlags.backend) {
-      (resolved as any).backend = cliFlags.backend;
+      resolved.backend = cliFlags.backend;
     }
     if (cliFlags.github) {
-      (resolved as any).github = this.mergeGitHubConfig((resolved as any).github, cliFlags.github);
+      resolved.github = this.mergeGitHubConfig(resolved.github, cliFlags.github);
     }
     if (cliFlags.sessiondb) {
-      (resolved as any).sessiondb = this.mergeSessionDbConfig((resolved as any).sessiondb, cliFlags.sessiondb);
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, cliFlags.sessiondb);
     }
 
     return resolved;
@@ -272,11 +272,11 @@ export class ConfigurationLoader {
     newGitHub: GitHubConfig
   ): GitHubConfig {
     const merged = { ...existing };
-    
-    if ((newGitHub as any).credentials) {
-      (merged as any).credentials = {
-        ...(merged as any).credentials,
-        ...(newGitHub as any).credentials,
+
+    if (newGitHub.credentials) {
+      merged.credentials = {
+        ...merged.credentials,
+        ...newGitHub.credentials,
       };
     }
 
@@ -291,15 +291,15 @@ export class ConfigurationLoader {
     newAI: AIConfig
   ): AIConfig {
     const merged = { ...existing };
-    
-    if ((newAI as any).default_provider) {
-      (merged as any).default_provider = (newAI as any).default_provider;
+
+    if (newAI.default_provider) {
+      merged.default_provider = newAI.default_provider;
     }
 
-    if ((newAI as any).providers) {
-      (merged as any).providers = {
-        ...(merged as any).providers,
-        ...(newAI as any).providers,
+    if (newAI.providers) {
+      merged.providers = {
+        ...merged.providers,
+        ...newAI.providers,
       };
     }
 
@@ -315,12 +315,12 @@ export class ConfigurationLoader {
   ): SessionDbConfig {
     // Provide a sensible default baseDir if none is configured
     const defaultBaseDir = join(homedir(), ".local", "state", "minsky", "sessions");
-    
+
     // Filter out undefined values from newSessionDb to prevent overwriting defaults
     const filteredNewSessionDb = Object.fromEntries(
       Object.entries(newSessionDb).filter(([key, value]) => value !== undefined)
     );
-    
+
     const merged: SessionDbConfig = {
       backend: "json",
       baseDir: defaultBaseDir,
