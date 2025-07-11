@@ -23,12 +23,13 @@ import { log } from "../../utils/logger";
 import { TASK_STATUS, TaskStatus } from "./taskConstants.js";
 
 // Import additional types needed for interface implementation
-import type { 
-  Task, 
-  TaskListOptions, 
-  CreateTaskOptions, 
-  DeleteTaskOptions 
+import type {
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions
 } from "../tasks.js";
+import { getTaskSpecRelativePath } from "./taskIO";
 
 /**
  * Configuration for GitHubIssuesTaskBackend
@@ -410,9 +411,7 @@ ${((issue.labels as any).map((label) => `- ${typeof label === "string" ? label :
   }
 
   getTaskSpecPath(taskId: string, title: string): string {
-    const id = taskId.startsWith("#") ? (taskId as any).slice(1) : taskId;
-    const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
-    return join("process", "tasks", `${id}-${normalizedTitle}.md`);
+    return getTaskSpecRelativePath(taskId, title, this.workspacePath);
   }
 
   async fileExists(_path: string): Promise<boolean> {
@@ -489,7 +488,7 @@ ${((issue.labels as any).map((label) => `- ${typeof label === "string" ? label :
       if (!result.success || !result.content) {
         return [];
       }
-      
+
       const taskDataList = this.parseTasks(result.content);
       return taskDataList.map(taskData => ({
         id: taskData.id,
@@ -579,7 +578,7 @@ ${((issue.labels as any).map((label) => `- ${typeof label === "string" ? label :
 
       // Parse the spec
       const spec = this.parseTaskSpec(result.content);
-      
+
       // Create a new issue in GitHub
       const response = await this.octokit.rest.issues.create({
         owner: this.owner,

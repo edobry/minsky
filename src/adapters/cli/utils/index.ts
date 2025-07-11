@@ -100,10 +100,13 @@ export function handleCliError(error: any, options: { debug?: boolean } = {}): v
 
   // Set appropriate exit code based on error type
   if ((err as any)?.name === "ValidationError") {
-    (process as any)?.exitCode = 2;
+    // @ts-expect-error - Bun environment compatibility
+    process.exitCode = 2;
   } else if ((err as any)?.name === "NotFoundError") {
-    (process as any)?.exitCode = 4;
+    // @ts-expect-error - Bun environment compatibility
+    process.exitCode = 4;
   } else {
-    (process as any)?.exitCode = 1;
+    // @ts-expect-error - Bun environment compatibility
+    process.exitCode = 1;
   }
 }

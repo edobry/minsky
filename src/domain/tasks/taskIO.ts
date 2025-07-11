@@ -233,3 +233,33 @@ export function getTaskSpecFilePath(
   const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
   return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
 }
+
+/**
+ * Get task spec path relative to workspace root, context-aware
+ * This function returns the correct relative path based on whether the workspace
+ * is already within the process directory or not
+ * @param taskId Task ID (with or without # prefix)
+ * @param title Task title
+ * @param workspacePath Workspace path
+ * @returns Relative path to the task spec file
+ */
+export function getTaskSpecRelativePath(
+  taskId: string,
+  title: string,
+  workspacePath: string
+): string {
+  const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
+  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+  // Check if workspace path already ends with 'process' or contains 'process' in path
+  const workspaceEndsWithProcess = workspacePath.endsWith("process") ||
+                                   workspacePath.endsWith("process/");
+
+  if (workspaceEndsWithProcess) {
+    // If we're already in the process directory, don't add the process prefix
+    return join("tasks", `${taskIdNum}-${normalizedTitle}.md`);
+  } else {
+    // If we're in the root workspace, add the process prefix
+    return join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
+  }
+}
