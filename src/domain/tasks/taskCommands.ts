@@ -15,8 +15,8 @@ import {
 import { normalizeTaskId } from "./taskFunctions.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
 import { readFile } from "fs/promises";
-import { 
-  createTaskIdParsingErrorMessage 
+import {
+  createTaskIdParsingErrorMessage
 } from "../../errors/enhanced-error-templates.js";
 import { createFormattedValidationError } from "../../utils/zod-error-formatter.js";
 // Re-export task data types
@@ -74,10 +74,10 @@ export async function listTasksFromParams(
     // Get the main workspace path (always resolves to main workspace, not session)
     const workspacePath = await (deps as any).resolveMainWorkspacePath();
 
-    // Create task service
+    // Create task service with explicit backend to avoid configuration issues
     const taskService = await (deps as any).createTaskService({
       workspacePath,
-      backend: validParams.backend,
+      backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
     });
 
     // Get tasks
@@ -89,7 +89,7 @@ export async function listTasksFromParams(
     } else {
       // Unless "all" is provided, filter out DONE and CLOSED tasks
       if (!validParams.all) {
-        tasks = tasks.filter((task: any) => 
+        tasks = tasks.filter((task: any) =>
           (task as any).status !== TASK_STATUS.DONE && (task as any).status !== TASK_STATUS.CLOSED
         );
       }
@@ -149,10 +149,10 @@ export async function getTaskFromParams(
     // Then get the workspace path (main repo or session's main workspace)
     const workspacePath = await (deps as any).resolveMainWorkspacePath();
 
-    // Create task service
+    // Create task service with explicit backend to avoid configuration issues
     const taskService = await (deps as any).createTaskService({
       workspacePath,
-      backend: validParams.backend,
+      backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
     });
 
     // Get the task
@@ -294,10 +294,10 @@ export async function setTaskStatusFromParams(
     // Then get the workspace path (main repo or session's main workspace)
     const workspacePath = await (deps as any).resolveMainWorkspacePath();
 
-    // Create task service
+    // Create task service with explicit backend to avoid configuration issues
     const taskService = await (deps as any).createTaskService({
       workspacePath,
-      backend: validParams.backend,
+      backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
     });
 
     // Verify the task exists before setting status
