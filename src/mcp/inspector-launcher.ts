@@ -146,7 +146,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     });
 
     (inspectorProcess.stderr as any).on("data", (data) => {
-      log.error(`MCP Inspector stderr: ${(data as any).toString()}`);
+      log.error(`MCP Inspector stderr: ${(data as any)!.toString()}`);
     });
 
     (inspectorProcess as any).on("exit", (code, signal) => {

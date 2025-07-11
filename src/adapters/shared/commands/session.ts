@@ -386,8 +386,8 @@ export function registerSessionCommands(): void {
 
       try {
         const sessions = await listSessionsFromParams({
-          repo: params.repo,
-          json: params.json,
+          repo: params!.repo,
+          json: params!.json,
         });
 
         return {
@@ -396,7 +396,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to list sessions", {
-          error: getErrorMessage(error),
+          error: getErrorMessage(error as Error),
         });
         throw error;
       }
@@ -415,14 +415,14 @@ export function registerSessionCommands(): void {
 
       try {
         const session = await getSessionFromParams({
-          name: params.name,
-          task: params.task,
-          repo: params.repo,
-          json: params.json,
+          name: params!.name,
+          task: params!.task,
+          repo: params!.repo,
+          json: params!.json,
         });
 
         if (!session) {
-          const identifier = params.name || `task #${params.task}`;
+          const identifier = params!.name || `task #${params!.task}`;
           throw new Error(`Session '${identifier}' not found`);
         }
 
@@ -432,9 +432,9 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to get session", {
-          error: getErrorMessage(error),
-          session: params.name,
-          task: params.task,
+          error: getErrorMessage(error as Error),
+          session: params!.name,
+          task: params!.task,
         });
         throw error;
       }
@@ -452,7 +452,7 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.start command", { params, context });
 
       // Phase 2: Validate that task association is provided
-      if (!params.task && !params.description) {
+      if (!params!.task && !params!.description) {
         throw new Error(`Task association is required for proper tracking.
 Please provide one of:
   --task <id>           Associate with existing task
@@ -465,17 +465,17 @@ Examples:
 
       try {
         const session = await startSessionFromParams({
-          name: params.name,
-          task: params.task,
-          description: params.description,
-          branch: params.branch,
-          repo: params.repo,
-          session: params.session,
-          json: params.json,
-          quiet: params.quiet,
-          noStatusUpdate: params.noStatusUpdate,
-          skipInstall: params.skipInstall,
-          packageManager: params.packageManager,
+          name: params!.name,
+          task: params!.task,
+          description: params!.description,
+          branch: params!.branch,
+          repo: params!.repo,
+          session: params!.session,
+          json: params!.json,
+          quiet: params!.quiet,
+          noStatusUpdate: params!.noStatusUpdate,
+          skipInstall: params!.skipInstall,
+          packageManager: params!.packageManager,
         });
 
         return {
@@ -484,9 +484,9 @@ Examples:
         };
       } catch (error) {
         log.error("Failed to start session", {
-          error: getErrorMessage(error),
-          session: params.name,
-          task: params.task,
+          error: getErrorMessage(error as Error),
+          session: params!.name,
+          task: params!.task,
         });
         throw error;
       }
@@ -505,10 +505,10 @@ Examples:
 
       try {
         const directory = await getSessionDirFromParams({
-          name: params.name,
-          task: params.task,
-          repo: params.repo,
-          json: params.json,
+          name: params!.name,
+          task: params!.task,
+          repo: params!.repo,
+          json: params!.json,
         });
 
         return {
@@ -517,9 +517,9 @@ Examples:
         };
       } catch (error) {
         log.error("Failed to get session directory", {
-          error: getErrorMessage(error),
-          session: params.name,
-          task: params.task,
+          error: getErrorMessage(error as Error),
+          session: params!.name,
+          task: params!.task,
         });
         throw error;
       }
@@ -538,21 +538,21 @@ Examples:
 
       try {
         const deleted = await deleteSessionFromParams({
-          name: params.name,
-          task: params.task,
-          force: params.force,
-          repo: params.repo,
-          json: params.json,
+          name: params!.name,
+          task: params!.task,
+          force: params!.force,
+          repo: params!.repo,
+          json: params!.json,
         });
 
         return {
           success: deleted,
-          session: params.name || params.task,
+          session: params!.name || params!.task,
         };
       } catch (error) {
         log.error("Failed to delete session", {
-          error: getErrorMessage(error),
-          session: params.name || params.task,
+          error: getErrorMessage(error as Error),
+          session: params!.name || params!.task,
         });
         throw error;
       }
@@ -571,28 +571,28 @@ Examples:
 
       try {
         await updateSessionFromParams({
-          name: params.name,
-          task: params.task,
-          repo: params.repo,
-          branch: params.branch,
-          noStash: params.noStash,
-          noPush: params.noPush,
-          force: params.force,
-          json: params.json,
-          skipConflictCheck: params.skipConflictCheck,
-          autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-          dryRun: params.dryRun,
-          skipIfAlreadyMerged: params.skipIfAlreadyMerged,
+          name: params!.name,
+          task: params!.task,
+          repo: params!.repo,
+          branch: params!.branch,
+          noStash: params!.noStash,
+          noPush: params!.noPush,
+          force: params!.force,
+          json: params!.json,
+          skipConflictCheck: params!.skipConflictCheck,
+          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
+          dryRun: params!.dryRun,
+          skipIfAlreadyMerged: params!.skipIfAlreadyMerged,
         });
 
         return {
           success: true,
-          session: params.name || params.task,
+          session: params!.name || params!.task,
         };
       } catch (error) {
         log.error("Failed to update session", {
-          error: getErrorMessage(error),
-          session: params.name || params.task,
+          error: getErrorMessage(error as Error),
+          session: params!.name || params!.task,
         });
         throw error;
       }
@@ -611,10 +611,10 @@ Examples:
 
       try {
         const result = (await approveSessionFromParams({
-          session: params.name,
-          task: params.task,
-          repo: params.repo,
-          json: params.json,
+          session: params!.name,
+          task: params!.task,
+          repo: params!.repo,
+          json: params!.json,
         })) as any;
 
         return {
@@ -623,9 +623,9 @@ Examples:
         };
       } catch (error) {
         log.error("Failed to approve session", {
-          error: getErrorMessage(error),
-          session: params.name,
-          task: params.task,
+          error: getErrorMessage(error as Error),
+          session: params!.name,
+          task: params!.task,
         });
         throw error;
       }
@@ -643,7 +643,7 @@ Examples:
       log.debug("Executing session.pr command", { params, context });
 
       // Validate that either body or bodyPath is provided
-      if (!params.body && !params.bodyPath) {
+      if (!params!.body && !params!.bodyPath) {
         throw new Error(`PR description is required for meaningful pull requests.
 Please provide one of:
   --body <text>       Direct PR body text
@@ -656,17 +656,17 @@ Example:
 
       try {
         const result = (await sessionPrFromParams({
-          title: params.title,
-          body: params.body,
-          bodyPath: params.bodyPath,
-          session: params.name,
-          task: params.task,
-          repo: params.repo,
-          noStatusUpdate: params.noStatusUpdate,
-          debug: params.debug,
-          skipUpdate: params.skipUpdate,
-          autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-          skipConflictCheck: params.skipConflictCheck,
+          title: params!.title,
+          body: params!.body,
+          bodyPath: params!.bodyPath,
+          session: params!.name,
+          task: params!.task,
+          repo: params!.repo,
+          noStatusUpdate: params!.noStatusUpdate,
+          debug: params!.debug,
+          skipUpdate: params!.skipUpdate,
+          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
+          skipConflictCheck: params!.skipConflictCheck,
         })) as any;
 
         return {
@@ -675,7 +675,7 @@ Example:
         };
       } catch (error) {
         // Instead of just logging and rethrowing, provide user-friendly error messages
-        const errorMessage = getErrorMessage(error);
+        const errorMessage = getErrorMessage(error as Error);
 
         // Handle specific error types with friendly messages
         if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
@@ -726,7 +726,7 @@ Technical details: ${errorMessage}`
           throw new MinskyError(
             `🔍 Session not found.
 
-The session '${params.name || params.task}' could not be located.
+The session '${params!.name || params!.task}' could not be located.
 
 💡 Try:
 • Check available sessions: minsky session list
@@ -774,7 +774,7 @@ Need help? Run the command with --debug for detailed error information.`
 
       try {
         const session = await inspectSessionFromParams({
-          json: params.json,
+          json: params!.json,
         });
 
         return {
@@ -783,7 +783,7 @@ Need help? Run the command with --debug for detailed error information.`
         };
       } catch (error) {
         log.error("Failed to inspect session", {
-          error: getErrorMessage(error),
+          error: getErrorMessage(error as Error),
         });
         throw error;
       }

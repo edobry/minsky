@@ -37,8 +37,8 @@ export class PortInUseError extends NetworkError {
    * Get suggested actions for resolving this error
    */
   getSuggestions(): string[] {
-    const nextPort = this.port ? this.port + 1 : ALTERNATIVE_HTTP_PORT;
-    const currentPort = this.port || DEFAULT_DEV_PORT;
+    const nextPort = this?.port ? this?.port + 1 : ALTERNATIVE_HTTP_PORT;
+    const currentPort = this?.port || DEFAULT_DEV_PORT;
 
     return [
       `Use a different port: minsky mcp start --sse --port ${nextPort}`,
@@ -84,7 +84,7 @@ export function createNetworkError(
   const originalError = error instanceof Error ? error : new Error(String(error as any));
 
   // Check for specific error types
-  const errorCode = (originalError as any).code || "";
+  const errorCode = (originalError as any)?.code || "";
 
   switch (errorCode) {
   case "EADDRINUSE":
@@ -115,7 +115,7 @@ export function isNetworkError(error: any): boolean {
     "EHOSTUNREACH",
   ];
 
-  return (networkErrorCodes as any).includes((error as any).code || "");
+  return (networkErrorCodes as any).includes((error as any)?.code || "");
 }
 
 /**

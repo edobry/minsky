@@ -14,8 +14,8 @@ export class FastMCPCommandMapper {
   private projectContext?: ProjectContext;
 
   constructor(server: FastMCP, projectContext?: ProjectContext) {
-    this.server = server;
-    this.projectContext = projectContext;
+    this?.server = server;
+    this?.projectContext = projectContext;
   }
 
   /**
@@ -80,7 +80,7 @@ export class FastMCPCommandMapper {
     (this.server as any).addTool({
       name: (command as any).name,
       description: (command as any).description,
-      parameters: command.inputSchema || z.object({}),
+      parameters: command?.inputSchema || z.object({}),
       execute: async () => ({ success: true }),
     });
   }

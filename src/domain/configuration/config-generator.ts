@@ -32,35 +32,35 @@ export class ConfigurationGenerator {
     const config: RepositoryConfig = {
       version: 1,
       backends: {
-        default: (options as any).backend,
+        default: (options as any)!.backend,
       },
     } as any;
 
     // Add GitHub-specific configuration
-    if ((options as any).backend === "github-issues") {
-      if (!(options as any).githubOwner || !(options as any).githubRepo) {
+    if ((options as any)!.backend === "github-issues") {
+      if (!(options as any)!.githubOwner || !(options as any)!.githubRepo) {
         const errorMessage = createBackendDetectionErrorMessage(
           "github-issues",
           ["markdown", "json-file", "github-issues"] as any[],
           {
             "github-issues": [
-              ...((options as any).githubOwner ? [] : ["GitHub owner"]),
-              ...((options as any).githubRepo ? [] : ["GitHub repository"])
+              ...((options as any)!.githubOwner ? [] : ["GitHub owner"]),
+              ...((options as any)!.githubRepo ? [] : ["GitHub repository"])
             ]
           },
           workingDir
         );
         throw new Error(errorMessage as any);
       }
-      (config as any).backends!["github-issues"] = {
-        owner: (options as any).githubOwner,
-        repo: (options as any).githubRepo,
+      (config as any)!.backends!["github-issues"] = {
+        owner: (options as any)!.githubOwner,
+        repo: (options as any)!.githubRepo,
       };
     }
 
     // Add repository-level settings
-    (config as any).repository = {
-      auto_detect_backend: (options as any).autoDetectBackend ?? true,
+    (config as any)!.repository = {
+      auto_detect_backend: (options as any)!.autoDetectBackend ?? true,
       detection_rules: [
         { condition: "tasks_md_exists", backend: "github-issues" },
         { condition: "tasks_md_exists", backend: "markdown" },
@@ -79,15 +79,15 @@ export class ConfigurationGenerator {
       version: 1,
     };
 
-    if ((options as any).githubToken || (options as any).githubTokenSource) {
-      (config as any).github = {
+    if ((options as any)!.githubToken || (options as any)!.githubTokenSource) {
+      (config as any)!.github = {
         credentials: {
-          source: (options as any).githubTokenSource || "file",
+          source: (options as any)!.githubTokenSource || "file",
         },
       };
 
-      if ((options as any).githubToken && (options as any).githubTokenSource === "file") {
-        (config?.github?.credentials! as any).token = (options as any).githubToken;
+      if ((options as any)!.githubToken && (options as any)!.githubTokenSource === "file") {
+        (config!?.github?.credentials! as any).token = (options as any)!.githubToken;
       }
     }
 
@@ -162,8 +162,8 @@ export class ConfigurationGenerator {
   /**
    * Get the repository configuration file path
    */
-  static getRepositoryConfigPath(__workingDir: string): string {
-    return join(__workingDir, CONFIG_PATHS.REPOSITORY);
+  static getRepositoryConfigPath(workingDir: string): string {
+    return join(workingDir, CONFIG_PATHS.REPOSITORY);
   }
 
   /**
@@ -171,8 +171,8 @@ export class ConfigurationGenerator {
    */
   static getGlobalUserConfigPath(): string {
     const configPath = CONFIG_PATHS.GLOBAL_USER;
-    if ((configPath as any).startsWith("~/")) {
-      return join(homedir(), (configPath as any).slice(2));
+    if ((configPath as any)!.startsWith("~/")) {
+      return join(homedir(), (configPath as any)!.slice(2));
     }
     return configPath;
   }

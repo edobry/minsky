@@ -82,7 +82,7 @@ export async function resolveSessionContext(
     log.debug("Using explicit session name", { session });
     
     // Validate session exists
-    const sessionRecord = await sessionProvider.getSession(session);
+    const sessionRecord = await sessionProvider!.getSession(session);
     if (!sessionRecord) {
       throw new ResourceNotFoundError(
         `Session '${session}' not found`,
@@ -93,7 +93,7 @@ export async function resolveSessionContext(
 
     return {
       sessionName: session,
-      taskId: sessionRecord.taskId,
+      taskId: sessionRecord!.taskId,
       resolvedBy: "explicit-session",
       workingDirectory,
     };
@@ -103,8 +103,8 @@ export async function resolveSessionContext(
   if (task) {
     log.debug("Resolving session from task ID", { task });
     
-    const normalizedTaskId = taskIdSchema.parse(task);
-    const sessionRecord = await sessionProvider.getSessionByTaskId(normalizedTaskId);
+    const normalizedTaskId = taskIdSchema!.parse(task);
+    const sessionRecord = await sessionProvider!.getSessionByTaskId(normalizedTaskId);
     
     if (!sessionRecord) {
       throw new ResourceNotFoundError(
@@ -115,7 +115,7 @@ export async function resolveSessionContext(
     }
 
     return {
-      sessionName: sessionRecord.session,
+      sessionName: sessionRecord!.session,
       taskId: normalizedTaskId,
       resolvedBy: "explicit-task",
       workingDirectory,
@@ -132,17 +132,17 @@ export async function resolveSessionContext(
         sessionDbOverride: sessionProvider,
       });
       
-      if (sessionContext?.sessionId) {
-        const autoDetectionMessage = `Auto-detected session: ${sessionContext.sessionId}`;
+      if (sessionContext!?.sessionId) {
+        const autoDetectionMessage = `Auto-detected session: ${sessionContext!.sessionId}`;
         log.debug("Session auto-detection successful", { 
-          sessionId: sessionContext.sessionId,
-          taskId: sessionContext.taskId,
+          sessionId: sessionContext!.sessionId,
+          taskId: sessionContext!.taskId,
           workingDirectory 
         });
         
         return {
-          sessionName: sessionContext.sessionId,
-          taskId: sessionContext.taskId,
+          sessionName: sessionContext!.sessionId,
+          taskId: sessionContext!.taskId,
           resolvedBy: "auto-detection",
           workingDirectory,
           autoDetectionMessage,
@@ -159,11 +159,11 @@ export async function resolveSessionContext(
         });
         
         // Get task ID from session record
-        const sessionRecord = await sessionProvider.getSession(sessionName);
+        const sessionRecord = await sessionProvider!.getSession(sessionName);
         
         return {
           sessionName,
-          taskId: sessionRecord?.taskId,
+          taskId: sessionRecord!?.taskId,
           resolvedBy: "auto-detection",
           workingDirectory,
           autoDetectionMessage,
@@ -171,7 +171,7 @@ export async function resolveSessionContext(
       }
     } catch (error) {
       log.debug("Session auto-detection failed", { 
-        error: getErrorMessage(error),
+        error: getErrorMessage(error as Error),
         workingDirectory 
       });
     }
@@ -190,7 +190,7 @@ export async function resolveSessionName(
   options: SessionContextOptions = {}
 ): Promise<string> {
   const context = await resolveSessionContext(options);
-  return context.sessionName;
+  return context!.sessionName;
 }
 
 /**
@@ -205,7 +205,7 @@ export async function resolveSessionContextWithFeedback(
   const context = await resolveSessionContext(options);
   
   // Provide user feedback for auto-detection
-  if (context.autoDetectionMessage) {
+  if (context?.autoDetectionMessage) {
     log.cli(context.autoDetectionMessage);
   }
   

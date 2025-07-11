@@ -55,19 +55,19 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
   // Create a complete mock DateConstructor
   const MockDate = function () {
     return new originalDate(fixedDate);
-  } as unknown as DateConstructor;
+  } as unknown as DateConstructor as any;
 
   // Copy all the static methods from the original Date
-  MockDate.now = () => fixedDateTime;
-  MockDate.parse = originalDate.parse;
-  MockDate.UTC = originalDate.UTC;
+  MockDate?.now = () => fixedDateTime;
+  MockDate?.parse = originalDate?.parse;
+  MockDate?.UTC = originalDate?.UTC;
 
   // Replace global Date
-  global.Date = MockDate;
+  global?.Date = MockDate;
 
   // Return function to restore the original Date
   return () => {
-    global.Date = originalDate;
+    global?.Date = originalDate;
   };
 }
 

@@ -26,7 +26,7 @@ export function normalizeTaskId(userInput: string): string | undefined {
   }
 
   // Check if the result is valid (numeric only)
-  if (!/^\d+$/.test(normalizedInput) || (normalizedInput as any).length === 0) {
+  if (!/^\d+$/.test(normalizedInput) || (normalizedInput as any)?.length === 0) {
     return null as any;
   }
 

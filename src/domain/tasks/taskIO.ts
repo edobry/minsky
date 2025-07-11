@@ -225,11 +225,11 @@ export function getTaskSpecsDirectoryPath(workspacePath: string): string {
  * @returns Path to the task spec file
  */
 export function getTaskSpecFilePath(
-  __taskId: string,
+  taskId: string,
   title: string,
   workspacePath: string
 ): string {
-  const taskIdNum = __taskId.startsWith("#") ? (__taskId as any).slice(1) : __taskId;
+  const taskIdNum = taskId!.startsWith("#") ? (taskId as any)!.slice(1) : taskId;
   const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
   return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
 }

@@ -71,7 +71,7 @@ export async function execGitWithTimeout(
     const executionTimeMs = (Date as any).now() - startTime;
 
     // Handle timeout errors with enhanced error messages
-    if ((error as any).killed && (error as any).signal === "SIGTERM") {
+    if ((error as any)?.killed && (error as any)?.signal === "SIGTERM") {
       const errorMessage = createGitTimeoutErrorMessage(
         operation,
         timeout,
@@ -86,7 +86,7 @@ export async function execGitWithTimeout(
     }
 
     // Handle merge conflicts with enhanced error messages
-    if (((error as any).stdout && (error.stdout as any).includes("CONFLICT")) || ((error as any).stderr && (error.stderr as any).includes("CONFLICT"))) {
+    if (((error as any)?.stdout && (error.stdout as any).includes("CONFLICT")) || ((error as any)?.stderr && (error.stderr as any).includes("CONFLICT"))) {
       const conflictFiles = extractConflictFiles((error as any).stdout, (error as any).stderr);
       const conflictTypes = analyzeConflictTypes((error as any).stdout, (error as any).stderr, conflictFiles);
       
@@ -105,7 +105,7 @@ export async function execGitWithTimeout(
     }
 
     // Re-throw other errors with additional context
-    const errorMessage = (error as any).message || "Unknown git command error";
+    const errorMessage = (error as any)?.message || "Unknown git command error";
     const enhancedError = new MinskyError(
       `Git ${operation} failed: ${errorMessage}\n\nCommand: ${fullCommand}\nWorking directory: ${workdir || (process as any).cwd()}\nExecution time: ${executionTimeMs}ms`
     );
@@ -173,7 +173,7 @@ export async function gitCloneWithTimeout(
     {
       ...options,
       context: [
-        ...(options as any).context || [],
+        ...(options as any)!.context || [],
         { label: "Repository URL", value: repoUrl },
         { label: "Target directory", value: targetDir }
       ]
@@ -193,7 +193,7 @@ export async function gitFetchWithTimeout(
     {
       ...options,
       context: [
-        ...(options as any).context || [],
+        ...(options as any)!.context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -213,7 +213,7 @@ export async function gitPushWithTimeout(
     {
       ...options,
       context: [
-        ...(options as any).context || [],
+        ...(options as any)!.context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -233,7 +233,7 @@ export async function gitPullWithTimeout(
     {
       ...options,
       context: [
-        ...(options as any).context || [],
+        ...(options as any)!.context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -251,7 +251,7 @@ export async function gitMergeWithTimeout(
     {
       ...options,
       context: [
-        ...(options as any).context || [],
+        ...(options as any)!.context || [],
         { label: "Branch to merge", value: branch }
       ]
     }

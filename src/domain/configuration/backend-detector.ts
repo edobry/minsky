@@ -20,7 +20,7 @@ export class DefaultBackendDetector implements BackendDetector {
     for (const rule of rules) {
       const matches = await this.checkCondition(workingDir, (rule as any).condition);
       if (matches) {
-        return (rule as any).backend;
+        return (rule as any)!.backend;
       }
     }
 
@@ -55,7 +55,7 @@ export class DefaultBackendDetector implements BackendDetector {
     case "json_file_exists":
       return this.jsonFileExists(workingDir);
     case "tasks_md_exists":
-      return this.tasksMdExists(workingDir);
+      return this!.tasksMdExists(workingDir);
     case "always":
       return true;
     default:

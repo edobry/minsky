@@ -63,7 +63,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         name: ((relativePath as any).split("/") as any).pop() || relativePath,
         path: relativePath,
         type: stats.isDirectory() ? "directory" : "file",
-        size: stats.isFile() ? (stats as any).size : undefined as any,
+        size: stats.isFile() ? (stats as any)?.size : undefined as any,
         lastModified: stats.mtime,
       };
     } catch (error) {
@@ -106,7 +106,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
       
       // Handle file not found
-      if (error instanceof Error && "code" in error && (error as any).code === "ENOENT") {
+      if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
         throw new FileNotFoundError(workspaceDir, relativePath, error as any);
       }
       
@@ -205,7 +205,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
       
       // Handle file not found
-      if (error instanceof Error && "code" in error && (error as any).code === "ENOENT") {
+      if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
         throw new FileNotFoundError(workspaceDir, relativePath, error as any);
       }
       
@@ -261,8 +261,8 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       
       return (fileInfos as any).sort((a, b) => {
         // Sort directories first, then files, then alphabetically
-        if ((a as any).type !== (b as any).type) {
-          return (a as any).type === "directory" ? -1 : 1;
+        if ((a as any)?.type !== (b as any)?.type) {
+          return (a as any)?.type === "directory" ? -1 : 1;
         }
         return (a.name as any).localeCompare((b as any).name);
       });
@@ -272,7 +272,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
       
       // Handle directory not found
-      if (error instanceof Error && "code" in error && (error as any).code === "ENOENT") {
+      if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
         throw new FileNotFoundError(workspaceDir, relativePath || ".", error as any);
       }
       

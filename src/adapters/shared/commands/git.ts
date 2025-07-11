@@ -357,18 +357,18 @@ export function registerGitCommands(): void {
       log.debug("Executing git.commit command", { params });
 
       const result = await commitChangesFromParams({
-        message: params.message,
-        all: params.all,
-        amend: params.amend,
-        noStage: params.noStage,
-        repo: params.repo,
-        session: params.session,
+        message: params!.message,
+        all: params!.all,
+        amend: params!.amend,
+        noStage: params!.noStage,
+        repo: params!.repo,
+        session: params!.session,
       }) as any;
 
       return {
         success: true,
-        commitHash: result.commitHash,
-        message: result.message,
+        commitHash: result!.commitHash,
+        message: result!.message,
       } as any;
     },
   });
@@ -384,16 +384,16 @@ export function registerGitCommands(): void {
       log.debug("Executing git.push command", { params });
 
       const result = await pushFromParams({
-        repo: params.repo,
-        session: params.session,
-        remote: params.remote,
-        force: params.force,
-        debug: params.debug,
+        repo: params!.repo,
+        session: params!.session,
+        remote: params!.remote,
+        force: params!.force,
+        debug: params!.debug,
       }) as any;
 
       return {
-        success: result.pushed,
-        workdir: result.workdir,
+        success: result!.pushed,
+        workdir: result!.workdir,
       } as any;
     },
   });
@@ -409,16 +409,16 @@ export function registerGitCommands(): void {
       log.debug("Executing git.clone command", { params });
 
       const result = await cloneFromParams({
-        url: params.url,
-        workdir: params.destination || ".",
-        session: params.session,
-        branch: params.branch,
+        url: params!.url,
+        workdir: params!.destination || ".",
+        session: params!.session,
+        branch: params!.branch,
       }) as any;
 
       return {
         success: true,
-        workdir: result.workdir,
-        session: result.session,
+        workdir: result!.workdir,
+        session: result!.session,
       } as any;
     },
   });
@@ -434,14 +434,14 @@ export function registerGitCommands(): void {
       log.debug("Executing git.branch command", { params });
 
       const result = await branchFromParams({
-        session: params.session,
-        name: params.name,
+        session: params!.session,
+        name: params!.name,
       }) as any;
 
       return {
         success: true,
-        workdir: result.workdir,
-        branch: result.branch,
+        workdir: result!.workdir,
+        branch: result!.branch,
       } as any;
     },
   });
@@ -457,18 +457,18 @@ export function registerGitCommands(): void {
       log.debug("Executing git.pr command", { params });
 
       const result = await createPullRequestFromParams({
-        session: params.session,
-        repo: params.repo,
-        branch: params.branch,
-        taskId: params.task,
-        debug: params.debug,
-        noStatusUpdate: params.noStatusUpdate,
+        session: params!.session,
+        repo: params!.repo,
+        branch: params!.branch,
+        taskId: params!.task,
+        debug: params!.debug,
+        noStatusUpdate: params!.noStatusUpdate,
       }) as any;
 
       return {
         success: true,
-        markdown: result.markdown,
-        statusUpdateResult: result.statusUpdateResult,
+        markdown: result!.markdown,
+        statusUpdateResult: result!.statusUpdateResult,
       } as any;
     },
   });
@@ -484,18 +484,18 @@ export function registerGitCommands(): void {
       log.debug("Executing git.merge command", { params });
 
       const result = await mergeFromParams({
-        sourceBranch: params.branch,
-        session: params.session,
-        repo: params.repo,
-        preview: params.preview,
-        autoResolve: params.autoResolve,
-        conflictStrategy: params.conflictStrategy,
+        sourceBranch: params!.branch,
+        session: params!.session,
+        repo: params!.repo,
+        preview: params!.preview,
+        autoResolve: params!.autoResolve,
+        conflictStrategy: params!.conflictStrategy,
       });
 
       return {
-        success: result.merged,
-        workdir: result.workdir,
-        message: result.conflicts ? result.conflictDetails || "Merge completed with conflicts" : "Merge completed successfully",
+        success: result!.merged,
+        workdir: result!.workdir,
+        message: result!.conflicts ? result!.conflictDetails || "Merge completed with conflicts" : "Merge completed successfully",
       };
     },
   });
@@ -511,18 +511,18 @@ export function registerGitCommands(): void {
       log.debug("Executing git.checkout command", { params });
 
       const result = await checkoutFromParams({
-        branch: params.branch,
-        session: params.session,
-        repo: params.repo,
-        preview: params.preview,
-        autoResolve: params.autoStash, // Map autoStash to autoResolve for conflict handling
-        conflictStrategy: params.conflictStrategy,
+        branch: params!.branch,
+        session: params!.session,
+        repo: params!.repo,
+        preview: params!.preview,
+        autoResolve: params!.autoStash, // Map autoStash to autoResolve for conflict handling
+        conflictStrategy: params!.conflictStrategy,
       });
 
       return {
-        success: result.switched,
-        workdir: result.workdir,
-        message: result.conflicts ? result.conflictDetails || "Checkout completed with warnings" : "Checkout completed successfully",
+        success: result!.switched,
+        workdir: result!.workdir,
+        message: result!.conflicts ? result!.conflictDetails || "Checkout completed with warnings" : "Checkout completed successfully",
       };
     },
   });
@@ -538,18 +538,18 @@ export function registerGitCommands(): void {
       log.debug("Executing git.rebase command", { params });
 
       const result = await rebaseFromParams({
-        baseBranch: params.baseBranch,
-        session: params.session,
-        repo: params.repo,
-        preview: params.preview,
-        autoResolve: params.autoResolve,
-        conflictStrategy: params.conflictStrategy,
+        baseBranch: params!.baseBranch,
+        session: params!.session,
+        repo: params!.repo,
+        preview: params!.preview,
+        autoResolve: params!.autoResolve,
+        conflictStrategy: params!.conflictStrategy,
       });
 
       return {
-        success: result.rebased,
-        workdir: result.workdir,
-        message: result.conflicts ? result.conflictDetails || "Rebase completed with conflicts" : "Rebase completed successfully",
+        success: result!.rebased,
+        workdir: result!.workdir,
+        message: result!.conflicts ? result!.conflictDetails || "Rebase completed with conflicts" : "Rebase completed successfully",
       };
     },
   });
