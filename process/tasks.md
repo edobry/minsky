@@ -440,7 +440,7 @@
 
 - [ ] Advanced Visualization and Database Migration [#243](process/tasks/243-advanced-visualization-and-database-migration.md)
 
-- [+] Implement comprehensive test isolation framework to eliminate suite interference [#244](process/tasks/244-implement-comprehensive-test-isolation-framework-to-eliminate-suite-interference.md)
+- [-] Implement comprehensive test isolation framework to eliminate suite interference [#244](process/tasks/244-implement-comprehensive-test-isolation-framework-to-eliminate-suite-interference.md)
 
 - [x] Complete configuration system standardization and cleanup [#245](process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
 
