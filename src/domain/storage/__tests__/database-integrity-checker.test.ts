@@ -386,6 +386,9 @@ describe("DatabaseIntegrityChecker", () => {
       const result = await DatabaseIntegrityChecker.checkIntegrity("sqlite", restrictedPath);
 
       expect(result.isValid).toBe(false);
+      // For missing files, the error will be about file not existing, not permission issues
+      expect(result.issues.length).toBeGreaterThan(0);
+      expect(result.actualFormat).toBe("empty");
       expect(result.issues).toContain("Database file does not exist");
     });
 
