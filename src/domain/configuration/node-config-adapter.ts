@@ -34,7 +34,7 @@ export class NodeConfigAdapter implements ConfigurationService {
     // Create mock sources for backward compatibility
     // In the future, we can remove this and just return the resolved config
     const sources: ConfigurationSources = {
-      cliFlags: {},
+      configOverrides: {},
       environment: this.getEnvironmentOverrides(),
       globalUser: null as any, // Will be handled by node-config's local.yaml
       repository: null as any, // TODO: Handle .minsky/config.yaml separately
