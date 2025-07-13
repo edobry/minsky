@@ -1509,6 +1509,9 @@ export async function approveSessionFromParams(
         // Remote branch doesn't exist, which is fine - just log it
         log.debug(`Remote PR branch ${prBranch} doesn't exist, skipping deletion`);
       }
+
+      // Clean up local branches after successful merge
+      await cleanupLocalBranches(deps.gitService, workingDirectory, prBranch, sessionNameToUse, taskId);
     }
 
     // Create merge info
@@ -1545,6 +1548,66 @@ export async function approveSessionFromParams(
       throw new MinskyError(
         `Failed to approve session: ${getErrorMessage(error)}`
       );
+    }
+  }
+}
+
+/**
+ * Clean up local branches after successful merge
+ * Handles failures gracefully to not break the overall approval process
+ */
+async function cleanupLocalBranches(
+  gitService: GitServiceInterface,
+  workingDirectory: string,
+  prBranch: string,
+  sessionName: string,
+  taskId?: string
+): Promise<void> {
+  // Extract task ID from session name if not provided and session follows task# pattern
+  const taskBranchName = taskId ? taskId.replace("#", "") : sessionName.replace("task#", "");
+
+  // Clean up the PR branch (e.g., pr/task#265)
+  try {
+    await gitService.execInRepository(workingDirectory, `git branch -d ${prBranch}`);
+    log.debug(`Successfully deleted local PR branch: ${prBranch}`);
+  } catch (error) {
+    // Log but don't fail the operation if branch cleanup fails
+    log.debug(`Failed to delete local PR branch ${prBranch}: ${getErrorMessage(error)}`);
+  }
+
+  // Clean up the task branch (e.g., task#265 or 265)
+  // Try various possible branch name formats
+  const possibleTaskBranches = [];
+
+  // Add sessionName if it looks like a task branch (task#265)
+  if (sessionName && sessionName !== prBranch) {
+    possibleTaskBranches.push(sessionName);
+  }
+
+  // Add numeric version if we have a task ID (265)
+  if (taskBranchName && taskBranchName !== sessionName) {
+    possibleTaskBranches.push(taskBranchName);
+  }
+
+  // Add task prefix version (task265, task#265)
+  if (taskBranchName) {
+    possibleTaskBranches.push(`task${taskBranchName}`);
+    possibleTaskBranches.push(`task#${taskBranchName}`);
+  }
+
+  // Filter out duplicates, empty strings, PR branch, and invalid branch names
+  const uniqueBranches = [...new Set(possibleTaskBranches)].filter(
+    branch => branch && branch !== prBranch && !branch.startsWith("#")
+  );
+
+  for (const branch of uniqueBranches) {
+    try {
+      await gitService.execInRepository(workingDirectory, `git branch -d ${branch}`);
+      log.debug(`Successfully deleted local task branch: ${branch}`);
+      break; // Stop after first successful deletion
+    } catch (error) {
+      // Log but continue trying other branch names
+      log.debug(`Failed to delete local task branch ${branch}: ${getErrorMessage(error)}`);
     }
   }
 }
