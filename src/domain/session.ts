@@ -2,9 +2,9 @@ import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { join } from "path";
 import { getMinskyStateDir, getSessionDir } from "../utils/paths.js";
-import { 
-  MinskyError, 
-  ResourceNotFoundError, 
+import {
+  MinskyError,
+  ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
   createCommandFailureMessage,
@@ -27,6 +27,7 @@ import { createGitService } from "./git.js";
 import { ConflictDetectionService } from "./git/conflict-detection.js";
 import { normalizeRepoName, resolveRepoPath } from "./repo-utils.js";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
+import { execAsync } from "../utils/exec.js";
 import {
   type WorkspaceUtilsInterface,
   getCurrentSession,
@@ -716,21 +717,21 @@ export async function updateSessionFromParams(
       // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
       const branchToMerge = branch || await deps.gitService.fetchDefaultBranch(workdir);
       const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
-      
+
       // Enhanced conflict detection and smart merge handling
       if (dryRun) {
         log.cli("🔍 Performing dry run conflict check...");
-        
+
         const conflictPrediction = await ConflictDetectionService.predictConflicts(
           workdir, currentBranch, remoteBranchToMerge
         );
-        
+
         if (conflictPrediction.hasConflicts) {
           log.cli("⚠️  Conflicts detected during dry run:");
           log.cli(conflictPrediction.userGuidance);
           log.cli("\n🛠️  Recovery commands:");
           conflictPrediction.recoveryCommands.forEach(cmd => log.cli(`   ${cmd}`));
-          
+
           throw new MinskyError("Dry run detected conflicts. Use the guidance above to resolve them.");
         } else {
           log.cli("✅ No conflicts detected. Safe to proceed with update.");
@@ -752,8 +753,8 @@ export async function updateSessionFromParams(
       // Use smart session update for enhanced conflict handling (only if not forced)
       if (!force) {
         const updateResult = await ConflictDetectionService.smartSessionUpdate(
-          workdir, 
-          currentBranch, 
+          workdir,
+          currentBranch,
           normalizedBaseBranch,
           {
             skipIfAlreadyMerged,
@@ -763,15 +764,15 @@ export async function updateSessionFromParams(
 
         if (!updateResult.updated && updateResult.skipped) {
           log.cli(`✅ ${updateResult.reason}`);
-          
+
           if (updateResult.reason?.includes("already in base")) {
             log.cli("\n💡 Your session changes are already merged. You can create a PR with --skip-update:");
             log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
           }
-          
+
           return {
             session: sessionName,
-            repoName: sessionRecord.repoName || "unknown", 
+            repoName: sessionRecord.repoName || "unknown",
             repoUrl: sessionRecord.repoUrl,
             branch: currentBranch,
             createdAt: sessionRecord.createdAt,
@@ -783,20 +784,20 @@ export async function updateSessionFromParams(
           // Enhanced conflict guidance
           log.cli("🚫 Update failed due to merge conflicts:");
           log.cli(updateResult.conflictDetails);
-          
+
           if (updateResult.divergenceAnalysis) {
             const analysis = updateResult.divergenceAnalysis;
             log.cli("\n📊 Branch Analysis:");
             log.cli(`   • Session ahead: ${analysis.aheadCommits} commits`);
             log.cli(`   • Session behind: ${analysis.behindCommits} commits`);
             log.cli(`   • Recommended action: ${analysis.recommendedAction}`);
-            
+
             if (analysis.sessionChangesInBase) {
               log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
               log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
             }
           }
-          
+
           throw new MinskyError(updateResult.conflictDetails);
         }
 
@@ -886,7 +887,7 @@ async function checkPrBranchExists(
   currentDir: string
 ): Promise<boolean> {
   const prBranch = `pr/${sessionName}`;
-  
+
   try {
     // Check if branch exists locally
     const localBranchOutput = await gitService.execInRepository(
@@ -894,18 +895,18 @@ async function checkPrBranchExists(
       `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
     );
     const localBranchExists = localBranchOutput.trim() !== "not-exists";
-    
+
     if (localBranchExists) {
       return true;
     }
-    
+
     // Check if branch exists remotely
     const remoteBranchOutput = await gitService.execInRepository(
       currentDir,
       `git ls-remote --heads origin ${prBranch}`
     );
     const remoteBranchExists = remoteBranchOutput.trim().length > 0;
-    
+
     return remoteBranchExists;
   } catch (error) {
     log.debug("Error checking PR branch existence", {
@@ -926,7 +927,7 @@ async function extractPrDescription(
   currentDir: string
 ): Promise<{ title: string; body: string } | null> {
   const prBranch = `pr/${sessionName}`;
-  
+
   try {
     // Try to get from remote first
     const remoteBranchOutput = await gitService.execInRepository(
@@ -934,13 +935,13 @@ async function extractPrDescription(
       `git ls-remote --heads origin ${prBranch}`
     );
     const remoteBranchExists = remoteBranchOutput.trim().length > 0;
-    
+
     let commitMessage = "";
-    
+
     if (remoteBranchExists) {
       // Fetch the PR branch to ensure we have latest
       await gitService.execInRepository(currentDir, `git fetch origin ${prBranch}`);
-      
+
       // Get the commit message from the remote branch's last commit
       commitMessage = await gitService.execInRepository(
         currentDir,
@@ -953,7 +954,7 @@ async function extractPrDescription(
         `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
       );
       const localBranchExists = localBranchOutput.trim() !== "not-exists";
-      
+
       if (localBranchExists) {
         // Get the commit message from the local branch's last commit
         commitMessage = await gitService.execInRepository(
@@ -964,12 +965,12 @@ async function extractPrDescription(
         return null;
       }
     }
-    
+
     // Parse the commit message to extract title and body
     const lines = commitMessage.trim().split("\n");
     const title = lines[0] || "";
     const body = lines.slice(1).join("\n").trim();
-    
+
     return { title, body };
   } catch (error) {
     log.debug("Error extracting PR description", {
@@ -1167,14 +1168,14 @@ Need help? Run 'git status' to see what files have changed.
   // STEP 4.5: PR Branch Detection and Title/Body Handling
   // This implements the new refresh functionality
   const prBranchExists = await checkPrBranchExists(sessionName, gitService, currentDir);
-  
+
   let titleToUse = params.title;
   let bodyToUse = bodyContent;
-  
+
   if (!titleToUse && prBranchExists) {
     // Case: Existing PR + no title → Auto-reuse existing title/body (refresh)
     log.cli("🔄 Refreshing existing PR (reusing title and body)...");
-    
+
     const existingDescription = await extractPrDescription(sessionName, gitService, currentDir);
     if (existingDescription) {
       titleToUse = existingDescription.title;
@@ -1214,7 +1215,7 @@ Need help? Run 'git status' to see what files have changed.
   // STEP 5: Enhanced session update with conflict detection (unless --skip-update is specified)
   if (!params.skipUpdate) {
     log.cli("🔍 Checking for conflicts before PR creation...");
-    
+
     try {
       // Use enhanced update with conflict detection options
       await updateSessionFromParams({
@@ -1222,7 +1223,7 @@ Need help? Run 'git status' to see what files have changed.
         repo: params.repo,
         json: false,
         force: false,
-        noStash: false, 
+        noStash: false,
         noPush: false,
         dryRun: false,
         skipConflictCheck: params.skipConflictCheck,
@@ -1232,7 +1233,7 @@ Need help? Run 'git status' to see what files have changed.
       log.cli("✅ Session updated successfully");
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      
+
       // Enhanced error handling for common conflict scenarios
       if (errorMessage.includes("already in base") || errorMessage.includes("already merged")) {
         log.cli("💡 Your session changes are already in the base branch. Proceeding with PR creation...");
@@ -1411,11 +1412,11 @@ export async function approveSessionFromParams(
 
     // Delete the PR branch from remote only if it exists there
     try {
-      // Check if remote branch exists first
-      await deps.gitService.execInRepository(
-        workingDirectory,
-        `git show-ref --verify --quiet refs/remotes/origin/${prBranch}`
-      );
+      // Check if remote branch exists first using execAsync directly to avoid error logging
+      // This is expected to fail if the branch doesn't exist, which is normal
+      await execAsync(`git show-ref --verify --quiet refs/remotes/origin/${prBranch}`, {
+        cwd: workingDirectory
+      });
       // If it exists, delete it
       await deps.gitService.execInRepository(
         workingDirectory,

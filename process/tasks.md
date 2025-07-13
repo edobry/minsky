@@ -468,6 +468,10 @@
 
 - [ ] Design multi-agent cybernetic supervision system for AI-to-AI task oversight [#258](process/tasks/258-design-multi-agent-cybernetic-supervision-system-for-ai-to-ai-task-oversight.md)
 
+- [x] Add `minsky tasks delete` Command [#205](process/tasks/205-add-tasks-delete-command.md)
+
+- [ ] Implement AI-Powered PR Content Generation for Session and Git Commands [#273](process/tasks/273-implement-ai-powered-pr-content-generation-for-session-and-git-commands.md)
+
 - [x] Improve CLI error messages for user-friendly output [#259](process/tasks/259-improve-cli-error-messages-for-user-friendly-output.md)
 
 - [ ] Implement prompt templates for AI interaction [#260](process/tasks/260-implement-prompt-templates-for-ai-interaction.md)
@@ -480,13 +484,15 @@
 
 - [ ] Explore Adding Standard API Interface Alongside MCP Using Shared Command Registry [#264](process/tasks/264-explore-adding-standard-api-interface-alongside-mcp-using-shared-command-registry.md)
 
-- [+] Refactor configuration system parameter naming and improve developer ergonomics [#265](process/tasks/265-refactor-configuration-system-parameter-naming-and-improve-developer-ergonomics.md)
+- [x] Refactor configuration system parameter naming and improve developer ergonomics [#265](process/tasks/265-refactor-configuration-system-parameter-naming-and-improve-developer-ergonomics.md)
 
 - [+] Investigate Enhanced Storage Backend Factory Redundancy [#266](process/tasks/266-investigate-enhanced-storage-backend-factory-redundancy.md)
 
 - [x] Integrate logger with configuration system to eliminate process.env access [#267](process/tasks/267-integrate-logger-with-configuration-system-to-eliminate-process-env-access.md)
 
 - [ ] Complete AST-Only Codemod Framework Development [#268](process/tasks/268-complete-ast-only-codemod-framework-development.md)
+
+- [ ] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
 
 - [+] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
 
