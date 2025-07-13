@@ -139,7 +139,7 @@ export interface ConfigurationLoadResult {
 }
 
 export interface ConfigurationSources {
-  cliFlags: Partial<ResolvedConfig>;
+  configOverrides: Partial<ResolvedConfig>;
   environment: Partial<ResolvedConfig>;
   globalUser: GlobalUserConfig | null;
   repository: RepositoryConfig | null;
