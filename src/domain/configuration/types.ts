@@ -138,11 +138,19 @@ export interface ConfigurationLoadResult {
   sources: ConfigurationSources;
 }
 
+/**
+ * Configuration sources in order of precedence (highest to lowest)
+ */
 export interface ConfigurationSources {
-  cliFlags: Partial<ResolvedConfig>;
+  /** High-priority configuration overrides (e.g., for testing or runtime injection) */
+  configOverrides: Partial<ResolvedConfig>;
+  /** Configuration loaded from environment variables */
   environment: Partial<ResolvedConfig>;
+  /** Global user configuration from ~/.config/minsky/config.yaml */
   globalUser: GlobalUserConfig | null;
+  /** Repository-specific configuration from .minsky/config.yaml */
   repository: RepositoryConfig | null;
+  /** Built-in default configuration values */
   defaults: Partial<ResolvedConfig>;
 }
 
