@@ -100,7 +100,7 @@ describe("SessionDB Configuration Loading", () => {
   });
 
   describe("Configuration Precedence", () => {
-    test("should respect CLI arguments over environment variables", async () => {
+    test("should respect configuration overrides over environment variables", async () => {
       // Set up environment
       process.env.HOME = testDir;
       process.env.MINSKY_SESSIONDB_BACKEND = "json";
@@ -108,7 +108,7 @@ describe("SessionDB Configuration Loading", () => {
 
       const loader = new ConfigurationLoader();
 
-      // Test with CLI override
+      // Test with configuration override
       const cliArgs = {
         sessiondb: {
           backend: "sqlite",
@@ -118,11 +118,11 @@ describe("SessionDB Configuration Loading", () => {
 
       const config = await loader.loadConfiguration(testDir, cliArgs);
 
-      // CLI should win for explicitly provided values
+      // Configuration overrides should win for explicitly provided values
       expect(config.resolved.sessiondb.backend).toBe("sqlite");
       expect(config.resolved.sessiondb.dbPath).toBe("/cli/sessions.db");
 
-      // Environment should provide values not in CLI
+      // Environment should provide values not in configuration overrides
       expect(config.resolved.sessiondb.baseDir).toBe("/env/base");
     });
 
@@ -153,7 +153,7 @@ describe("SessionDB Configuration Loading", () => {
 
       const config = await loader.loadConfiguration(testDir, cliArgs);
 
-      // Should combine environment backend with CLI path
+      // Should combine environment backend with configuration override path
       expect(config.resolved.sessiondb.backend).toBe("sqlite");
       expect(config.resolved.sessiondb.dbPath).toBe("/cli/path.db");
     });
