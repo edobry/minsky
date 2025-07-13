@@ -486,7 +486,7 @@
 
 - [x] Refactor configuration system parameter naming and improve developer ergonomics [#265](process/tasks/265-refactor-configuration-system-parameter-naming-and-improve-developer-ergonomics.md)
 
-- [+] Investigate Enhanced Storage Backend Factory Redundancy [#266](process/tasks/266-investigate-enhanced-storage-backend-factory-redundancy.md)
+- [x] Investigate Enhanced Storage Backend Factory Redundancy [#266](process/tasks/266-investigate-enhanced-storage-backend-factory-redundancy.md)
 
 - [x] Integrate logger with configuration system to eliminate process.env access [#267](process/tasks/267-integrate-logger-with-configuration-system-to-eliminate-process-env-access.md)
 
