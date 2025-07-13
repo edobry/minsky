@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Task #270**: Restructured test architecture for clarity and maintainability
+  - Moved domain function tests from `adapters/__tests__/integration/` to `__tests__/domain/commands/`
+  - Moved command registration tests to `__tests__/adapters/` 
+  - Updated all import paths to use `src/` prefix
+  - Renamed test files to follow new naming conventions
+  - Created comprehensive test architecture documentation
+  - Established clear separation between domain logic and adapter tests
+  - Fixed architectural confusion between integration tests and adapter tests
+
 ### Fixed
 
 - **Session Approve Command Output Formatting**
