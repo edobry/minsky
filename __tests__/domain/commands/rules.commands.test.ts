@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { type Rule, type RuleOptions, type SearchRuleOptions } from "../../../domain/rules.js";
-import { createMock, mockModule, setupTestMocks } from "../../../utils/test-utils/mocking.js";
+import { type Rule, type RuleOptions, type SearchRuleOptions } from "../../../src/domain/rules.js";
+import { createMock, mockModule, setupTestMocks } from "../../../src/utils/test-utils/mocking.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -13,7 +13,7 @@ const mockUpdateRule = createMock();
 const mockSearchRules = createMock();
 
 // Mock the domain rules module
-mockModule("../../../domain/rules.js", () => {
+mockModule("../../../src/domain/rules.js", () => {
   // Mock implementation
   return {
     listRules: mockListRules,

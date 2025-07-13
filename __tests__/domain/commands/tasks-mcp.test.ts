@@ -4,8 +4,8 @@
  * @refactored Uses project utilities and proper TypeScript imports
  */
 import { describe, beforeEach } from "bun:test";
-import { TASK_STATUS } from "../../../domain/tasks.ts";
-import { createMock, mockModule, setupTestMocks } from "../../../utils/test-utils/mocking.ts";
+import { TASK_STATUS } from "../../../src/domain/tasks.ts";
+import { createMock, mockModule, setupTestMocks } from "../../../src/utils/test-utils/mocking.ts";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -17,7 +17,7 @@ const mockDeleteTaskFromParams = createMock();
 const mockGetTaskInfoFromParams = createMock();
 
 // Mock the domain tasks module
-mockModule("../../../domain/tasks.ts", () => {
+mockModule("../../../src/domain/tasks.ts", () => {
   return {
     filterTasksFromParams: mockFilterTasksFromParams,
     updateTaskFromParams: mockUpdateTaskFromParams,

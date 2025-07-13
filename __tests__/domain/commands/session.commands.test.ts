@@ -1,11 +1,11 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { type SessionDeleteParams } from "../../../schemas/session.js";
+import { type SessionDeleteParams } from "../../../src/schemas/session.js";
 import {
   createMock,
   mockModule,
   setupTestMocks,
   createMockObject,
-} from "../../../utils/test-utils/mocking.js";
+} from "../../../src/utils/test-utils/mocking.js";
 
 const TEST_VALUE = 123;
 
@@ -23,7 +23,7 @@ const mockUpdateSessionFromParams = createMock();
 const mockGetSessionDirFromParams = createMock();
 
 // Mock the domain session module
-mockModule("../../../domain/session.js", () => {
+mockModule("../../../src/domain/session.js", () => {
   // Mock implementation
   return {
     getSessionFromParams: mockGetSessionFromParams,
