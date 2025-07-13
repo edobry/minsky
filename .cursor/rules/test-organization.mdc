@@ -1,88 +1,201 @@
----
-description:
-globs:
-alwaysApply: false
----
-# Test File Organization
+# Test File Organization - Layer-Based Architecture
+
+> **Updated for Task #270**: Test organization now follows architectural layers, not interface types.
 
 ## When to Use This Rule
 - Creating new test files
-- Deciding where to place bug reproduction tests
+- Deciding where to place tests based on what they test
 - Organizing existing fragmented test files
-- Reviewing test file structure
+- Understanding the test architecture boundaries
+
+## Core Principle: Organize by Architectural Layer
+
+Tests are organized by **what layer they test**, not by interface or command grouping:
+
+```
+__tests__/
+├── domain/
+│   └── commands/         # Domain function tests (*FromParams functions)
+├── adapters/             # Interface-specific tests
+│   ├── cli/              # CLI adapter tests
+│   ├── mcp/              # MCP adapter tests
+│   └── shared/           # Shared adapter tests
+└── [other categories as needed]
+```
+
+## Test Categories and Locations
+
+### 1. Domain Command Tests
+**Location:** `__tests__/domain/commands/`  
+**Naming:** `[module].commands.test.ts`  
+**Purpose:** Test `*FromParams` functions (business logic layer)
+
+```typescript
+// __tests__/domain/commands/tasks.commands.test.ts
+describe("Task Domain Commands", () => {
+  test("getTaskFromParams validates and retrieves task", () => {
+    // Test business logic, parameter validation, service orchestration
+  });
+});
+```
+
+### 2. Domain Service Tests
+**Location:** `src/domain/__tests__/` (existing location preserved)  
+**Naming:** `[service].service.test.ts`  
+**Purpose:** Test core domain services (data operations)
+
+```typescript
+// src/domain/__tests__/taskService.test.ts
+describe("TaskService", () => {
+  test("getTask retrieves task from backend", () => {
+    // Test data operations, business rules
+  });
+});
+```
+
+### 3. Adapter Tests
+**Location:** `__tests__/adapters/[interface]/`  
+**Naming:** `[interface].[module].adapter.test.ts`  
+**Purpose:** Test interface-specific concerns only
+
+```typescript
+// __tests__/adapters/shared/tasks.adapter.test.ts
+describe("Shared Tasks Adapter", () => {
+  test("registers correct number of commands", () => {
+    // Test command registration mechanics
+  });
+});
+```
 
 ## Critical Anti-Patterns
+
+### ❌ NEVER Organize by Interface When Testing Domain Logic
+```
+// ❌ BAD - Domain logic in adapter directories
+src/adapters/__tests__/integration/tasks.test.ts  // Tests getTaskFromParams (domain logic)
+src/adapters/__tests__/integration/session.test.ts  // Tests startSessionFromParams (domain logic)
+```
+
+### ❌ NEVER Put Adapter Tests in Domain Directories
+```
+// ❌ BAD - Adapter concerns in domain directories  
+__tests__/domain/commands/command-registration.test.ts  // Tests adapter registration
+```
 
 ### ❌ NEVER Create Bug-Specific Test Files
 ```
 // ❌ BAD - Creates test fragmentation
 session-dir-task-lookup-bug.test.ts
 auth-token-refresh-bug.test.ts
-config-merge-issue.test.ts
-user-login-edge-case.test.ts
-```
-
-### ❌ NEVER Create Narrow Feature-Specific Test Files
-```
-// ❌ BAD - Fragments related functionality
-session-create-only.test.ts
-session-list-only.test.ts
-session-delete-only.test.ts
-task-status-update-only.test.ts
 ```
 
 ## Required Organization Pattern
 
-### ✅ ALWAYS Organize by Functional CLI Command Groupings
-```
-// ✅ GOOD - Organized by CLI command functionality
-src/adapters/__tests__/cli/session.test.ts    // All session commands
-src/adapters/__tests__/cli/tasks.test.ts      // All task commands
-src/adapters/__tests__/cli/git.test.ts        // All git commands
-src/adapters/__tests__/cli/config.test.ts     // All config commands
-```
+### ✅ ALWAYS Organize by What the Test Actually Tests
+
+**Ask: "What layer am I testing?"**
+
+1. **Testing `*FromParams` functions?** → `__tests__/domain/commands/`
+2. **Testing domain services?** → `src/domain/__tests__/`
+3. **Testing command registration?** → `__tests__/adapters/`
+4. **Testing CLI formatting?** → `__tests__/adapters/cli/`
+5. **Testing MCP protocols?** → `__tests__/adapters/mcp/`
 
 ## Implementation Workflow
 
-### When Adding Bug Reproduction Tests:
-1. **Identify the CLI command** that exhibits the bug
-2. **Find the existing test file** for that command group
-3. **Add comprehensive test coverage** within that file
-4. **NEVER create a separate bug-specific file**
+### When Adding New Tests:
 
-### When Creating New Test Coverage:
-1. **Group by CLI command functionality** (session, tasks, git, config)
-2. **Use descriptive `describe` blocks** within files to organize sub-features
-3. **Include all related edge cases** in the same file
+1. **Identify what you're testing:**
+   - Domain business logic? → Domain commands
+   - Data operations? → Domain services  
+   - Interface registration? → Adapters
+   - Formatting/protocols? → Adapters
 
-## Benefits of This Organization
+2. **Choose appropriate location** based on architectural layer
 
-- **Single source of truth** for each CLI command's test coverage
-- **Easy maintenance** - all related tests in one place
-- **Comprehensive coverage** - encourages testing all aspects of a command
-- **Consistent patterns** across the codebase
-- **Prevents test fragmentation** that makes coverage gaps hard to spot
+3. **Use consistent naming conventions:**
+   - Domain commands: `[module].commands.test.ts`
+   - Domain services: `[service].service.test.ts`
+   - Adapters: `[interface].[module].adapter.test.ts`
 
-## Example Structure Within Files
+### When Moving Existing Tests:
 
-```typescript
-// src/adapters/__tests__/cli/session.test.ts
-describe("Session CLI Commands", () => {
-  describe("session dir command", () => {
-    test("returns correct directory for task ID");
-    test("handles task ID normalization");
-    test("reproduces task lookup bug scenario"); // Bug tests here
-  });
+1. **Analyze what the test actually tests** (not where it was located)
+2. **Move to appropriate architectural layer**
+3. **Update import paths** to use `src/` prefix from new location
+4. **Rename file** to follow new conventions
 
-  describe("session create command", () => {
-    test("creates session with task ID");
-    test("handles duplicate session creation");
-  });
+## Example Correct Organization
 
-  describe("session list command", () => {
-    test("lists all sessions");
-    test("filters by status");
-  });
+```
+__tests__/
+├── domain/
+│   └── commands/
+│       ├── tasks.commands.test.ts       # Tests getTaskFromParams, setTaskStatusFromParams
+│       ├── session.commands.test.ts     # Tests getSessionFromParams, startSessionFromParams  
+│       ├── git.commands.test.ts         # Tests commitChangesFromParams
+│       └── rules.commands.test.ts       # Tests getRulesFromParams
+├── adapters/
+│   ├── cli/
+│   │   ├── tasks.adapter.test.ts        # Tests CLI-specific task formatting
+│   │   └── session.adapter.test.ts      # Tests CLI-specific session output
+│   ├── mcp/
+│   │   ├── rules.adapter.test.ts        # Tests MCP rules tool registration
+│   │   └── session-tools.adapter.test.ts # Tests MCP session tools
+│   └── shared/
+│       ├── tasks.adapter.test.ts        # Tests shared task command registration
+│       └── session.adapter.test.ts      # Tests shared session command registration
+└── [existing directories like consolidated-utilities/]
+
+src/domain/__tests__/                    # Domain service tests (existing location)
+├── taskService.test.ts                  # Tests TaskService data operations
+├── sessionDB.test.ts                    # Tests SessionDB methods
+└── [other domain service tests]
+```
+
+## Benefits of Layer-Based Organization
+
+- **Clear architectural boundaries** - no confusion about what layer is being tested
+- **Easy to find tests** - organized by what they test, not how they're called
+- **Prevents misclassification** - domain logic tests can't hide in adapter directories
+- **Scalable structure** - grows naturally with architectural layers
+- **Improved maintainability** - changes to business logic vs interface concerns are clearly separated
+
+## Migration from Old Structure
+
+If you find tests in the old structure:
+
+1. **`src/adapters/__tests__/integration/`** → Move to `__tests__/domain/commands/` (they test domain logic)
+2. **`src/adapters/__tests__/shared/commands/`** → Move to `__tests__/adapters/shared/` (they test command registration)
+3. **`src/adapters/__tests__/cli/`** → Move to `__tests__/adapters/cli/` (they test CLI concerns)
+
+## Quick Decision Guide
+
+**Domain Command Test** (`__tests__/domain/commands/`):
+- Tests `*FromParams` functions
+- Tests parameter validation  
+- Tests business logic orchestration
+- Tests error handling for invalid inputs
+
+**Domain Service Test** (`src/domain/__tests__/`):
+- Tests data retrieval/storage
+- Tests business rule enforcement  
+- Tests service method contracts
+- Tests integration between domain services
+
+**Adapter Test** (`__tests__/adapters/`):
+- Tests command registration
+- Tests interface formatting
+- Tests protocol compliance
+- Tests UI/CLI specific concerns
+
+## Documentation Reference
+
+For complete architectural guidance, see:
+- [Test Architecture Guide](docs/testing/test-architecture-guide.md)
+- [testing-boundaries](mdc:.cursor/rules/testing-boundaries.mdc) - What to test vs what not to test
+- [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) - How to implement tests correctly
+
 });
 ```
 
