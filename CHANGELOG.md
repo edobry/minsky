@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Session Approve Command Output Formatting**
+  - Fixed confusing output in `minsky session approve` command that showed error messages for expected operations
+  - Replaced raw JSON output with user-friendly formatted messages showing session details, task status, and merge information
+  - Removed misleading "Command execution failed" error messages that appeared even when operations succeeded
+  - Added proper CLI formatting with clear success indicators and structured information display
+
 ### Added
 
 - **Task Relationship Establishment (#251 and #252)**
