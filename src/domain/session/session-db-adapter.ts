@@ -62,12 +62,16 @@ export class SessionDbAdapter implements SessionProviderInterface {
         backend: (sessionDbConfig as any).backend as "json" | "sqlite" | "postgres",
       };
 
-      if ((sessionDbConfig as any).backend === "sqlite" && (sessionDbConfig as any).dbPath) {
-        (storageConfig as any).sqlite = { dbPath: this.expandPath((sessionDbConfig as any).dbPath) };
+      if ((sessionDbConfig as any).backend === "sqlite") {
+        (storageConfig as any).sqlite = {
+          dbPath: (sessionDbConfig as any).dbPath ? this.expandPath((sessionDbConfig as any).dbPath) : undefined
+        };
       } else if ((sessionDbConfig as any).backend === "postgres" && (sessionDbConfig as any).connectionString) {
         (storageConfig as any).postgres = { connectionUrl: (sessionDbConfig as any).connectionString };
-      } else if ((sessionDbConfig as any).backend === "json" && (sessionDbConfig as any).dbPath) {
-        (storageConfig as any).json = { filePath: this.expandPath((sessionDbConfig as any).dbPath) };
+      } else if ((sessionDbConfig as any).backend === "json") {
+        (storageConfig as any).json = {
+          filePath: (sessionDbConfig as any).dbPath ? this.expandPath((sessionDbConfig as any).dbPath) : undefined
+        };
       }
 
       this.storage = createStorageBackend(storageConfig);
