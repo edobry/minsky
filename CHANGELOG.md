@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Session Approve Command Output Formatting**
+  - Fixed confusing output in `minsky session approve` command that showed error messages for expected operations
+  - Replaced raw JSON output with user-friendly formatted messages showing session details, task status, and merge information
+  - Removed misleading "Command execution failed" error messages that appeared even when operations succeeded
+  - Added proper CLI formatting with clear success indicators and structured information display
+
+### Improved
+
+- **Session Approve Command Idempotency**
+  - Made `minsky session approve` command fully idempotent - can be run multiple times safely
+  - Added detection of already-approved sessions by checking git merge ancestry
+  - Shows different status messages for newly approved vs already approved sessions:
+    - New approval: "✅ Session approved and merged successfully!"
+    - Already approved: "ℹ️ Session was already approved and merged"
+  - Added `isNewlyApproved` flag to JSON output for programmatic usage
+  - Preserves existing merge information when session is already approved
+
 ### Added
 
 - **Task Relationship Establishment (#251 and #252)**

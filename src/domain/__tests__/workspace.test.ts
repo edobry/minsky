@@ -5,7 +5,7 @@ import { promises as fs } from "fs";
 import { join } from "path";
 describe("resolveWorkspacePath", () => {
   it("uses explicitly provided workspace path", async () => {
-    const _options: WorkspaceResolutionOptions = {
+    const options: WorkspaceResolutionOptions = {
       workspace: "/test/workspace",
     };
 
@@ -16,10 +16,10 @@ describe("resolveWorkspacePath", () => {
       access: mockAccess,
     };
 
-    const _result = await resolveWorkspacePath(_options, mockDeps);
+    const result = await resolveWorkspacePath(options, mockDeps);
 
     expect(mockAccess).toHaveBeenCalledWith(join("/test/workspace", "process"));
-    expect(_result).toBe("/test/workspace");
+    expect(result).toBe("/test/workspace");
   });
 
   it("returns current directory when no workspace option is provided", async () => {
@@ -27,26 +27,26 @@ describe("resolveWorkspacePath", () => {
     const originalCwd = process.cwd;
     process.cwd = () => "/current/directory";
 
-    const _result = await resolveWorkspacePath();
+    const result = await resolveWorkspacePath();
 
-    expect(_result).toBe("/current/directory");
+    expect(result).toBe("/current/directory");
 
     // Restore process.cwd
     process.cwd = originalCwd;
   });
 
   it("returns sessionRepo when provided", async () => {
-    const _options: WorkspaceResolutionOptions = {
+    const options: WorkspaceResolutionOptions = {
       sessionRepo: "/session/repo/path",
     };
 
-    const _result = await resolveWorkspacePath(_options);
+    const result = await resolveWorkspacePath(options);
 
-    expect(_result).toBe("/session/repo/path");
+    expect(result).toBe("/session/repo/path");
   });
 
   it("validates that explicitly provided workspace exists", async () => {
-    const _options: WorkspaceResolutionOptions = {
+    const options: WorkspaceResolutionOptions = {
       workspace: "/invalid/workspace",
     };
 
@@ -57,7 +57,7 @@ describe("resolveWorkspacePath", () => {
       access: mockAccess,
     };
 
-    await expect(resolveWorkspacePath(_options, mockDeps)).rejects.toThrow(
+    await expect(resolveWorkspacePath(options, mockDeps)).rejects.toThrow(
       "Invalid workspace path: /invalid/workspace"
     );
   });

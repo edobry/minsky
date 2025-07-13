@@ -54,7 +54,7 @@ export async function createCli(): Promise<Command> {
  */
 async function main(): Promise<void> {
   await createCli();
-  await cli.parseAsync((Bun as any).argv);
+  await cli.parseAsync();
 }
 
 // Run the CLI
