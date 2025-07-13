@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Created comprehensive test architecture documentation
   - Established clear separation between domain logic and adapter tests
   - Fixed architectural confusion between integration tests and adapter tests
+  - Updated cursor rules (`test-organization`, `testing-router`, `bun-test-patterns`) to reflect new architecture
 
 ### Fixed
 
