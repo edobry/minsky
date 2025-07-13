@@ -1309,6 +1309,7 @@ export async function approveSessionFromParams(
   baseBranch: string;
   prBranch: string;
   taskId?: string;
+  isNewlyApproved: boolean;
 }> {
   let sessionNameToUse = params.session;
   let taskId: string | undefined;
@@ -1395,36 +1396,119 @@ export async function approveSessionFromParams(
     await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
     // Fetch latest changes
     await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
-    // Perform the fast-forward merge from local PR branch
-    await deps.gitService.execInRepository(workingDirectory, `git merge --ff-only ${prBranch}`);
 
-    // Get commit hash and date
-    const commitHash = (
-      await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
-    ).trim();
-    const mergeDate = new Date().toISOString();
-    const mergedBy = (
-      await deps.gitService.execInRepository(workingDirectory, "git config user.name")
-    ).trim();
+    // Check if the PR branch has already been merged
+    let isNewlyApproved = true;
+    let commitHash: string = "";
+    let mergeDate: string = "";
+    let mergedBy: string = "";
 
-    // Push the changes
-    await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
-
-    // Delete the PR branch from remote only if it exists there
     try {
-      // Check if remote branch exists first using execAsync directly to avoid error logging
-      // This is expected to fail if the branch doesn't exist, which is normal
-      await execAsync(`git show-ref --verify --quiet refs/remotes/origin/${prBranch}`, {
-        cwd: workingDirectory
-      });
-      // If it exists, delete it
-      await deps.gitService.execInRepository(
-        workingDirectory,
-        `git push origin --delete ${prBranch}`
-      );
+      // Check if the PR branch exists locally
+      await deps.gitService.execInRepository(workingDirectory, `git show-ref --verify --quiet refs/heads/${prBranch}`);
+
+      // Get the commit hash of the PR branch
+      const prBranchCommitHash = (
+        await deps.gitService.execInRepository(workingDirectory, `git rev-parse ${prBranch}`)
+      ).trim();
+
+      // Check if this commit is already in the base branch history
+      try {
+        await deps.gitService.execInRepository(workingDirectory, `git merge-base --is-ancestor ${prBranchCommitHash} ${baseBranch}`);
+        // If we get here, the PR branch has already been merged
+        isNewlyApproved = false;
+        log.debug(`PR branch ${prBranch} has already been merged`);
+
+        // Get information about the existing merge
+        commitHash = (
+          await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
+        ).trim();
+
+        // For already merged PRs, try to get the merge commit info
+        try {
+          const mergeCommitInfo = await deps.gitService.execInRepository(
+            workingDirectory,
+            `git log --merges --oneline --grep="Merge.*${prBranch}" -n 1 --format="%H|%ai|%an"`
+          );
+          if (mergeCommitInfo.trim()) {
+            const parts = mergeCommitInfo.trim().split("|");
+            if (parts.length >= 3 && parts[0] && parts[1] && parts[2]) {
+              commitHash = parts[0];
+              mergeDate = new Date(parts[1]).toISOString();
+              mergedBy = parts[2];
+            } else {
+              // Fallback to current HEAD info if format is unexpected
+              mergeDate = new Date().toISOString();
+              mergedBy = (
+                await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+              ).trim();
+            }
+          } else {
+            // Fallback to current HEAD info if we can't find the merge commit
+            mergeDate = new Date().toISOString();
+            mergedBy = (
+              await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+            ).trim();
+          }
+        } catch (error) {
+          // Fallback to current HEAD info
+          mergeDate = new Date().toISOString();
+          mergedBy = (
+            await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+          ).trim();
+        }
+      } catch (error) {
+        // PR branch hasn't been merged yet, proceed with merge
+        isNewlyApproved = true;
+      }
     } catch (error) {
-      // Remote branch doesn't exist, which is fine - just log it
-      log.debug(`Remote PR branch ${prBranch} doesn't exist, skipping deletion`);
+      // PR branch doesn't exist locally, it might have been already merged and cleaned up
+      isNewlyApproved = false;
+      log.debug(`PR branch ${prBranch} doesn't exist locally, assuming already merged`);
+
+      // Get current HEAD info
+      commitHash = (
+        await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
+      ).trim();
+      mergeDate = new Date().toISOString();
+      mergedBy = (
+        await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+      ).trim();
+    }
+
+    // Only perform the merge if it's newly approved
+    if (isNewlyApproved) {
+      // Perform the fast-forward merge from local PR branch
+      await deps.gitService.execInRepository(workingDirectory, `git merge --ff-only ${prBranch}`);
+
+      // Get commit hash and date for the new merge
+      commitHash = (
+        await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
+      ).trim();
+      mergeDate = new Date().toISOString();
+      mergedBy = (
+        await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+      ).trim();
+
+      // Push the changes
+      await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
+
+      // Delete the PR branch from remote only if it exists there
+      try {
+        // Check if remote branch exists first using execAsync directly to avoid error logging
+        // This is expected to fail if the branch doesn't exist, which is normal
+        await execAsync(`git show-ref --verify --quiet refs/remotes/origin/${prBranch}`, {
+          cwd: workingDirectory
+        });
+        // If it exists, delete it
+        await deps.gitService.execInRepository(
+          workingDirectory,
+          `git push origin --delete ${prBranch}`
+        );
+      } catch (error) {
+        // Remote branch doesn't exist, which is fine - just log it
+        log.debug(`Remote PR branch ${prBranch} doesn't exist, skipping deletion`);
+      }
     }
 
     // Create merge info
@@ -1436,9 +1520,10 @@ export async function approveSessionFromParams(
       baseBranch,
       prBranch,
       taskId,
+      isNewlyApproved,
     };
 
-    // Update task status to DONE if we have a task ID
+    // Update task status to DONE if we have a task ID (but only if it's not already DONE)
     if (taskId && deps.taskService.setTaskStatus) {
       try {
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
