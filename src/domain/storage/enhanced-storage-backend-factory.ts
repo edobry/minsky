@@ -47,12 +47,27 @@ export interface EnhancedStorageConfig extends StorageConfig {
 }
 
 /**
- * Result of enhanced storage backend creation
+ * Result from enhanced storage backend creation
  */
 export interface EnhancedStorageResult {
+  /**
+   * The created storage backend instance
+   */
   storage: DatabaseStorage<SessionRecord, SessionDbState>;
+
+  /**
+   * Result of integrity check (if performed)
+   */
   integrityResult?: DatabaseIntegrityResult;
+
+  /**
+   * Non-critical warnings from creation process
+   */
   warnings: string[];
+
+  /**
+   * Whether auto-migration was performed during creation
+   */
   autoMigrationPerformed?: boolean;
 }
 
@@ -65,6 +80,7 @@ export class EnhancedStorageBackendFactory {
 
   /**
    * Get singleton instance
+   * @deprecated Use createEnhancedStorageBackendFactory() instead for better test isolation
    */
   static getInstance(): EnhancedStorageBackendFactory {
     if (!EnhancedStorageBackendFactory.instance) {
@@ -355,9 +371,10 @@ export class EnhancedStorageBackendFactory {
  * Create enhanced storage backend with integrity checking (convenience function)
  */
 export async function createEnhancedStorageBackend(
-  config?: Partial<EnhancedStorageConfig>
+  config?: Partial<EnhancedStorageConfig>,
+  factoryInstance?: EnhancedStorageBackendFactory
 ): Promise<EnhancedStorageResult> {
-  const factory = EnhancedStorageBackendFactory.getInstance();
+  const factory = factoryInstance || EnhancedStorageBackendFactory.getInstance();
   return await factory.createStorageBackend(config);
 }
 
@@ -365,13 +382,14 @@ export async function createEnhancedStorageBackend(
  * Create enhanced storage backend with strict integrity checking
  */
 export async function createStrictStorageBackend(
-  config?: Partial<EnhancedStorageConfig>
+  config?: Partial<EnhancedStorageConfig>,
+  factoryInstance?: EnhancedStorageBackendFactory
 ): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
   const result = await createEnhancedStorageBackend({
     ...config,
     enableIntegrityCheck: true,
     autoMigrate: false,
-  });
+  }, factoryInstance);
 
   if (result.warnings.length > 0) {
     log.warn("Storage backend created with warnings:", result.warnings);
@@ -384,13 +402,14 @@ export async function createStrictStorageBackend(
  * Create enhanced storage backend with auto-migration
  */
 export async function createAutoMigratingStorageBackend(
-  config?: Partial<EnhancedStorageConfig>
+  config?: Partial<EnhancedStorageConfig>,
+  factoryInstance?: EnhancedStorageBackendFactory
 ): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
   const result = await createEnhancedStorageBackend({
     ...config,
     enableIntegrityCheck: true,
     autoMigrate: true,
-  });
+  }, factoryInstance);
 
   if (result.autoMigrationPerformed) {
     log.debug("Auto-migration was performed during storage backend creation");
@@ -401,4 +420,12 @@ export async function createAutoMigratingStorageBackend(
   }
 
   return result.storage;
+}
+
+/**
+ * Create a new EnhancedStorageBackendFactory instance
+ * Use this instead of getInstance() for better test isolation
+ */
+export function createEnhancedStorageBackendFactory(): EnhancedStorageBackendFactory {
+  return new EnhancedStorageBackendFactory();
 }

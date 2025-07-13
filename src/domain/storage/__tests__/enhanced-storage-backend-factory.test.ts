@@ -15,6 +15,7 @@ import {
   createEnhancedStorageBackend,
   createStrictStorageBackend,
   createAutoMigratingStorageBackend,
+  createEnhancedStorageBackendFactory,
 } from "../enhanced-storage-backend-factory";
 import type { EnhancedStorageConfig } from "../enhanced-storage-backend-factory";
 import { log } from "../../../utils/logger";
@@ -62,9 +63,8 @@ describe("EnhancedStorageBackendFactory", () => {
     // Ensure test directory exists
     mkdirSync(testDirPath, { recursive: true });
 
-    // Get factory instance
-    factory = EnhancedStorageBackendFactory.getInstance();
-    factory.clearCache(); // Clear any cached backends
+    // Create fresh factory instance for each test (eliminates singleton pollution)
+    factory = createEnhancedStorageBackendFactory();
   });
 
   afterEach(async () => {
@@ -81,7 +81,7 @@ describe("EnhancedStorageBackendFactory", () => {
         rmSync(testDirPath, { recursive: true, force: true });
       }
     } catch (error) {
-      log.cliWarn(`Cleanup warning for ${testDirPath}:`, error);
+      log.warn(`Cleanup warning for ${testDirPath}:`, { error });
     }
   });
 
@@ -106,7 +106,7 @@ describe("EnhancedStorageBackendFactory", () => {
         backend: "sqlite",
         sqlite: { dbPath: sqliteDbPath },
         enableIntegrityCheck: true,
-        strictIntegrity: false,
+
       };
 
       const result = await factory.createStorageBackend(config);
@@ -125,7 +125,6 @@ describe("EnhancedStorageBackendFactory", () => {
         backend: "json",
         json: { filePath: jsonDbPath },
         enableIntegrityCheck: true,
-        strictIntegrity: false,
       };
 
       const result = await factory.createStorageBackend(config);
@@ -158,7 +157,6 @@ describe("EnhancedStorageBackendFactory", () => {
         backend: "sqlite",
         sqlite: { dbPath: sqliteDbPath },
         enableIntegrityCheck: true,
-        strictIntegrity: false,
       };
 
       const result = await factory.createStorageBackend(config);
@@ -195,7 +193,6 @@ describe("EnhancedStorageBackendFactory", () => {
         backend: "sqlite",
         sqlite: { dbPath: sqliteDbPath },
         enableIntegrityCheck: true,
-        strictIntegrity: false,
       };
 
       const result = await factory.createStorageBackend(config);
@@ -219,7 +216,6 @@ describe("EnhancedStorageBackendFactory", () => {
         backend: "sqlite",
         sqlite: { dbPath: sqliteDbPath },
         enableIntegrityCheck: true,
-        strictIntegrity: false,
       };
 
       const result = await factory.createStorageBackend(config);
@@ -241,7 +237,6 @@ describe("EnhancedStorageBackendFactory", () => {
         backend: "sqlite",
         sqlite: { dbPath: sqliteDbPath },
         enableIntegrityCheck: true,
-        strictIntegrity: false,
       };
 
       const result = await factory.createStorageBackend(config);
@@ -266,7 +261,6 @@ describe("EnhancedStorageBackendFactory", () => {
         sqlite: { dbPath: sqliteDbPath },
         enableIntegrityCheck: true,
         autoMigrate: true,
-        strictIntegrity: false,
       };
 
       const result = await factory.createStorageBackend(config);
@@ -286,7 +280,6 @@ describe("EnhancedStorageBackendFactory", () => {
         sqlite: { dbPath: sqliteDbPath },
         enableIntegrityCheck: true,
         autoMigrate: false,
-        strictIntegrity: false,
       };
 
       const result = await factory.createStorageBackend(config);
@@ -414,7 +407,6 @@ describe("EnhancedStorageBackendFactory", () => {
         backend: "sqlite",
         sqlite: { dbPath: restrictedPath },
         enableIntegrityCheck: true,
-        strictIntegrity: false,
       };
 
       const result = await factory.createStorageBackend(config);
