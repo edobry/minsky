@@ -984,7 +984,13 @@ async function extractPrDescription(
 /**
  * Interface-agnostic function for creating a PR for a session
  */
-export async function sessionPrFromParams(params: SessionPrParams): Promise<{
+export async function sessionPrFromParams(
+  params: SessionPrParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+  }
+): Promise<{
   prBranch: string;
   baseBranch: string;
   title?: string;
@@ -1015,7 +1021,7 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
   }
 
   // Get current git branch
-  const gitService = createGitService();
+  const gitService = depsInput?.gitService || createGitService();
   const currentBranch = await gitService.getCurrentBranch(currentDir);
 
   // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* branch)
@@ -1120,7 +1126,7 @@ Need help? Run 'git status' to see what files have changed.
 
   // Determine the session name
   let sessionName = params.session;
-  const sessionDb = createSessionProvider();
+  const sessionDb = depsInput?.sessionDB || createSessionProvider();
 
   // If no session name provided but task ID is, try to find the session by task ID
   if (!sessionName && params.task) {

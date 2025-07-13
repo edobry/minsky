@@ -35,12 +35,13 @@ export class ConfigurationLoader {
    */
   async loadConfiguration(
     workingDir: string,
-    cliFlags: Partial<ResolvedConfig> = {}
+    cliFlags: Partial<ResolvedConfig> = {},
+    environmentVariables: Record<string, string | undefined> = process.env
   ): Promise<ConfigurationLoadResult> {
     // Load from all sources
     const sources: ConfigurationSources = {
       cliFlags,
-      environment: this.loadEnvironmentConfig(),
+      environment: this.loadEnvironmentConfig(environmentVariables),
       globalUser: await this.loadGlobalUserConfig(),
       repository: await this.loadRepositoryConfig(workingDir),
       defaults: DEFAULT_CONFIG,
@@ -58,19 +59,19 @@ export class ConfigurationLoader {
   /**
    * Load environment variable overrides
    */
-  private loadEnvironmentConfig(): Partial<ResolvedConfig> {
+  private loadEnvironmentConfig(environmentVariables: Record<string, string | undefined>): Partial<ResolvedConfig> {
     const config: Partial<ResolvedConfig> = {};
 
     // Backend override
-    if ((process as any).env[ENV_VARS.BACKEND]) {
-      (config as any).backend = (process as any).env[ENV_VARS.BACKEND] as any;
+    if (environmentVariables[ENV_VARS.BACKEND]) {
+      (config as any).backend = environmentVariables[ENV_VARS.BACKEND] as any;
     }
 
     // GitHub token for credentials
-    if ((process as any).env[ENV_VARS.GITHUB_TOKEN]) {
+    if (environmentVariables[ENV_VARS.GITHUB_TOKEN]) {
       (config as any).github = {
         credentials: {
-          token: (process as any).env[ENV_VARS.GITHUB_TOKEN],
+          token: environmentVariables[ENV_VARS.GITHUB_TOKEN],
           source: "environment",
         } as any,
       };
@@ -78,20 +79,20 @@ export class ConfigurationLoader {
 
     // SessionDB configuration overrides
     const sessionDbConfig: Partial<SessionDbConfig> = {};
-    if ((process as any).env[ENV_VARS.SESSIONDB_BACKEND]) {
-      const backend = (process as any).env[ENV_VARS.SESSIONDB_BACKEND];
+    if (environmentVariables[ENV_VARS.SESSIONDB_BACKEND]) {
+      const backend = environmentVariables[ENV_VARS.SESSIONDB_BACKEND];
       if (backend === "json" || backend === "sqlite" || backend === "postgres") {
         (sessionDbConfig as any).backend = backend;
       }
     }
-    if ((process as any).env[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
-      (sessionDbConfig as any).dbPath = (process as any).env[ENV_VARS.SESSIONDB_SQLITE_PATH] as any;
+    if (environmentVariables[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
+      (sessionDbConfig as any).dbPath = environmentVariables[ENV_VARS.SESSIONDB_SQLITE_PATH] as any;
     }
-    if ((process as any).env[ENV_VARS.SESSIONDB_POSTGRES_URL]) {
-      (sessionDbConfig as any).connectionString = (process as any).env[ENV_VARS.SESSIONDB_POSTGRES_URL] as any;
+    if (environmentVariables[ENV_VARS.SESSIONDB_POSTGRES_URL]) {
+      (sessionDbConfig as any).connectionString = environmentVariables[ENV_VARS.SESSIONDB_POSTGRES_URL] as any;
     }
-    if ((process as any).env[ENV_VARS.SESSIONDB_BASE_DIR]) {
-      (sessionDbConfig as any).baseDir = (process as any).env[ENV_VARS.SESSIONDB_BASE_DIR] as any;
+    if (environmentVariables[ENV_VARS.SESSIONDB_BASE_DIR]) {
+      (sessionDbConfig as any).baseDir = environmentVariables[ENV_VARS.SESSIONDB_BASE_DIR] as any;
     }
 
     if ((Object.keys(sessionDbConfig) as any).length > 0) {

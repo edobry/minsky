@@ -34,6 +34,17 @@ export {
   type SessionDbFileOptions,
 } from "./session-db-io";
 
-// Create and export a default session provider instance for convenience
+// Create factory function for dependency injection instead of singleton
 import { createSessionProvider as createSessionProviderInternal } from "./session-adapter";
+
+/**
+ * Creates a new SessionDB instance for dependency injection
+ * Use this instead of a global singleton to ensure test isolation
+ */
+export function createSessionDB() {
+  return createSessionProviderInternal();
+}
+
+// For backward compatibility and convenience, export a default instance
+// However, tests should use createSessionDB() for isolation
 export const SessionDB = createSessionProviderInternal();
