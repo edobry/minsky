@@ -79,16 +79,14 @@ describe.skip("Git Integration Tests", () => {
 
   test("getSessionWorkdir returns the correct workdir path", () => {
     // Arrange
-    const repoName = "test-repo";
-    const _sessionName = "test-session";
+    const sessionName = "test-session";
 
     // Act
-    const _workdir = gitService.getSessionWorkdir(repoName, _sessionName);
+    const workdir = gitService.getSessionWorkdir(sessionName);
 
     // Assert
-    expect(_workdir).toContain(repoName);
-    expect(_workdir).toContain(_sessionName);
-    expect(_workdir).toContain("sessions");
+    expect(workdir).toContain(sessionName);
+    expect(workdir).toContain("sessions");
   }, TEST_TIMEOUT_MS);
 
   test("getStatus returns correct file status", async () => {
