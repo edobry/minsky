@@ -2,7 +2,7 @@
  * Configuration loader for Minsky
  *
  * Implements the 5-level configuration hierarchy:
- * 1. CLI flags (highest priority)
+ * 1. Configuration overrides (highest priority) - for runtime config injection
  * 2. Environment variables
  * 3. Global user config (~/.config/minsky/config.yaml)
  * 4. Repository config (.minsky/config.yaml)
@@ -32,21 +32,36 @@ import {
 export class ConfigurationLoader {
   /**
    * Load configuration from all sources with proper precedence
+   * 
+   * @param workingDir - The working directory to load repository config from
+   * @param configOverrides - High-priority configuration overrides (e.g., for testing or runtime injection)
+   * @returns Promise resolving to the merged configuration and source information
+   * 
+   * @example
+   * // Basic usage
+   * const config = await loader.loadConfiguration('/path/to/repo');
+   * 
+   * @example
+   * // With configuration overrides (useful for testing)
+   * const testConfig = {
+   *   sessiondb: { backend: "sqlite", dbPath: "/test/sessions.db" }
+   * };
+   * const config = await loader.loadConfiguration('/path/to/repo', testConfig);
    */
   async loadConfiguration(
     workingDir: string,
-    cliFlags: Partial<ResolvedConfig> = {}
+    configOverrides: Partial<ResolvedConfig> = {}
   ): Promise<ConfigurationLoadResult> {
     // Load from all sources
     const sources: ConfigurationSources = {
-      cliFlags,
+      configOverrides,
       environment: this.loadEnvironmentConfig(),
       globalUser: await this.loadGlobalUserConfig(),
       repository: await this.loadRepositoryConfig(workingDir),
       defaults: DEFAULT_CONFIG,
     };
 
-    // Merge with precedence: CLI > env > global user > repo > defaults
+    // Merge with precedence: config overrides > env > global user > repo > defaults
     const resolved = this.mergeConfigurations(sources);
 
     return {
@@ -146,7 +161,7 @@ export class ConfigurationLoader {
    * Merge configurations with proper precedence
    */
   private mergeConfigurations(sources: ConfigurationSources): ResolvedConfig {
-    const { cliFlags, environment, globalUser, repository, defaults } = sources;
+    const { configOverrides, environment, globalUser, repository, defaults } = sources;
 
     // Provide sensible defaults for sessiondb
     const defaultSessionDb = this.mergeSessionDbConfig(undefined, {});
@@ -231,15 +246,15 @@ export class ConfigurationLoader {
       resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, environment.sessiondb);
     }
 
-    // Apply CLI flags (highest priority)
-    if (cliFlags.backend) {
-      resolved.backend = cliFlags.backend;
+    // Apply configuration overrides (highest priority)
+    if (configOverrides.backend) {
+      resolved.backend = configOverrides.backend;
     }
-    if (cliFlags.github) {
-      resolved.github = this.mergeGitHubConfig(resolved.github, cliFlags.github);
+    if (configOverrides.github) {
+      resolved.github = this.mergeGitHubConfig(resolved.github, configOverrides.github);
     }
-    if (cliFlags.sessiondb) {
-      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, cliFlags.sessiondb);
+    if (configOverrides.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, configOverrides.sessiondb);
     }
 
     return resolved;
