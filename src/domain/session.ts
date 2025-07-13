@@ -998,7 +998,7 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") {
       // Extract the validation error message
-      const zodError = error as any;
+      const zodError = error as unknown;
       const message = zodError.errors?.[0]?.message || "Invalid parameters";
       throw new ValidationError(message);
     }
@@ -1648,9 +1648,9 @@ export async function sessionReviewFromParams(
       // Check if taskService has getTaskSpecData method dynamically
       if (
         "getTaskSpecData" in taskService &&
-        typeof (taskService as any).getTaskSpecData === "function"
+        typeof (taskService as unknown).getTaskSpecData === "function"
       ) {
-        const taskSpec = await (taskService as any).getTaskSpecData(taskId);
+        const taskSpec = await (taskService as unknown).getTaskSpecData(taskId);
         result.taskSpec = taskSpec;
       } else {
         log.debug("Task service does not support getTaskSpecData method");

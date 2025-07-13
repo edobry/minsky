@@ -38,7 +38,7 @@ describe("Session Edit Tools", () => {
       addTool: mock((name: string, description: string, schema: any, handler: any) => {
         registeredTools[name] = { name, description, schema, handler };
       }),
-    } as any;
+    } as unknown;
 
     // Register the tools
     registerSessionEditTools(mockCommandMapper);
@@ -68,15 +68,15 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_edit_file"].handler;
 
       // Mock file doesn't exist
-      const mockStat = stat as any;
+      const mockStat = stat as unknown;
       mockStat.mockRejectedValueOnce(new Error("ENOENT"));
 
       // Mock successful write
-      const mockWriteFile = writeFile as any;
+      const mockWriteFile = writeFile as unknown;
       mockWriteFile.mockResolvedValueOnce(undefined);
 
       // Mock path resolver
-      const mockPathResolver = new SessionPathResolver() as any;
+      const mockPathResolver = new SessionPathResolver() as unknown;
       mockPathResolver.resolvePath.mockResolvedValue("/session/path/test.ts");
       mockPathResolver.getSessionWorkspacePath.mockResolvedValue("/session/path");
 
@@ -97,11 +97,11 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_edit_file"].handler;
 
       // Mock file exists
-      const mockStat = stat as any;
+      const mockStat = stat as unknown;
       mockStat.mockResolvedValueOnce({ isFile: () => true });
 
       // Mock file content
-      const mockReadFile = readFile as any;
+      const mockReadFile = readFile as unknown;
       mockReadFile.mockResolvedValueOnce(`function oldFunc() {
   console.log('old');
 }
@@ -111,11 +111,11 @@ function keepFunc() {
 }`);
 
       // Mock successful write
-      const mockWriteFile = writeFile as any;
+      const mockWriteFile = writeFile as unknown;
       mockWriteFile.mockResolvedValueOnce(undefined);
 
       // Mock path resolver
-      const mockPathResolver = new SessionPathResolver() as any;
+      const mockPathResolver = new SessionPathResolver() as unknown;
       mockPathResolver.resolvePath.mockResolvedValue("/session/path/test.ts");
       mockPathResolver.getSessionWorkspacePath.mockResolvedValue("/session/path");
 
@@ -142,7 +142,7 @@ function keepFunc() {
       const handler = registeredTools["session_edit_file"].handler;
 
       // Mock path resolver error
-      const mockPathResolver = new SessionPathResolver() as any;
+      const mockPathResolver = new SessionPathResolver() as unknown;
       mockPathResolver.resolvePath.mockRejectedValue(new Error("Invalid path"));
 
       const result = await handler({
@@ -183,15 +183,15 @@ function keepFunc() {
       const handler = registeredTools["session_search_replace"].handler;
 
       // Mock file content
-      const mockReadFile = readFile as any;
+      const mockReadFile = readFile as unknown;
       mockReadFile.mockResolvedValueOnce("This is oldText in the file");
 
       // Mock successful write
-      const mockWriteFile = writeFile as any;
+      const mockWriteFile = writeFile as unknown;
       mockWriteFile.mockResolvedValueOnce(undefined);
 
       // Mock path resolver
-      const mockPathResolver = new SessionPathResolver() as any;
+      const mockPathResolver = new SessionPathResolver() as unknown;
       mockPathResolver.resolvePath.mockResolvedValue("/session/path/test.ts");
       mockPathResolver.validatePathExists.mockResolvedValue(undefined);
 
@@ -215,11 +215,11 @@ function keepFunc() {
       const handler = registeredTools["session_search_replace"].handler;
 
       // Mock file content
-      const mockReadFile = readFile as any;
+      const mockReadFile = readFile as unknown;
       mockReadFile.mockResolvedValueOnce("This is some text in the file");
 
       // Mock path resolver
-      const mockPathResolver = new SessionPathResolver() as any;
+      const mockPathResolver = new SessionPathResolver() as unknown;
       mockPathResolver.resolvePath.mockResolvedValue("/session/path/test.ts");
       mockPathResolver.validatePathExists.mockResolvedValue(undefined);
 
@@ -238,11 +238,11 @@ function keepFunc() {
       const handler = registeredTools["session_search_replace"].handler;
 
       // Mock file content with multiple occurrences
-      const mockReadFile = readFile as any;
+      const mockReadFile = readFile as unknown;
       mockReadFile.mockResolvedValueOnce("This is oldText and another oldText in the file");
 
       // Mock path resolver
-      const mockPathResolver = new SessionPathResolver() as any;
+      const mockPathResolver = new SessionPathResolver() as unknown;
       mockPathResolver.resolvePath.mockResolvedValue("/session/path/test.ts");
       mockPathResolver.validatePathExists.mockResolvedValue(undefined);
 

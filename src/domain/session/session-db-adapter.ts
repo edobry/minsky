@@ -32,8 +32,8 @@ export class SessionDbAdapter implements SessionProviderInterface {
       
       try {
         // Check if sessiondb config exists before trying to get it
-        if ((config as any).has("sessiondb")) {
-          sessionDbConfig = (config as any).get("sessiondb") as any;
+        if ((config as unknown).has("sessiondb")) {
+          sessionDbConfig = (config as unknown).get("sessiondb") as unknown;
         } else {
           log.debug("Session database configuration not found in config, using defaults");
           sessionDbConfig = null;
@@ -51,31 +51,31 @@ export class SessionDbAdapter implements SessionProviderInterface {
         log.debug("Session database configuration is missing or invalid, using defaults");
         sessionDbConfig = {
           backend: "json",
-          baseDir: null as any,
-          dbPath: null as any,
-          connectionString: null as any,
+          baseDir: null as unknown,
+          dbPath: null as unknown,
+          connectionString: null as unknown,
         };
       }
 
       // Convert SessionDbConfig to StorageConfig
       const storageConfig: Partial<StorageConfig> = {
-        backend: (sessionDbConfig as any).backend as "json" | "sqlite" | "postgres",
+        backend: (sessionDbConfig as unknown).backend as "json" | "sqlite" | "postgres",
       };
 
-      if ((sessionDbConfig as any).backend === "sqlite") {
-        (storageConfig as any).sqlite = {
-          dbPath: (sessionDbConfig as any).dbPath ? this.expandPath((sessionDbConfig as any).dbPath) : undefined
+      if ((sessionDbConfig as unknown).backend === "sqlite") {
+        (storageConfig as unknown).sqlite = {
+          dbPath: (sessionDbConfig as unknown).dbPath ? this.expandPath((sessionDbConfig as unknown).dbPath) : undefined
         };
-      } else if ((sessionDbConfig as any).backend === "postgres" && (sessionDbConfig as any).connectionString) {
-        (storageConfig as any).postgres = { connectionUrl: (sessionDbConfig as any).connectionString };
-      } else if ((sessionDbConfig as any).backend === "json") {
-        (storageConfig as any).json = {
-          filePath: (sessionDbConfig as any).dbPath ? this.expandPath((sessionDbConfig as any).dbPath) : undefined
+      } else if ((sessionDbConfig as unknown).backend === "postgres" && (sessionDbConfig as unknown).connectionString) {
+        (storageConfig as unknown).postgres = { connectionUrl: (sessionDbConfig as unknown).connectionString };
+      } else if ((sessionDbConfig as unknown).backend === "json") {
+        (storageConfig as unknown).json = {
+          filePath: (sessionDbConfig as unknown).dbPath ? this.expandPath((sessionDbConfig as unknown).dbPath) : undefined
         };
       }
 
       this.storage = createStorageBackend(storageConfig);
-      await (this.storage as any).initialize();
+      await (this.storage as unknown).initialize();
     }
     return this.storage;
   }
@@ -84,11 +84,11 @@ export class SessionDbAdapter implements SessionProviderInterface {
    * Expand tilde and environment variables in file paths
    */
   private expandPath(filePath: string): string {
-    if ((filePath as any).startsWith("~/")) {
-      return join(homedir(), (filePath as any).slice(2));
+    if ((filePath as unknown).startsWith("~/")) {
+      return join(homedir(), (filePath as unknown).slice(2));
     }
-    if ((filePath as any).startsWith("$HOME/")) {
-      return join(homedir(), (filePath as any).slice(6));
+    if ((filePath as unknown).startsWith("$HOME/")) {
+      return join(homedir(), (filePath as unknown).slice(6));
     }
     return filePath;
   }
@@ -96,7 +96,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async listSessions(): Promise<SessionRecord[]> {
     try {
       const storage = await this.getStorage();
-      return await (storage as any).getEntities();
+      return await (storage as unknown).getEntities();
     } catch (error) {
       log.error(`Error listing sessions: ${getErrorMessage(error as any)}`);
       return [];
@@ -106,7 +106,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async getSession(session: string): Promise<SessionRecord | null> {
     try {
       const storage = await this.getStorage();
-      return await (storage as any).getEntity(session);
+      return await (storage as unknown).getEntity(session);
     } catch (error) {
       log.error(`Error getting session: ${getErrorMessage(error as any)}`);
       return null as any;
@@ -117,9 +117,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
     try {
       const storage = await this.getStorage();
       // Normalize taskId for consistent searching
-      const normalizedTaskId = (taskId as any).replace(/^#/, "");
-      const sessions = await (storage as any).getEntities({ taskId: normalizedTaskId });
-      const session = (sessions as any).length > 0 ? sessions[0] : null as any;
+      const normalizedTaskId = (taskId as unknown).replace(/^#/, "");
+      const sessions = await (storage as unknown).getEntities({ taskId: normalizedTaskId });
+      const session = (sessions as unknown).length > 0 ? sessions[0] : null as unknown;
       return session || null;
     } catch (error) {
       log.error(`Error getting session by task ID: ${getErrorMessage(error as any)}`);
@@ -130,7 +130,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async addSession(record: SessionRecord): Promise<void> {
     try {
       const storage = await this.getStorage();
-      await (storage as any).createEntity(record as any);
+      await (storage as unknown).createEntity(record as unknown);
     } catch (error) {
       log.error(`Error adding session: ${getErrorMessage(error as any)}`);
       throw error;
@@ -143,7 +143,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
   ): Promise<void> {
     try {
       const storage = await this.getStorage();
-      const result = await (storage as any).updateEntity(session, updates);
+      const result = await (storage as unknown).updateEntity(session, updates);
       if (!result) {
         throw new Error(`Session '${session}' not found`);
       }
@@ -156,7 +156,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async deleteSession(session: string): Promise<boolean> {
     try {
       const storage = await this.getStorage();
-      return await (storage as any).deleteEntity(session);
+      return await (storage as unknown).deleteEntity(session);
     } catch (error) {
       log.error(`Error deleting session: ${getErrorMessage(error as any)}`);
       return false;
@@ -169,21 +169,21 @@ export class SessionDbAdapter implements SessionProviderInterface {
     }
 
     // Handle different record types (SessionRecord, SessionResult, etc.)
-    if ((record as any).sessionRecord) {
-      return this.getRepoPath((record as any).sessionRecord);
+    if ((record as unknown).sessionRecord) {
+      return this.getRepoPath((record as unknown).sessionRecord);
     }
 
-    if ((record as any).cloneResult && (record.cloneResult as any).workdir) {
-      return (record.cloneResult as any).workdir;
+    if ((record as unknown).cloneResult && (record.cloneResult as unknown).workdir) {
+      return (record.cloneResult as unknown).workdir;
     }
 
-    if ((record as any).workdir) {
-      return (record as any).workdir;
+    if ((record as unknown).workdir) {
+      return (record as unknown).workdir;
     }
 
     // Use the functional implementation to compute the path
     const state = await this.getState();
-    return getRepoPathFn(state, record as any);
+    return getRepoPathFn(state, record as unknown);
   }
 
   async getSessionWorkdir(sessionName: string): Promise<string> {
@@ -200,10 +200,10 @@ export class SessionDbAdapter implements SessionProviderInterface {
   private async getState(): Promise<SessionDbState> {
     try {
       const storage = await this.getStorage();
-      const result = await (storage as any).readState();
+      const result = await (storage as unknown).readState();
 
-      if ((result as any).success && (result as any).data) {
-        return (result as any).data as any;
+      if ((result as unknown).success && (result as unknown).data) {
+        return (result as unknown).data as unknown;
       }
 
       // Return initialized state if read fails
@@ -220,8 +220,8 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async getStorageInfo(): Promise<{ backend: string; location: string }> {
     const storage = await this.getStorage();
     return {
-      backend: (storage.constructor as any).name,
-      location: (storage as any).getStorageLocation(),
+      backend: (storage.constructor as unknown).name,
+      location: (storage as unknown).getStorageLocation(),
     };
   }
 }

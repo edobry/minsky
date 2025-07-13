@@ -489,13 +489,13 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Convert parameters
-        const format = (params as any).format as RuleFormat | undefined;
+        const format = (params as unknown).format as RuleFormat | undefined;
 
         // Call domain function
         const rules = await ruleService.searchRules({
           format,
-          tag: (params as any).tag,
-          query: (params as any).query,
+          tag: (params as unknown).tag,
+          query: (params as unknown).query,
         });
 
         return {

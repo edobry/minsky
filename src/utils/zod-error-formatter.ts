@@ -69,7 +69,7 @@ function formatEnumError(issue: ZodIssue, fieldName: string): string {
     return `Invalid ${fieldName}`;
   }
   
-  const enumIssue = issue as any; // Cast to access enum-specific properties
+  const enumIssue = issue as unknown; // Cast to access enum-specific properties
   const value = enumIssue.received;
   const options = enumIssue.options as string[];
   
@@ -106,7 +106,7 @@ function formatTypeError(issue: ZodIssue, fieldName: string): string {
     return `Invalid ${fieldName}`;
   }
   
-  const typeIssue = issue as any; // Cast to access type-specific properties
+  const typeIssue = issue as unknown; // Cast to access type-specific properties
   const expectedType = typeIssue.expected;
   const receivedType = typeIssue.received;
   
@@ -121,7 +121,7 @@ function formatTooSmallError(issue: ZodIssue, fieldName: string): string {
     return `${fieldName} is too small`;
   }
   
-  const sizeIssue = issue as any; // Cast to access size-specific properties
+  const sizeIssue = issue as unknown; // Cast to access size-specific properties
   const minimum = sizeIssue.minimum;
   const type = sizeIssue.type;
   
@@ -144,7 +144,7 @@ function formatTooBigError(issue: ZodIssue, fieldName: string): string {
     return `${fieldName} is too big`;
   }
   
-  const sizeIssue = issue as any; // Cast to access size-specific properties
+  const sizeIssue = issue as unknown; // Cast to access size-specific properties
   const maximum = sizeIssue.maximum;
   const type = sizeIssue.type;
   
@@ -167,7 +167,7 @@ function formatStringError(issue: ZodIssue, fieldName: string): string {
     return `${fieldName} format is invalid`;
   }
   
-  const stringIssue = issue as any; // Cast to access string-specific properties
+  const stringIssue = issue as unknown; // Cast to access string-specific properties
   const validation = stringIssue.validation;
   
   if (validation === "email") {

@@ -10,14 +10,14 @@ import { getErrorMessage } from "../../errors/index";
  */
 export function registerSessionTools(commandMapper: CommandMapper): void {
   // Session list tool
-  (commandMapper as any).addSessionCommand("list", "List all sessions", z.object({}), async () => {
+  (commandMapper as unknown).addSessionCommand("list", "List all sessions", z.object({}), async () => {
     try {
       // Execute the command
       const command = "minsky session list --json";
-      const output = (execSync(command) as any).toString();
+      const output = (execSync(command) as unknown).toString();
 
       // Parse the JSON output
-      return JSON.parse(output as any) as any;
+      return JSON.parse(output as unknown) as unknown;
     } catch (error) {
       log.error("Error listing sessions", { error });
       throw new Error(
@@ -27,7 +27,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
   });
 
   // Session get tool
-  (commandMapper as any).addSessionCommand(
+  (commandMapper as unknown).addSessionCommand(
     "get",
     "Get details of a specific session",
     z.object({
@@ -36,13 +36,13 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     async (args: any) => {
       try {
         // Execute the command
-        const command = `minsky session get ${(args as any)!.session} --json`;
-        const output = (execSync(command) as any).toString();
+        const command = `minsky session get ${(args as unknown)!.session} --json`;
+        const output = (execSync(command) as unknown).toString();
 
         // Parse the JSON output
-        return JSON.parse(output as any) as any;
+        return JSON.parse(output as unknown) as unknown;
       } catch (error) {
-        log.error(`Error getting session ${(args as any)!.session}`, { error, _session: (args as any)!.session });
+        log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });
         throw new Error(
           `Failed to get session ${(args as any)!.session}: ${getErrorMessage(error as any)}`
         );
@@ -50,13 +50,13 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     });
 
   // Session start tool
-  (commandMapper as any).addSessionCommand(
+  (commandMapper as unknown).addSessionCommand(
     "start",
     "Start a new session",
     z.object({
       name: z.string().optional().describe("Name for the session"),
       task: z.string().optional().describe("Task ID to associate with the session"),
-      quiet: (z.boolean().optional().describe("Whether to suppress output") as any).default(true),
+      quiet: (z.boolean().optional().describe("Whether to suppress output") as unknown).default(true),
     }),
     async (
       args: z.infer<
@@ -70,8 +70,8 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       try {
         // Build the command
         let command = "minsky session start";
-        if ((args as any)?.name) {
-          command += ` --name ${(args as any).name}`;
+        if ((args as unknown)?.name) {
+          command += ` --name ${(args as unknown).name}`;
         }
         if (args!.task) {
           command += ` --task ${args!.task}`;
@@ -80,16 +80,16 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         command += " --quiet";
 
         // Execute the command
-        const output = (execSync(command) as any).toString();
+        const output = (execSync(command) as unknown).toString();
 
         // Return success response
         return {
           success: true,
-          message: (output as any).trim(),
-          session: (args as any)?.name || `task#${args!.task}` || "unnamed-session",
+          message: (output as unknown).trim(),
+          session: (args as unknown)?.name || `task#${args!.task}` || "unnamed-session",
         };
       } catch (error) {
-        log.error("Error starting session", { error, name: (args as any).name, task: args!.task });
+        log.error("Error starting session", { error, name: (args as unknown).name, task: args!.task });
         throw new Error(
           `Failed to start _session: ${getErrorMessage(error as any)}`
         );
@@ -97,7 +97,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     });
 
   // Session commit tool
-  (commandMapper as any).addSessionCommand(
+  (commandMapper as unknown).addSessionCommand(
     "commit",
     "Commit changes in a session",
     z.object({
@@ -118,23 +118,23 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       try {
         // Build the command
         let command = "minsky session commit";
-        if ((args as any)?.message) {
-          command += ` -m "${(args as any).message}"`;
+        if ((args as unknown)?.message) {
+          command += ` -m "${(args as unknown).message}"`;
         }
-        if ((args as any)!.session) {
-          command += ` --session ${(args as any)!.session}`;
+        if ((args as unknown)!.session) {
+          command += ` --session ${(args as unknown)!.session}`;
         }
 
         // Execute the command
-        const output = (execSync(command) as any).toString();
+        const output = (execSync(command) as unknown).toString();
 
         // Return success response
         return {
           success: true,
-          message: (output as any).trim(),
+          message: (output as unknown).trim(),
         };
       } catch (error) {
-        log.error("Error committing changes", { error, session: (args as any)!.session });
+        log.error("Error committing changes", { error, session: (args as unknown)!.session });
         throw new Error(
           `Failed to commit changes: ${getErrorMessage(error as any)}`
         );
@@ -142,7 +142,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     });
 
   // Session push tool
-  (commandMapper as any).addSessionCommand(
+  (commandMapper as unknown).addSessionCommand(
     "push",
     "Push changes in a session",
     z.object({
@@ -166,12 +166,12 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         }
 
         // Execute the command
-        const output = (execSync(command) as any).toString();
+        const output = (execSync(command) as unknown).toString();
 
         // Return success response
         return {
           success: true,
-          message: (output as any).trim(),
+          message: (output as unknown).trim(),
         };
       } catch (error) {
         log.error("Error pushing changes", { error, _session: args!._session });

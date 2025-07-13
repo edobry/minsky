@@ -31,10 +31,10 @@ function createMockFn<T extends (...args: unknown[]) => any>(
   _resolvedValue?: unknown;
 } {
   const fn: any = (...args: unknown[]) => {
-    (fn as any).calls.push(args);
-    if (typeof (fn as any).impl === "function") return (fn as any).impl(...args);
-    if ((fn as any)._resolvedValue !== undefined)
-      return Promise.resolve((fn as any)._resolvedValue);
+    (fn as unknown).calls.push(args);
+    if (typeof (fn as unknown).impl === "function") return (fn as unknown).impl(...args);
+    if ((fn as unknown)._resolvedValue !== undefined)
+      return Promise.resolve((fn as unknown)._resolvedValue);
     return undefined;
   };
   fn.calls = [];
@@ -285,7 +285,7 @@ describe("Workspace Utils", () => {
     test("should use explicitly provided workspace path with interface implementation", async () => {
       // Mock fs.access
       const originalAccess = fs.access;
-      fs.access = createMockFn(() => Promise.resolve()) as any;
+      fs.access = createMockFn(() => Promise.resolve()) as unknown;
 
       // Create a mock WorkspaceUtils implementation
       const mockUtils = createMockWorkspaceUtils({
@@ -305,7 +305,7 @@ describe("Workspace Utils", () => {
 
       expect(result1).toBe("/path/to/workspace");
       expect(result2).toBe("/path/to/workspace");
-      expect((fs.access as any).calls[0]).toEqual([join("/path/to/workspace", "process")]);
+      expect((fs.access as unknown).calls[0]).toEqual([join("/path/to/workspace", "process")]);
 
       // Restore original
       fs.access = originalAccess;
@@ -314,7 +314,7 @@ describe("Workspace Utils", () => {
     test("should throw error if workspace path is invalid", async () => {
       // Mock fs.access
       const originalAccess = fs.access;
-      fs.access = createMockFn(() => Promise.reject(new Error("File not found"))) as any;
+      fs.access = createMockFn(() => Promise.reject(new Error("File not found"))) as unknown;
       let errorCaught = false;
       try {
         await resolveWorkspacePath(
@@ -326,7 +326,7 @@ describe("Workspace Utils", () => {
         // Error handled by catch block - checking errorCaught flag below
       }
       expect(errorCaught).toBe(true);
-      expect((fs.access as any).calls[0]).toEqual([join("/invalid/path", "process")]);
+      expect((fs.access as unknown).calls[0]).toEqual([join("/invalid/path", "process")]);
       // Restore original
       fs.access = originalAccess;
     });

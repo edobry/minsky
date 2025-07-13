@@ -28,7 +28,7 @@ describe("CommandMapper", () => {
       gitBranch: "main",
     } as ProjectContext;
 
-    commandMapper = new CommandMapper(mockServer as any, mockProjectContext);
+    commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);
   });
 
   test("should initialize with server and project context", () => {

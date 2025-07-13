@@ -50,10 +50,10 @@ export class TaskBackendRouter {
    * Auto-detect backend category based on type and configuration
    */
   private autoDetectBackendCategory(backend: TaskBackend): BackendRoutingInfo {
-    const constructorName = (backend.constructor.name as any).toLowerCase();
+    const constructorName = (backend.constructor.name as unknown).toLowerCase();
 
     // Markdown backends - always in-tree
-    if (backend instanceof MarkdownTaskBackend || (constructorName as any).includes("markdowntaskbackend")) {
+    if (backend instanceof MarkdownTaskBackend || (constructorName as unknown).includes("markdowntaskbackend")) {
       return {
         category: "in-tree",
         requiresSpecialWorkspace: true,
@@ -62,7 +62,7 @@ export class TaskBackendRouter {
     }
 
     // JSON file backends - depends on file location
-    if (backend instanceof JsonFileTaskBackend || (constructorName as any).includes("jsonfiletaskbackend")) {
+    if (backend instanceof JsonFileTaskBackend || (constructorName as unknown).includes("jsonfiletaskbackend")) {
       return this.categorizeJsonBackend(backend as JsonFileTaskBackend);
     }
 
@@ -106,7 +106,7 @@ export class TaskBackendRouter {
       const filePath = this.getJsonBackendFilePath(backend);
       
       // Check if it's in the repository directory structure
-      if ((filePath as any).includes("process/tasks.json") || (filePath as any).includes("process/.minsky/")) {
+      if ((filePath as unknown).includes("process/tasks.json") || (filePath as unknown).includes("process/.minsky/")) {
         return {
           category: "in-tree",
           requiresSpecialWorkspace: true,
@@ -115,7 +115,7 @@ export class TaskBackendRouter {
       }
 
       // Check if it's in a local workspace directory
-      if ((filePath as any).includes(".minsky/tasks.json")) {
+      if ((filePath as unknown).includes(".minsky/tasks.json")) {
         return {
           category: "in-tree",
           requiresSpecialWorkspace: true,
@@ -148,7 +148,7 @@ export class TaskBackendRouter {
       const dbPath = this.getSqliteBackendPath(backend);
       
       // Check if it's in the repository directory structure
-      if ((dbPath as any).includes("process/") || (dbPath as any).includes(".git/")) {
+      if ((dbPath as unknown).includes("process/") || (dbPath as unknown).includes(".git/")) {
         return {
           category: "in-tree",
           requiresSpecialWorkspace: true,
@@ -176,15 +176,15 @@ export class TaskBackendRouter {
    * Get the workspace path for in-tree operations
    */
   async getInTreeWorkspacePath(): Promise<string> {
-    if (!(this as any).repoUrl) {
+    if (!(this as unknown).repoUrl) {
       throw new Error("Repository URL required for in-tree workspace operations");
     }
 
     if (!this.specialWorkspaceManager) {
-      this.specialWorkspaceManager = await (SpecialWorkspaceManager as any).create((this as any).repoUrl);
+      this.specialWorkspaceManager = await (SpecialWorkspaceManager as unknown).create((this as unknown).repoUrl);
     }
 
-    return (this.specialWorkspaceManager as any).getWorkspacePath();
+    return (this.specialWorkspaceManager as unknown).getWorkspacePath();
   }
 
   /**
@@ -200,13 +200,13 @@ export class TaskBackendRouter {
     if (routingInfo.requiresSpecialWorkspace) {
       // Use special workspace for in-tree backends
       if (!this.specialWorkspaceManager) {
-        if (!(this as any).repoUrl) {
+        if (!(this as unknown).repoUrl) {
           throw new Error("Repository URL required for in-tree backend operations");
         }
-        this.specialWorkspaceManager = await (SpecialWorkspaceManager as any).create((this as any).repoUrl);
+        this.specialWorkspaceManager = await (SpecialWorkspaceManager as unknown).create((this as unknown).repoUrl);
       }
 
-      return (this.specialWorkspaceManager as any).performOperation(operation, callback as any);
+      return (this.specialWorkspaceManager as unknown).performOperation(operation, callback as unknown);
     } else {
       // Use current working directory for external backends
       const currentDir = (process as any).cwd();
@@ -219,20 +219,20 @@ export class TaskBackendRouter {
    */
   private isGitHubBackend(backend: TaskBackend): boolean {
     // Check if backend constructor name or class indicates GitHub
-    return (backend.constructor.name.toLowerCase() as any).includes("github") ||
-           (backend.name.toLowerCase() as any).includes("github");
+    return (backend.constructor.name.toLowerCase() as unknown).includes("github") ||
+           (backend.name.toLowerCase() as unknown).includes("github");
   }
 
   private isSqliteBackend(backend: TaskBackend): boolean {
     // Check if backend constructor name or class indicates SQLite
-    return (backend.constructor.name.toLowerCase() as any).includes("sqlite") ||
-           (backend.constructor.name.toLowerCase() as any).includes("sql");
+    return (backend.constructor.name.toLowerCase() as unknown).includes("sqlite") ||
+           (backend.constructor.name.toLowerCase() as unknown).includes("sql");
   }
 
   private isPostgresBackend(backend: TaskBackend): boolean {
     // Check if backend constructor name or class indicates PostgreSQL
-    return (backend.constructor.name.toLowerCase() as any).includes("postgres") ||
-           (backend.constructor.name.toLowerCase() as any).includes("pg");
+    return (backend.constructor.name.toLowerCase() as unknown).includes("postgres") ||
+           (backend.constructor.name.toLowerCase() as unknown).includes("pg");
   }
 
   /**
@@ -240,17 +240,17 @@ export class TaskBackendRouter {
    */
   private getJsonBackendFilePath(backend: JsonFileTaskBackend): string {
     // Try to get the storage location from the backend
-    if (typeof (backend as any).getStorageLocation === "function") {
-      return (backend as any).getStorageLocation();
+    if (typeof (backend as unknown).getStorageLocation === "function") {
+      return (backend as unknown).getStorageLocation();
     }
 
     // Try to access other file path properties
     if ("filePath" in backend) {
-      return (backend as any).filePath;
+      return (backend as unknown).filePath;
     }
     
     if ("fileName" in backend) {
-      return (backend as any).fileName;
+      return (backend as unknown).fileName;
     }
 
     // Fallback: assume it's using standard location
@@ -263,11 +263,11 @@ export class TaskBackendRouter {
   private getSqliteBackendPath(backend: TaskBackend): string {
     // Try to access the database path property
     if ("dbPath" in backend) {
-      return (backend as any).dbPath;
+      return (backend as unknown).dbPath;
     }
     
     if ("databasePath" in backend) {
-      return (backend as any).databasePath;
+      return (backend as unknown).databasePath;
     }
 
     // Fallback: assume external location

@@ -36,24 +36,24 @@ export async function resolveRepoPath(
     getCurrentDirectory: depsInput?.getCurrentDirectory || getCurrentWorkingDirectory,
   };
 
-  if ((options as any).repo) {
-    return (options as any).repo;
+  if ((options as unknown).repo) {
+    return (options as unknown).repo;
   }
 
-  if ((options as any).session) {
-    const record = await (deps.sessionProvider as any).getSession((options as any).session);
+  if ((options as unknown).session) {
+    const record = await (deps.sessionProvider as unknown).getSession((options as unknown).session);
     if (!record) {
-      throw new Error(`Session '${(options as any).session}' not found.`);
+      throw new Error(`Session '${(options as unknown).session}' not found.`);
     }
-    return (record as any).repoUrl;
+    return (record as unknown).repoUrl;
   }
 
   // Fallback: use current git repo
   try {
-    const { stdout } = await (deps as any).execCwd("git rev-parse --show-toplevel");
-    return (stdout as any).trim();
+    const { stdout } = await (deps as unknown).execCwd("git rev-parse --show-toplevel");
+    return (stdout as unknown).trim();
   } catch (_error) {
     // If git command fails, fall back to process.cwd()
-    return (deps as any).getCurrentDirectory();
+    return (deps as unknown).getCurrentDirectory();
   }
 }

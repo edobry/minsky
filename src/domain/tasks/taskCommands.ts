@@ -64,33 +64,33 @@ export async function listTasksFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options as any),
+    createTaskService: async (options) => await createConfiguredTaskService(options as unknown),
   }
 ): Promise<any[]> {
   try {
     // Validate params with Zod schema
-    const validParams = (taskListParamsSchema as any).parse(params as any);
+    const validParams = (taskListParamsSchema as unknown).parse(params as unknown);
 
     // Get the main workspace path (always resolves to main workspace, not session)
-    const workspacePath = await (deps as any).resolveMainWorkspacePath();
+    const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
 
     // Create task service with explicit backend to avoid configuration issues
-    const taskService = await (deps as any).createTaskService({
+    const taskService = await (deps as unknown).createTaskService({
       workspacePath,
       backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
     });
 
     // Get tasks
-    let tasks = await (taskService as any).listTasks();
+    let tasks = await (taskService as unknown).listTasks();
 
     // Filter by status if provided
     if (validParams.filter) {
-      tasks = tasks.filter((task: any) => (task as any).status === validParams.filter);
+      tasks = tasks.filter((task: any) => (task as unknown).status === validParams.filter);
     } else {
       // Unless "all" is provided, filter out DONE and CLOSED tasks
       if (!validParams.all) {
         tasks = tasks.filter((task: any) =>
-          (task as any).status !== TASK_STATUS.DONE && (task as any).status !== TASK_STATUS.CLOSED
+          (task as unknown).status !== TASK_STATUS.DONE && (task as unknown).status !== TASK_STATUS.CLOSED
         );
       }
     }
@@ -119,18 +119,18 @@ export async function getTaskFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options as any),
+    createTaskService: async (options) => await createConfiguredTaskService(options as unknown),
   }
 ): Promise<any> {
   try {
     // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId((params as any).taskId);
+    const normalizedTaskId = normalizeTaskId((params as unknown).taskId);
     if (!normalizedTaskId) {
       const errorMessage = createTaskIdParsingErrorMessage(
-        (params as any).taskId,
+        (params as unknown).taskId,
         [
           { label: "Operation", value: "get task" },
-          { label: "Input", value: (params as any).taskId }
+          { label: "Input", value: (params as unknown).taskId }
         ]
       );
       throw new ValidationError(errorMessage);
@@ -138,31 +138,31 @@ export async function getTaskFromParams(
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
-    const validParams = (taskGetParamsSchema as any).parse(paramsWithNormalizedId);
+    const validParams = (taskGetParamsSchema as unknown).parse(paramsWithNormalizedId);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await (deps as any).resolveRepoPath({
-      session: (validParams as any).session,
+    const repoPath = await (deps as unknown).resolveRepoPath({
+      session: (validParams as unknown).session,
       repo: validParams.repo,
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await (deps as any).resolveMainWorkspacePath();
+    const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
 
     // Create task service with explicit backend to avoid configuration issues
-    const taskService = await (deps as any).createTaskService({
+    const taskService = await (deps as unknown).createTaskService({
       workspacePath,
       backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
     });
 
     // Get the task
-    const task = await (taskService as any).getTask((validParams as any).taskId);
+    const task = await (taskService as unknown).getTask((validParams as unknown).taskId);
 
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task ${(validParams as any).taskId} not found`,
+        `Task ${(validParams as unknown).taskId} not found`,
         "task",
-        (validParams as any).taskId
+        (validParams as unknown).taskId
       );
     }
 
@@ -190,18 +190,18 @@ export async function getTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options as any),
+    createTaskService: async (options) => await createConfiguredTaskService(options as unknown),
   }
 ): Promise<string> {
   try {
     // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId((params as any).taskId);
+    const normalizedTaskId = normalizeTaskId((params as unknown).taskId);
     if (!normalizedTaskId) {
       const errorMessage = createTaskIdParsingErrorMessage(
-        (params as any).taskId,
+        (params as unknown).taskId,
         [
           { label: "Operation", value: "get task status" },
-          { label: "Input", value: (params as any).taskId }
+          { label: "Input", value: (params as unknown).taskId }
         ]
       );
       throw new ValidationError(errorMessage);
@@ -209,35 +209,35 @@ export async function getTaskStatusFromParams(
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
-    const validParams = (taskStatusGetParamsSchema as any).parse(paramsWithNormalizedId);
+    const validParams = (taskStatusGetParamsSchema as unknown).parse(paramsWithNormalizedId);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await (deps as any).resolveRepoPath({
-      session: (validParams as any).session,
+    const repoPath = await (deps as unknown).resolveRepoPath({
+      session: (validParams as unknown).session,
       repo: validParams.repo,
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await (deps as any).resolveMainWorkspacePath();
+    const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
 
     // Create task service
-    const taskService = await (deps as any).createTaskService({
+    const taskService = await (deps as unknown).createTaskService({
       workspacePath,
       backend: validParams.backend,
     });
 
     // Get the task
-    const task = await (taskService as any).getTask((validParams as any).taskId);
+    const task = await (taskService as unknown).getTask((validParams as unknown).taskId);
 
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task ${(validParams as any).taskId} not found or has no status`,
+        `Task ${(validParams as unknown).taskId} not found or has no status`,
         "task",
-        (validParams as any).taskId
+        (validParams as unknown).taskId
       );
     }
 
-    return (task as any).status;
+    return (task as unknown).status;
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
@@ -264,18 +264,18 @@ export async function setTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options as any),
+    createTaskService: async (options) => await createConfiguredTaskService(options as unknown),
   }
 ): Promise<void> {
   try {
     // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId((params as any).taskId);
+    const normalizedTaskId = normalizeTaskId((params as unknown).taskId);
     if (!normalizedTaskId) {
       const errorMessage = createTaskIdParsingErrorMessage(
-        (params as any).taskId,
+        (params as unknown).taskId,
         [
           { label: "Operation", value: "set task status" },
-          { label: "Input", value: (params as any).taskId }
+          { label: "Input", value: (params as unknown).taskId }
         ]
       );
       throw new ValidationError(errorMessage);
@@ -283,35 +283,35 @@ export async function setTaskStatusFromParams(
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
-    const validParams = (taskStatusSetParamsSchema as any).parse(paramsWithNormalizedId);
+    const validParams = (taskStatusSetParamsSchema as unknown).parse(paramsWithNormalizedId);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await (deps as any).resolveRepoPath({
-      session: (validParams as any).session,
+    const repoPath = await (deps as unknown).resolveRepoPath({
+      session: (validParams as unknown).session,
       repo: validParams.repo,
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await (deps as any).resolveMainWorkspacePath();
+    const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
 
     // Create task service with explicit backend to avoid configuration issues
-    const taskService = await (deps as any).createTaskService({
+    const taskService = await (deps as unknown).createTaskService({
       workspacePath,
       backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
     });
 
     // Verify the task exists before setting status
-    const task = await (taskService as any).getTask((validParams as any).taskId);
+    const task = await (taskService as unknown).getTask((validParams as unknown).taskId);
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task ${(validParams as any).taskId} not found`,
+        `Task ${(validParams as unknown).taskId} not found`,
         "task",
-        (validParams as any).taskId
+        (validParams as unknown).taskId
       );
     }
 
     // Set the task status
-    await (taskService as any).setTaskStatus((validParams as any).taskId, (validParams as any).status);
+    await (taskService as unknown).setTaskStatus((validParams as unknown).taskId, (validParams as unknown).status);
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
@@ -339,30 +339,30 @@ export async function createTaskFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: (options) => createTaskServiceImpl(options as any),
+    createTaskService: (options) => createTaskServiceImpl(options as unknown),
   }
 ): Promise<any> {
   try {
     // Validate params with Zod schema
-    const validParams = (taskCreateParamsSchema as any).parse(params as any);
+    const validParams = (taskCreateParamsSchema as unknown).parse(params as unknown);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await (deps as any).resolveRepoPath({
-      session: (validParams as any).session,
+    const repoPath = await (deps as unknown).resolveRepoPath({
+      session: (validParams as unknown).session,
       repo: validParams.repo,
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await (deps as any).resolveMainWorkspacePath();
+    const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
 
     // Create task service
-    const taskService = (deps as any).createTaskService({
+    const taskService = (deps as unknown).createTaskService({
       workspacePath,
       backend: validParams.backend,
     });
 
     // Create the task
-    const task = await (taskService as any).createTask((validParams as any).title, {
+    const task = await (taskService as unknown).createTask((validParams as unknown).title, {
       force: validParams.force,
     });
 
@@ -390,40 +390,40 @@ export async function getTaskSpecContentFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: (options) => createTaskServiceImpl(options as any),
+    createTaskService: (options) => createTaskServiceImpl(options as unknown),
   }
 ): Promise<{ task: any; specPath: string; content: string; section?: string }> {
   try {
     // Validate params with Zod schema
-    const validParams = (taskSpecContentParamsSchema as any).parse(params as any);
+    const validParams = (taskSpecContentParamsSchema as unknown).parse(params as unknown);
 
     // Normalize task ID
-    const taskIdString = Array.isArray((validParams as any).taskId) ? (validParams as any).taskId[0] : (validParams as any).taskId;
+    const taskIdString = Array.isArray((validParams as unknown).taskId) ? (validParams as unknown).taskId[0] : (validParams as unknown).taskId;
     const taskId = normalizeTaskId(taskIdString);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await (deps as any).resolveRepoPath({
-      session: (validParams as any).session,
+    const repoPath = await (deps as unknown).resolveRepoPath({
+      session: (validParams as unknown).session,
       repo: validParams.repo,
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await (deps as any).resolveMainWorkspacePath();
+    const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
 
     // Create task service
-    const taskService = (deps as any).createTaskService({
+    const taskService = (deps as unknown).createTaskService({
       workspacePath,
       backend: validParams.backend,
     });
 
     // Get the task
-    const task = await (taskService as any).getTask(taskId);
+    const task = await (taskService as unknown).getTask(taskId);
     if (!task) {
       throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
     }
 
     // Get the task spec path
-    const specPath = await (taskService as any).getTaskSpecPath(taskId);
+    const specPath = await (taskService as unknown).getTaskSpecPath(taskId);
     if (!specPath) {
       throw new ResourceNotFoundError(`Task ${taskId} has no specification file`, "task", taskId);
     }
@@ -443,9 +443,9 @@ export async function getTaskSpecContentFromParams(
     // If a specific section is requested, extract it
     let sectionContent = content;
     if (validParams.section) {
-      const lines = (((content) as any).toString() as any).split("\n");
-      const sectionStart = (lines as any).findIndex((line) =>
-        (line.toLowerCase() as any).startsWith(`## ${(validParams.section! as any).toLowerCase()}`)
+      const lines = (((content) as unknown).toString() as unknown).split("\n");
+      const sectionStart = (lines as unknown).findIndex((line) =>
+        (line.toLowerCase() as unknown).startsWith(`## ${(validParams.section! as unknown).toLowerCase()}`)
       );
 
       if (sectionStart === -1) {
@@ -455,15 +455,15 @@ export async function getTaskSpecContentFromParams(
       }
 
       // Find the next section or end of file
-      let sectionEnd = (lines as any).length;
-      for (let i = sectionStart + 1; i < (lines as any).length; i++) {
-        if ((lines[i] as any).startsWith("## ")) {
+      let sectionEnd = (lines as unknown).length;
+      for (let i = sectionStart + 1; i < (lines as unknown).length; i++) {
+        if ((lines[i] as unknown).startsWith("## ")) {
           sectionEnd = i;
           break;
         }
       }
 
-      sectionContent = ((lines as any).slice(sectionStart, sectionEnd).join("\n") as any).trim();
+      sectionContent = ((lines as unknown).slice(sectionStart, sectionEnd).join("\n") as unknown).trim();
     }
 
     // Return the task and content
@@ -500,37 +500,37 @@ export async function createTaskFromTitleAndDescription(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: (options) => createTaskServiceImpl(options as any),
+    createTaskService: (options) => createTaskServiceImpl(options as unknown),
   }
 ): Promise<any> {
   try {
     // Validate params with Zod schema
-    const validParams = (taskCreateFromTitleAndDescriptionParamsSchema as any).parse(params as any);
+    const validParams = (taskCreateFromTitleAndDescriptionParamsSchema as unknown).parse(params as unknown);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await (deps as any).resolveRepoPath({
-      session: (validParams as any).session,
+    const repoPath = await (deps as unknown).resolveRepoPath({
+      session: (validParams as unknown).session,
       repo: validParams.repo,
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await (deps as any).resolveMainWorkspacePath();
+    const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
 
     // Create task service
-    const taskService = (deps as any).createTaskService({
+    const taskService = (deps as unknown).createTaskService({
       workspacePath,
       backend: validParams.backend,
     });
 
     // Read description from file if descriptionPath is provided
-    let description = (validParams as any).description;
+    let description = (validParams as unknown).description;
     if (validParams.descriptionPath) {
       try {
         // Resolve relative paths relative to current working directory
-        const filePath = (require("path") as any).resolve(validParams.descriptionPath);
-        description = ((await readFile(filePath, "utf-8")) as any).toString();
+        const filePath = (require("path") as unknown).resolve(validParams.descriptionPath);
+        description = ((await readFile(filePath, "utf-8")) as unknown).toString();
 
-        if (!(description as any).trim()) {
+        if (!(description as unknown).trim()) {
           throw new ValidationError(`Description file is empty: ${validParams.descriptionPath}`);
         }
       } catch (error) {
@@ -539,9 +539,9 @@ export async function createTaskFromTitleAndDescription(
         }
 
         const errorMessage = getErrorMessage(error as any);
-        if ((errorMessage as any).includes("ENOENT") || (errorMessage as any).includes("no such file")) {
+        if ((errorMessage as any).includes("ENOENT") || (errorMessage as unknown).includes("no such file")) {
           throw new ValidationError(`Description file not found: ${validParams.descriptionPath}`);
-        } else if ((errorMessage as any).includes("EACCES") || (errorMessage as any).includes("permission denied")) {
+        } else if ((errorMessage as unknown).includes("EACCES") || (errorMessage as unknown).includes("permission denied")) {
           throw new ValidationError(
             `Permission denied reading description file: ${validParams.descriptionPath}`
           );
@@ -554,8 +554,8 @@ export async function createTaskFromTitleAndDescription(
     }
 
     // Create the task from title and description
-    const task = await (taskService as any).createTaskFromTitleAndDescription(
-      (validParams as any).title,
+    const task = await (taskService as unknown).createTaskFromTitleAndDescription(
+      (validParams as unknown).title,
       description!,
       {
         force: validParams.force,
@@ -590,56 +590,56 @@ export async function deleteTaskFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options as any),
+    createTaskService: async (options) => await createConfiguredTaskService(options as unknown),
   }
 ): Promise<{ success: boolean; taskId: string; task?: any }> {
   try {
     // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId((params as any).taskId);
+    const normalizedTaskId = normalizeTaskId((params as unknown).taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${(params as any).taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${(params as unknown).taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
-    const validParams = (taskDeleteParamsSchema as any).parse(paramsWithNormalizedId);
+    const validParams = (taskDeleteParamsSchema as unknown).parse(paramsWithNormalizedId);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await (deps as any).resolveRepoPath({
-      session: (validParams as any).session,
+    const repoPath = await (deps as unknown).resolveRepoPath({
+      session: (validParams as unknown).session,
       repo: validParams.repo,
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await (deps as any).resolveMainWorkspacePath();
+    const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
 
     // Create task service
-    const taskService = await (deps as any).createTaskService({
+    const taskService = await (deps as unknown).createTaskService({
       workspacePath,
       backend: validParams.backend,
     });
 
     // Get the task first to verify it exists and get details
-    const task = await (taskService as any).getTask((validParams as any).taskId);
+    const task = await (taskService as unknown).getTask((validParams as unknown).taskId);
 
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task ${(validParams as any).taskId} not found`,
+        `Task ${(validParams as unknown).taskId} not found`,
         "task",
-        (validParams as any).taskId
+        (validParams as unknown).taskId
       );
     }
 
     // Delete the task
-    const deleted = await (taskService as any).deleteTask((validParams as any).taskId, {
+    const deleted = await (taskService as unknown).deleteTask((validParams as unknown).taskId, {
       force: validParams.force,
     });
 
     return {
       success: deleted,
-      taskId: (validParams as any).taskId,
+      taskId: (validParams as unknown).taskId,
       task: task,
     };
   } catch (error) {

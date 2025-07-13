@@ -29,7 +29,7 @@ export function createIntegratedCliProgram(): Command {
   // Create the root program
   const program = (new Command()
     .name("minsky")
-    .description("Minsky CLI - Task-based workspace management") as any).version("1.0.0");
+    .description("Minsky CLI - Task-based workspace management") as unknown).version("1.0.0");
 
   // Register shared commands in the registry
   registerGitCommands();
@@ -39,7 +39,7 @@ export function createIntegratedCliProgram(): Command {
 
   // Bridge the commands to CLI
   registerCategorizedCliCommands(program,
-    [(CommandCategory as any).GIT, (CommandCategory as any).TASKS, (CommandCategory as any).SESSION, (CommandCategory as any).RULES],
+    [(CommandCategory as unknown).GIT, (CommandCategory as unknown).TASKS, (CommandCategory as unknown).SESSION, (CommandCategory as unknown).RULES],
     true // Create subcommands for categories
   );
 

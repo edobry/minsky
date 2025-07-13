@@ -22,7 +22,7 @@ export class DefaultCredentialManager implements CredentialManager {
     case "github":
       return this.getGitHubCredential();
     default:
-      return null as any;
+      return null as unknown;
     }
   }
 
@@ -36,7 +36,7 @@ export class DefaultCredentialManager implements CredentialManager {
   ): Promise<void> {
     switch (service) {
     case "github":
-      await this.setGitHubCredential(source, value as any);
+      await this.setGitHubCredential(source, value as unknown);
       break;
     default:
       throw new Error(`Unsupported credential service: ${service}`);
@@ -67,24 +67,24 @@ export class DefaultCredentialManager implements CredentialManager {
 
     // 2. Check global config file
     const globalConfig = await this.loadGlobalConfig();
-    if ((globalConfig?.github?.credentials as any).token) {
-      return (globalConfig?.github?.credentials as any).token;
+    if ((globalConfig?.github?.credentials as unknown).token) {
+      return (globalConfig?.github?.credentials as unknown).token;
     }
 
     // 3. Check token file if configured
-    if ((globalConfig?.github?.credentials as any).token_file) {
-      const tokenFile = this.expandTilde((globalConfig?.github?.credentials as any).token_file);
+    if ((globalConfig?.github?.credentials as unknown).token_file) {
+      const tokenFile = this.expandTilde((globalConfig?.github?.credentials as unknown).token_file);
       if (existsSync(tokenFile)) {
         try {
           const content = readFileSync(tokenFile, { encoding: "utf8" }).toString();
-          return typeof content === "string" ? (((content) as any).toString() as any).trim() : ((content as any).toString() as any).trim();
+          return typeof content === "string" ? (((content) as unknown).toString() as unknown).trim() : ((content as unknown).toString() as unknown).trim();
         } catch (error) {
           // Silently ignore file read errors
         }
       }
     }
 
-    return null as any;
+    return null as unknown;
   }
 
   /**
@@ -93,22 +93,22 @@ export class DefaultCredentialManager implements CredentialManager {
   private async setGitHubCredential(source: CredentialSource, value?: string): Promise<void> {
     const globalConfig = (await this.loadGlobalConfig()) || this.createEmptyGlobalConfig();
 
-    if (!(globalConfig as any).github) {
-      (globalConfig as any).github = {};
+    if (!(globalConfig as unknown).github) {
+      (globalConfig as unknown).github = {};
     }
 
-    if (!(globalConfig.github as any).credentials) {
-      (globalConfig.github as any).credentials = { source };
+    if (!(globalConfig.github as unknown).credentials) {
+      (globalConfig.github as unknown).credentials = { source };
     }
 
-    (globalConfig?.github?.credentials as any).source = source;
+    (globalConfig?.github?.credentials as unknown).source = source;
 
     if (source === "file" && value) {
-      (globalConfig?.github?.credentials as any).token = value;
+      (globalConfig?.github?.credentials as unknown).token = value;
     }
 
     if (source === "prompt" && value) {
-      (globalConfig?.github?.credentials as any).token = value;
+      (globalConfig?.github?.credentials as unknown).token = value;
     }
 
     await this.saveGlobalConfig(globalConfig);
@@ -132,15 +132,15 @@ export class DefaultCredentialManager implements CredentialManager {
     const configPath = this.expandTilde(CONFIG_PATHS.GLOBAL_USER);
     
     if (!existsSync(configPath)) {
-      return null as any;
+      return null as unknown;
     }
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" }).toString();
-      const contentStr = typeof content === "string" ? content : (content as any).toString();
+      const contentStr = typeof content === "string" ? content : (content as unknown).toString();
       return parseYaml(contentStr) as GlobalUserConfig;
     } catch (error) {
-      return null as any;
+      return null as unknown;
     }
   }
 
@@ -156,7 +156,7 @@ export class DefaultCredentialManager implements CredentialManager {
       mkdirSync(configDir, { recursive: true });
     }
 
-    const yamlContent = stringifyYaml(config as any, {
+    const yamlContent = stringifyYaml(config as unknown, {
       indent: 2,
       lineWidth: 100
     });
@@ -178,8 +178,8 @@ export class DefaultCredentialManager implements CredentialManager {
    * Expand tilde in file paths
    */
   private expandTilde(filePath: string): string {
-    if ((filePath as any).startsWith("~/")) {
-      return join(homedir(), (filePath as any).slice(2));
+    if ((filePath as unknown).startsWith("~/")) {
+      return join(homedir(), (filePath as unknown).slice(2));
     }
     return filePath;
   }

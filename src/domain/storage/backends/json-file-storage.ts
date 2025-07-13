@@ -66,7 +66,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       const success = writeSessionDbFile(state, this.getFileOptions());
       return {
         success,
-        bytesWritten: success ? (JSON.stringify(state.sessions) as any).length : 0,
+        bytesWritten: success ? (JSON.stringify(state.sessions) as unknown).length : 0,
       };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error as any));
@@ -80,42 +80,42 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async getEntity(id: string, options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
     const result = await this.readState();
-    if (!(result as any).success || !(result as any).data) {
-      return null as any;
+    if (!(result as unknown).success || !(result as unknown).data) {
+      return null as unknown;
     }
 
     return (
-      (result.data!.sessions as any).find((session) => (session as any).session === id) ||
-      (null as any)
+      (result.data!.sessions as unknown).find((session) => (session as unknown).session === id) ||
+      (null as unknown)
     );
   }
 
   async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
     const result = await this.readState();
-    if (!(result as any).success || !(result as any).data) {
+    if (!(result as unknown).success || !(result as unknown).data) {
       return [];
     }
 
-    let sessions = (result.data as any).sessions;
+    let sessions = (result.data as unknown).sessions;
 
     // Apply filters if provided
     if (options) {
-      if ((options as any).taskId) {
-        const normalizedTaskId = (options.taskId as any).replace(/^#/, "");
-        sessions = (sessions as any).filter((s) => {
-          if (!(s as any).taskId) {
+      if ((options as unknown).taskId) {
+        const normalizedTaskId = (options.taskId as unknown).replace(/^#/, "");
+        sessions = (sessions as unknown).filter((s) => {
+          if (!(s as unknown).taskId) {
             return false;
           }
-          return (s.taskId as any).replace(/^#/, "") === normalizedTaskId;
+          return (s.taskId as unknown).replace(/^#/, "") === normalizedTaskId;
         });
       }
-      if ((options as any).repoName) {
-        sessions = (sessions as any).filter(
-          (s) => (s as any).repoName === (options as any).repoName
+      if ((options as unknown).repoName) {
+        sessions = (sessions as unknown).filter(
+          (s) => (s as unknown).repoName === (options as unknown).repoName
         );
       }
-      if ((options as any).branch) {
-        sessions = (sessions as any).filter((s) => (s as any).branch === (options as any).branch);
+      if ((options as unknown).branch) {
+        sessions = (sessions as unknown).filter((s) => (s as unknown).branch === (options as unknown).branch);
       }
     }
 
@@ -124,18 +124,18 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async createEntity(entity: SessionRecord): Promise<SessionRecord> {
     const result = await this.readState();
-    if (!(result as any).success || !(result as any).data) {
+    if (!(result as unknown).success || !(result as unknown).data) {
       throw new Error("Failed to read current state");
     }
 
     const newState: SessionDbState = {
-      ...(result as any).data,
-      sessions: [...(result.data as any).sessions, entity],
+      ...(result as unknown).data,
+      sessions: [...(result.data as unknown).sessions, entity],
     };
 
     const writeResult = await this.writeState(newState);
-    if (!(writeResult as any).success) {
-      throw new Error(`Failed to create entity: ${(writeResult.error as any).message}`);
+    if (!(writeResult as unknown).success) {
+      throw new Error(`Failed to create entity: ${(writeResult.error as unknown).message}`);
     }
 
     return entity;
@@ -143,39 +143,39 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async updateEntity(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null> {
     const result = await this.readState();
-    if (!(result as any).success || !(result as any).data) {
-      return null as any;
+    if (!(result as unknown).success || !(result as unknown).data) {
+      return null as unknown;
     }
 
-    const sessionIndex = (result.data!.sessions as any).findIndex((s) => (s as any).session === id);
+    const sessionIndex = (result.data!.sessions as unknown).findIndex((s) => (s as unknown).session === id);
     if (sessionIndex === -1) {
-      return null as any;
+      return null as unknown;
     }
 
     // Create safe updates by explicitly building the update object without session
     const safeUpdates: Partial<Omit<SessionRecord, "session">> = {};
-    (Object.entries(updates) as any).forEach(([key, value]) => {
+    (Object.entries(updates) as unknown).forEach(([key, value]) => {
       if (key !== "session") {
-        (safeUpdates as any)[key] = value;
+        (safeUpdates as unknown)[key] = value;
       }
     });
 
     const updatedSession: SessionRecord = {
-      ...(result.data as any).sessions[sessionIndex],
+      ...(result.data as unknown).sessions[sessionIndex],
       ...safeUpdates,
     };
 
-    const newSessions = [...(result.data as any).sessions];
+    const newSessions = [...(result.data as unknown).sessions];
     newSessions[sessionIndex] = updatedSession;
 
     const newState: SessionDbState = {
-      ...(result as any).data,
+      ...(result as unknown).data,
       sessions: newSessions,
     };
 
     const writeResult = await this.writeState(newState);
-    if (!(writeResult as any).success) {
-      throw new Error(`Failed to update entity: ${(writeResult.error as any).message}`);
+    if (!(writeResult as unknown).success) {
+      throw new Error(`Failed to update entity: ${(writeResult.error as unknown).message}`);
     }
 
     return updatedSession;
@@ -183,25 +183,25 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async deleteEntity(id: string): Promise<boolean> {
     const result = await this.readState();
-    if (!(result as any).success || !(result as any).data) {
+    if (!(result as unknown).success || !(result as unknown).data) {
       return false;
     }
 
-    const sessionIndex = (result.data!.sessions as any).findIndex((s) => (s as any).session === id);
+    const sessionIndex = (result.data!.sessions as unknown).findIndex((s) => (s as unknown).session === id);
     if (sessionIndex === -1) {
       return false;
     }
 
-    const newSessions = [...(result.data as any).sessions];
-    (newSessions as any).splice(sessionIndex, 1);
+    const newSessions = [...(result.data as unknown).sessions];
+    (newSessions as unknown).splice(sessionIndex, 1);
 
     const newState: SessionDbState = {
-      ...(result as any).data,
+      ...(result as unknown).data,
       sessions: newSessions,
     };
 
     const writeResult = await this.writeState(newState);
-    return (writeResult as any).success;
+    return (writeResult as unknown).success;
   }
 
   async entityExists(id: string): Promise<boolean> {
@@ -225,7 +225,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       if (!existsSync(this.dbPath)) {
         const initialState = initializeSessionDbState({ baseDir: this.baseDir });
         const writeResult = await this.writeState(initialState);
-        return (writeResult as any).success;
+        return (writeResult as unknown).success;
       }
 
       return true;

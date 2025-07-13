@@ -23,7 +23,7 @@ describe("GitService Default Branch Detection", () => {
   });
 
   test("should detect default branch from origin HEAD ref", async () => {
-    const execMock = GitService.prototype.execInRepository as any;
+    const execMock = GitService.prototype.execInRepository as unknown;
 
     // Mock to return a specific branch name
     execMock.mockImplementation(() => Promise.resolve("origin/develop\n"));
@@ -41,7 +41,7 @@ describe("GitService Default Branch Detection", () => {
   });
 
   test("should properly remove origin prefix from branch name", async () => {
-    const execMock = GitService.prototype.execInRepository as any;
+    const execMock = GitService.prototype.execInRepository as unknown;
 
     // Mock to return a branch with extra whitespace
     execMock.mockImplementation(() => Promise.resolve("  origin/custom-main  \n"));
@@ -54,7 +54,7 @@ describe("GitService Default Branch Detection", () => {
   });
 
   test("should fall back to 'main' when command fails", async () => {
-    const execMock = GitService.prototype.execInRepository as any;
+    const execMock = GitService.prototype.execInRepository as unknown;
 
     // Mock to throw an error
     execMock.mockImplementation(() => Promise.reject(new Error("Git command failed")));

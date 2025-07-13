@@ -71,7 +71,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace the preparePr method with our spy
-      (gitService as any).preparePr = preparePrSpy;
+      (gitService as unknown).preparePr = preparePrSpy;
 
       // Execute the preparePr method
       await gitService.preparePr({
@@ -141,7 +141,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace with correct implementation
-      (gitService as any).preparePr = correctPreparePrSpy;
+      (gitService as unknown).preparePr = correctPreparePrSpy;
 
       // Execute the CORRECT preparePr method
       const result = await gitService.preparePr({
@@ -210,7 +210,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Replace the preparePrFromParams function
       const originalPreparePr = require("../git.js").preparePrFromParams;
-      (require("../git.js") as any).preparePrFromParams = mockPreparePrFromParams;
+      (require("../git.js") as unknown).preparePrFromParams = mockPreparePrFromParams;
 
       try {
         // Execute sessionPrFromParams
@@ -237,7 +237,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         expect(result.baseBranch).toBe("main");
       } finally {
         // Restore original function
-        (require("../git.js") as any).preparePrFromParams = originalPreparePr;
+        (require("../git.js") as unknown).preparePrFromParams = originalPreparePr;
       }
     });
   });
@@ -318,7 +318,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         }
       });
 
-      (gitService as any).preparePr = preparePrWithConflictSpy;
+      (gitService as unknown).preparePr = preparePrWithConflictSpy;
 
       // Should throw error on merge conflict
       await expect(

@@ -239,7 +239,7 @@ describe("Session CLI Commands", () => {
       // Act: Call updateSessionFromParams without name parameter (tests auto-detection)
       const result = await updateSessionFromParams(
         {
-          name: undefined as any,
+          name: undefined as unknown,
           noStash: false,
           noPush: false,
           force: true, // Use force to bypass git conflict detection
@@ -598,18 +598,18 @@ describe("Session CLI Commands", () => {
       };
 
       // Mock sessionDb
-      (gitService as any).sessionDb = {
+      (gitService as unknown).sessionDb = {
         getSession: async () => sessionRecord,
       };
 
       // Mock getSessionWorkdir to use our test directory
-      (gitService as any).getSessionWorkdir = () => testWorkdir;
+      (gitService as unknown).getSessionWorkdir = () => testWorkdir;
 
       // Mock push method
-      (gitService as any).push = async () => ({ workdir: testWorkdir, pushed: true });
+      (gitService as unknown).push = async () => ({ workdir: testWorkdir, pushed: true });
 
       // CRITICAL: Mock execInRepository to capture actual commands from preparePr
-      (gitService as any).execInRepository = async (workdir: string, command: string) => {
+      (gitService as unknown).execInRepository = async (workdir: string, command: string) => {
         const fullCommand = `git -C ${workdir} ${command}`;
         return (await mockExecAsync(fullCommand)).stdout;
       };
