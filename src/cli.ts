@@ -5,7 +5,7 @@
 import { homedir } from "os";
 import { join } from "path";
 const userConfigDir = join(homedir(), ".config", "minsky");
-(process.env as any).NODE_CONFIG_DIR = userConfigDir;
+(process.env as unknown).NODE_CONFIG_DIR = userConfigDir;
 
 import { Command } from "commander";
 import { log } from "./utils/logger.js";
@@ -21,7 +21,7 @@ import {
  * Root CLI command
  */
 export const cli = (new Command("minsky")
-  .description("Minsky development workflow tool") as any).version("1.0.0");
+  .description("Minsky development workflow tool") as unknown).version("1.0.0");
 
 /**
  * Create the CLI command structure

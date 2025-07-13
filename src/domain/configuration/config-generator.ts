@@ -32,35 +32,35 @@ export class ConfigurationGenerator {
     const config: RepositoryConfig = {
       version: 1,
       backends: {
-        default: (options as any)!.backend,
+        default: (options as unknown)!.backend,
       },
-    } as any;
+    } as unknown;
 
     // Add GitHub-specific configuration
-    if ((options as any)!.backend === "github-issues") {
-      if (!(options as any)!.githubOwner || !(options as any)!.githubRepo) {
+    if ((options as unknown)!.backend === "github-issues") {
+      if (!(options as unknown)!.githubOwner || !(options as unknown)!.githubRepo) {
         const errorMessage = createBackendDetectionErrorMessage(
           "github-issues",
           ["markdown", "json-file", "github-issues"] as any[],
           {
             "github-issues": [
-              ...((options as any)!.githubOwner ? [] : ["GitHub owner"]),
-              ...((options as any)!.githubRepo ? [] : ["GitHub repository"])
+              ...((options as unknown)!.githubOwner ? [] : ["GitHub owner"]),
+              ...((options as unknown)!.githubRepo ? [] : ["GitHub repository"])
             ]
           },
           workingDir
         );
-        throw new Error(errorMessage as any);
+        throw new Error(errorMessage as unknown);
       }
-      (config as any)!.backends!["github-issues"] = {
-        owner: (options as any)!.githubOwner,
-        repo: (options as any)!.githubRepo,
+      (config as unknown)!.backends!["github-issues"] = {
+        owner: (options as unknown)!.githubOwner,
+        repo: (options as unknown)!.githubRepo,
       };
     }
 
     // Add repository-level settings
-    (config as any)!.repository = {
-      auto_detect_backend: (options as any)!.autoDetectBackend ?? true,
+    (config as unknown)!.repository = {
+      auto_detect_backend: (options as unknown)!.autoDetectBackend ?? true,
       detection_rules: [
         { condition: "tasks_md_exists", backend: "github-issues" },
         { condition: "tasks_md_exists", backend: "markdown" },
@@ -68,7 +68,7 @@ export class ConfigurationGenerator {
       ],
     };
 
-    this.writeRepositoryConfig(workingDir, config as any);
+    this.writeRepositoryConfig(workingDir, config as unknown);
   }
 
   /**
@@ -79,19 +79,19 @@ export class ConfigurationGenerator {
       version: 1,
     };
 
-    if ((options as any)!.githubToken || (options as any)!.githubTokenSource) {
-      (config as any)!.github = {
+    if ((options as unknown)!.githubToken || (options as unknown)!.githubTokenSource) {
+      (config as unknown)!.github = {
         credentials: {
-          source: (options as any)!.githubTokenSource || "file",
+          source: (options as unknown)!.githubTokenSource || "file",
         },
       };
 
-      if ((options as any)!.githubToken && (options as any)!.githubTokenSource === "file") {
-        (config!?.github?.credentials! as any).token = (options as any)!.githubToken;
+      if ((options as unknown)!.githubToken && (options as unknown)!.githubTokenSource === "file") {
+        (config!?.github?.credentials! as unknown).token = (options as unknown)!.githubToken;
       }
     }
 
-    this.writeGlobalUserConfig(config as any);
+    this.writeGlobalUserConfig(config as unknown);
   }
 
   /**
@@ -99,7 +99,7 @@ export class ConfigurationGenerator {
    */
   private writeRepositoryConfig(workingDir: string, config: RepositoryConfig): void {
     const configDir = join(workingDir, ".minsky");
-    const configPath = join(configDir, "config.yaml") as any;
+    const configPath = join(configDir, "config.yaml") as unknown;
 
     // Ensure .minsky directory exists
     if (!existsSync(configDir)) {
@@ -108,7 +108,7 @@ export class ConfigurationGenerator {
 
     const yamlContent =
       this.generateYamlHeader("Repository") +
-      stringifyYaml(config as any, {
+      stringifyYaml(config as unknown, {
         indent: 2,
         lineWidth: 100,
       });
@@ -130,7 +130,7 @@ export class ConfigurationGenerator {
 
     const yamlContent =
       this.generateYamlHeader("Global User") +
-      stringifyYaml(config as any, {
+      stringifyYaml(config as unknown, {
         indent: 2,
         lineWidth: 100,
       });
@@ -153,8 +153,8 @@ export class ConfigurationGenerator {
    * Expand tilde in file paths
    */
   private expandTilde(filePath: string): string {
-    if ((filePath as any).startsWith("~/")) {
-      return join(homedir(), (filePath as any).slice(2));
+    if ((filePath as unknown).startsWith("~/")) {
+      return join(homedir(), (filePath as unknown).slice(2));
     }
     return filePath;
   }
@@ -171,8 +171,8 @@ export class ConfigurationGenerator {
    */
   static getGlobalUserConfigPath(): string {
     const configPath = CONFIG_PATHS.GLOBAL_USER;
-    if ((configPath as any)!.startsWith("~/")) {
-      return join(homedir(), (configPath as any)!.slice(2));
+    if ((configPath as unknown)!.startsWith("~/")) {
+      return join(homedir(), (configPath as unknown)!.slice(2));
     }
     return configPath;
   }

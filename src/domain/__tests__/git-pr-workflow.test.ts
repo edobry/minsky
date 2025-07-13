@@ -66,9 +66,9 @@ describe("Session Approve Workflow", () => {
     const result = await approveSessionFromParams(
       { _session: "test-session" },
       {
-        gitService: mockGitService as any,
-        taskService: mockTaskService as any,
-        sessionDB: mockSessionDB as any,
+        gitService: mockGitService as unknown,
+        taskService: mockTaskService as unknown,
+        sessionDB: mockSessionDB as unknown,
         workspaceUtils: WorkspaceUtils,
       }
     );
@@ -94,9 +94,9 @@ describe("Session Approve Workflow", () => {
       approveSessionFromParams(
         {},
         {
-          gitService: mockGitService as any,
-          taskService: mockTaskService as any,
-          sessionDB: mockSessionDB as any,
+          gitService: mockGitService as unknown,
+          taskService: mockTaskService as unknown,
+          sessionDB: mockSessionDB as unknown,
           workspaceUtils: WorkspaceUtils,
         }
       )
@@ -117,9 +117,9 @@ describe("Session Approve Workflow", () => {
       approveSessionFromParams(
         { _session: "non-existent-session" },
         {
-          gitService: mockGitService as any,
-          taskService: mockTaskService as any,
-          sessionDB: mockSessionDBWithNull as any,
+          gitService: mockGitService as unknown,
+          taskService: mockTaskService as unknown,
+          sessionDB: mockSessionDBWithNull as unknown,
           workspaceUtils: WorkspaceUtils,
         }
       )
@@ -140,9 +140,9 @@ describe("Session Approve Workflow", () => {
       approveSessionFromParams(
         { _session: "test-session" },
         {
-          gitService: mockGitServiceWithError as any,
-          taskService: mockTaskService as any,
-          sessionDB: mockSessionDB as any,
+          gitService: mockGitServiceWithError as unknown,
+          taskService: mockTaskService as unknown,
+          sessionDB: mockSessionDB as unknown,
           workspaceUtils: WorkspaceUtils,
         }
       )

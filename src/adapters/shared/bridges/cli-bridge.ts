@@ -90,14 +90,14 @@ export class CliCommandBridge {
    * Register command customization options
    */
   registerCommandCustomization(commandId: string, options: CliCommandOptions): void {
-    this.customizations.set(commandId!, options as any);
+    this.customizations.set(commandId!, options as unknown);
   }
 
   /**
    * Register category customization options
    */
   registerCategoryCustomization(category: CommandCategory, options: CategoryCommandOptions): void {
-    (this.categoryCustomizations as any).set(category, options as any);
+    (this.categoryCustomizations as unknown).set(category, options as unknown);
   }
 
   /**
@@ -127,26 +127,26 @@ export class CliCommandBridge {
     log.debug(`generateCommand called with commandId: ${commandId}`);
 
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
+    if ((process.env as unknown).NODE_ENV !== "production" && !(context?.viaFactory)) {
       log.warn(
         `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
       );
     }
 
-    const commandDef = (sharedCommandRegistry as any).getCommand(commandId);
+    const commandDef = (sharedCommandRegistry as unknown).getCommand(commandId);
     log.debug(`commandDef found: ${!!commandDef}`);
     if (!commandDef) {
-      return null as any;
+      return null as unknown;
     }
 
     const options = this.getCommandOptions(commandId);
     log.debug(`options retrieved: ${!!options}`);
 
     // Create the basic command
-    const command = (new Command(commandDef.name) as any).description(
-      (commandDef as any).description
+    const command = (new Command(commandDef.name) as unknown).description(
+      (commandDef as unknown).description
     );
-    log.debug(`command created: ${(command as any).name()}`);
+    log.debug(`command created: ${(command as unknown).name()}`);
 
     // Add aliases if specified
     if (options.aliases && options.aliases.length) {
@@ -154,36 +154,36 @@ export class CliCommandBridge {
     }
 
     // Hide from help if specified
-    if ((options as any).hidden) {
+    if ((options as unknown).hidden) {
       // Alternative approach: use a special prefix that can be filtered out
-      (command as any).description(`[HIDDEN] ${(command as any).description()}`);
+      (command as unknown).description(`[HIDDEN] ${(command as unknown).description()}`);
     }
 
     // Create parameter mappings
     log.debug("About to create parameter mappings");
-    const mappings = this.createCommandParameterMappings(commandDef!, options as any);
-    log.debug(`Parameter mappings created: ${(mappings as any).length}`);
+    const mappings = this.createCommandParameterMappings(commandDef!, options as unknown);
+    log.debug(`Parameter mappings created: ${(mappings as unknown).length}`);
 
     // Add arguments to the command
     addArgumentsFromMappings(command!, mappings);
 
     // Add options to the command
-    (createOptionsFromMappings(mappings) as any).forEach((option) => {
+    (createOptionsFromMappings(mappings) as unknown).forEach((option) => {
       command.addOption(option);
     });
 
     // Add action handler
     command.action(async (...args) => {
       // Last argument is always the Command instance in Commander.js
-      const commandInstance = args[(args as any).length - 1] as Command;
+      const commandInstance = args[(args as unknown).length - 1] as Command;
       // Previous arguments are positional arguments
-      const positionalArgs = args.slice(0, (args as any).length - 1);
+      const positionalArgs = args.slice(0, (args as unknown).length - 1);
 
       try {
         // Create combined parameters from options and arguments
         const rawParameters = this.extractRawParameters(
-          (commandDef as any).parameters!,
-          (commandInstance as any).opts()!,
+          (commandDef as unknown).parameters!,
+          (commandInstance as unknown).opts()!,
           positionalArgs,
           mappings
         );
@@ -191,37 +191,37 @@ export class CliCommandBridge {
         // Create execution context
         const context: CliExecutionContext = {
           interface: "cli",
-          debug: !!(rawParameters as any).debug,
-          format: (rawParameters as any).json ? "json" : "text",
+          debug: !!(rawParameters as unknown).debug,
+          format: (rawParameters as unknown).json ? "json" : "text",
           cliSpecificData: {
             command: commandInstance,
-            rawArgs: (commandInstance as any).args,
+            rawArgs: (commandInstance as unknown).args,
           },
         };
 
         // Normalize parameters
         const normalizedParams = normalizeCliParameters(
-          (commandDef as any).parameters!,
+          (commandDef as unknown).parameters!,
           rawParameters
         );
 
         // Execute the command with parameters and context
-        const result = await (commandDef as any).execute(normalizedParams, context as any);
+        const result = await (commandDef as unknown).execute(normalizedParams, context as unknown);
 
         // Handle output
-        if ((options as any).outputFormatter) {
+        if ((options as unknown).outputFormatter) {
           // Use custom formatter if provided
-          (options as any).outputFormatter(result as any);
+          (options as unknown).outputFormatter(result as unknown);
         } else {
           // Use standard outputResult utility with JSON handling
-          if ((context as any).format === "json") {
+          if ((context as unknown).format === "json") {
             // For JSON output, bypass the default formatter and output JSON directly
-            outputResult(result as any, {
+            outputResult(result as unknown, {
               json: true,
             });
           } else {
             // Use default formatter for text output
-            outputResult(result as any, {
+            outputResult(result as unknown, {
               json: false,
               formatter: this.getDefaultFormatter(commandDef),
             });
@@ -255,28 +255,28 @@ export class CliCommandBridge {
     }
 
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
+    if ((process.env as unknown).NODE_ENV !== "production" && !(context?.viaFactory)) {
       log.warn(
         `[CLI Bridge] Direct usage detected for category '${category}'. Consider using CLI Command Factory for proper customization support.`
       );
     }
 
-    const commands = (sharedCommandRegistry as any).getCommandsByCategory(category);
-    if ((commands as any).length === 0) {
-      return null as any;
+    const commands = (sharedCommandRegistry as unknown).getCommandsByCategory(category);
+    if ((commands as unknown).length === 0) {
+      return null as unknown;
     }
 
-    const customOptions = (this.categoryCustomizations as any).get(category) || {};
+    const customOptions = (this.categoryCustomizations as unknown).get(category) || {};
 
     // Create the base category command
-    const categoryName = (customOptions as any).name || (category as any).toLowerCase();
-    const categoryCommand = (new Command(categoryName) as any).description(
-      (customOptions as any).description || `${category} commands`
+    const categoryName = (customOptions as unknown).name || (category as unknown).toLowerCase();
+    const categoryCommand = (new Command(categoryName) as unknown).description(
+      (customOptions as unknown).description || `${category} commands`
     );
 
     // Add aliases if specified
     if (customOptions.aliases && customOptions.aliases.length) {
-      (categoryCommand as any).aliases(customOptions.aliases);
+      (categoryCommand as unknown).aliases(customOptions.aliases);
     }
 
     // Group commands by their nested structure
@@ -284,27 +284,27 @@ export class CliCommandBridge {
 
     // Add all commands in this category as subcommands
     commands.forEach((commandDef) => {
-      const commandOptions = customOptions.commandOptions?.[(commandDef as any).id];
+      const commandOptions = customOptions.commandOptions?.[(commandDef as unknown).id];
       if (commandOptions) {
-        this.registerCommandCustomization((commandDef as any).id!, commandOptions);
+        this.registerCommandCustomization((commandDef as unknown).id!, commandOptions);
       }
 
       // Parse command name for nested structure (e.g., "status get" -> ["status", "get"])
-      const nameParts = (commandDef.name as any).split(" ");
+      const nameParts = (commandDef.name as unknown).split(" ");
 
-      if ((nameParts as any).length === 1) {
+      if ((nameParts as unknown).length === 1) {
         // Simple command - add directly to category
-        const subcommand = this.generateCommand((commandDef as any).id!, context as any);
+        const subcommand = this.generateCommand((commandDef as unknown).id!, context as unknown);
         if (subcommand) {
-          (categoryCommand as any).addCommand(subcommand!);
+          (categoryCommand as unknown).addCommand(subcommand!);
         }
-      } else if ((nameParts as any).length === 2) {
+      } else if ((nameParts as unknown).length === 2) {
         // Nested command - create/get the parent command and add as subcommand
         const parentName = nameParts[0];
         const childName = nameParts[1];
 
         if (!parentName || !childName) {
-          log.warn(`Invalid command name structure: ${(commandDef as any).name}`);
+          log.warn(`Invalid command name structure: ${(commandDef as unknown).name}`);
           return;
         }
 
@@ -313,15 +313,15 @@ export class CliCommandBridge {
         if (!parentCommand) {
           const newParentCommand = new Command(parentName).description(`${parentName} commands`);
           commandGroups.set(parentName, newParentCommand);
-          (categoryCommand as any).addCommand(newParentCommand);
+          (categoryCommand as unknown).addCommand(newParentCommand);
           parentCommand = newParentCommand;
         }
 
         // Create the child command with the correct name
-        const childCommand = this.generateCommand((commandDef as any).id!, context as any);
+        const childCommand = this.generateCommand((commandDef as unknown).id!, context as unknown);
         if (childCommand) {
           // Update the child command name to just the child part
-          (childCommand as any).name(childName);
+          (childCommand as unknown).name(childName);
           // Add the command to the parent
           if (parentCommand && childCommand) {
             parentCommand.addCommand(childCommand!);
@@ -329,10 +329,10 @@ export class CliCommandBridge {
         }
       } else {
         // More complex nesting - handle it recursively or warn
-        log.warn(`Complex command nesting not yet supported: ${(commandDef as any).name}`);
-        const subcommand = this.generateCommand((commandDef as any).id!, context as any);
+        log.warn(`Complex command nesting not yet supported: ${(commandDef as unknown).name}`);
+        const subcommand = this.generateCommand((commandDef as unknown).id!, context as unknown);
         if (subcommand) {
-          (categoryCommand as any).addCommand(subcommand!);
+          (categoryCommand as unknown).addCommand(subcommand!);
         }
       }
     });
@@ -348,7 +348,7 @@ export class CliCommandBridge {
    */
   generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean }): void {
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
+    if ((process.env as unknown).NODE_ENV !== "production" && !(context?.viaFactory)) {
       log.warn(
         "[CLI Bridge] Direct usage of generateAllCategoryCommands detected. Consider using CLI Command Factory for proper customization support."
       );
@@ -356,18 +356,18 @@ export class CliCommandBridge {
 
     // Get unique categories from all commands
     const categories = new Set<CommandCategory>();
-    (sharedCommandRegistry.getAllCommands() as any).forEach((cmd) => {
+    (sharedCommandRegistry.getAllCommands() as unknown).forEach((cmd) => {
       // Only add valid categories (not undefined/null)
       if (cmd.category) {
-        (categories as any).add(cmd.category);
+        (categories as unknown).add(cmd.category);
       } else {
         log.error(`[CLI Bridge] Command '${cmd.id}' has undefined category, skipping`);
       }
     });
 
     // Generate commands for each category
-    (categories as any).forEach((category) => {
-      const categoryCommand = this.generateCategoryCommand(category, context as any);
+    (categories as unknown).forEach((category) => {
+      const categoryCommand = this.generateCategoryCommand(category, context as unknown);
       if (categoryCommand) {
         program.addCommand(categoryCommand!);
       }
@@ -382,20 +382,20 @@ export class CliCommandBridge {
     options: CliCommandOptions
   ): ParameterMapping[] {
     const mappings = createParameterMappings(
-      (commandDef as any).parameters || {}!,
-      (options as any).parameters || {}
+      (commandDef as unknown).parameters || {}!,
+      (options as unknown).parameters || {}
     );
 
     // If automatic argument generation is enabled
-    if ((options as any).useFirstRequiredParamAsArgument && !(options as any).forceOptions) {
+    if ((options as unknown).useFirstRequiredParamAsArgument && !(options as unknown).forceOptions) {
       // Find the first required parameter to use as an argument
       const firstRequiredIndex = mappings.findIndex(
-        (mapping) => (mapping.paramDef as any).required
+        (mapping) => (mapping.paramDef as unknown).required
       );
 
       if (firstRequiredIndex >= 0 && mappings[firstRequiredIndex]) {
         // Mark it as an argument
-        (mappings[firstRequiredIndex].options as any).asArgument = true;
+        (mappings[firstRequiredIndex].options as unknown).asArgument = true;
       }
     }
 
@@ -415,18 +415,18 @@ export class CliCommandBridge {
 
     // Map positional arguments to parameter names
     const argumentMappings = (
-      (mappings as any).filter((mapping) => mapping.options.asArgument) as any
+      (mappings as unknown).filter((mapping) => mapping.options.asArgument) as unknown
     ).sort((a, b) => {
       // Required arguments come first
-      if ((a.paramDef as any).required && !(b.paramDef as any).required) return -1;
-      if (!(a.paramDef as any).required && (b.paramDef as any).required) return 1;
+      if ((a.paramDef as unknown).required && !(b.paramDef as unknown).required) return -1;
+      if (!(a.paramDef as unknown).required && (b.paramDef as unknown).required) return 1;
       return 0;
     });
 
     // Assign positional arguments to their corresponding parameters
-    (argumentMappings as any).forEach((mapping, index) => {
-      if (index < (positionalArgs as any).length) {
-        result[(mapping as any).name] = positionalArgs[index];
+    (argumentMappings as unknown).forEach((mapping, index) => {
+      if (index < (positionalArgs as unknown).length) {
+        result[(mapping as unknown).name] = positionalArgs[index];
       }
     });
 
@@ -439,22 +439,22 @@ export class CliCommandBridge {
   private getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
     // Very simple default formatter
     return (result: any) => {
-      if (Array.isArray(result as any)) {
+      if (Array.isArray(result as unknown)) {
         // Handle arrays specifically
-        if ((result as any).length === 0) {
+        if ((result as unknown).length === 0) {
           log.cli("No results found.");
         } else {
-          (result as any).forEach((item, index) => {
+          (result as unknown).forEach((item, index) => {
             if (typeof item === "object" && item !== null) {
               // For objects in arrays, try to display meaningful information
-              if ((item as any).id && (item as any).title) {
+              if ((item as unknown).id && (item as unknown).title) {
                 // Looks like a task or similar entity
                 log.cli(
-                  `- ${(item as any).id}: ${(item as any).title}${(item as any).status ? ` [${(item as any).status}]` : ""}`
+                  `- ${(item as unknown).id}: ${(item as unknown).title}${(item as unknown).status ? ` [${(item as unknown).status}]` : ""}`
                 );
               } else {
                 // Generic object display
-                log.cli(`${index + 1}. ${JSON.stringify(item as any)}`);
+                log.cli(`${index + 1}. ${JSON.stringify(item as unknown)}`);
               }
             } else {
               log.cli(`${index + 1}. ${item}`);
@@ -463,101 +463,101 @@ export class CliCommandBridge {
         }
       } else if (typeof result === "object" && result !== null) {
         // Special handling for session get command results
-        if ((commandDef as any).id === "session.get" && "session" in result) {
-          this.formatSessionDetails((result as any).session as Record<string, any>);
-        } else if ((commandDef as any).id === "session.dir" && "directory" in result) {
-          log.cli(`${(result as any).directory}`);
-        } else if ((commandDef as any).id === "session.list" && "sessions" in result) {
+        if ((commandDef as unknown).id === "session.get" && "session" in result) {
+          this.formatSessionDetails((result as unknown).session as Record<string, any>);
+        } else if ((commandDef as unknown).id === "session.dir" && "directory" in result) {
+          log.cli(`${(result as unknown).directory}`);
+        } else if ((commandDef as unknown).id === "session.list" && "sessions" in result) {
           // Handle session list results
-          const sessions = (result as any).sessions as any[];
-          if (Array.isArray(sessions) && (sessions as any).length > 0) {
-            (sessions as any).forEach((session: any) => {
+          const sessions = (result as unknown).sessions as any[];
+          if (Array.isArray(sessions) && (sessions as unknown).length > 0) {
+            (sessions as unknown).forEach((session: any) => {
               this.formatSessionSummary(session as Record<string, any>);
             });
           } else {
             log.cli("No sessions found.");
           }
-        } else if ((commandDef as any).id === "session.pr" && "prBranch" in result) {
+        } else if ((commandDef as unknown).id === "session.pr" && "prBranch" in result) {
           // Handle session pr results - format them nicely
-          this.formatSessionPrDetails(result as any);
-        } else if ((commandDef as any).id === "rules.list" && "rules" in result) {
+          this.formatSessionPrDetails(result as unknown);
+        } else if ((commandDef as unknown).id === "rules.list" && "rules" in result) {
           // Handle rules list results
-          if (Array.isArray((result as any).rules)) {
-            if ((result.rules as any).length > 0) {
-              (result.rules as any).forEach((rule: any) => {
+          if (Array.isArray((result as unknown).rules)) {
+            if ((result.rules as unknown).length > 0) {
+              (result.rules as unknown).forEach((rule: any) => {
                 this.formatRuleSummary(rule as Record<string, any>);
               });
             } else {
               log.cli("No rules found.");
             }
           }
-        } else if ((commandDef as any).id === "rules.get" && "rule" in result) {
+        } else if ((commandDef as unknown).id === "rules.get" && "rule" in result) {
           // Handle rules get results
-          this.formatRuleDetails((result as any).rule as Record<string, any>);
-        } else if ((commandDef as any).id === "tasks.status.get") {
+          this.formatRuleDetails((result as unknown).rule as Record<string, any>);
+        } else if ((commandDef as unknown).id === "tasks.status.get") {
           // Handle tasks status get results with friendly formatting
           const resultObj = result as Record<string, any>;
-          const taskId = String((resultObj as any).taskId || "unknown");
-          const status = String((resultObj as any).status || "unknown");
+          const taskId = String((resultObj as unknown).taskId || "unknown");
+          const status = String((resultObj as unknown).status || "unknown");
           log.cli(`Task ${taskId} is ${status.toLowerCase()}`);
-        } else if ((commandDef as any).id === "tasks.status.set") {
+        } else if ((commandDef as unknown).id === "tasks.status.set") {
           // Handle tasks status set results with friendly formatting
           const resultObj = result as Record<string, any>;
-          const taskId = String((resultObj as any).taskId || "unknown");
-          const status = String((resultObj as any).status || "unknown");
-          const previousStatus = String((resultObj as any).previousStatus || "unknown");
+          const taskId = String((resultObj as unknown).taskId || "unknown");
+          const status = String((resultObj as unknown).status || "unknown");
+          const previousStatus = String((resultObj as unknown).previousStatus || "unknown");
           if (status === previousStatus) {
             log.cli(`Task ${taskId} status is already ${status.toLowerCase()}`);
           } else {
             log.cli(
-              `Task ${taskId} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
+              `Task ${taskId} status changed from ${(previousStatus as unknown).toLowerCase()} to ${status.toLowerCase()}`
             );
           }
-        } else if ((commandDef as any).id === "debug.echo") {
+        } else if ((commandDef as unknown).id === "debug.echo") {
           // Handle debug.echo results with friendly formatting
-          this.formatDebugEchoDetails(result as any);
+          this.formatDebugEchoDetails(result as unknown);
         } else {
           // Special handling for delete command - check if this is a user-friendly result
-          if ((commandDef as any).id === "tasks.delete") {
+          if ((commandDef as unknown).id === "tasks.delete") {
             const resultObj = result as Record<string, any>;
             // If json flag is false/undefined, just show the message
-            if (!(resultObj as any).json) {
-              log.cli(String((resultObj as any).message || "Task deleted successfully"));
+            if (!(resultObj as unknown).json) {
+              log.cli(String((resultObj as unknown).message || "Task deleted successfully"));
               return;
             }
             // Otherwise fall through to normal JSON formatting
           }
 
           // Generic object handling - show all simple properties and handle complex ones
-          const meaningfulEntries = (Object as any)
-            .entries(result as any)
+          const meaningfulEntries = (Object as unknown)
+            .entries(result as unknown)
             .filter(([key]) => key !== "success");
 
           // If there's only one meaningful property and it's a simple message, show just the value
-          if ((meaningfulEntries as any).length === 1) {
+          if ((meaningfulEntries as unknown).length === 1) {
             const [key, value] = meaningfulEntries[0];
             if (key === "message" && (typeof value === "string" || typeof value === "number")) {
-              log.cli(String(value as any));
+              log.cli(String(value as unknown));
             } else if (typeof value !== "object" || value === null) {
               log.cli(`${key}: ${value}`);
-            } else if (Array.isArray(value as any)) {
-              log.cli(`${key}: [${(value as any).length} items]`);
+            } else if (Array.isArray(value as unknown)) {
+              log.cli(`${key}: [${(value as unknown).length} items]`);
             } else {
-              log.cli(`${key}: ${JSON.stringify(value as any)}`);
+              log.cli(`${key}: ${JSON.stringify(value as unknown)}`);
             }
           } else {
             // Multiple properties - show all with labels
-            (meaningfulEntries as any).forEach(([key, value]) => {
+            (meaningfulEntries as unknown).forEach(([key, value]) => {
               if (typeof value !== "object" || value === null) {
                 log.cli(`${key}: ${value}`);
-              } else if (Array.isArray(value as any)) {
-                log.cli(`${key}: [${(value as any).length} items]`);
+              } else if (Array.isArray(value as unknown)) {
+                log.cli(`${key}: [${(value as unknown).length} items]`);
               } else {
                 // For complex objects, try to show a meaningful summary
                 if (key === "session" && value && typeof value === "object") {
                   this.formatSessionStartSuccess(value as Record<string, any>);
                 } else {
-                  log.cli(`${key}: ${JSON.stringify(value as any)}`);
+                  log.cli(`${key}: ${JSON.stringify(value as unknown)}`);
                 }
               }
             });
@@ -565,7 +565,7 @@ export class CliCommandBridge {
         }
       } else if (result !== undefined) {
         // Just print the result as is
-        log.cli(String(result as any));
+        log.cli(String(result as unknown));
       }
     };
   }
@@ -577,15 +577,15 @@ export class CliCommandBridge {
     if (!session) return;
 
     // Display session information in a user-friendly format
-    if ((session as any).session) log.cli(`Session: ${(session as any).session}`);
-    if ((session as any).taskId) log.cli(`Task ID: ${(session as any).taskId}`);
-    if ((session as any).repoName) log.cli(`Repository: ${(session as any).repoName}`);
-    if ((session as any).repoPath) log.cli(`Session Path: ${(session as any).repoPath}`);
-    if ((session as any)._branch) log.cli(`Branch: ${(session as any)._branch}`);
-    if ((session as any).createdAt) log.cli(`Created: ${(session as any).createdAt}`);
-    if ((session as any).backendType) log.cli(`Backend: ${(session as any).backendType}`);
-    if ((session as any).repoUrl && (session as any).repoUrl !== (session as any).repoName) {
-      log.cli(`Repository URL: ${(session as any).repoUrl}`);
+    if ((session as unknown).session) log.cli(`Session: ${(session as unknown).session}`);
+    if ((session as unknown).taskId) log.cli(`Task ID: ${(session as unknown).taskId}`);
+    if ((session as unknown).repoName) log.cli(`Repository: ${(session as unknown).repoName}`);
+    if ((session as unknown).repoPath) log.cli(`Session Path: ${(session as unknown).repoPath}`);
+    if ((session as unknown)._branch) log.cli(`Branch: ${(session as unknown)._branch}`);
+    if ((session as unknown).createdAt) log.cli(`Created: ${(session as unknown).createdAt}`);
+    if ((session as unknown).backendType) log.cli(`Backend: ${(session as unknown).backendType}`);
+    if ((session as unknown).repoUrl && (session as unknown).repoUrl !== (session as unknown).repoName) {
+      log.cli(`Repository URL: ${(session as unknown).repoUrl}`);
     }
   }
 
@@ -599,20 +599,20 @@ export class CliCommandBridge {
     log.cli("✅ Session started successfully!");
     log.cli("");
 
-    if ((session as any).session) {
-      log.cli(`📁 Session: ${(session as any).session}`);
+    if ((session as unknown).session) {
+      log.cli(`📁 Session: ${(session as unknown).session}`);
     }
 
-    if ((session as any).taskId) {
-      log.cli(`🎯 Task: ${(session as any).taskId}`);
+    if ((session as unknown).taskId) {
+      log.cli(`🎯 Task: ${(session as unknown).taskId}`);
     }
 
-    if ((session as any).repoName) {
-      log.cli(`📦 Repository: ${(session as any).repoName}`);
+    if ((session as unknown).repoName) {
+      log.cli(`📦 Repository: ${(session as unknown).repoName}`);
     }
 
-    if ((session as any).branch) {
-      log.cli(`🌿 Branch: ${(session as any).branch}`);
+    if ((session as unknown).branch) {
+      log.cli(`🌿 Branch: ${(session as unknown).branch}`);
     }
 
     log.cli("");
@@ -630,9 +630,9 @@ export class CliCommandBridge {
   private formatSessionSummary(session: Record<string, any>): void {
     if (!session) return;
 
-    const sessionName = (session as any).session || "unknown";
-    const taskId = (session as any).taskId ? ` (${(session as any).taskId})` : "";
-    const repoName = (session as any).repoName ? ` - ${(session as any).repoName}` : "";
+    const sessionName = (session as unknown).session || "unknown";
+    const taskId = (session as unknown).taskId ? ` (${(session as unknown).taskId})` : "";
+    const repoName = (session as unknown).repoName ? ` - ${(session as unknown).repoName}` : "";
 
     log.cli(`${sessionName}${taskId}${repoName}`);
   }
@@ -643,10 +643,10 @@ export class CliCommandBridge {
   private formatSessionPrDetails(result: Record<string, any>): void {
     if (!result) return;
 
-    const prBranch = (result as any).prBranch || "unknown";
-    const baseBranch = (result as any).baseBranch || "main";
-    const title = (result as any).title || "Untitled PR";
-    const body = (result as any).body || "";
+    const prBranch = (result as unknown).prBranch || "unknown";
+    const baseBranch = (result as unknown).baseBranch || "main";
+    const title = (result as unknown).title || "Untitled PR";
+    const body = (result as unknown).body || "";
 
     // Header
     log.cli("✅ PR branch created successfully!");
@@ -658,9 +658,9 @@ export class CliCommandBridge {
     log.cli(`   PR Branch: ${prBranch}`);
     log.cli(`   Base Branch: ${baseBranch}`);
 
-    if (body && typeof body === "string" && (body as any).trim()) {
+    if (body && typeof body === "string" && (body as unknown).trim()) {
       const truncatedBody =
-        (body as any).length > 100 ? `${(body as any).substring(0, 100)}...` : body;
+        (body as unknown).length > 100 ? `${(body as unknown).substring(0, 100)}...` : body;
       log.cli(`   Body: ${truncatedBody}`);
     }
     log.cli("");
@@ -681,7 +681,7 @@ export class CliCommandBridge {
     log.cli("");
 
     // Status message
-    if ((result as any).taskUpdated) {
+    if ((result as unknown).taskUpdated) {
       log.cli("✅ Task status updated to IN-REVIEW");
     }
   }
@@ -734,16 +734,16 @@ export class CliCommandBridge {
     if (!rule) return;
 
     // Display rule information in a user-friendly format
-    if ((rule as any).id) log.cli(`Rule: ${(rule as any).id}`);
-    if ((rule as any).description) log.cli(`Description: ${(rule as any).description}`);
-    if ((rule as any).format) log.cli(`Format: ${(rule as any).format}`);
-    if ((rule as any).globs && Array.isArray((rule as any).globs)) {
-      log.cli(`Globs: ${(rule.globs as any).join(", ")}`);
+    if ((rule as unknown).id) log.cli(`Rule: ${(rule as unknown).id}`);
+    if ((rule as unknown).description) log.cli(`Description: ${(rule as unknown).description}`);
+    if ((rule as unknown).format) log.cli(`Format: ${(rule as unknown).format}`);
+    if ((rule as unknown).globs && Array.isArray((rule as unknown).globs)) {
+      log.cli(`Globs: ${(rule.globs as unknown).join(", ")}`);
     }
-    if ((rule as any).tags && Array.isArray((rule as any).tags)) {
-      log.cli(`Tags: ${(rule.tags as any).join(", ")}`);
+    if ((rule as unknown).tags && Array.isArray((rule as unknown).tags)) {
+      log.cli(`Tags: ${(rule.tags as unknown).join(", ")}`);
     }
-    if ((rule as any).path) log.cli(`Path: ${(rule as any).path}`);
+    if ((rule as unknown).path) log.cli(`Path: ${(rule as unknown).path}`);
   }
 
   /**
@@ -752,9 +752,9 @@ export class CliCommandBridge {
   private formatRuleSummary(rule: Record<string, any>): void {
     if (!rule) return;
 
-    const ruleId = (rule as any).id || "unknown";
-    const description = (rule as any).description ? ` - ${(rule as any).description}` : "";
-    const format = (rule as any).format ? ` [${(rule as any).format}]` : "";
+    const ruleId = (rule as unknown).id || "unknown";
+    const description = (rule as unknown).description ? ` - ${(rule as unknown).description}` : "";
+    const format = (rule as unknown).format ? ` [${(rule as unknown).format}]` : "";
 
     log.cli(`${ruleId}${format}${description}`);
   }
@@ -780,18 +780,18 @@ export function registerCategorizedCliCommands(
 ): void {
   if (createSubcommands) {
     // Create category-based subcommands
-    (categories as any).forEach((category) => {
-      const categoryCommand = (cliBridge as any).generateCategoryCommand(category);
+    (categories as unknown).forEach((category) => {
+      const categoryCommand = (cliBridge as unknown).generateCategoryCommand(category);
       if (categoryCommand) {
         program.addCommand(categoryCommand!);
       }
     });
   } else {
     // Add all commands directly to the program
-    (categories as any).forEach((category) => {
-      const commands = (sharedCommandRegistry as any).getCommandsByCategory(category);
+    (categories as unknown).forEach((category) => {
+      const commands = (sharedCommandRegistry as unknown).getCommandsByCategory(category);
       commands.forEach((commandDef) => {
-        const command = (cliBridge as any).generateCommand((commandDef as any).id);
+        const command = (cliBridge as unknown).generateCommand((commandDef as unknown).id);
         if (command) {
           program.addCommand(command);
         }

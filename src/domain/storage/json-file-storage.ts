@@ -86,11 +86,11 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param options Configuration options
    */
   constructor(options: JsonFileStorageOptions<S>) {
-    this.filePath = (options as any).filePath;
-    this.initializeState = (options as any).initializeState;
-    this.idField = (options as any).idField || "id";
-    this.entitiesField = (options as any).entitiesField;
-    this.prettyPrint = (options as any).prettyPrint !== false;
+    this.filePath = (options as unknown).filePath;
+    this.initializeState = (options as unknown).initializeState;
+    this.idField = (options as unknown).idField || "id";
+    this.entitiesField = (options as unknown).entitiesField;
+    this.prettyPrint = (options as unknown).prettyPrint !== false;
   }
 
   /**
@@ -106,10 +106,10 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       }
 
       const data = readFileSync(this.filePath, "utf8").toString();
-      const dataStr = typeof data === "string" ? data : String((data as any).toString());
+      const dataStr = typeof data === "string" ? data : String((data as unknown).toString());
 
       // Validate JSON before parsing to prevent stack overflow
-      if (!(((dataStr) as any).toString() as any).trim()) {
+      if (!(((dataStr) as unknown).toString() as unknown).trim()) {
         // Handle empty file
         const state = this.initializeState();
         return { success: true, data: state };
@@ -134,7 +134,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       }
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
-      log.error(`Error reading database file ${this.filePath}: ${(typedError as any).message}`);
+      log.error(`Error reading database file ${this.filePath}: ${(typedError as unknown).message}`);
       return {
         success: false,
         error: typedError,
@@ -154,7 +154,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       // Validate state before serialization to prevent circular references
       if (state === null || state === undefined) {
-        throw new Error("Cannot serialize null or undefined state" as any);
+        throw new Error("Cannot serialize null or undefined state" as unknown);
       }
 
       // Serialize state to JSON with error handling for circular references
@@ -164,7 +164,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       } catch (serializationError) {
         if (
           serializationError instanceof Error &&
-          (serializationError.message as any).includes("circular")
+          (serializationError.message as unknown).includes("circular")
         ) {
           throw new Error("Cannot serialize state: circular reference detected");
         }
@@ -176,11 +176,11 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       return {
         success: true,
-        bytesWritten: (json as any).length,
+        bytesWritten: (json as unknown).length,
       };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
-      log.error(`Error writing database file ${this.filePath}: ${(typedError as any).message}`);
+      log.error(`Error writing database file ${this.filePath}: ${(typedError as unknown).message}`);
       return {
         success: false,
         error: typedError,
@@ -196,13 +196,13 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    */
   async getEntity(id: string, options?: DatabaseQueryOptions): Promise<T | null> {
     const result = await this.readState();
-    if (!(result as any).success || !(result as any).data) {
-      return null as any;
+    if (!(result as unknown).success || !(result as unknown).data) {
+      return null as unknown;
     }
 
-    const state = (result as any).data;
+    const state = (result as unknown).data;
     const entities = this.getEntitiesFromState(state);
-    const entity = (entities as any).find((e) => (e as any)[this.idField] === id);
+    const entity = (entities as unknown).find((e) => (e as unknown)[this.idField] === id);
 
     return entity || null;
   }
@@ -214,11 +214,11 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    */
   async getEntities(options?: DatabaseQueryOptions): Promise<T[]> {
     const result = await this.readState();
-    if (!(result as any).success || !(result as any).data) {
+    if (!(result as unknown).success || !(result as unknown).data) {
       return [];
     }
 
-    const state = (result as any).data;
+    const state = (result as unknown).data;
     const entities = this.getEntitiesFromState(state);
 
     if (!options) {
@@ -226,9 +226,9 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
     }
 
     // Filter entities based on query options
-    return (entities as any).filter((entity) => {
-      for (const [key, value] of (Object as any).entries(options as any)) {
-        if ((entity as any)[key] !== value) {
+    return (entities as unknown).filter((entity) => {
+      for (const [key, value] of (Object as unknown).entries(options as unknown)) {
+        if ((entity as unknown)[key] !== value) {
           return false;
         }
       }
@@ -242,33 +242,33 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @returns Promise resolving to the created entity
    */
   async createEntity(entity: T): Promise<T> {
-    return (FileOperationLock as any).withLock(this.filePath, async () => {
+    return (FileOperationLock as unknown).withLock(this.filePath, async () => {
       const result = await this.readState();
-      if (!(result as any).success) {
+      if (!(result as unknown).success) {
         throw new Error(
-          `Failed to read database state: ${(result.error as any).message || "Unknown error"}`
+          `Failed to read database state: ${(result.error as unknown).message || "Unknown error"}`
         );
       }
 
-      const state = (result as any).data || this.initializeState();
+      const state = (result as unknown).data || this.initializeState();
       const entities = this.getEntitiesFromState(state);
 
       // Check if entity with this ID already exists
-      const id = (entity as any)[this.idField];
-      if (id && (entities as any).some((e) => (e as any)[this.idField] === id)) {
+      const id = (entity as unknown)[this.idField];
+      if (id && (entities as unknown).some((e) => (e as unknown)[this.idField] === id)) {
         throw new Error(`Entity with ID ${id} already exists`);
       }
 
       // Add entity to collection
-      (entities as any).push(entity);
+      (entities as unknown).push(entity);
 
       // Update state with new entities collection
       this.setEntitiesInState(state, entities);
 
       // Write updated state
       const writeResult = await this.writeState(state);
-      if (!(writeResult as any).success) {
-        throw (writeResult as any).error || new Error("Failed to write database state");
+      if (!(writeResult as unknown).success) {
+        throw (writeResult as unknown).error || new Error("Failed to write database state");
       }
 
       return entity;
@@ -282,21 +282,21 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @returns Promise resolving to the updated entity or null if not found
    */
   async updateEntity(id: string, updates: Partial<T>): Promise<T | null> {
-    return (FileOperationLock as any).withLock(this.filePath, async () => {
+    return (FileOperationLock as unknown).withLock(this.filePath, async () => {
       const result = await this.readState();
-      if (!(result as any).success) {
+      if (!(result as unknown).success) {
         throw new Error(
-          `Failed to read database state: ${(result.error as any).message || "Unknown error"}`
+          `Failed to read database state: ${(result.error as unknown).message || "Unknown error"}`
         );
       }
 
-      const state = (result as any).data || this.initializeState();
+      const state = (result as unknown).data || this.initializeState();
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = (entities as any).findIndex((e) => (e as any)[this.idField] === id);
+      const index = (entities as unknown).findIndex((e) => (e as unknown)[this.idField] === id);
       if (index === -1) {
-        return null as any;
+        return null as unknown;
       }
 
       // Update entity
@@ -308,8 +308,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       // Write updated state
       const writeResult = await this.writeState(state);
-      if (!(writeResult as any).success) {
-        throw (writeResult as any).error || new Error("Failed to write database state");
+      if (!(writeResult as unknown).success) {
+        throw (writeResult as unknown).error || new Error("Failed to write database state");
       }
 
       return updatedEntity;
@@ -322,33 +322,33 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @returns Promise resolving to true if deleted, false if not found
    */
   async deleteEntity(id: string): Promise<boolean> {
-    return (FileOperationLock as any).withLock(this.filePath, async () => {
+    return (FileOperationLock as unknown).withLock(this.filePath, async () => {
       const result = await this.readState();
-      if (!(result as any).success) {
+      if (!(result as unknown).success) {
         throw new Error(
-          `Failed to read database state: ${(result.error as any).message || "Unknown error"}`
+          `Failed to read database state: ${(result.error as unknown).message || "Unknown error"}`
         );
       }
 
-      const state = (result as any).data || this.initializeState();
+      const state = (result as unknown).data || this.initializeState();
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = (entities as any).findIndex((e) => (e as any)[this.idField] === id);
+      const index = (entities as unknown).findIndex((e) => (e as unknown)[this.idField] === id);
       if (index === -1) {
         return false;
       }
 
       // Remove entity
-      (entities as any).splice(index, 1);
+      (entities as unknown).splice(index, 1);
 
       // Update state with modified entities collection
       this.setEntitiesInState(state, entities);
 
       // Write updated state
       const writeResult = await this.writeState(state);
-      if (!(writeResult as any).success) {
-        throw (writeResult as any).error || new Error("Failed to write database state");
+      if (!(writeResult as unknown).success) {
+        throw (writeResult as unknown).error || new Error("Failed to write database state");
       }
 
       return true;
@@ -386,7 +386,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       if (!existsSync(this.filePath)) {
         const state = this.initializeState();
         const writeResult = await this.writeState(state);
-        return (writeResult as any).success;
+        return (writeResult as unknown).success;
       }
 
       return true;
@@ -416,7 +416,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @private
    */
   private getEntitiesFromState(state: S): T[] {
-    return (state as any)[this.entitiesField] || [];
+    return (state as unknown)[this.entitiesField] || [];
   }
 
   /**
@@ -426,7 +426,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @private
    */
   private setEntitiesInState(state: S, entities: T[]): void {
-    (state as any)[this.entitiesField] = entities;
+    (state as unknown)[this.entitiesField] = entities;
   }
 }
 
@@ -438,5 +438,5 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 export function createJsonFileStorage<T, S>(
   options: JsonFileStorageOptions<S>
 ): DatabaseStorage<T, S> {
-  return new JsonFileStorage<T, S>(options as any);
+  return new JsonFileStorage<T, S>(options as unknown);
 }

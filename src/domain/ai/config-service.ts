@@ -26,27 +26,27 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // If no API key is available, we can't use this provider
       if (!apiKey) {
-        return null as any;
+        return null as unknown;
       }
 
       const result = await (this.configService as any).loadConfiguration((process as any).cwd());
       const config = (result as any).resolved;
 
       // Get provider-specific config from both repo and user levels
-      const repoConfig = (config.ai as any).providers?.[provider as keyof typeof config.ai.providers];
-      const userConfig = (config.ai as any).providers?.[provider as keyof typeof config.ai.providers];
+      const repoConfig = (config.ai as unknown).providers?.[provider as keyof typeof config.ai.providers];
+      const userConfig = (config.ai as unknown).providers?.[provider as keyof typeof config.ai.providers];
 
       // Create provider config with API key and any available settings
       return {
-        provider: provider as any,
+        provider: provider as unknown,
         apiKey,
-        baseURL: (userConfig as any).base_url || (repoConfig as any).base_url,
-        defaultModel: (userConfig as any).default_model || (repoConfig as any).default_model,
+        baseURL: (userConfig as unknown).base_url || (repoConfig as unknown).base_url,
+        defaultModel: (userConfig as unknown).default_model || (repoConfig as unknown).default_model,
         supportedCapabilities: await this.getProviderCapabilities(provider),
       };
     } catch (error) {
       log.error(`Failed to get provider config for ${provider}`, { error });
-      return null as any;
+      return null as unknown;
     }
   }
 
@@ -59,7 +59,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
   async getDefaultProvider(): Promise<string> {
     try {
       const result = await (this.configService as any).loadConfiguration((process as any).cwd());
-      return (result.resolved.ai as any).default_provider || "openai" as any;
+      return (result.resolved.ai as any).default_provider || "openai" as unknown;
     } catch (error) {
       log.error("Failed to get default provider", { error });
       return "openai";
@@ -75,7 +75,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     try {
       // Make a minimal API call to validate the key
       const testConfig: AIProviderConfig = {
-        provider: provider as any,
+        provider: provider as unknown,
         apiKey,
         supportedCapabilities: [],
       };
@@ -101,22 +101,22 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     // Try config files
     try {
       const result = await (this.configService as any).loadConfiguration((process as any).cwd());
-      const providerConfig = (result.resolved.ai as any).providers?.[provider as keyof typeof result.resolved.ai.providers];
-      const credentialConfig = (providerConfig as any).credentials;
+      const providerConfig = (result.resolved.ai as unknown).providers?.[provider as keyof typeof result.resolved.ai.providers];
+      const credentialConfig = (providerConfig as unknown).credentials;
 
-      if ((credentialConfig as any).source === "file" && (credentialConfig as any).api_key_file) {
+      if ((credentialConfig as unknown).source === "file" && (credentialConfig as unknown).api_key_file) {
         // Would read from file in real implementation
-        return undefined as any;
+        return undefined as unknown;
       }
 
-      if ((credentialConfig as any).api_key) {
-        return (credentialConfig as any).api_key;
+      if ((credentialConfig as unknown).api_key) {
+        return (credentialConfig as unknown).api_key;
       }
     } catch (error) {
       log.debug(`Failed to resolve API key for ${provider}`, { error });
     }
 
-    return undefined as any;
+    return undefined as unknown;
   }
 
   private getEnvironmentAPIKey(provider: string): string | undefined {
@@ -145,10 +145,10 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     const pattern = formatMap[provider];
     if (!pattern) {
       // Unknown provider, assume valid
-      return (apiKey as any).length > 10;
+      return (apiKey as unknown).length > 10;
     }
 
-    return (pattern as any).test(apiKey);
+    return (pattern as unknown).test(apiKey);
   }
 
   private async getProviderCapabilities(provider: string) {

@@ -44,7 +44,7 @@ describe("Session Conflict Detection CLI Integration", () => {
   
   beforeEach(() => {
     // Clear the registry and reset mocks
-    (sharedCommandRegistry as any)?.commands = new Map();
+    (sharedCommandRegistry as unknown)?.commands = new Map();
     mockUpdateSessionFromParams.mockClear();
     mockSessionPrFromParams.mockClear();
   });

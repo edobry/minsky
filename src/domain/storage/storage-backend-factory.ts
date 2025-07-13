@@ -66,11 +66,11 @@ export function getDefaultStorageConfig(): StorageConfig {
     },
     postgres: {
       connectionUrl:
-        (process.env as any).MINSKY_POSTGRES_URL || "postgresql://localhost:5432/minsky",
+        (process.env as unknown).MINSKY_POSTGRES_URL || "postgresql://localhost:5432/minsky",
       maxConnections: 10,
       connectTimeout: 30,
       idleTimeout: 600,
-    } as any,
+    } as unknown,
   };
 }
 
@@ -98,27 +98,27 @@ export function loadStorageConfig(overrides?: Partial<StorageConfig>): StorageCo
   }
 
   // Override backend from node-config first, then environment variable
-  if (configBackend && (["json", "sqlite", "postgres"] as any).includes(configBackend)) {
-    (defaults as any).backend = configBackend;
+  if (configBackend && (["json", "sqlite", "postgres"] as unknown).includes(configBackend)) {
+    (defaults as unknown).backend = configBackend;
   } else {
-    const envBackend = (process.env as any).MINSKY_SESSION_BACKEND as StorageBackendType;
-    if (envBackend && (["json", "sqlite", "postgres"] as any).includes(envBackend)) {
-      (defaults as any).backend = envBackend;
+    const envBackend = (process.env as unknown).MINSKY_SESSION_BACKEND as StorageBackendType;
+    if (envBackend && (["json", "sqlite", "postgres"] as unknown).includes(envBackend)) {
+      (defaults as unknown).backend = envBackend;
     }
   }
 
   // Override SQLite path from node-config first, then environment
   if (configSqlitePath) {
-    (defaults.sqlite! as any).dbPath = configSqlitePath;
-  } else if ((process.env as any).MINSKY_SQLITE_PATH) {
-    (defaults.sqlite! as any).dbPath = (process.env as any).MINSKY_SQLITE_PATH as any;
+    (defaults.sqlite! as unknown).dbPath = configSqlitePath;
+  } else if ((process.env as unknown).MINSKY_SQLITE_PATH) {
+    (defaults.sqlite! as unknown).dbPath = (process.env as unknown).MINSKY_SQLITE_PATH as unknown;
   }
 
   // Override PostgreSQL URL from node-config first, then environment
   if (configPostgresUrl) {
-    (defaults.postgres! as any).connectionUrl = configPostgresUrl;
-  } else if ((process.env as any).MINSKY_POSTGRES_URL) {
-    (defaults.postgres! as any).connectionUrl = (process.env as any).MINSKY_POSTGRES_URL as any;
+    (defaults.postgres! as unknown).connectionUrl = configPostgresUrl;
+  } else if ((process.env as unknown).MINSKY_POSTGRES_URL) {
+    (defaults.postgres! as unknown).connectionUrl = (process.env as unknown).MINSKY_POSTGRES_URL as unknown;
   }
 
   // Apply any additional overrides
@@ -134,14 +134,14 @@ export function loadStorageConfig(overrides?: Partial<StorageConfig>): StorageCo
 export function createStorageBackend(
   config?: Partial<StorageConfig>
 ): DatabaseStorage<SessionRecord, SessionDbState> {
-  const storageConfig = loadStorageConfig(config as any);
+  const storageConfig = loadStorageConfig(config as unknown);
 
-  log.debug(`Creating storage backend: ${(storageConfig as any).backend}`);
+  log.debug(`Creating storage backend: ${(storageConfig as unknown).backend}`);
 
-  switch ((storageConfig as any).backend) {
+  switch ((storageConfig as unknown).backend) {
   case "json": {
     const dbPath =
-        (storageConfig.json as any).filePath || (getDefaultStorageConfig().json! as any).filePath;
+        (storageConfig.json as unknown).filePath || (getDefaultStorageConfig().json! as unknown).filePath;
     const baseDir = getMinskyStateDir();
     return new JsonFileStorage(dbPath, baseDir);
   }
@@ -149,16 +149,16 @@ export function createStorageBackend(
   case "sqlite": {
     const sqliteConfig: SqliteStorageConfig = {
       dbPath:
-          (storageConfig.sqlite as any).dbPath ||
-          (getDefaultStorageConfig().sqlite! as any).dbPath!,
-      enableWAL: (storageConfig.sqlite as any).enableWAL ?? true,
-      timeout: (storageConfig.sqlite as any).timeout ?? 5000,
+          (storageConfig.sqlite as unknown).dbPath ||
+          (getDefaultStorageConfig().sqlite! as unknown).dbPath!,
+      enableWAL: (storageConfig.sqlite as unknown).enableWAL ?? true,
+      timeout: (storageConfig.sqlite as unknown).timeout ?? 5000,
     };
     return createSqliteStorage(sqliteConfig);
   }
 
   case "postgres": {
-    if (!(storageConfig.postgres as any).connectionUrl) {
+    if (!(storageConfig.postgres as unknown).connectionUrl) {
       const errorMessage = createBackendDetectionErrorMessage(
         "postgres",
           ["json", "sqlite", "postgres"] as any[],
@@ -166,18 +166,18 @@ export function createStorageBackend(
             postgres: ["PostgreSQL connection URL"],
           }
       );
-      throw new Error(errorMessage as any);
+      throw new Error(errorMessage as unknown);
     }
-    return createPostgresStorage((storageConfig as any).postgres);
+    return createPostgresStorage((storageConfig as unknown).postgres);
   }
 
   default: {
-    const errorMessage = createBackendDetectionErrorMessage((storageConfig as any).backend, [
+    const errorMessage = createBackendDetectionErrorMessage((storageConfig as unknown).backend, [
       "json",
       "sqlite",
       "postgres",
     ] as any[]);
-    throw new Error(errorMessage as any);
+    throw new Error(errorMessage as unknown);
   }
   }
 }
@@ -193,43 +193,43 @@ export class StorageBackendFactory {
    * Get singleton instance
    */
   static getInstance(): StorageBackendFactory {
-    if (!(StorageBackendFactory as any).instance) {
-      (StorageBackendFactory as any).instance = new StorageBackendFactory();
+    if (!(StorageBackendFactory as unknown).instance) {
+      (StorageBackendFactory as unknown).instance = new StorageBackendFactory();
     }
-    return (StorageBackendFactory as any).instance;
+    return (StorageBackendFactory as unknown).instance;
   }
 
   /**
    * Create or get cached storage backend
    */
   getBackend(config?: Partial<StorageConfig>): DatabaseStorage<SessionRecord, SessionDbState> {
-    const storageConfig = loadStorageConfig(config as any);
+    const storageConfig = loadStorageConfig(config as unknown);
     const key = this.getBackendKey(storageConfig);
 
-    if (!(this.backends as any).has(key)) {
+    if (!(this.backends as unknown).has(key)) {
       const backend = createStorageBackend(storageConfig);
-      (this.backends as any).set(key, backend);
+      (this.backends as unknown).set(key, backend);
     }
 
-    return (this.backends as any).get(key);
+    return (this.backends as unknown).get(key);
   }
 
   /**
    * Clear all cached backends
    */
   clearCache(): void {
-    (this.backends as any).clear();
+    (this.backends as unknown).clear();
   }
 
   /**
    * Close all backends (for cleanup)
    */
   async closeAll(): Promise<void> {
-    for (const backend of (this.backends as any).values()) {
+    for (const backend of (this.backends as unknown).values()) {
       try {
         // Try to close if the backend has a close method
-        if ("close" in backend && typeof (backend as any).close === "function") {
-          await (backend as any).close();
+        if ("close" in backend && typeof (backend as unknown).close === "function") {
+          await (backend as unknown).close();
         }
       } catch (error) {
         log.warn("Error closing storage backend:", {
@@ -244,15 +244,15 @@ export class StorageBackendFactory {
    * Generate a unique key for backend caching
    */
   private getBackendKey(config: StorageConfig): string {
-    switch ((config as any).backend) {
+    switch ((config as unknown).backend) {
     case "json":
-      return `json:${(config.json as any).filePath}`;
+      return `json:${(config.json as unknown).filePath}`;
     case "sqlite":
-      return `sqlite:${(config.sqlite as any).dbPath}`;
+      return `sqlite:${(config.sqlite as unknown).dbPath}`;
     case "postgres":
-      return `postgres:${(config.postgres as any).connectionUrl}`;
+      return `postgres:${(config.postgres as unknown).connectionUrl}`;
     default:
-      return (config as any).backend;
+      return (config as unknown).backend;
     }
   }
 }

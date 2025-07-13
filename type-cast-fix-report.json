@@ -1,0 +1,2697 @@
+{
+  "timestamp": "2025-07-13T22:25:28.119Z",
+  "summary": {
+    "totalIssuesFound": 4447,
+    "automaticFixesApplied": 3912,
+    "manualReviewRequired": 535,
+    "riskBreakdown": {
+      "critical": 535,
+      "high": 2583,
+      "medium": 1257,
+      "low": 72
+    }
+  },
+  "criticalIssues": [
+    {
+      "file": "cli.ts",
+      "line": 57,
+      "description": "CRITICAL: Manual review needed for Bun as any"
+    },
+    {
+      "file": "cli.ts",
+      "line": 63,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "cli.ts",
+      "line": 64,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "cli.ts",
+      "line": 65,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "cli.ts",
+      "line": 65,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 304,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 399,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 416,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 417,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 421,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 511,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 517,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 652,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 667,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 679,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 692,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 722,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 737,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1055,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1075,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1080,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1085,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1111,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1128,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1149,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1168,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1209,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1213,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1244,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1271,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1271,
+      "description": "CRITICAL: Manual review needed for err.stderr as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1276,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1276,
+      "description": "CRITICAL: Manual review needed for err.stderr as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1281,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1281,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1281,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1334,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1339,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1370,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1454,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1455,
+      "description": "CRITICAL: Manual review needed for options as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1495,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1496,
+      "description": "CRITICAL: Manual review needed for options as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1536,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1537,
+      "description": "CRITICAL: Manual review needed for options as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1557,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1618,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1711,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1729,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1772,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1823,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1851,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1904,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1927,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 1987,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2032,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2085,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2135,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2162,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2162,
+      "description": "CRITICAL: Manual review needed for err.stderr as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2167,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2167,
+      "description": "CRITICAL: Manual review needed for err.stderr as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2172,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2172,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2172,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2289,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2290,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2336,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2337,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2390,
+      "description": "CRITICAL: Manual review needed for params as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2391,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2392,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2421,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2422,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2445,
+      "description": "CRITICAL: Manual review needed for params as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2446,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2447,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2479,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git.ts",
+      "line": 2480,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "repository-uri.ts",
+      "line": 168,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "repository.ts",
+      "line": 562,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 132,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 133,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 133,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 133,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 142,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 143,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 143,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 143,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 214,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 215,
+      "description": "CRITICAL: Manual review needed for ((content) as any).toString() as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 215,
+      "description": "CRITICAL: Manual review needed for (content) as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 241,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 323,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 324,
+      "description": "CRITICAL: Manual review needed for ((content) as any).toString() as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 324,
+      "description": "CRITICAL: Manual review needed for (content) as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 347,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 327,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 474,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 539,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 544,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 600,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 664,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 46,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 141,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 196,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 197,
+      "description": "CRITICAL: Manual review needed for sessionInfo as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 223,
+      "description": "CRITICAL: Manual review needed for options as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 223,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 235,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 249,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 285,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 286,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 286,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "workspace.ts",
+      "line": 286,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "base-errors.ts",
+      "line": 43,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 17,
+      "description": "CRITICAL: Manual review needed for (error as any).message as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 17,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 17,
+      "description": "CRITICAL: Manual review needed for String(error as any) as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 17,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "message-templates.ts",
+      "line": 65,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "message-templates.ts",
+      "line": 67,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "message-templates.ts",
+      "line": 206,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "message-templates.ts",
+      "line": 352,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "message-templates.ts",
+      "line": 353,
+      "description": "CRITICAL: Manual review needed for errorMessage.toLowerCase() as any"
+    },
+    {
+      "file": "message-templates.ts",
+      "line": 461,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "network-errors.ts",
+      "line": 84,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "network-errors.ts",
+      "line": 118,
+      "description": "CRITICAL: Manual review needed for networkErrorCodes as any"
+    },
+    {
+      "file": "network-errors.ts",
+      "line": 118,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "network-errors.ts",
+      "line": 129,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "command-mapper.ts",
+      "line": 137,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "command-mapper.ts",
+      "line": 142,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "command-mapper.ts",
+      "line": 142,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "command-mapper.ts",
+      "line": 142,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "command-mapper.ts",
+      "line": 201,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "command-mapper.ts",
+      "line": 207,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "command-mapper.ts",
+      "line": 207,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "command-mapper.ts",
+      "line": 207,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 72,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 99,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 100,
+      "description": "CRITICAL: Manual review needed for port as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 143,
+      "description": "CRITICAL: Manual review needed for (error as any).message as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 143,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 144,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 144,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 165,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 166,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 166,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 166,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 171,
+      "description": "CRITICAL: Manual review needed for (error as any).message as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 171,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "inspector-launcher.ts",
+      "line": 171,
+      "description": "CRITICAL: Manual review needed for \"Unknown error launching MCP Inspector\" as any"
+    },
+    {
+      "file": "server.ts",
+      "line": 107,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "server.ts",
+      "line": 225,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "server.ts",
+      "line": 226,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "server.ts",
+      "line": 226,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "server.ts",
+      "line": 226,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "project.ts",
+      "line": 35,
+      "description": "CRITICAL: Manual review needed for fs.statSync(repositoryPath) as any"
+    },
+    {
+      "file": "project.ts",
+      "line": 69,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 74,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 74,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 89,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 89,
+      "description": "CRITICAL: Manual review needed for error.stdout as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 89,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 89,
+      "description": "CRITICAL: Manual review needed for error.stderr as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 90,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 90,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 91,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 91,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 108,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "git-exec-enhanced.ts",
+      "line": 110,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "package-manager.ts",
+      "line": 108,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "package-manager.ts",
+      "line": 110,
+      "description": "CRITICAL: Manual review needed for options as any"
+    },
+    {
+      "file": "process.ts",
+      "line": 11,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "process.ts",
+      "line": 19,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "tempdir.ts",
+      "line": 40,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "test-helpers.ts",
+      "line": 100,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "test-helpers.ts",
+      "line": 100,
+      "description": "CRITICAL: Manual review needed for Date as any"
+    },
+    {
+      "file": "test-helpers.ts",
+      "line": 146,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 55,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 64,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 65,
+      "description": "CRITICAL: Manual review needed for result as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 65,
+      "description": "CRITICAL: Manual review needed for (error as any).errors as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 65,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 69,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 70,
+      "description": "CRITICAL: Manual review needed for result as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 70,
+      "description": "CRITICAL: Manual review needed for (error as any).resourceType as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 70,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 72,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 73,
+      "description": "CRITICAL: Manual review needed for result as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 73,
+      "description": "CRITICAL: Manual review needed for (error as any).resourceId as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 73,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 77,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 78,
+      "description": "CRITICAL: Manual review needed for result as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 78,
+      "description": "CRITICAL: Manual review needed for (error as any).serviceName as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 78,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 82,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 83,
+      "description": "CRITICAL: Manual review needed for result as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 83,
+      "description": "CRITICAL: Manual review needed for (error as any).path as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 83,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 87,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 88,
+      "description": "CRITICAL: Manual review needed for result as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 88,
+      "description": "CRITICAL: Manual review needed for (error as any).configKey as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 88,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 92,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 93,
+      "description": "CRITICAL: Manual review needed for result as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 93,
+      "description": "CRITICAL: Manual review needed for (error as any).command as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 93,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 166,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 193,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 196,
+      "description": "CRITICAL: Manual review needed for SharedErrorHandler as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 196,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 202,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 204,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 206,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 206,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 207,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 207,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 209,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 210,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 211,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 212,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 213,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 214,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 215,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 216,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 130,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 133,
+      "description": "CRITICAL: Manual review needed for context as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 133,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 134,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 148,
+      "description": "CRITICAL: Manual review needed for {\n      success: false,\n      error: (error as any).message as any,\n    } as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 150,
+      "description": "CRITICAL: Manual review needed for (error as any).message as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 150,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 154,
+      "description": "CRITICAL: Manual review needed for context as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 154,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 155,
+      "description": "CRITICAL: Manual review needed for result as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 155,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "response-formatters.ts",
+      "line": 155,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 73,
+      "description": "CRITICAL: Manual review needed for fs.statSync(repositoryPath) as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 86,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 96,
+      "description": "CRITICAL: Manual review needed for projectContext as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 96,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 97,
+      "description": "CRITICAL: Manual review needed for options as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 179,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 184,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 195,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 196,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 196,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 196,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 200,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 201,
+      "description": "CRITICAL: Manual review needed for options as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 209,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 211,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 215,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 218,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 220,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 32,
+      "description": "CRITICAL: Manual review needed for this.configService as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 32,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 33,
+      "description": "CRITICAL: Manual review needed for result as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 61,
+      "description": "CRITICAL: Manual review needed for this.configService as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 61,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 62,
+      "description": "CRITICAL: Manual review needed for result.resolved.ai as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 103,
+      "description": "CRITICAL: Manual review needed for this.configService as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 103,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 131,
+      "description": "CRITICAL: Manual review needed for envVarMap as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 132,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-service.ts",
+      "line": 132,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 65,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 66,
+      "description": "CRITICAL: Manual review needed for config as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 66,
+      "description": "CRITICAL: Manual review needed for (process as any).env[ENV_VARS.BACKEND] as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 66,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 70,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 72,
+      "description": "CRITICAL: Manual review needed for {\n          token: (process as any).env[ENV_VARS.GITHUB_TOKEN],\n          source: \"environment\",\n        } as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 73,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 81,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 82,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 87,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 88,
+      "description": "CRITICAL: Manual review needed for sessionDbConfig as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 88,
+      "description": "CRITICAL: Manual review needed for (process as any).env[ENV_VARS.SESSIONDB_SQLITE_PATH] as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 88,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 90,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 91,
+      "description": "CRITICAL: Manual review needed for sessionDbConfig as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 91,
+      "description": "CRITICAL: Manual review needed for (process as any).env[ENV_VARS.SESSIONDB_POSTGRES_URL] as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 91,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 93,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 94,
+      "description": "CRITICAL: Manual review needed for sessionDbConfig as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 94,
+      "description": "CRITICAL: Manual review needed for (process as any).env[ENV_VARS.SESSIONDB_BASE_DIR] as any"
+    },
+    {
+      "file": "config-loader.ts",
+      "line": 94,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "credential-manager.ts",
+      "line": 63,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "github.ts",
+      "line": 125,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "github.ts",
+      "line": 174,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "github.ts",
+      "line": 265,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "github.ts",
+      "line": 363,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "github.ts",
+      "line": 408,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "github.ts",
+      "line": 447,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "github.ts",
+      "line": 478,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 230,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local.ts",
+      "line": 201,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 111,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 159,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 214,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 266,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 317,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 318,
+      "description": "CRITICAL: Manual review needed for normalizedError?.message as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 324,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 333,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 395,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 396,
+      "description": "CRITICAL: Manual review needed for normalizedError?.message as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 402,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "remote.ts",
+      "line": 411,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-adapter.ts",
+      "line": 44,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-adapter.ts",
+      "line": 101,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-adapter.ts",
+      "line": 111,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-adapter.ts",
+      "line": 112,
+      "description": "CRITICAL: Manual review needed for null as any"
+    },
+    {
+      "file": "session-db-adapter.ts",
+      "line": 125,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-adapter.ts",
+      "line": 126,
+      "description": "CRITICAL: Manual review needed for null as any"
+    },
+    {
+      "file": "session-db-adapter.ts",
+      "line": 135,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-adapter.ts",
+      "line": 151,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-adapter.ts",
+      "line": 161,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-adapter.ts",
+      "line": 212,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-io.ts",
+      "line": 39,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-io.ts",
+      "line": 63,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-db-io.ts",
+      "line": 78,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-path-resolver.ts",
+      "line": 89,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-path-resolver.ts",
+      "line": 118,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-path-resolver.ts",
+      "line": 163,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-workspace-service.ts",
+      "line": 86,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-workspace-service.ts",
+      "line": 91,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-workspace-service.ts",
+      "line": 212,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session-workspace-service.ts",
+      "line": 268,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "json-file-storage.ts",
+      "line": 136,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "json-file-storage.ts",
+      "line": 182,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "json-file-storage.ts",
+      "line": 395,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "storage-backend-factory.ts",
+      "line": 236,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "storage-backend-factory.ts",
+      "line": 240,
+      "description": "CRITICAL: Manual review needed for this.backends as any"
+    },
+    {
+      "file": "githubBackendConfig.ts",
+      "line": 16,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "githubBackendConfig.ts",
+      "line": 52,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubBackendConfig.ts",
+      "line": 54,
+      "description": "CRITICAL: Manual review needed for null as any"
+    },
+    {
+      "file": "githubBackendConfig.ts",
+      "line": 118,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubBackendConfig.ts",
+      "line": 135,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 111,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 113,
+      "description": "CRITICAL: Manual review needed for null as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 160,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 198,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 203,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 272,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 277,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 290,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 377,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 382,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 397,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "githubIssuesTaskBackend.ts",
+      "line": 402,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 120,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 142,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 311,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 339,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 372,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 380,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 417,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 435,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 437,
+      "description": "CRITICAL: Manual review needed for null as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 453,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 473,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "jsonFileTaskBackend.ts",
+      "line": 491,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "markdownTaskBackend.ts",
+      "line": 224,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "markdownTaskBackend.ts",
+      "line": 231,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "markdownTaskBackend.ts",
+      "line": 337,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "task-backend-router.ts",
+      "line": 212,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "task-backend-router.ts",
+      "line": 257,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 101,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 101,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 172,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 172,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 245,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 246,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 319,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 320,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 372,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 372,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 480,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 481,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 541,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 542,
+      "description": "CRITICAL: Manual review needed for errorMessage as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 570,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 571,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 647,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskCommands.ts",
+      "line": 647,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskIO.ts",
+      "line": 31,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskIO.ts",
+      "line": 58,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskIO.ts",
+      "line": 82,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskIO.ts",
+      "line": 112,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskIO.ts",
+      "line": 149,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskIO.ts",
+      "line": 174,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskIO.ts",
+      "line": 196,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskIO.ts",
+      "line": 198,
+      "description": "CRITICAL: Manual review needed for null as any"
+    },
+    {
+      "file": "taskService.ts",
+      "line": 65,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "taskService.ts",
+      "line": 94,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "taskService.ts",
+      "line": 600,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "taskService.ts",
+      "line": 627,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local-workspace-backend.ts",
+      "line": 71,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local-workspace-backend.ts",
+      "line": 109,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local-workspace-backend.ts",
+      "line": 114,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local-workspace-backend.ts",
+      "line": 162,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local-workspace-backend.ts",
+      "line": 208,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local-workspace-backend.ts",
+      "line": 212,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local-workspace-backend.ts",
+      "line": 251,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local-workspace-backend.ts",
+      "line": 275,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local-workspace-backend.ts",
+      "line": 280,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "local-workspace-backend.ts",
+      "line": 322,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "special-workspace-manager.ts",
+      "line": 98,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "special-workspace-manager.ts",
+      "line": 142,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "special-workspace-manager.ts",
+      "line": 164,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "special-workspace-manager.ts",
+      "line": 193,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "special-workspace-manager.ts",
+      "line": 267,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "special-workspace-manager.ts",
+      "line": 272,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "special-workspace-manager.ts",
+      "line": 330,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "special-workspace-manager.ts",
+      "line": 331,
+      "description": "CRITICAL: Manual review needed for Date as any"
+    },
+    {
+      "file": "special-workspace-manager.ts",
+      "line": 338,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "special-workspace-manager.ts",
+      "line": 360,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session.ts",
+      "line": 24,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session.ts",
+      "line": 47,
+      "description": "CRITICAL: Manual review needed for args as any"
+    },
+    {
+      "file": "session.ts",
+      "line": 47,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session.ts",
+      "line": 94,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session.ts",
+      "line": 139,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "session.ts",
+      "line": 179,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 49,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 50,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 50,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 50,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 54,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 76,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 77,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 77,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 77,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 81,
+      "description": "CRITICAL: Manual review needed for args as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 81,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 106,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 107,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 107,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 107,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 111,
+      "description": "CRITICAL: Manual review needed for args as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 111,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 140,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 141,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 141,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 141,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 145,
+      "description": "CRITICAL: Manual review needed for args as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 145,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 167,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 168,
+      "description": "CRITICAL: Manual review needed for (error as any).stack as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 168,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 168,
+      "description": "CRITICAL: Manual review needed for undefined as any"
+    },
+    {
+      "file": "tasks.ts",
+      "line": 172,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "workspace.test.ts",
+      "line": 370,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "specCommand.ts",
+      "line": 104,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 38,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 49,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 51,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 54,
+      "description": "CRITICAL: Manual review needed for normalizedError as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 55,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 55,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 56,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 56,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 59,
+      "description": "CRITICAL: Manual review needed for normalizedError as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 60,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 61,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 64,
+      "description": "CRITICAL: Manual review needed for normalizedError as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 65,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 66,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 69,
+      "description": "CRITICAL: Manual review needed for normalizedError as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 70,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 71,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 74,
+      "description": "CRITICAL: Manual review needed for normalizedError as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 75,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handler.ts",
+      "line": 76,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 78,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 79,
+      "description": "CRITICAL: Manual review needed for result as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 87,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 89,
+      "description": "CRITICAL: Manual review needed for options as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 92,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 93,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 94,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 98,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 102,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "index.ts",
+      "line": 105,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "cli-bridge.ts",
+      "line": 232,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "mcp-bridge.ts",
+      "line": 142,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "parameter-mapper.ts",
+      "line": 277,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "config.ts",
+      "line": 75,
+      "description": "CRITICAL: Manual review needed for {\n  id: \"config.list\",\n  category: (CommandCategory as any).CONFIG,\n  name: \"list\",\n  description: \"Show all configuration from all sources\",\n  parameters: configListParams,\n  execute: async (params, _ctx: CommandExecutionContext) => {\n    try {\n      // Use node-config directly to get configuration\n      const sources = (config.util as any).getConfigSources();\n      const resolved = {\n        backend: config.get(\"backend\"),\n        backendConfig: config.get(\"backendConfig\"),\n        credentials: config.has(\"credentials\") ? config.get(\"credentials\") : {},\n        sessiondb: config.get(\"sessiondb\"),\n        ai: config.has(\"ai\") ? config.get(\"ai\") : undefined,\n      };\n\n      return {\n        success: true,\n        json: (params as any).json || false,\n        sources: (sources as any).map((source) => ({\n          name: (source as any).name,\n          original: (source as any).original,\n          parsed: (source as any).parsed,\n        })),\n        resolved,\n        showSources: (params as any).sources || false,\n      };\n    } catch (error) {\n      log.error(\"Failed to load configuration\", {\n        error: getErrorMessage(error as any),\n      });\n      return {\n        success: false,\n        json: (params as any).json || false,\n        error: getErrorMessage(error as any),\n        showSources: (params as any).sources || false,\n      };\n    }\n  },\n} as any"
+    },
+    {
+      "file": "config.ts",
+      "line": 106,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "config.ts",
+      "line": 111,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "config.ts",
+      "line": 112,
+      "description": "CRITICAL: Manual review needed for params as any"
+    },
+    {
+      "file": "config.ts",
+      "line": 121,
+      "description": "CRITICAL: Manual review needed for {\n  id: \"config.show\",\n  category: (CommandCategory as any).CONFIG,\n  name: \"show\",\n  description: \"Show the final resolved configuration\",\n  parameters: configShowParams,\n  execute: async (params, _ctx: CommandExecutionContext) => {\n    try {\n      // Use node-config directly to get resolved configuration\n      const resolved = {\n        backend: config.get(\"backend\"),\n        backendConfig: config.get(\"backendConfig\"),\n        credentials: config.has(\"credentials\") ? config.get(\"credentials\") : {},\n        sessiondb: config.get(\"sessiondb\"),\n        ai: config.has(\"ai\") ? config.get(\"ai\") : undefined,\n      };\n\n      return {\n        success: true,\n        json: (params as any).json || false,\n        configuration: resolved,\n        showSources: (params as any).sources || false,\n        ...((params as any).sources && {\n          sources: (config.util.getConfigSources() as any).map((source) => ({\n            name: (source as any).name,\n            original: (source as any).original,\n            parsed: (source as any).parsed,\n          })),\n        }),\n      };\n    } catch (error) {\n      log.error(\"Failed to load configuration\", {\n        error: getErrorMessage(error as any),\n      });\n      return {\n        success: false,\n        json: (params as any).json || false,\n        error: getErrorMessage(error as any),\n        showSources: (params as any).sources || false,\n      };\n    }\n  },\n} as any"
+    },
+    {
+      "file": "config.ts",
+      "line": 153,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "config.ts",
+      "line": 158,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "config.ts",
+      "line": 159,
+      "description": "CRITICAL: Manual review needed for params as any"
+    },
+    {
+      "file": "debug.ts",
+      "line": 126,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "debug.ts",
+      "line": 127,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "debug.ts",
+      "line": 128,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "debug.ts",
+      "line": 129,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "debug.ts",
+      "line": 130,
+      "description": "CRITICAL: Manual review needed for process as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 507,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "rules.ts",
+      "line": 508,
+      "description": "CRITICAL: Manual review needed for params as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 146,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 243,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 333,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 456,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 565,
+      "description": "CRITICAL: Manual review needed for error.context as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 565,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 566,
+      "description": "CRITICAL: Manual review needed for this.errorCounts as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 578,
+      "description": "CRITICAL: Manual review needed for (error as any).message as any"
+    },
+    {
+      "file": "error-handling.ts",
+      "line": 578,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "json-file-storage.ts",
+      "line": 55,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "json-file-storage.ts",
+      "line": 56,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "json-file-storage.ts",
+      "line": 72,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "json-file-storage.ts",
+      "line": 73,
+      "description": "CRITICAL: Manual review needed for err as any"
+    },
+    {
+      "file": "json-file-storage.ts",
+      "line": 233,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "postgres-storage.ts",
+      "line": 130,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "postgres-storage.ts",
+      "line": 159,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "sqlite-storage.ts",
+      "line": 132,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "sqlite-storage.ts",
+      "line": 170,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "sqlite-storage.ts",
+      "line": 188,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "sqlite-storage.ts",
+      "line": 234,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "sqlite-storage.ts",
+      "line": 259,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 98,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 99,
+      "description": "CRITICAL: Manual review needed for Date as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 109,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 157,
+      "description": "CRITICAL: Manual review needed for status.errors as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 157,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 161,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 223,
+      "description": "CRITICAL: Manual review needed for status.details! as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 244,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 286,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 341,
+      "description": "CRITICAL: Manual review needed for error as any"
+    },
+    {
+      "file": "health-monitor.ts",
+      "line": 405,
+      "description": "CRITICAL: Manual review needed for error as any"
+    }
+  ],
+  "patternBreakdown": {
+    "medium_as_unknown": 1257,
+    "critical_manual_review": 535,
+    "high_as_unknown": 2583,
+    "low_as_unknown": 72
+  }
+}

@@ -14,19 +14,19 @@ import {
  * Schema for a session record
  */
 export const sessionRecordSchema = z.object({
-  session: (sessionNameSchema as any).describe("Unique name of the session"),
+  session: (sessionNameSchema as unknown).describe("Unique name of the session"),
   repoUrl: z.string().describe("URL of the repository"),
   repoName: z.string().describe("Normalized name of the repository"),
   repoPath: z.string().optional().describe("Path to the session repository"),
   createdAt: z.string().describe("ISO timestamp of when the session was created"),
-  taskId: (taskIdSchema.optional() as any).describe("Task ID associated with the session"),
+  taskId: (taskIdSchema.optional() as unknown).describe("Task ID associated with the session"),
   branch: z.string().optional().describe("Branch name for this session"),
   backendType: z.string().describe("Backend type (local, remote, etc.)"),
   remote: (z
     .object({
       authMethod: z.string().describe("Authentication method for remote operations"),
       depth: z.number().describe("Clone depth"),
-    }) as any).describe("Remote repository configuration"),
+    }) as unknown).describe("Remote repository configuration"),
 });
 
 /**
@@ -47,7 +47,7 @@ export const sessionGetParamsSchema = (z
     name: sessionNameSchema.optional().describe("Name of the session to retrieve"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
   })
-  .merge(commonCommandOptionsSchema) as any).refine((data) => (data as any).name !== undefined || (data as any).task !== undefined, {
+  .merge(commonCommandOptionsSchema) as unknown).refine((data) => (data as unknown).name !== undefined || (data as unknown).task !== undefined, {
   message: "Either session name or task ID must be provided",
 });
 
@@ -61,9 +61,9 @@ export type SessionGetParams = z.infer<typeof sessionGetParamsSchema>;
  */
 export const sessionStartParamsSchema = z
   .object({
-    name: (sessionNameSchema.optional() as any).describe("Name for the new session"),
-    repo: (repoPathSchema.optional() as any).describe("Repository to start the session in"),
-    task: (taskIdSchema.optional() as any).describe("Task ID to associate with the session"),
+    name: (sessionNameSchema.optional() as unknown).describe("Name for the new session"),
+    repo: (repoPathSchema.optional() as unknown).describe("Repository to start the session in"),
+    task: (taskIdSchema.optional() as unknown).describe("Task ID to associate with the session"),
     description: z.string().min(1).optional().describe("Description for auto-created task"),
     branch: z.string().optional().describe("Branch name to create"),
     quiet: flagSchema("Suppress output except for the session directory path"),
@@ -78,11 +78,11 @@ export const sessionStartParamsSchema = z
   .refine(
     (data) => {
       // Phase 2: Task association is required
-      if (!(data as any).task && !(data as any).description) {
+      if (!(data as unknown).task && !(data as unknown).description) {
         return false;
       }
       // Either name or task or description must be provided
-      return (data as any).name || (data as any).task || (data as any).description;
+      return (data as unknown).name || (data as unknown).task || (data as unknown).description;
     },
     {
       message: "Task association is required. Please provide --task <id> or --description <text>",
@@ -103,7 +103,7 @@ export const sessionDeleteParamsSchema = (z
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     force: flagSchema("Skip confirmation prompt"),
   })
-  .merge(commonCommandOptionsSchema) as any).refine((data) => (data as any).name !== undefined || (data as any).task !== undefined, {
+  .merge(commonCommandOptionsSchema) as unknown).refine((data) => (data as unknown).name !== undefined || (data as unknown).task !== undefined, {
   message: "Either session name or task ID must be provided",
 });
 
@@ -120,7 +120,7 @@ export const sessionDirParamsSchema = (z
     name: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
   })
-  .merge(commonCommandOptionsSchema) as any).refine((data) => (data as any).name !== undefined || (data as any).task !== undefined, {
+  .merge(commonCommandOptionsSchema) as unknown).refine((data) => (data as unknown).name !== undefined || (data as unknown).task !== undefined, {
   message: "Either session name or task ID must be provided",
 });
 
@@ -146,7 +146,7 @@ export const sessionUpdateParamsSchema = (z
     dryRun: flagSchema("Check for conflicts without performing actual update"),
     skipIfAlreadyMerged: flagSchema("Skip update if session changes are already in base branch"),
   })
-  .merge(commonCommandOptionsSchema) as any).refine((data) => (data as any).name !== undefined || (data as any).task !== undefined, {
+  .merge(commonCommandOptionsSchema) as unknown).refine((data) => (data as unknown).name !== undefined || (data as unknown).task !== undefined, {
   message: "Either session name or task ID must be provided",
 });
 
@@ -164,7 +164,7 @@ export const sessionApproveParamsSchema = (z
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path"),
   })
-  .merge(commonCommandOptionsSchema) as any).refine((data) => (data as any).name !== undefined || (data as any).task !== undefined || (data as any).repo !== undefined, {
+  .merge(commonCommandOptionsSchema) as unknown).refine((data) => (data as unknown).name !== undefined || (data as unknown).task !== undefined || (data as unknown).repo !== undefined, {
   message: "Either session name, task ID, or repo path must be provided",
 });
 
@@ -190,7 +190,7 @@ export const sessionPrParamsSchema = (z
     autoResolveDeleteConflicts: flagSchema("Automatically resolve delete/modify conflicts by accepting deletions"),
     skipConflictCheck: flagSchema("Skip proactive conflict detection during update"),
   })
-  .merge(commonCommandOptionsSchema) as any).refine((data) => !((data as any).body && (data as any).bodyPath), {
+  .merge(commonCommandOptionsSchema) as unknown).refine((data) => !((data as unknown).body && (data as unknown).bodyPath), {
   message: "Cannot provide both 'body' and 'bodyPath' - use one or the other",
   path: ["body"],
 });
@@ -210,7 +210,7 @@ export const sessionReviewParamsSchema = (z
     repo: repoPathSchema.optional().describe("Repository path to use"),
     output: z.string().optional().describe("File path to save the review output"),
     prBranch: z.string().optional().describe("PR branch name (defaults to 'pr/<session>')"),
-  }) as any).merge(commonCommandOptionsSchema);
+  }) as unknown).merge(commonCommandOptionsSchema);
 
 /**
  * Type for session review parameters
@@ -220,7 +220,7 @@ export type SessionReviewParams = z.infer<typeof sessionReviewParamsSchema>;
 /**
  * Schema for session inspect parameters
  */
-export const sessionInspectParamsSchema = (z.object({}) as any).merge(commonCommandOptionsSchema);
+export const sessionInspectParamsSchema = (z.object({}) as unknown).merge(commonCommandOptionsSchema);
 
 /**
  * Type for session inspect parameters

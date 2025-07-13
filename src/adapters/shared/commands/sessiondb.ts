@@ -126,7 +126,7 @@ sharedCommandRegistry.registerCommand({
           const readResult = await sourceStorage.readState();
           if (readResult.success && readResult.data) {
             sourceData = readResult.data;
-            sourceCount = (readResult.data as any).sessions?.length || 0;
+            sourceCount = (readResult.data as unknown).sessions?.length || 0;
             log.info(`Reading from SQLite backend: ${currentSqlitePath} (${sourceCount} sessions)`);
           }
         } else {
@@ -180,15 +180,15 @@ sharedCommandRegistry.registerCommand({
 
       // Migrate sessions
       const sessionRecords: SessionRecord[] = [];
-      if (Array.isArray((sourceData as any).sessions)) {
-        sessionRecords.push(...(sourceData as any).sessions);
+      if (Array.isArray((sourceData as unknown).sessions)) {
+        sessionRecords.push(...(sourceData as unknown).sessions);
       } else if (typeof sourceData === "object" && sourceData !== null) {
         // Handle sessions stored as key-value pairs
         for (const [sessionId, sessionData] of Object.entries(sourceData)) {
           if (typeof sessionData === "object" && sessionData !== null) {
             sessionRecords.push({
               session: sessionId,
-              ...(sessionData as any),
+              ...(sessionData as unknown),
             });
           }
         }

@@ -63,8 +63,8 @@ describe("DefaultConfigurationService", () => {
       const config: RepositoryConfig = {
         version: 1,
         backends: {
-          default: "invalid-backend" as any,
-        } as any,
+          default: "invalid-backend" as unknown,
+        } as unknown,
       };
 
       const result = service.validateRepositoryConfig(config);
@@ -88,7 +88,7 @@ describe("DefaultConfigurationService", () => {
           sqlite: {
             path: "/tmp/test.db",
           },
-        } as any,
+        } as unknown,
       };
 
       const result = service.validateRepositoryConfig(config);
@@ -108,7 +108,7 @@ describe("DefaultConfigurationService", () => {
           },
         },
         sessiondb: {
-          backend: "invalid-backend" as any,
+          backend: "invalid-backend" as unknown,
         },
       };
 
@@ -231,7 +231,7 @@ describe("DefaultConfigurationService", () => {
           },
         },
         ai: {
-          default_provider: "invalid-provider" as any,
+          default_provider: "invalid-provider" as unknown,
         },
       };
 
@@ -352,7 +352,7 @@ describe("DefaultConfigurationService", () => {
         version: 1,
         github: {
           credentials: {
-            source: "invalid-source" as any,
+            source: "invalid-source" as unknown,
           },
         },
       };

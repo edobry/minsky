@@ -150,27 +150,97 @@ grep -r "as unknown" src/ --include="*.ts" >> cast-inventory.txt
 - [ ] Migration guide for similar patterns
 - [ ] ESLint rule configuration documented
 
-## Estimated Scope
+## Actual Scope (Updated After Analysis)
 
-**Files Affected**: ~15-20 TypeScript files
-**Unsafe Casts**: ~100+ instances
-**New Type Definitions**: ~10-15 interfaces
-**Type Guards**: ~5-10 functions
-**Timeline**: 2-3 development cycles
+**Files Affected**: ~60-80 TypeScript files
+**Unsafe Casts**: **3,767 instances** (3,757 `as any` + 10 `as unknown`)
+**New Type Definitions**: ~25-35 interfaces
+**Type Guards**: ~15-25 functions
+**Timeline**: 4-6 development cycles
 
-## Success Metrics
-
-1. **Type Safety**: >95% reduction in unsafe casts
-2. **Code Quality**: Improved TypeScript strict mode compatibility
-3. **Maintainability**: Better IDE support and debugging experience
-4. **Prevention**: ESLint rules prevent regression
-5. **Testing**: No loss of test coverage or functionality
-
+### Top Risk Files Identified
+1. **src/domain/git.ts** - 410 instances (11% of all casts)
+2. **src/adapters/shared/bridges/cli-bridge.ts** - 157 instances
+3. **src/domain/storage/monitoring/health-monitor.ts** - 115 instances
+4. **src/domain/tasks/taskCommands.ts** - 108 instances
+5. **src/domain/rules.ts** - 100 instances
 
 ## Requirements
 
-[To be filled in]
+### Phase 1: Critical Risk Mitigation (IMMEDIATE)
+- [ ] **Error Handling Safety**: Fix all error handling casts (`(err as any).message`, `(err as any).stack`)
+- [ ] **Runtime Environment Safety**: Fix process and runtime casts (`(process as any).cwd()`, `(Bun as any).argv`)
+- [ ] **File System Safety**: Fix file system operation casts (`(fs.statSync(path) as any).isDirectory()`)
+- [ ] **Type Guards Implementation**: Create proper type guards for error objects and runtime checks
+
+### Phase 2: High Risk Core Logic (HIGH PRIORITY)
+- [ ] **Domain Logic Refactoring**: 
+  - [ ] Fix `src/domain/git.ts` (410 instances - highest concentration)
+  - [ ] Fix `src/domain/tasks/taskService.ts` (87 instances)
+  - [ ] Fix `src/domain/repository.ts` (87 instances)
+- [ ] **Task Data Model Safety**: Fix task data manipulation casts in `src/types/tasks/taskData.ts`
+- [ ] **Storage Backend Safety**: Fix storage backend configuration casts
+- [ ] **Core Type Definitions**: Create comprehensive interfaces for domain objects
+
+### Phase 3: Medium Risk Infrastructure (MEDIUM PRIORITY)
+- [ ] **CLI Integration Safety**: Fix CLI command registration and bridge casts
+- [ ] **Configuration Safety**: Fix configuration access patterns
+- [ ] **Adapter Layer Safety**: Fix bridge and adapter integration casts
+- [ ] **Interface Type Definitions**: Create proper interfaces for configuration and CLI objects
+
+### Phase 4: Low Risk Test Infrastructure (LOW PRIORITY)
+- [ ] **Test Utilities**: Fix test utility and mocking casts
+- [ ] **Compatibility Layers**: Fix Jest/Bun compatibility casts
+- [ ] **Mock Function Safety**: Improve mock function type safety
+
+### Phase 5: Prevention and Tooling
+- [ ] **ESLint Rules**: Add rules to prevent new `as any` usage
+- [ ] **Type Coverage**: Enable TypeScript strict mode compatibility
+- [ ] **CI Integration**: Add pre-commit hooks for type safety
+- [ ] **Documentation**: Create type safety guidelines
+
+## Implementation Strategy
+
+### Codemod Development
+- [ ] **Risk-Aware Codemod**: Create enhanced version of `explicit-any-types-fixer-consolidated.ts`
+- [ ] **Context-Specific Patterns**: Different replacement strategies per usage context
+- [ ] **Graduated Fixing**: Different approaches for each risk level
+- [ ] **Validation Framework**: Rollback mechanisms for high-risk changes
+
+### Manual Review Process
+- [ ] **Critical Risk**: 100% manual review and testing
+- [ ] **High Risk**: Manual review of codemod output + additional type definitions
+- [ ] **Medium Risk**: Automated codemod with spot checking
+- [ ] **Low Risk**: Fully automated codemod transformation
 
 ## Success Criteria
 
-[To be filled in]
+### Technical Validation
+- [ ] **Overall Reduction**: >95% reduction in unsafe casts (3,767 → <180)
+- [ ] **Critical Risk**: 100% elimination of runtime-dangerous casts
+- [ ] **High Risk**: 95% reduction with proper type definitions
+- [ ] **Medium Risk**: 90% reduction with safer alternatives
+- [ ] **Low Risk**: 85% reduction with automated patterns
+- [ ] **TypeScript Compilation**: All files compile without type errors
+- [ ] **No Runtime Regressions**: All existing tests pass
+- [ ] **Type Coverage**: Improved TypeScript strict mode compatibility
+
+### Code Quality Metrics
+- [ ] **Reduction in `as any` usage**: From 3,757 to <100 instances
+- [ ] **Appropriate use of `as unknown`**: Only with proper type guards
+- [ ] **Improved IntelliSense**: Better IDE support and autocompletion
+- [ ] **Enhanced debugging**: More reliable error messages and stack traces
+
+### Documentation Requirements
+- [ ] **Type Definitions**: Document all new interfaces and type guards
+- [ ] **Migration Guide**: Pattern guide for avoiding unsafe casts
+- [ ] **ESLint Configuration**: Documented rules and enforcement
+- [ ] **Team Guidelines**: Best practices for type safety
+
+## Risk Mitigation
+
+### Rollback Strategy
+- [ ] **Git Branching**: Separate branches for each risk level
+- [ ] **Incremental Commits**: Small, testable changes
+- [ ] **Test Validation**: Comprehensive test suite run after each phase
+- [ ] **Performance Monitoring**: Track build times and runtime performance

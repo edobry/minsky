@@ -71,17 +71,17 @@ export function getErrorMessage(error: any): string {
  * Format command suggestions with consistent styling
  */
 export function formatCommandSuggestions(suggestions: CommandSuggestion[]): string {
-  return ((suggestions as any).map(({ description, command, emoji = ErrorEmojis.COMMAND }) => 
-    `${emoji} ${description}:\n   ${command}`) as any).join("\n\n");
+  return ((suggestions as unknown).map(({ description, command, emoji = ErrorEmojis.COMMAND }) => 
+    `${emoji} ${description}:\n   ${command}`) as unknown).join("\n\n");
 }
 
 /**
  * Format context information for error messages
  */
 export function formatContextInfo(contexts: ContextInfo[]): string {
-  if ((contexts as any)?.length === 0) return "";
+  if ((contexts as unknown)?.length === 0) return "";
   
-  const formatted = ((contexts as any).map(({ label, value }) => `${label}: ${value}`) as any).join("\n");
+  const formatted = ((contexts as unknown).map(({ label, value }) => `${label}: ${value}`) as unknown).join("\n");
     
   return `\n${formatted}`;
 }
@@ -93,31 +93,31 @@ export function buildErrorMessage(template: ErrorTemplate, context?: ContextInfo
   const parts: string[] = [];
   
   // Add title
-  parts.push((template as any).title);
+  parts.push((template as unknown).title);
   
   // Add description if provided
-  if ((template as any)?.description) {
-    (parts as any).push("");
-    parts.push((template as any).description);
+  if ((template as unknown)?.description) {
+    (parts as unknown).push("");
+    parts.push((template as unknown).description);
   }
   
   // Add sections
-  (template.sections as any).forEach(section => {
-    (parts as any).push("");
+  (template.sections as unknown).forEach(section => {
+    (parts as unknown).push("");
     
-    if ((section as any)?.title) {
-      const title = (section as any)?.emoji ? `${(section as any).emoji} ${(section as any).title}` : (section as any)?.title;
-      (parts as any).push(title);
-      (parts as any).push("");
+    if ((section as unknown)?.title) {
+      const title = (section as unknown)?.emoji ? `${(section as unknown).emoji} ${(section as unknown).title}` : (section as unknown)?.title;
+      (parts as unknown).push(title);
+      (parts as unknown).push("");
     }
     
-    parts.push((section as any).content);
+    parts.push((section as unknown).content);
   });
   
   // Add context information if provided
-  if (context && (context as any)?.length > 0) {
-    (parts as any).push("");
-    parts.push(formatContextInfo(context as any));
+  if (context && (context as unknown)?.length > 0) {
+    (parts as unknown).push("");
+    parts.push(formatContextInfo(context as unknown));
   }
   
   return parts.join("\n");
@@ -134,7 +134,7 @@ export function createResourceNotFoundMessage(
 ): string {
   const template: ErrorTemplate = {
     title: `${ErrorEmojis.NOT_FOUND} ${resourceType} "${resourceId}" Not Found`,
-    description: `The ${(resourceType as any).toLowerCase()} you're looking for doesn't exist or isn't accessible.`,
+    description: `The ${(resourceType as unknown).toLowerCase()} you're looking for doesn't exist or isn't accessible.`,
     sections: [
       {
         title: "What you can do:",
@@ -144,7 +144,7 @@ export function createResourceNotFoundMessage(
     ]
   };
   
-  return buildErrorMessage(template, context as any);
+  return buildErrorMessage(template, context as unknown);
 }
 
 /**
@@ -165,7 +165,7 @@ export function createMissingInfoMessage(
     ]
   };
   
-  return buildErrorMessage(template, context as any);
+  return buildErrorMessage(template, context as unknown);
 }
 
 /**
@@ -184,12 +184,12 @@ export function createValidationErrorMessage(
       {
         title: "Valid options:",
         emoji: ErrorEmojis.LIST,
-        content: (validOptions as any).map(option => `• ${option}`).join("\n")
+        content: (validOptions as unknown).map(option => `• ${option}`).join("\n")
       }
     ]
   };
   
-  return buildErrorMessage(template, context as any);
+  return buildErrorMessage(template, context as unknown);
 }
 
 /**
@@ -213,7 +213,7 @@ export function createCommandFailureMessage(
     ]
   };
   
-  return buildErrorMessage(template, context as any);
+  return buildErrorMessage(template, context as unknown);
 }
 
 /**
@@ -296,18 +296,18 @@ export function createSessionErrorMessage(
   
   const config = templates[errorType];
   const template: ErrorTemplate = {
-    title: (config as any)!.title,
-    description: (config as any)!.description,
+    title: (config as unknown)!.title,
+    description: (config as unknown)!.description,
     sections: [
       {
         title: "What you can do:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions((config as any)!.suggestions)
+        content: formatCommandSuggestions((config as unknown)!.suggestions)
       }
     ]
   };
   
-  return buildErrorMessage(template, context as any);
+  return buildErrorMessage(template, context as unknown);
 }
 
 /**
@@ -317,7 +317,7 @@ export function createSessionNotFoundMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, (SessionErrorType as any).NOT_FOUND, context as any);
+  return createSessionErrorMessage(sessionName, (SessionErrorType as unknown).NOT_FOUND, context as unknown);
 }
 
 /**
@@ -327,7 +327,7 @@ export function createSessionExistsMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, (SessionErrorType as any).ALREADY_EXISTS, context as any);
+  return createSessionErrorMessage(sessionName, (SessionErrorType as unknown).ALREADY_EXISTS, context as unknown);
 }
 
 /**
@@ -337,7 +337,7 @@ export function createInvalidSessionMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, (SessionErrorType as any).INVALID, context as any);
+  return createSessionErrorMessage(sessionName, (SessionErrorType as unknown).INVALID, context as unknown);
 }
 
 /**
@@ -446,7 +446,7 @@ export function createConfigErrorMessage(
     ]
   };
   
-  return buildErrorMessage(template, context as any);
+  return buildErrorMessage(template, context as unknown);
 }
 
 /**
@@ -456,7 +456,7 @@ export class ErrorContextBuilder {
   private contexts: ContextInfo[] = [];
   
   addCurrentDirectory(): this {
-    (this.contexts as any).push({
+    (this.contexts as unknown).push({
       label: "Current directory",
       value: (process as any).cwd()
     });
@@ -464,7 +464,7 @@ export class ErrorContextBuilder {
   }
   
   addSession(sessionName: string): this {
-    (this.contexts as any).push({
+    (this.contexts as unknown).push({
       label: "Session",
       value: sessionName
     });
@@ -472,7 +472,7 @@ export class ErrorContextBuilder {
   }
   
   addRepository(repoPath: string): this {
-    (this.contexts as any).push({
+    (this.contexts as unknown).push({
       label: "Repository",
       value: repoPath
     });
@@ -480,7 +480,7 @@ export class ErrorContextBuilder {
   }
   
   addTask(taskId: string): this {
-    (this.contexts as any).push({
+    (this.contexts as unknown).push({
       label: "Task ID",
       value: taskId
     });
@@ -488,7 +488,7 @@ export class ErrorContextBuilder {
   }
   
   addCommand(command: string): this {
-    (this.contexts as any).push({
+    (this.contexts as unknown).push({
       label: "Command",
       value: command
     });
@@ -496,7 +496,7 @@ export class ErrorContextBuilder {
   }
   
   addCustom(label: string, value: string): this {
-    (this.contexts as any).push({ label, value });
+    (this.contexts as unknown).push({ label, value });
     return this;
   }
   

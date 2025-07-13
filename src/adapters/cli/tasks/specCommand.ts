@@ -21,7 +21,7 @@ import { handleCliError, outputResult } from "../utils/error-handler.js";
 export function createSpecCommand(): Command {
   const command = (new Command("spec")
     .description("Get task specification _content")
-    .argument("<task-id>", "ID of the task to retrieve specification _content for") as any).option(
+    .argument("<task-id>", "ID of the task to retrieve specification _content for") as unknown).option(
     "--section <section>",
     "Specific section of the specification to retrieve (e.g., 'requirements')"
   );
@@ -53,50 +53,50 @@ export function createSpecCommand(): Command {
         }
 
         // Convert CLI options to domain parameters using normalization helper
-        const normalizedParams = normalizeTaskParams(options as any);
+        const normalizedParams = normalizeTaskParams(options as unknown);
 
         // Convert CLI options to domain parameters
         const params: TaskSpecContentParams = {
           ...normalizedParams,
           taskId: normalizedTaskId,
-          section: (options as any).section,
-        } as any;
+          section: (options as unknown).section,
+        } as unknown;
 
         // Call the domain function
-        const result = await getTaskSpecContentFromParams(params as any);
+        const result = await getTaskSpecContentFromParams(params as unknown);
 
         // Format and display the result
-        outputResult(result as any, {
-          json: (options as any).json,
+        outputResult(result as unknown, {
+          json: (options as unknown).json,
           formatter: (data: any) => {
-            log.cli(`Task ${(data.task as any).id}: ${(data.task as any).title}`);
-            log.cli(`Specification file: ${(data as any).specPath}`);
+            log.cli(`Task ${(data.task as unknown).id}: ${(data.task as unknown).title}`);
+            log.cli(`Specification file: ${(data as unknown).specPath}`);
 
             // If a specific section was requested, try to extract it
-            if ((data as any).section) {
+            if ((data as unknown).section) {
               // Simple extraction logic for common section patterns
-              const sectionRegex = new RegExp(`## ${(data as any).section}`, "i");
-              const match = (data.content as any).match(sectionRegex);
+              const sectionRegex = new RegExp(`## ${(data as unknown).section}`, "i");
+              const match = (data.content as unknown).match(sectionRegex);
 
               if (match && match.index !== undefined) {
                 const startIndex = match.index;
                 // Find the next section or the end of the file
-                const nextSectionMatch = ((data.content as any).slice(startIndex + match[0].length) as any).match(/^## /m);
+                const nextSectionMatch = ((data.content as unknown).slice(startIndex + match[0].length) as unknown).match(/^## /m);
                 const endIndex = nextSectionMatch
-                  ? startIndex + (match[0] as any).length + (nextSectionMatch as any).index
-                  : (data.content as any).length;
+                  ? startIndex + (match[0] as unknown).length + (nextSectionMatch as unknown).index
+                  : (data.content as unknown).length;
 
-                const sectionContent = (((data.content.slice(startIndex, endIndex)) as any).toString() as any).trim();
+                const sectionContent = (((data.content.slice(startIndex, endIndex)) as unknown).toString() as unknown).trim();
                 log.cli(`\n${sectionContent}`);
               } else {
-                log.cli(`\nSection "${(data as any).section}" not found in specification.`);
+                log.cli(`\nSection "${(data as unknown).section}" not found in specification.`);
                 log.cli("\nFull specification content:");
-                log.cli((data as any).content);
+                log.cli((data as unknown).content);
               }
             } else {
               // Display the full content
               log.cli("\nSpecification content:");
-              log.cli((data as any).content);
+              log.cli((data as unknown).content);
             }
           },
         });

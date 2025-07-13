@@ -52,13 +52,13 @@ export interface McpExecutionContext extends CommandExecutionContext {
  * @returns A promise that resolves to an MCP command response.
  */
 export async function executeMcpCommand(request: McpCommandRequest): Promise<McpCommandResponse> {
-  const commandDef = (sharedCommandRegistry as any).getCommand((request as any).commandId);
+  const commandDef = (sharedCommandRegistry as unknown).getCommand((request as unknown).commandId);
 
   if (!commandDef) {
     const errorResponse = {
       success: false,
       error: {
-        message: `Command with ID '${(request as any).commandId}' not found.`,
+        message: `Command with ID '${(request as unknown).commandId}' not found.`,
         type: "COMMAND_NOT_FOUND",
       },
     };
@@ -71,9 +71,9 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     // Prepare execution context for the shared command
     const _context: McpExecutionContext = {
       interface: "mcp",
-      debug: !!(request as any).debug,
-      format: (request as any).format,
-      mcpSpecificData: (request as any).mcpContext, // Pass along any MCP specific _context
+      debug: !!(request as unknown).debug,
+      format: (request as unknown).format,
+      mcpSpecificData: (request as unknown).mcpContext, // Pass along any MCP specific _context
     };
 
     // Validate incoming parameters against the command's Zod schemas
@@ -81,44 +81,44 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     const parsedParams: Record<string, any> = {};
     const validationErrors: Record<string, string[]> = {};
 
-    for (const paramName in (commandDef as any).parameters) {
-      const paramDef = (commandDef as any).parameters[paramName];
-      const rawValue = (request as any).parameters[paramName];
+    for (const paramName in (commandDef as unknown).parameters) {
+      const paramDef = (commandDef as unknown).parameters[paramName];
+      const rawValue = (request as unknown).parameters[paramName];
 
-      if (rawValue === undefined && (paramDef as any).required && (paramDef as any).defaultValue === undefined) {
+      if (rawValue === undefined && (paramDef as unknown).required && (paramDef as unknown).defaultValue === undefined) {
         if (!validationErrors[paramName]) validationErrors[paramName] = [];
-        (validationErrors[paramName] as any).push("Parameter is required.");
+        (validationErrors[paramName] as unknown).push("Parameter is required.");
         continue;
       }
 
-      const valueToParse = rawValue === undefined ? (paramDef as any).defaultValue : rawValue;
+      const valueToParse = rawValue === undefined ? (paramDef as unknown).defaultValue : rawValue;
 
       if (valueToParse === undefined) {
         continue;
       }
 
-      const parseResult = (paramDef.schema as any).safeParse(valueToParse);
-      if ((parseResult as any).success) {
-        parsedParams[paramName] = (parseResult as any).data;
+      const parseResult = (paramDef.schema as unknown).safeParse(valueToParse);
+      if ((parseResult as unknown).success) {
+        parsedParams[paramName] = (parseResult as unknown).data;
       } else {
         if (!validationErrors[paramName]) {
           validationErrors[paramName] = []; // Initialize if not already an array
         }
         // Ensure parseResult.error and parseResult.error.errors exist before iterating
-        if ((parseResult as any).error && (parseResult.error as any).errors) {
+        if ((parseResult as unknown).error && (parseResult.error as unknown).errors) {
           // Ensure array exists before pushing to it within the callback
           const errors = validationErrors[paramName];
-          (parseResult.error.errors as any).forEach((validationIssue: any) => {
-            (errors as any).push((validationIssue as any).message);
+          (parseResult.error.errors as unknown).forEach((validationIssue: any) => {
+            (errors as unknown).push((validationIssue as unknown).message);
           });
         } else {
           // Fallback generic error if Zod's error structure is unexpected
-          (validationErrors[paramName] as any).push("Invalid value, and Zod error details are unavailable.");
+          (validationErrors[paramName] as unknown).push("Invalid value, and Zod error details are unavailable.");
         }
       }
     }
 
-    if ((Object.keys(validationErrors) as any).length > 0) {
+    if ((Object.keys(validationErrors) as unknown).length > 0) {
       return {
         success: false,
         error: {
@@ -130,7 +130,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     }
 
     // Execute the command with validated parameters
-    const result = await (commandDef as any).execute(parsedParams as any, _context); // Cast as any due to generic complexity
+    const result = await (commandDef as unknown).execute(parsedParams as unknown, _context); // Cast as any due to generic complexity
 
     // Format response for MCP
     // In a real scenario, a shared response formatter might be used based on context.format
@@ -142,15 +142,15 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     const ensuredError = ensureError(error as any);
 
     const formattedMcpErrorResponse = {
-      message: (ensuredError as any).message || "An unexpected error occurred during MCP command execution.",
+      message: (ensuredError as unknown).message || "An unexpected error occurred during MCP command execution.",
       type:
-        (ensuredError as any).constructor &&
-        (ensuredError.constructor as any).name !== "Error" &&
-        (ensuredError.constructor as any).name !== "Object"
-          ? (ensuredError.constructor as any).name
+        (ensuredError as unknown).constructor &&
+        (ensuredError.constructor as unknown).name !== "Error" &&
+        (ensuredError.constructor as unknown).name !== "Object"
+          ? (ensuredError.constructor as unknown).name
           : "MCP_EXECUTION_ERROR",
-      stack: (request as any).debug ? (ensuredError as any).stack : undefined as any,
-      details: (ensuredError as any)?.details || (ensuredError as any)?.cause || undefined,
+      stack: (request as unknown).debug ? (ensuredError as unknown).stack : undefined as unknown,
+      details: (ensuredError as unknown)?.details || (ensuredError as unknown)?.cause || undefined,
     };
 
     // Optional: Log the error server-side using a dedicated MCP error logger if available

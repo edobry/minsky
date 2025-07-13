@@ -47,7 +47,7 @@ describe("Shared Git Commands", () => {
 
     // Clear the registry (this is a hacky way to do it since there's no clear method,
     // but it works for testing)
-    (sharedCommandRegistry as any)?.commands = new Map();
+    (sharedCommandRegistry as unknown)?.commands = new Map();
   });
 
   afterEach(() => {
