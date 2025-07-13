@@ -1442,7 +1442,7 @@ export async function approveSessionFromParams(
     if (taskId && deps.taskService.setTaskStatus) {
       try {
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
-        log.cli(`Updated task ${taskId} status to DONE`);
+        log.debug(`Updated task ${taskId} status to DONE`);
       } catch (error) {
         // BUG FIX: Use proper logging instead of console.error and make error visible
         const errorMsg = `Failed to update task status: ${getErrorMessage(error)}`;
