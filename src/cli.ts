@@ -17,7 +17,7 @@ import {
   setupCommonCommandCustomizations,
   registerAllCommands,
 } from "./adapters/cli/cli-command-factory.js";
-import { validateBunRuntime, validateProcess } from "./schemas/runtime.js";
+import { validateProcess } from "./schemas/runtime.js";
 import { validateError, getErrorMessage, getErrorStack } from "./schemas/error.js";
 
 /**
@@ -58,8 +58,7 @@ export async function createCli(): Promise<Command> {
  */
 async function main(): Promise<void> {
   await createCli();
-  const bunRuntime = validateBunRuntime(Bun);
-  await cli.parseAsync(bunRuntime.argv);
+  await cli.parseAsync();
 }
 
 // Run the CLI
