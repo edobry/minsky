@@ -468,7 +468,7 @@
 
 - [ ] Design multi-agent cybernetic supervision system for AI-to-AI task oversight [#258](process/tasks/258-design-multi-agent-cybernetic-supervision-system-for-ai-to-ai-task-oversight.md)
 
-- [x] Add `minsky tasks delete` Command [#205](process/tasks/205-add-tasks-delete-command.md)
+- [x] Add `minsky tasks delete` Command [#205](process/tasks/205-add-minsky-tasks-delete-command.md)
 
 - [ ] Implement AI-Powered PR Content Generation for Session and Git Commands [#273](process/tasks/273-implement-ai-powered-pr-content-generation-for-session-and-git-commands.md)
 
