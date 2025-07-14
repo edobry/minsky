@@ -14,7 +14,7 @@ import type {
   BranchResult,
   Result,
   RepoStatus,
-} from "./index.js";
+} from "./index";
 
 const HTTP_NOT_FOUND = 404;
 const HTTP_UNAUTHORIZED = 401;

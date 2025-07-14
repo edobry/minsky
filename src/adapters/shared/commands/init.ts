@@ -6,7 +6,7 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
-} from "../command-registry.js";
+} from "../command-registry";
 import { initializeProjectFromParams } from "../../../domain/init";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";

@@ -7,7 +7,7 @@ import type { TaskData, TaskSpecData, TaskBackendConfig } from "../../types/task
 import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
-} from "../../types/tasks/taskData.js";
+} from "../../types/tasks/taskData";
 
 /**
  * TaskBackend interface defines operations for task management

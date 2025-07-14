@@ -16,7 +16,7 @@ import { createMCPCommand } from "./commands/mcp/index";
 import {
   setupCommonCommandCustomizations,
   registerAllCommands,
-} from "./adapters/cli/cli-command-factory.js";
+} from "./adapters/cli/cli-command-factory";
 import { validateProcess } from "./schemas/runtime";
 import { validateError, getErrorMessage, getErrorStack } from "./schemas/error";
 

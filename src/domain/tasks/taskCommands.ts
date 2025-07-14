@@ -11,21 +11,21 @@ import {
   createConfiguredTaskService,
   TaskService,
   TaskServiceOptions,
-} from "./taskService.js";
+} from "./taskService";
 import { normalizeTaskId } from "./taskFunctions";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
 import {
   createTaskIdParsingErrorMessage
-} from "../../errors/enhanced-error-templates.js";
+} from "../../errors/enhanced-error-templates";
 import { createFormattedValidationError } from "../../utils/zod-error-formatter";
 // Re-export task data types
-export type {} from "../../types/tasks/taskData.js";
+export type {} from "../../types/tasks/taskData";
 
 // Import task status constants from centralized location
 import { TASK_STATUS } from "./taskConstants";
-export { TASK_STATUS } from "./taskConstants.js";
-export type { TaskStatus } from "./taskConstants.js";
+export { TASK_STATUS } from "./taskConstants";
+export type { TaskStatus } from "./taskConstants";
 
 // Import schemas
 import {
@@ -45,7 +45,7 @@ import {
   type TaskCreateFromTitleAndDescriptionParams,
   type TaskSpecContentParams,
   type TaskDeleteParams,
-} from "../../schemas/tasks.js";
+} from "../../schemas/tasks";
 
 // Task spec content parameters are imported from schemas
 

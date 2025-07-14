@@ -19,7 +19,7 @@ import {
   parseTaskSpecFromMarkdown,
   formatTaskSpecToMarkdown,
   isValidTaskStatus,
-} from "../taskFunctions.js";
+} from "../taskFunctions";
 
 describe("Task Functions", () => {
   describe("normalizeTaskId", () => {

@@ -12,7 +12,7 @@ import type {
   TaskWriteOperationResult,
   TaskReadOperationResult,
   TaskFileOperationResult,
-} from "../../types/tasks/taskData.js";
+} from "../../types/tasks/taskData";
 
 /**
  * Read the tasks file

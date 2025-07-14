@@ -10,7 +10,7 @@ import {
   flagSchema,
   sessionSchema,
   commonRepoSchema,
-} from "./common.js";
+} from "./common";
 
 /**
  * Schema for git clone parameters

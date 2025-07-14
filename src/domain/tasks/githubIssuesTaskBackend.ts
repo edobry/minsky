@@ -13,11 +13,11 @@ import type {
   TaskData,
   TaskSpecData,
   TaskBackendConfig,
-} from "../../types/tasks/taskData.js";
+} from "../../types/tasks/taskData";
 import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
-} from "../../types/tasks/taskData.js";
+} from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
 import { log } from "../../utils/logger";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
@@ -29,7 +29,7 @@ import type {
   TaskListOptions,
   CreateTaskOptions,
   DeleteTaskOptions
-} from "../tasks.js";
+} from "../tasks";
 import { getTaskSpecRelativePath } from "./taskIO";
 
 /**

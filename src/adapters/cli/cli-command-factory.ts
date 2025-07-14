@@ -13,7 +13,7 @@ import {
   CliCommandBridge,
   type CliCommandOptions,
   type CategoryCommandOptions,
-} from "../shared/bridges/cli-bridge.js";
+} from "../shared/bridges/cli-bridge";
 import { log } from "../../utils/logger";
 
 /**
@@ -305,6 +305,57 @@ export function setupCommonCommandCustomizations(program?: Command): void {
             alias: "d",
             description: "Description for auto-created task (required if --task not provided)",
           },
+        },
+        outputFormatter: (result: any) => {
+          // Check if JSON output was requested
+          if ((result as any).json) {
+            log.cli(JSON.stringify(result as any, null, 2));
+            return;
+          }
+
+          // Check if quiet mode was requested
+          if ((result as any).quiet) {
+            // In quiet mode, only output session directory path
+            if ((result as any).session) {
+              const sessionDir = `/path/to/sessions/${(result as any).session.session}`;
+              log.cli(sessionDir);
+            }
+            return;
+          }
+
+          // Format the session start success message
+          if ((result as any).success && (result as any).session) {
+            // Display a user-friendly success message for session creation
+            log.cli("✅ Session started successfully!");
+            log.cli("");
+
+            if ((result as any).session.session) {
+              log.cli(`📁 Session: ${(result as any).session.session}`);
+            }
+
+            if ((result as any).session.taskId) {
+              log.cli(`🎯 Task: ${(result as any).session.taskId}`);
+            }
+
+            if ((result as any).session.repoName) {
+              log.cli(`📦 Repository: ${(result as any).session.repoName}`);
+            }
+
+            if ((result as any).session.branch) {
+              log.cli(`🌿 Branch: ${(result as any).session.branch}`);
+            }
+
+            log.cli("");
+            log.cli("🚀 Ready to start development!");
+            log.cli("");
+            log.cli("💡 Next steps:");
+            log.cli("   • Your session workspace is ready for editing");
+            log.cli("   • All changes will be tracked on your session branch");
+            log.cli("   • Run \"minsky session pr\" when ready to create a pull request");
+          } else {
+            // Fallback to JSON output if result structure is unexpected
+            log.cli(JSON.stringify(result as any, null, 2));
+          }
         },
       },
       "session.get": {

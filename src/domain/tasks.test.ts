@@ -12,10 +12,10 @@ import {
   setTaskStatusFromParams,
   type Task,
   TASK_STATUS,
-} from "../tasks.js";
-import { ValidationError, ResourceNotFoundError } from "../errors/index";
+} from "../tasks";
+import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { expectToBeInstanceOf } from "../../utils/test-utils/assertions";
-import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
+import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
 
 const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
 

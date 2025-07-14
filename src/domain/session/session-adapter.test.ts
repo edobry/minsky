@@ -85,7 +85,7 @@ describe("SessionAdapter", () => {
     const retrievedSession = await adapter.getSession("test-session");
 
     expect(retrievedSession !== null).toBe(true);
-    expect(retrievedSession?._session).toBe("test-session");
+    expect(retrievedSession?.session).toBe("test-session");
     expect(retrievedSession?.taskId).toBe("#TEST_VALUE");
   });
 
@@ -104,7 +104,7 @@ describe("SessionAdapter", () => {
     const retrievedSession = await adapter.getSessionByTaskId("TEST_VALUE");
 
     expect(retrievedSession !== null).toBe(true);
-    expect(retrievedSession?._session).toBe("test-session");
+    expect(retrievedSession?.session).toBe("test-session");
   });
 
   it("should update a session", async () => {
@@ -119,10 +119,10 @@ describe("SessionAdapter", () => {
     };
 
     await adapter.addSession(testSession);
-    await adapter.updateSession("test-session", { _branch: "updated-branch" });
+    await adapter.updateSession("test-session", { branch: "updated-branch" });
 
     const retrievedSession = await adapter.getSession("test-session");
-    expect(retrievedSession?._branch).toBe("updated-branch");
+    expect(retrievedSession?.branch).toBe("updated-branch");
   });
 
   it("should delete a session", async () => {

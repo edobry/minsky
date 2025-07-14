@@ -13,7 +13,7 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
-} from "../../shared/command-registry.js";
+} from "../../shared/command-registry";
 import { RuleService, type RuleFormat } from "../../../domain/rules";
 import { resolveWorkspacePath } from "../../../domain/workspace";
 import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers";
@@ -25,7 +25,7 @@ import {
   RULE_DESCRIPTION_DESCRIPTION,
   RULE_NAME_DESCRIPTION,
   OVERWRITE_DESCRIPTION,
-} from "../../../utils/option-descriptions.js";
+} from "../../../utils/option-descriptions";
 
 /**
  * Parameters for the rules list command
