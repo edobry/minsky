@@ -270,7 +270,7 @@ export async function createRepositoryBackend(
           const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
           const sessions = await (sessionDb as unknown).listSessions();
           const repoName = normalizeRepoName((config as unknown).url || "");
-          const repoSession = (sessions as unknown).find((s) => (s as unknown).repoName === repoName);
+          const repoSession = sessions.find((s) => (s as unknown).repoName === repoName);
           if (!repoSession) {
             throw new Error("No session found for this repository");
           }
@@ -289,22 +289,22 @@ export async function createRepositoryBackend(
           `git -C ${workdir} rev-parse --abbrev-ref HEAD`
         );
 
-        const branch = (branchOutput as unknown).trim();
+        const branch = branchOutput.trim();
         return {
-          clean: (gitStatus.modified as unknown).length === 0 && (gitStatus.untracked as unknown).length === 0,
+          clean: gitStatus.modified.length === 0 && gitStatus.untracked.length === 0,
           changes: [
-            ...(gitStatus.modified as unknown).map((file) => `M ${file}`),
-            ...(gitStatus.untracked as unknown).map((file) => `?? ${file}`),
-            ...(gitStatus.deleted as unknown).map((file) => `D ${file}`),
+            ...gitStatus.modified.map((file) => `M ${file}`),
+            ...gitStatus.untracked.map((file) => `?? ${file}`),
+            ...gitStatus.deleted.map((file) => `D ${file}`),
           ],
           branch,
           // Add other required fields from RepositoryStatus
           modifiedFiles: [
-            ...(gitStatus.modified as unknown).map((file) => ({ status: "M", file })),
-            ...(gitStatus.untracked as unknown).map((file) => ({ status: "??", file })),
-            ...(gitStatus.deleted as unknown).map((file) => ({ status: "D", file })),
+            ...gitStatus.modified.map((file) => ({ status: "M", file })),
+            ...gitStatus.untracked.map((file) => ({ status: "??", file })),
+            ...gitStatus.deleted.map((file) => ({ status: "D", file })),
           ],
-          dirty: (gitStatus.modified as unknown).length > 0 || (gitStatus.untracked as unknown).length > 0,
+          dirty: gitStatus.modified.length > 0 || gitStatus.untracked.length > 0,
         };
       },
 
@@ -314,7 +314,7 @@ export async function createRepositoryBackend(
           const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
           const sessions = await (sessionDb as unknown).listSessions();
           const repoName = normalizeRepoName((config as unknown).url || "");
-          const repoSession = (sessions as unknown).find((s) => (s as unknown).repoName === repoName);
+          const repoSession = sessions.find((s) => (s as unknown).repoName === repoName);
           if (!repoSession) {
             throw new Error("No session found for this repository");
           }
@@ -348,7 +348,7 @@ export async function createRepositoryBackend(
         const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
         const sessions = await (sessionDb as unknown).listSessions();
         const repoName = normalizeRepoName((config as unknown).url || "");
-        const repoSession = (sessions as unknown).find((s) => (s as unknown).repoName === repoName);
+        const repoSession = sessions.find((s) => (s as unknown).repoName === repoName);
 
         if (!repoSession) {
           throw new Error("No session found for this repository");
@@ -357,7 +357,7 @@ export async function createRepositoryBackend(
         const sessionName = (repoSession as unknown).session;
         const workdir = (gitService as unknown).getSessionWorkdir(sessionName);
 
-        await (gitService as unknown).push({
+        await gitService.push({
           session: sessionName,
           repoPath: workdir,
         });
@@ -368,7 +368,7 @@ export async function createRepositoryBackend(
         const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
         const sessions = await (sessionDb as unknown).listSessions();
         const repoName = normalizeRepoName((config as unknown).url || "");
-        const repoSession = (sessions as unknown).find((s) => (s as unknown).repoName === repoName);
+        const repoSession = sessions.find((s) => (s as unknown).repoName === repoName);
 
         if (!repoSession) {
           throw new Error("No session found for this repository");
@@ -398,7 +398,7 @@ export async function createRepositoryBackend(
         const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
         const sessions = await (sessionDb as unknown).listSessions();
         const repoName = normalizeRepoName((config as unknown).url || "");
-        const repoSession = (sessions as unknown).find((s) => (s as unknown).repoName === repoName);
+        const repoSession = sessions.find((s) => (s as unknown).repoName === repoName);
 
         if (!repoSession) {
           throw new Error("No session found for this repository");

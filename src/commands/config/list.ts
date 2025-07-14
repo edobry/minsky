@@ -24,13 +24,13 @@ export function createConfigListCommand(): Command {
         backendConfig: (config as unknown).get("backendConfig"),
         credentials: (config as unknown).get("credentials"),
         sessiondb: (config as unknown).get("sessiondb"),
-        ai: (config as unknown).has("ai") ? (config as unknown).get("ai") : undefined as unknown,
+        ai: (config as unknown).has("ai") ? (config as unknown).get("ai") : undefined,
       };
 
       if ((options as unknown).json) {
         const output = {
           resolved,
-          sources: (sources as unknown).map(source => ({
+          sources: sources.map(source => ({
             name: (source as unknown).name,
             original: (source as unknown).original,
             parsed: (source as unknown).parsed

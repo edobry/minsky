@@ -219,17 +219,17 @@ function applyEditPattern(originalContent: string, editContent: string): string 
 
   // Split the edit content by the existing code marker
   const marker = "// ... existing code ...";
-  const editParts = (editContent as unknown).split(marker);
+  const editParts = editContent.split(marker);
 
   // If we only have one part, something's wrong
-  if ((editParts as unknown).length < 2) {
+  if (editParts.length < 2) {
     throw new Error("Invalid edit format: existing code marker found but no content sections");
   }
 
   let result = originalContent;
 
   // Process each pair of before/after content around the markers
-  for (let i = 0; i < (editParts as unknown).length - 1; i++) {
+  for (let i = 0; i < editParts.length - 1; i++) {
     const beforeContent = (editParts[i] as unknown).trim() || "";
     const afterContent = (editParts[i + 1] as unknown).trim() || "";
 
@@ -242,11 +242,11 @@ function applyEditPattern(originalContent: string, editContent: string): string 
       }
 
       // Find the end of the after content
-      let endIndex = (result as unknown).length;
-      if (i < (editParts as unknown).length - 2) {
+      let endIndex = result.length;
+      if (i < editParts.length - 2) {
         // There's another edit section, find where it starts
         const nextBefore = (editParts[i + 2] as unknown).trim() || "";
-        const nextStart = (result as unknown).indexOf(nextBefore, startIndex + (beforeContent as unknown).length);
+        const nextStart = (result as unknown).indexOf(nextBefore, startIndex + beforeContent.length);
         if (nextStart !== -1) {
           endIndex = nextStart;
         }
@@ -254,13 +254,13 @@ function applyEditPattern(originalContent: string, editContent: string): string 
         // Last section with after content
         const afterIndex = (result as unknown).lastIndexOf(afterContent);
         if (afterIndex !== -1) {
-          endIndex = afterIndex + (afterContent as unknown).length;
+          endIndex = afterIndex + afterContent.length;
         }
       }
 
       // Apply the edit
       result = `${(result as unknown).substring(0, startIndex) + beforeContent}\n${(result as unknown).substring(endIndex)}`;
-    } else if (i === (editParts as unknown).length - 2 && !afterContent) {
+    } else if (i === editParts.length - 2 && !afterContent) {
       // Last section with no after content - append
       result = `${result}\n${beforeContent}`;
     } else {
@@ -276,17 +276,17 @@ function applyEditPattern(originalContent: string, editContent: string): string 
           throw new Error(`Could not find content to match: "${(searchStart as unknown).substring(0, 50)}..."`);
         }
 
-        let endIdx = (result as unknown).length;
+        let endIdx = result.length;
         if (searchEnd) {
-          const tempEndIdx = (result as unknown).indexOf(searchEnd, startIdx + (searchStart as unknown).length);
+          const tempEndIdx = (result as unknown).indexOf(searchEnd, startIdx + searchStart.length);
           if (tempEndIdx !== -1) {
-            endIdx = tempEndIdx + (searchEnd as unknown).length;
+            endIdx = tempEndIdx + searchEnd.length;
           }
         }
 
         result = `${(result as unknown).substring(0, startIdx) + searchStart}\n${
           searchEnd
-        }${endIdx < (result as unknown).length ? (result as unknown).substring(endIdx) : ""}`;
+        }${endIdx < result.length ? (result as unknown).substring(endIdx) : ""}`;
       }
     }
   }
@@ -303,7 +303,7 @@ function countOccurrences(content: string, search: string): number {
 
   while ((position = (((content) as unknown).toString() as unknown).indexOf(search, position)) !== -1) {
     count++;
-    position += (search as unknown).length;
+    position += search.length;
   }
 
   return count;

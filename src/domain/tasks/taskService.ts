@@ -67,7 +67,7 @@ export class TaskService {
     } = options;
 
     // Initialize with provided backends or create defaults
-    if (customBackends && (customBackends as unknown).length > 0) {
+    if (customBackends && customBackends.length > 0) {
       this.backends = customBackends;
     } else {
       // Create default backends
@@ -86,7 +86,7 @@ export class TaskService {
       try {
         const githubBackend = this.tryCreateGitHubBackend(workspacePath);
         if (githubBackend) {
-          (this.backends as unknown).push(githubBackend);
+          this.backends.push(githubBackend);
         }
       } catch (error) {
         // Silently ignore GitHub backend if not available
@@ -95,10 +95,10 @@ export class TaskService {
     }
 
     // Set current backend
-    const selectedBackend = (this.backends as unknown).find((b) => (b as unknown).name === backend);
+    const selectedBackend = this.backends.find((b) => (b as unknown).name === backend);
     if (!selectedBackend) {
       throw new Error(
-        `Backend '${backend}' not found. Available backends: ${((this.backends as unknown).map((b) => b.name) as unknown).join(", ")}`
+        `Backend '${backend}' not found. Available backends: ${(this.backends.map((b) => b.name) as unknown).join(", ")}`
       );
     }
     this.currentBackend = selectedBackend;
@@ -138,7 +138,7 @@ export class TaskService {
 
     // Find the requested task
     const normalizedId = normalizeTaskId(id);
-    if (!normalizedId) return null as unknown;
+    if (!normalizedId) return null;
 
     // First try exact match
     const exactMatch = tasks.find((task) => (task as unknown).id === normalizedId);
@@ -147,8 +147,8 @@ export class TaskService {
     }
 
     // If no exact match, try numeric comparison
-    const numericId = parseInt((normalizedId as unknown).replace(/^#/, ""), 10);
-    if (isNaN(numericId)) return null as unknown;
+    const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
+    if (isNaN(numericId)) return null;
 
     const numericMatch = tasks.find((task) => {
       const taskNumericId = parseInt((task.id as unknown).replace(/^#/, ""), 10);
@@ -165,7 +165,7 @@ export class TaskService {
    */
   async getTaskStatus(id: string): Promise<string | undefined> {
     const task = await this.getTask(id);
-    return task ? (task as unknown).status : (null as unknown);
+    return task ? (task as unknown).status : null;
   }
 
   /**
@@ -272,7 +272,7 @@ export class TaskService {
 
       // Find and replace the title line to add the task ID
       // Support both "# Task: Title" and "# Task #XXX: Title" formats
-      const updatedSpecContent = (originalContent as unknown).replace(
+      const updatedSpecContent = originalContent.replace(
         /^# Task(?: #\d+)?: (.+)$/m,
         `# Task ${taskId}: $1`
       );
@@ -309,7 +309,7 @@ export class TaskService {
     if (existingIndex >= 0) {
       tasks[existingIndex] = newTask;
     } else {
-      (tasks as unknown).push(newTask);
+      tasks.push(newTask);
     }
 
     // Format and save the updated tasks
@@ -331,7 +331,7 @@ export class TaskService {
     // Normalize the task ID
     const normalizedId = normalizeTaskId(id);
     if (!normalizedId) {
-      return null as unknown;
+      return null;
     }
 
     // Try to find the task in each backend
@@ -352,7 +352,7 @@ export class TaskService {
       }
     }
 
-    return null as unknown;
+    return null;
   }
 
   /**
@@ -478,7 +478,7 @@ export class TaskService {
 
       const config = getGitHubBackendConfig(workspacePath);
       if (!config) {
-        return null as unknown;
+        return null;
       }
 
       return createGitHubIssuesTaskBackend({
@@ -488,7 +488,7 @@ export class TaskService {
       });
     } catch (error) {
       // Return null if GitHub modules are not available
-      return null as unknown;
+      return null;
     }
   }
 

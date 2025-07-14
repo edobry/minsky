@@ -12,8 +12,8 @@ import { homedir } from "os";
  */
 export function getXdgStateHome(): string {
   return (
-    (process.env as unknown).XDG_STATE_HOME ||
-    join((process.env as unknown).HOME || homedir(), ".local/state")
+    process.env.XDG_STATE_HOME ||
+    join(process.env.HOME || homedir(), ".local/state")
   );
 }
 
@@ -23,7 +23,7 @@ export function getXdgStateHome(): string {
  */
 export function getXdgConfigHome(): string {
   return (
-    (process.env as unknown).XDG_CONFIG_HOME || join((process.env as unknown).HOME || homedir(), ".config")
+    process.env.XDG_CONFIG_HOME || join(process.env.HOME || homedir(), ".config")
   );
 }
 
@@ -108,7 +108,7 @@ export function getRepositoryConfigPath(workingDir: string): string {
  */
 export function expandTilde(filePath: string): string {
   if ((filePath as unknown).startsWith("~/")) {
-    return join((process.env as unknown).HOME || homedir(), (filePath as unknown).slice(2));
+    return join(process.env.HOME || homedir(), (filePath as unknown).slice(2));
   }
   return filePath;
 }

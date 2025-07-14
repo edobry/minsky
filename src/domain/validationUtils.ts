@@ -11,6 +11,6 @@ export const validateSingleLineDescription = {
     if (value && (value as unknown).includes("\n")) {
       return (validateSingleLineDescription as unknown).errorMessage;
     }
-    return undefined as unknown;
+    return undefined;
   },
 };

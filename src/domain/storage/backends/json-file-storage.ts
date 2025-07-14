@@ -66,7 +66,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       const success = writeSessionDbFile(state, this.getFileOptions());
       return {
         success,
-        bytesWritten: success ? (JSON.stringify(state.sessions) as unknown).length : 0,
+        bytesWritten: success ? JSON.stringify(state.sessions).length : 0,
       };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error as any));
@@ -81,12 +81,12 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
   async getEntity(id: string, options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
     const result = await this.readState();
     if (!(result as unknown).success || !(result as unknown).data) {
-      return null as unknown;
+      return null;
     }
 
     return (
-      (result.data!.sessions as unknown).find((session) => (session as unknown).session === id) ||
-      (null as unknown)
+      result.data!.sessions.find((session) => session.session === id) ||
+      null
     );
   }
 
@@ -102,20 +102,20 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
     if (options) {
       if ((options as unknown).taskId) {
         const normalizedTaskId = (options.taskId as unknown).replace(/^#/, "");
-        sessions = (sessions as unknown).filter((s) => {
-          if (!(s as unknown).taskId) {
+        sessions = sessions.filter((s) => {
+          if (!s.taskId) {
             return false;
           }
           return (s.taskId as unknown).replace(/^#/, "") === normalizedTaskId;
         });
       }
       if ((options as unknown).repoName) {
-        sessions = (sessions as unknown).filter(
+        sessions = sessions.filter(
           (s) => (s as unknown).repoName === (options as unknown).repoName
         );
       }
       if ((options as unknown).branch) {
-        sessions = (sessions as unknown).filter((s) => (s as unknown).branch === (options as unknown).branch);
+        sessions = sessions.filter((s) => (s as unknown).branch === (options as unknown).branch);
       }
     }
 
@@ -144,12 +144,12 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
   async updateEntity(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null> {
     const result = await this.readState();
     if (!(result as unknown).success || !(result as unknown).data) {
-      return null as unknown;
+      return null;
     }
 
-    const sessionIndex = (result.data!.sessions as unknown).findIndex((s) => (s as unknown).session === id);
+    const sessionIndex = result.data!.sessions.findIndex((s) => s.session === id);
     if (sessionIndex === -1) {
-      return null as unknown;
+      return null;
     }
 
     // Create safe updates by explicitly building the update object without session
@@ -187,13 +187,13 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return false;
     }
 
-    const sessionIndex = (result.data!.sessions as unknown).findIndex((s) => (s as unknown).session === id);
+    const sessionIndex = result.data!.sessions.findIndex((s) => s.session === id);
     if (sessionIndex === -1) {
       return false;
     }
 
     const newSessions = [...(result.data as unknown).sessions];
-    (newSessions as unknown).splice(sessionIndex, 1);
+    newSessions.splice(sessionIndex, 1);
 
     const newState: SessionDbState = {
       ...(result as unknown).data,

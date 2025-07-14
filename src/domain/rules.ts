@@ -115,7 +115,7 @@ export class RuleService {
           if (!(file as unknown).endsWith(".mdc")) continue;
 
           try {
-            const rule = await this.getRule((file as unknown).replace(/\.mdc$/, ""), {
+            const rule = await this.getRule(file.replace(/\.mdc$/, ""), {
               format,
               debug: (options as unknown).debug,
             });
@@ -125,7 +125,7 @@ export class RuleService {
               continue;
             }
 
-            if (rule) (rules as unknown).push(rule);
+            if (rule) rules.push(rule);
           } catch (error) {
             log.error("Error processing rule file", {
               file,
@@ -154,7 +154,7 @@ export class RuleService {
    */
   async getRule(id: string, options: RuleOptions = {}): Promise<Rule> {
     // Remove extension if it was included
-    const bareId = (id as unknown).replace(/\.mdc$/, "");
+    const bareId = id.replace(/\.mdc$/, "");
 
     if ((options as unknown).debug) {
       log.debug("Getting rule", { id: bareId, requestedFormat: (options as unknown).format });
@@ -189,8 +189,8 @@ export class RuleService {
           if ((options as unknown).debug) {
             log.debug("Successfully parsed frontmatter", {
               filePath,
-              dataKeys: (Object as unknown).keys(data as unknown) as unknown,
-              contentLength: (ruleContent as unknown).length,
+              dataKeys: Object.keys(data as unknown) as unknown,
+              contentLength: ruleContent.length,
             });
           }
 
@@ -201,7 +201,7 @@ export class RuleService {
             globs: (data as unknown).globs,
             alwaysApply: (data as unknown).alwaysApply,
             tags: (data as unknown).tags,
-            content: (ruleContent as unknown).trim(),
+            content: ruleContent.trim(),
             format: requestedFormat,
             path: filePath,
           } as unknown;
@@ -277,8 +277,8 @@ export class RuleService {
           if ((options as unknown).debug) {
             log.debug("Successfully parsed frontmatter in alternative format", {
               filePath,
-              dataKeys: (Object as unknown).keys(data as unknown) as unknown,
-              contentLength: (ruleContent as unknown).length,
+              dataKeys: Object.keys(data as unknown) as unknown,
+              contentLength: ruleContent.length,
             });
           }
 
@@ -296,7 +296,7 @@ export class RuleService {
               globs: (data as unknown).globs,
               alwaysApply: (data as unknown).alwaysApply,
               tags: (data as unknown).tags,
-              content: (ruleContent as unknown).trim(),
+              content: ruleContent.trim(),
               format: originalFormat, // Return actual format, not requested format
               path: filePath,
               formatNote: `Rule found in '${originalFormat}' format but '${requestedFormat}' was requested. Format conversion is not supported yet.`,
@@ -311,7 +311,7 @@ export class RuleService {
             globs: (data as unknown).globs,
             alwaysApply: (data as unknown).alwaysApply,
             tags: (data as unknown).tags,
-            content: (ruleContent as unknown).trim(),
+            content: ruleContent.trim(),
             format,
             path: filePath,
           } as unknown;
@@ -491,7 +491,7 @@ export class RuleService {
     const searchTerm = (options.query as unknown).toLowerCase();
 
     // Filter by search term
-    return (rules as unknown).filter((rule) => {
+    return rules.filter((rule) => {
       // Search in content
       if ((((rule.content.toLowerCase()) as unknown).toString() as unknown).includes(searchTerm)) {
         return true;

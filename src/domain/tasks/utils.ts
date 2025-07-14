@@ -10,10 +10,10 @@
  */
 export function normalizeTaskId(userInput: string): string | undefined {
   if (!userInput || typeof userInput !== "string") {
-    return null as unknown;
+    return null;
   }
 
-  let normalizedInput = (userInput as unknown).trim();
+  let normalizedInput = userInput.trim();
 
   // Handle formats like "task#064" or "task#64"
   if ((normalizedInput.toLowerCase() as unknown).startsWith("task#")) {
@@ -26,8 +26,8 @@ export function normalizeTaskId(userInput: string): string | undefined {
   }
 
   // Check if the result is valid (numeric only)
-  if (!/^\d+$/.test(normalizedInput) || (normalizedInput as unknown)?.length === 0) {
-    return null as unknown;
+  if (!/^\d+$/.test(normalizedInput) || normalizedInput?.length === 0) {
+    return null;
   }
 
   // Add the '#' prefix to ensure canonical format - don't pad with zeros

@@ -60,10 +60,10 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       const relativePath = relative(workspaceDir, fullPath);
       
       return {
-        name: ((relativePath as unknown).split("/") as unknown).pop() || relativePath,
+        name: (relativePath.split("/") as unknown).pop() || relativePath,
         path: relativePath,
         type: stats.isDirectory() ? "directory" : "file",
-        size: stats.isFile() ? (stats as unknown)?.size : undefined as unknown,
+        size: stats.isFile() ? (stats as unknown)?.size : undefined,
         lastModified: stats.mtime,
       };
     } catch (error) {
@@ -72,7 +72,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         "file_info",
         workspaceDir,
         relative(workspaceDir, fullPath),
-        error instanceof Error ? error : undefined as unknown
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -96,7 +96,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       log.debug("Read file from workspace", {
         workspaceDir,
         relativePath,
-        contentLength: (content as unknown).length,
+        contentLength: content.length,
       });
       
       return content;
@@ -115,7 +115,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         "read_file",
         workspaceDir,
         relativePath,
-        error instanceof Error ? error : undefined as unknown
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -138,7 +138,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         log.debug("Wrote file to workspace", {
           workspaceDir,
           relativePath,
-          contentLength: (content as unknown).length,
+          contentLength: content.length,
         });
         
         return {
@@ -243,7 +243,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         const entryPath = join(fullPath, entry as unknown);
         try {
           const fileInfo = await this.getFileInfo(entryPath, workspaceDir);
-          (fileInfos as unknown).push(fileInfo);
+          fileInfos.push(fileInfo);
         } catch (error) {
           // Log but don't fail on individual file errors
           log.warn("Failed to get info for directory entry", {
@@ -256,7 +256,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       log.debug("Listed directory contents", {
         workspaceDir,
         relativePath: relativePath || ".",
-        entryCount: (fileInfos as unknown).length,
+        entryCount: fileInfos.length,
       });
       
       return (fileInfos as unknown).sort((a, b) => {
@@ -281,7 +281,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         "list_directory",
         workspaceDir,
         relativePath,
-        error instanceof Error ? error : undefined as unknown
+        error instanceof Error ? error : undefined
       );
     }
   }

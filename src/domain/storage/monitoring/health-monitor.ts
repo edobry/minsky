@@ -226,7 +226,7 @@ export class SessionDbHealthMonitor {
         // Warn about large files
         if ((stats as unknown).size > 10_000_000) {
           // 10MB
-          (status.warnings as unknown).push("Large JSON file detected - consider migrating to SQLite");
+          status.warnings.push("Large JSON file detected - consider migrating to SQLite");
         }
       }
 
@@ -236,7 +236,7 @@ export class SessionDbHealthMonitor {
         fs.accessSync(baseDir, fs.constants.R_OK | fs.constants.W_OK);
         (status.details! as unknown).directoryWritable = true;
       } catch (error) {
-        (status.errors as unknown).push("Directory not writable");
+        status.errors.push("Directory not writable");
         (status.details! as unknown).directoryWritable = false;
       }
     } catch (error) {
@@ -272,7 +272,7 @@ export class SessionDbHealthMonitor {
         (status.details! as unknown).journalMode = journalMode;
 
         if (journalMode !== "wal") {
-          (status.warnings as unknown).push("Consider enabling WAL mode for better performance");
+          status.warnings.push("Consider enabling WAL mode for better performance");
         }
 
         // Check for locks
@@ -329,7 +329,7 @@ export class SessionDbHealthMonitor {
           (status.details! as unknown).blockedQueries = lockCount;
 
           if (lockCount > 0) {
-            (status.warnings as unknown).push(`${lockCount} blocked queries detected`);
+            status.warnings.push(`${lockCount} blocked queries detected`);
           }
         } finally {
           (client as unknown).release();
@@ -352,7 +352,7 @@ export class SessionDbHealthMonitor {
     } {
     const recentMetrics = (this.metrics as unknown).slice(-100); // Last 100 operations
 
-    if ((recentMetrics as unknown).length === 0) {
+    if (recentMetrics.length === 0) {
       return {
         averageResponseTime: 0,
         successRate: 1.0,
@@ -361,12 +361,12 @@ export class SessionDbHealthMonitor {
     }
 
     const totalDuration = (recentMetrics as unknown).reduce((sum, metric) => sum + (metric as unknown).duration, 0);
-    const successCount = ((recentMetrics as unknown).filter((metric) => metric.success) as unknown).length;
-    const recentErrors = ((recentMetrics as unknown).filter((metric) => !metric.success) as unknown).length;
+    const successCount = recentMetrics.filter((metric) => metric.success).length;
+    const recentErrors = recentMetrics.filter((metric) => !metric.success).length;
 
     return {
-      averageResponseTime: totalDuration / (recentMetrics as unknown).length,
-      successRate: successCount / (recentMetrics as unknown).length,
+      averageResponseTime: totalDuration / recentMetrics.length,
+      successRate: successCount / recentMetrics.length,
       recentErrors,
     };
   }
@@ -421,37 +421,37 @@ export class SessionDbHealthMonitor {
 
     // Backend health recommendations
     if (!(backendHealth as unknown).healthy) {
-      (recommendations as unknown).push("Backend health check failed - investigate errors");
+      recommendations.push("Backend health check failed - investigate errors");
     }
 
-    if ((backendHealth as unknown).warnings && (backendHealth.warnings as unknown).length > 0) {
-      (recommendations as unknown).push("Address backend warnings to improve reliability");
+    if ((backendHealth as unknown).warnings && backendHealth.warnings.length > 0) {
+      recommendations.push("Address backend warnings to improve reliability");
     }
 
     // Performance recommendations
     if ((performance as unknown).averageResponseTime > 1000) {
-      (recommendations as unknown).push("Slow response times detected - consider performance optimization");
+      recommendations.push("Slow response times detected - consider performance optimization");
     }
 
     if ((performance as unknown).successRate < 0.95) {
-      (recommendations as unknown).push("Low success rate - investigate error patterns");
+      recommendations.push("Low success rate - investigate error patterns");
     }
 
     if ((performance as unknown).recentErrors > 5) {
-      (recommendations as unknown).push("High error rate - check system health and configuration");
+      recommendations.push("High error rate - check system health and configuration");
     }
 
     // Backend-specific recommendations
     if ((backendHealth as unknown).backend === "json" && (backendHealth.details as unknown).fileSize > 5_000_000) {
-      (recommendations as unknown).push("Large JSON file - consider migrating to SQLite for better performance");
+      recommendations.push("Large JSON file - consider migrating to SQLite for better performance");
     }
 
     if ((backendHealth as unknown).backend === "sqlite" && (backendHealth.details as unknown).journalMode !== "wal") {
-      (recommendations as unknown).push("Enable WAL mode for better SQLite performance");
+      recommendations.push("Enable WAL mode for better SQLite performance");
     }
 
     if ((backendHealth as unknown).backend === "postgres" && (backendHealth.details as unknown).activeConnections > 80) {
-      (recommendations as unknown).push("High connection count - consider connection pooling optimization");
+      recommendations.push("High connection count - consider connection pooling optimization");
     }
 
     return recommendations;
@@ -487,10 +487,10 @@ export class SessionDbHealthMonitor {
    * Record performance metric
    */
   static recordMetric(metric: PerformanceMetrics): void {
-    (this.metrics as unknown).push(metric);
+    this.metrics.push(metric);
 
     // Keep only recent metrics
-    if ((this.metrics as unknown).length > this.MAX_METRICS) {
+    if (this.metrics.length > this.MAX_METRICS) {
       this.metrics = (this.metrics as unknown).slice(-this.MAX_METRICS);
     }
 
@@ -534,8 +534,8 @@ export class SessionDbHealthMonitor {
     errorRate: number;
     avgResponseTime: number;
   }> {
-    const totalOps = (this.metrics as unknown).length;
-    const errors = (this.metrics as unknown).filter(m => !m.success).length;
+    const totalOps = this.metrics.length;
+    const errors = this.metrics.filter(m => !m.success).length;
     const avgResponse = totalOps > 0 ? (this.metrics as unknown).reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
     const uptime =
       this.metrics && this.metrics[0]
@@ -549,7 +549,7 @@ export class SessionDbHealthMonitor {
       ),
       uptime,
       totalOperations: totalOps,
-      errorRate: 1 - (this.metrics as unknown).filter(m => m.success).length / totalOps,
+      errorRate: 1 - this.metrics.filter(m => m.success).length / totalOps,
       avgResponseTime: avgResponse,
     };
   }

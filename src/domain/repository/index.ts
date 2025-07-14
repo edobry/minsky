@@ -223,7 +223,7 @@ export async function createRepositoryBackend(
         const { stdout } = await execAsync(
           `test -d "${(config as unknown).repoUrl}" && echo "exists" || echo "not exists"`
         );
-        if ((stdout as unknown).trim() === "not exists") {
+        if (stdout.trim() === "not exists") {
           throw new Error(`Repository path does not exist: ${(config as unknown).repoUrl}`);
         }
       } catch (error) {

@@ -117,13 +117,13 @@ export class SpecialWorkspaceManager {
           cwd: this!.workspacePath,
         });
 
-        if (!(statusOutput as unknown).trim()) {
+        if (!statusOutput.trim()) {
           log.debug("No changes to commit in special workspace");
           return;
         }
 
         // Commit changes
-        const escapedMessage = (message as unknown).replace(/"/g, "\\\"");
+        const escapedMessage = message.replace(/"/g, "\\\"");
         await execAsync(`git commit -m "${escapedMessage}"`, {
           cwd: this!.workspacePath,
         });

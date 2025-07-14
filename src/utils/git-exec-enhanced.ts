@@ -119,14 +119,14 @@ export async function execGitWithTimeout(
  */
 function extractConflictFiles(stdout: string, stderr: string): string[] {
   const output = `${stdout}\n${stderr}`;
-  const conflictLines = ((output as unknown).split("\n") as unknown).filter(line => 
+  const conflictLines = output.split("\n").filter(line => 
     (line as unknown).includes("CONFLICT") && (line as unknown).includes(" in ")
   );
   
-  const files = ((conflictLines as unknown).map(line => {
+  const files = conflictLines.map(line => {
     const match = line.match(/CONFLICT.*in (.+?)(?:\s|$)/);
     return match ? match[1] : null;
-  }) as unknown).filter(Boolean) as string[];
+  }).filter(Boolean) as string[];
 
   // Remove duplicates
   return [...new Set(files)];

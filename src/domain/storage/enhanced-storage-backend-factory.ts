@@ -81,7 +81,7 @@ export class EnhancedStorageBackendFactory {
   ): Promise<EnhancedStorageResult> {
     const enhancedConfig = this.loadEnhancedConfig(config);
     const result: EnhancedStorageResult = {
-      storage: null as unknown,
+      storage: null,
       warnings: [],
     };
 

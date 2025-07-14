@@ -41,7 +41,7 @@ export const taskIdSchema = (z
     // Normalize the task ID to #XXX format
     if (!val) return val;
 
-    let normalized = (val as unknown).trim();
+    let normalized = val.trim();
 
     // Handle formats like "task#064" or "task#64"
     if (normalized.toLowerCase().startsWith("task#")) {

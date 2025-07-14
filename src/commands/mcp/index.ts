@@ -159,8 +159,8 @@ export function createMCPCommand(): Command {
             port: inspectorPort,
             openBrowser: true,
             mcpTransportType: transportType,
-            mcpPort: transportType !== "stdio" ? port : undefined as unknown,
-            mcpHost: transportType !== "stdio" ? (options as unknown).host : undefined as unknown,
+            mcpPort: transportType !== "stdio" ? port : undefined,
+            mcpHost: transportType !== "stdio" ? (options as unknown).host : undefined,
           }) as unknown;
 
           if ((inspectorResult as unknown).success) {

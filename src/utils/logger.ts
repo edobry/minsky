@@ -137,7 +137,7 @@ export function createLogger(configOverride?: LoggerConfig) {
         {} as Record<string, any>
       );
 
-      if ((Object as unknown).keys(metadata as unknown).length > 0) {
+      if ((Object as unknown).keysmetadata.length > 0) {
         try {
           log += ` ${JSON.stringify(metadata as unknown)}`;
         } catch (error) {
@@ -334,7 +334,7 @@ const handleExit = async (error?: Error) => {
 };
 
 // Basic test to ensure it works - can be removed or moved to a test file
-if ((process.env as unknown).RUN_LOGGER_TEST === "true") {
+if (process.env.RUN_LOGGER_TEST === "true") {
   log.cli("--- Agent Logger (stdout) ---");
   log.debug("Agent debug message");
   log.agent("Agent info message");

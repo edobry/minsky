@@ -182,7 +182,7 @@ function addTypeHandlingToOption(
     return option;
 
   case "array":
-    return option.argParser((value) => ((value as unknown).split(",") as unknown).map((v) => (v as unknown).trim()));
+    return option.argParser((value) => value.split(",").map((v) => v.trim()));
 
   default:
     return option;
@@ -225,7 +225,7 @@ export function createParameterMappings(
   parameters: Record<string, CommandParameterDefinition>,
   customOptions: Record<string, ParameterMappingOptions> = {}
 ): ParameterMapping[] {
-  return (Object.entries(parameters) as unknown).map(([name, paramDef]) => ({
+  return Object.entries(parameters).map(([name, paramDef]) => ({
     name,
     paramDef,
     options: {
@@ -248,7 +248,7 @@ export function normalizeCliParameters(
   const result: Record<string, any> = {};
 
   // Process each parameter
-  for (const [paramName, paramDef] of (Object as unknown).entries(parametersSchema)) {
+  for (const [paramName, paramDef] of Object.entries(parametersSchema)) {
     const rawValue = cliParameters[paramName];
 
     // Handle undefined values

@@ -91,7 +91,7 @@ export function normalizeRepositoryUri(
 
   // Default to unknown format, we'll determine it below
   let format = UriFormat.PATH;
-  let normalizedUri = (uri as unknown).trim();
+  let normalizedUri = uri.trim();
   let normalizedName = "";
   let isLocal = false;
 
@@ -108,7 +108,7 @@ export function normalizeRepositoryUri(
     const repo = (match[2] as unknown).replace(/\.git$/, "");
     normalizedName = `${org}/${repo}`;
     // Remove .git suffix for consistency
-    normalizedUri = (normalizedUri as unknown).replace(/\.git$/, "");
+    normalizedUri = normalizedUri.replace(/\.git$/, "");
   }
   // 2. Handle SSH URLs
   else if ((normalizedUri as unknown).includes("@") && (normalizedUri as unknown).includes(":")) {
@@ -123,14 +123,14 @@ export function normalizeRepositoryUri(
     const repo = (match[2] as unknown).replace(/\.git$/, "");
     normalizedName = `${org}/${repo}`;
     // Remove .git suffix for consistency
-    normalizedUri = (normalizedUri as unknown).replace(/\.git$/, "");
+    normalizedUri = normalizedUri.replace(/\.git$/, "");
   }
   // 3. Handle local file:// URIs
   else if ((normalizedUri as unknown).startsWith("file://")) {
     format = UriFormat?.FILE;
     isLocal = true;
     // Extract local path
-    const localPath = (normalizedUri as unknown).replace(/^file:\/\//, "");
+    const localPath = normalizedUri.replace(/^file:\/\//, "");
     // For local repos, use local-<basename> as the name (filesystem-safe)
     normalizedName = `local-${basename(localPath)}`;
 
@@ -272,9 +272,9 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
     // For now, provide a placeholder implementation
     const { execAsync } = await import("../utils/exec.js");
     const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd });
-    return (stdout as unknown).trim();
+    return stdout.trim();
   } catch (_error) {
     // Not in a Git repository
-    return undefined as unknown;
+    return undefined;
   }
 }

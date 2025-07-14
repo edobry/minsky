@@ -167,7 +167,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     // If no exact match, try numeric comparison
     // This handles case where ID is provided without leading zeros
-    const numericId = parseInt((id as unknown).replace(/^#/, ""), 10);
+    const numericId = parseInt(id.replace(/^#/, ""), 10);
     if (!isNaN(numericId)) {
       const numericMatch = tasks.find((task) => {
         const taskNumericId = parseInt((task.id as unknown).replace(/^#/, ""), 10);
@@ -176,12 +176,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       return numericMatch || null;
     }
 
-    return null as unknown;
+    return null;
   }
 
   async getTaskStatus(id: string): Promise<string | undefined> {
     const task = await this.getTask(id);
-    return task ? (task as unknown).status : null as unknown;
+    return task ? (task as unknown).status : null;
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
@@ -204,8 +204,8 @@ export class MarkdownTaskBackend implements TaskBackend {
     const newStatusChar = TASK_STATUS_CHECKBOX[status];
     const lines = (((content) as unknown).toString() as unknown).split("\n");
     let inCodeBlock = false;
-    const updatedLines = (lines as unknown).map((line) => {
-      if (((line as unknown).trim() as unknown).startsWith("```")) {
+    const updatedLines = lines.map((line) => {
+      if ((line.trim() as unknown).startsWith("```")) {
         inCodeBlock = !inCodeBlock;
         return line;
       }
@@ -233,14 +233,14 @@ export class MarkdownTaskBackend implements TaskBackend {
       const taskDir = join(this.workspacePath, "process", "tasks");
       try {
         const files = await fs.readdir(taskDir);
-        const matchingFile = (files as unknown).find((f) => f.startsWith(`${taskIdNum}-`));
+        const matchingFile = files.find((f) => f.startsWith(`${taskIdNum}-`));
         if (matchingFile) {
           return getTaskSpecRelativePath(taskId, matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""), this.workspacePath);
         }
       } catch (err) {
         // Directory doesn't exist or can't be read
       }
-      return undefined as unknown;
+      return undefined;
     }
   }
 
@@ -251,9 +251,9 @@ export class MarkdownTaskBackend implements TaskBackend {
       const lines = (((content) as unknown).toString() as unknown).split("\n");
       const tasks: Task[] = [];
       let inCodeBlock = false;
-      for (let i = 0; i < (lines as unknown).length; i++) {
+      for (let i = 0; i < lines.length; i++) {
         const line = lines[i] ?? "";
-        if (((line as unknown).trim() as unknown).startsWith("```")) {
+        if ((line.trim() as unknown).startsWith("```")) {
           inCodeBlock = !inCodeBlock;
           continue;
         }
@@ -265,7 +265,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         const { checkbox, title, id } = parsed;
         if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
 
-        const status = (Object.keys(TASK_STATUS_CHECKBOX) as unknown).find(
+        const status = Object.keys(TASK_STATUS_CHECKBOX).find(
           (key) => TASK_STATUS_CHECKBOX[key] === checkbox
         );
         if (!status) continue;
@@ -314,7 +314,7 @@ export class MarkdownTaskBackend implements TaskBackend {
           description = descriptionLines.join(" ");
         }
 
-        (tasks as unknown).push({
+        tasks.push({
           id,
           title,
           status,
@@ -347,10 +347,10 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     // Read and parse the spec file
     const specContent = String(await fs.readFile(fullSpecPath, "utf-8"));
-    const lines = (specContent as unknown).split("\n");
+    const lines = specContent.split("\n");
 
     // Extract title from the first heading
-    const titleLine = (lines as unknown).find((line) => (line as unknown).startsWith("# "));
+    const titleLine = lines.find((line) => (line as unknown).startsWith("# "));
     if (!titleLine) {
       throw new Error("Invalid spec file: Missing title heading");
     }
@@ -391,17 +391,17 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     // Extract description from the Context section
-    const contextIndex = (lines as unknown).findIndex((line) => (line as unknown).trim() === "## Context");
+    const contextIndex = lines.findIndex((line) => line.trim() === "## Context");
     if (contextIndex === -1) {
       throw new Error("Invalid spec file: Missing Context section");
     }
     let description = "";
-    for (let i = contextIndex + 1; i < (lines as unknown).length; i++) {
+    for (let i = contextIndex + 1; i < lines.length; i++) {
       const line = lines[i] || "";
-      if (((line as unknown).trim() as unknown).startsWith("## ")) break;
-      if ((line as unknown).trim()) description += `${(line as unknown).trim()}\n`;
+      if ((line.trim() as unknown).startsWith("## ")) break;
+      if (line.trim()) description += `${line.trim()}\n`;
     }
-    if (!(description as unknown).trim()) {
+    if (!description.trim()) {
       throw new Error("Invalid spec file: Empty Context section");
     }
 
@@ -434,7 +434,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     // Update the title in the spec file to use clean format
     let updatedContent = specContent;
     const cleanTitleLine = `# ${title}`;
-    updatedContent = (updatedContent as unknown).replace(titleLine, cleanTitleLine);
+    updatedContent = updatedContent.replace(titleLine, cleanTitleLine);
 
     // Rename and update the spec file
     try {
@@ -479,7 +479,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     const task: Task = {
       id: taskId,
       title,
-      description: (description as unknown).trim(),
+      description: description.trim(),
       status: TASK_STATUS.TODO,
       specPath: newSpecPath,
     };
@@ -562,8 +562,8 @@ export class MarkdownTaskBackend implements TaskBackend {
       let inCodeBlock = false;
       let removed = false;
 
-      const updatedLines = (lines as unknown).filter((line) => {
-        if (((line as unknown).trim() as unknown).startsWith("```")) {
+      const updatedLines = lines.filter((line) => {
+        if ((line.trim() as unknown).startsWith("```")) {
           inCodeBlock = !inCodeBlock;
           return true;
         }
@@ -620,12 +620,12 @@ export class GitHubTaskBackend implements TaskBackend {
 
   async getTask(id: string): Promise<Task | null> {
     log.debug("GitHub task backend not fully implemented", { method: "getTask", id });
-    return null as unknown;
+    return null;
   }
 
   async getTaskStatus(id: string): Promise<string | undefined> {
     log.debug("GitHub task backend not fully implemented", { method: "getTaskStatus", id });
-    return null as unknown;
+    return null;
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
@@ -671,10 +671,10 @@ export class TaskService {
     ];
 
     // Set current backend
-    const selectedBackend = (this.backends as unknown).find((b) => (b as unknown).name === backend);
+    const selectedBackend = this.backends.find((b) => (b as unknown).name === backend);
     if (!selectedBackend) {
       throw new Error(
-        `Backend '${backend}' not found. Available backends: ${((this.backends as unknown).map((b) => b.name) as unknown).join(", ")}`
+        `Backend '${backend}' not found. Available backends: ${(this.backends.map((b) => b.name) as unknown).join(", ")}`
       );
     }
     this.currentBackend = selectedBackend;
@@ -713,7 +713,7 @@ export class TaskService {
     // Normalize the task ID
     const normalizedId = normalizeTaskId(id);
     if (!normalizedId) {
-      return null as unknown;
+      return null;
     }
 
     // Try to find the task in each backend
@@ -724,7 +724,7 @@ export class TaskService {
       }
     }
 
-    return null as unknown;
+    return null;
   }
 
   async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {

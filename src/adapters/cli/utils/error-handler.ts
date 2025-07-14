@@ -21,9 +21,9 @@ import { exit } from "../../../utils/process";
  * Determines if debug mode is enabled based on environment variables
  */
 export const isDebugMode = (): boolean =>
-  (process.env as unknown).DEBUG === "true" ||
-  (process.env as unknown).DEBUG === "1" ||
-  (typeof (process.env as unknown).NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"));
+  process.env.DEBUG === "true" ||
+  process.env.DEBUG === "1" ||
+  (typeof process.env.NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"));
 
 /**
  * Handles CLI command errors with consistent formatting

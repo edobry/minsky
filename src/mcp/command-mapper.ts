@@ -57,7 +57,7 @@ export class CommandMapper {
   private normalizeMethodName(methodName: string): string {
     // Ensure there are no unexpected characters in the method name
     // Replace any problematic characters with underscores
-    const normalized = (methodName as unknown).replace(/[^a-zA-Z0-9_.]/g, "_");
+    const normalized = methodName.replace(/[^a-zA-Z0-9_.]/g, "_");
 
     // Log the normalization if it changed the method name
     if (normalized !== methodName) {
@@ -92,7 +92,7 @@ export class CommandMapper {
     });
 
     // Keep track of registered method names
-    (this.registeredMethodNames as unknown).push(normalizedName);
+    this.registeredMethodNames.push(normalizedName);
 
     // Register the tool with FastMCP
     (this.server as unknown).addTool({
@@ -149,7 +149,7 @@ export class CommandMapper {
     // Also register the method with an underscore-based name if it contains dots
     // This provides a fallback for JSON-RPC clients that have issues with dot notation
     if ((normalizedName as unknown).includes(".")) {
-      const underscoreName = (normalizedName as unknown).replace(/\./g, "_");
+      const underscoreName = normalizedName.replace(/\./g, "_");
 
       // Don't register the same name twice
       if (underscoreName !== normalizedName) {
@@ -159,7 +159,7 @@ export class CommandMapper {
         });
 
         // Keep track of the alias
-        (this.registeredMethodNames as unknown).push(underscoreName);
+        this.registeredMethodNames.push(underscoreName);
 
         // Register the alias
         (this.server as unknown).addTool({

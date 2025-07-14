@@ -131,8 +131,8 @@ export function formatNetworkErrorMessage(error: NetworkError, debug: boolean = 
   // Add suggestions if available
   if (error instanceof PortInUseError || error instanceof NetworkPermissionError) {
     message += "\nSuggestions:\n";
-    message += ((error
-      .getSuggestions() as unknown).map((s) => `- ${s}`) as unknown).join("\n");
+    message += (error
+      .getSuggestions().map((s) => `- ${s}`) as unknown).join("\n");
   }
 
   // Add debug hint
