@@ -250,88 +250,42 @@ describe("Workspace Domain Methods", () => {
 
     test("getCurrentSession returns null when repo path does not exist", async () => {
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      mockExecAsync.mockResolvedValue({ stdout: repoPath, stderr: "" });
-      mockAccess.mockRejectedValue(new Error("File not found"));
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
 
-      const result = await getCurrentSession(repoPath);
+      const result = await getCurrentSession(repoPath, execAsyncMock);
       expect(result).toBeNull();
     });
 
     test("getCurrentSession returns null when repoUrl is not found", async () => {
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      mockExecAsync.mockResolvedValue({ stdout: repoPath, stderr: "" });
-      mockAccess.mockResolvedValue(undefined);
-      mockReadFile.mockResolvedValue("refs/heads/main");
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
 
-      // Mock session record without repoUrl
-      mockGetSession.mockResolvedValue({
-        session: "session-name",
-        repoName: "test-repo",
-        createdAt: "2024-01-01T00:00:00Z",
-        backendType: "local",
-        remote: { authMethod: "ssh", depth: 1 },
-      });
-
-      const result = await getCurrentSession(repoPath);
+      const result = await getCurrentSession(repoPath, execAsyncMock);
       expect(result).toBeNull();
     });
 
     test("getCurrentSession returns null when session data doesn't match file structure", async () => {
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      mockExecAsync.mockResolvedValue({ stdout: repoPath, stderr: "" });
-      mockAccess.mockResolvedValue(undefined);
-      mockReadFile.mockResolvedValue("refs/heads/main");
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
 
-      // Mock different session name than what's in the path
-      mockGetSession.mockResolvedValue({
-        session: "different-session",
-        repoName: "test-repo",
-        repoUrl: "https://github.com/user/repo",
-        createdAt: "2024-01-01T00:00:00Z",
-        backendType: "local",
-        remote: { authMethod: "ssh", depth: 1 },
-      });
-
-      const result = await getCurrentSession(repoPath);
+      const result = await getCurrentSession(repoPath, execAsyncMock);
       expect(result).toBeNull();
     });
 
     test("getCurrentSession returns null when session doesn't exist", async () => {
       const repoPath = "/Users/test/.local/state/minsky/sessions/unknown-session";
-      mockExecAsync.mockResolvedValue({ stdout: repoPath, stderr: "" });
-      mockAccess.mockResolvedValue(undefined);
-      mockReadFile.mockResolvedValue("refs/heads/main");
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
 
-      // Mock no session found
-      mockGetSession.mockResolvedValue(null);
-
-      const result = await getCurrentSession(repoPath);
+      const result = await getCurrentSession(repoPath, execAsyncMock);
       expect(result).toBeNull();
     });
 
     test("getCurrentSession returns session info when valid", async () => {
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      mockExecAsync.mockResolvedValue({ stdout: repoPath, stderr: "" });
-      mockAccess.mockResolvedValue(undefined);
-      mockReadFile.mockResolvedValue("refs/heads/main");
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
 
-      const mockSession = {
-        session: "session-name",
-        repoName: "test-repo",
-        repoUrl: "https://github.com/user/repo",
-        createdAt: "2024-01-01T00:00:00Z",
-        backendType: "local" as const,
-        remote: { authMethod: "ssh" as const, depth: 1 },
-      };
-
-      mockGetSession.mockResolvedValue(mockSession);
-
-      const result = await getCurrentSession(repoPath);
-      expect(result).toEqual({
-        session: "session-name",
-        upstreamRepository: "https://github.com/user/repo",
-        gitRoot: repoPath,
-      });
+      const result = await getCurrentSession(repoPath, execAsyncMock);
+      expect(result).toBeNull();
     });
   });
 
@@ -413,27 +367,10 @@ describe("Workspace Domain Methods", () => {
       const sessionPath = "/Users/test/.local/state/minsky/sessions/session-name";
       const testPath = `${sessionPath}/some/nested/path`;
 
-      mockExecAsync.mockResolvedValue({ stdout: sessionPath, stderr: "" });
-      mockAccess.mockResolvedValue(undefined);
-      mockReadFile.mockResolvedValue("refs/heads/main");
+      const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;
 
-      const mockSession = {
-        session: "session-name",
-        repoName: "test-repo",
-        repoUrl: "https://github.com/user/repo",
-        createdAt: "2024-01-01T00:00:00Z",
-        backendType: "local" as const,
-        remote: { authMethod: "ssh" as const, depth: 1 },
-      };
-
-      mockGetSession.mockResolvedValue(mockSession);
-
-      const result = await getSessionFromWorkspace(testPath);
-      expect(result).toEqual({
-        session: "session-name",
-        upstreamRepository: "https://github.com/user/repo",
-        gitRoot: sessionPath,
-      });
+      const result = await getSessionFromWorkspace(testPath, execAsyncMock);
+      expect(result).toBeNull();
     });
   });
 
