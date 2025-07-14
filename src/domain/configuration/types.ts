@@ -9,7 +9,7 @@
 
 export interface GitHubConfig {
   credentials?: {
-    source: "environment" | "file" | "prompt";
+    source?: "environment" | "file" | "prompt";
     token?: string;
     token_file?: string;
   };
@@ -18,7 +18,7 @@ export interface GitHubConfig {
 
 export interface AIProviderConfig {
   credentials?: {
-    source: "environment" | "file" | "prompt";
+    source?: "environment" | "file" | "prompt";
     api_key?: string;
     api_key_file?: string;
   };
@@ -211,9 +211,9 @@ export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
   ],
   sessiondb: {
     backend: "json",
-    baseDir: undefined as unknown,
-    dbPath: undefined as unknown,
-    connectionString: undefined as unknown,
+    baseDir: undefined,
+    dbPath: undefined,
+    connectionString: undefined,
   },
   logger: {
     mode: "auto",
@@ -232,10 +232,14 @@ export const CONFIG_PATHS = {
 export const ENV_VARS = {
   BACKEND: "MINSKY_BACKEND",
   GITHUB_TOKEN: "GITHUB_TOKEN",
+  // AI provider credentials are now handled automatically by node-config
+  // through custom-environment-variables.yaml
+  // SessionDB configuration
   SESSIONDB_BACKEND: "MINSKY_SESSIONDB_BACKEND",
   SESSIONDB_SQLITE_PATH: "MINSKY_SESSIONDB_SQLITE_PATH",
   SESSIONDB_POSTGRES_URL: "MINSKY_SESSIONDB_POSTGRES_URL",
   SESSIONDB_BASE_DIR: "MINSKY_SESSIONDB_BASE_DIR",
+  // Logger configuration
   LOGGER_MODE: "MINSKY_LOG_MODE",
   LOGGER_LEVEL: "LOGLEVEL",
   LOGGER_ENABLE_AGENT_LOGS: "ENABLE_AGENT_LOGS",

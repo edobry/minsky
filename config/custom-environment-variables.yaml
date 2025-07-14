@@ -1,5 +1,6 @@
 # Environment variable mappings for node-config
 # Maps environment variables to configuration paths
+# node-config automatically maps these to config structure
 
 # Backend selection
 backend: "MINSKY_BACKEND"
@@ -15,9 +16,30 @@ github:
   credentials:
     token: "GITHUB_TOKEN"
 
-# Session database configuration
+# AI provider credentials (using standard environment variable names)
+ai:
+  providers:
+    openai:
+      credentials:
+        api_key: "OPENAI_API_KEY"
+    anthropic:
+      credentials:
+        api_key: "ANTHROPIC_API_KEY"
+    google:
+      credentials:
+        api_key: "GOOGLE_AI_API_KEY"
+    cohere:
+      credentials:
+        api_key: "COHERE_API_KEY"
+    mistral:
+      credentials:
+        api_key: "MISTRAL_API_KEY"
+
+# SessionDB configuration
 sessiondb:
   backend: "MINSKY_SESSIONDB_BACKEND"
-  dbPath: "MINSKY_SESSIONDB_SQLITE_PATH"
-  connectionString: "MINSKY_SESSIONDB_POSTGRES_URL"
+  sqlite:
+    path: "MINSKY_SESSIONDB_SQLITE_PATH"
+  postgres:
+    connectionString: "MINSKY_SESSIONDB_POSTGRES_URL"
   baseDir: "MINSKY_SESSIONDB_BASE_DIR"

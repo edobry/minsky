@@ -35,34 +35,28 @@ logger:
 
 # GitHub configuration
 github:
-  credentials:
-    source: "environment"
+  credentials: {}
 
 # AI configuration
 ai:
   providers:
     openai:
-      credentials:
-        source: "environment"
+      credentials: {}
       enabled: true
       models: []
     anthropic:
-      credentials:
-        source: "environment"
+      credentials: {}
       enabled: true
       models: []
     google:
-      credentials:
-        source: "environment"
+      credentials: {}
       enabled: true
       models: []
     cohere:
-      credentials:
-        source: "environment"
+      credentials: {}
       enabled: true
       models: []
     mistral:
-      credentials:
-        source: "environment"
+      credentials: {}
       enabled: true
       models: []

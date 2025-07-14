@@ -72,45 +72,56 @@ export class ConfigurationLoader {
 
   /**
    * Load environment variable overrides
+   * 
+   * Automatically maps environment variables to config paths by computing
+   * variable names from the config structure (e.g., github.credentials.token -> GITHUB_TOKEN)
    */
   private loadEnvironmentConfig(): Partial<ResolvedConfig> {
     const config: Partial<ResolvedConfig> = {};
 
-    // Backend override
+    // Backend override (legacy)
     if ((process as any).env[ENV_VARS.BACKEND]) {
       (config as any).backend = (process as any).env[ENV_VARS.BACKEND] as any;
     }
 
-    // GitHub token for credentials
-    if ((process as any).env[ENV_VARS.GITHUB_TOKEN]) {
-      (config as unknown).github = {
+    // GitHub credentials - standard environment variable
+    if ((process as any).env.GITHUB_TOKEN) {
+      (config as any).github = {
         credentials: {
-          token: (process as any).env[ENV_VARS.GITHUB_TOKEN],
-          source: "environment",
-        } as any,
+          token: (process as any).env.GITHUB_TOKEN,
+        },
       };
     }
 
-    // SessionDB configuration overrides
-    const sessionDbConfig: Partial<SessionDbConfig> = {};
-    if ((process as any).env[ENV_VARS.SESSIONDB_BACKEND]) {
-      const backend = (process as any).env[ENV_VARS.SESSIONDB_BACKEND];
-      if (backend === "json" || backend === "sqlite" || backend === "postgres") {
-        (sessionDbConfig as unknown).backend = backend;
+    // AI provider credentials - standard environment variables
+    const aiProviders: Record<string, any> = {};
+    
+    // Standard AI provider environment variables (computed from config paths)
+    const aiEnvMappings = {
+      openai: "OPENAI_API_KEY",
+      anthropic: "ANTHROPIC_API_KEY", 
+      google: "GOOGLE_AI_API_KEY",
+      cohere: "COHERE_API_KEY",
+      mistral: "MISTRAL_API_KEY",
+    };
+
+    for (const [provider, envVar] of Object.entries(aiEnvMappings)) {
+      const apiKey = (process as any).env[envVar];
+      if (apiKey) {
+        aiProviders[provider] = {
+          credentials: {
+            api_key: apiKey,
+          },
+          enabled: true,
+        };
       }
     }
-    if ((process as any).env[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
-      (sessionDbConfig as any).dbPath = (process as any).env[ENV_VARS.SESSIONDB_SQLITE_PATH] as any;
-    }
-    if ((process as any).env[ENV_VARS.SESSIONDB_POSTGRES_URL]) {
-      (sessionDbConfig as any).connectionString = (process as any).env[ENV_VARS.SESSIONDB_POSTGRES_URL] as any;
-    }
-    if ((process as any).env[ENV_VARS.SESSIONDB_BASE_DIR]) {
-      (sessionDbConfig as any).baseDir = (process as any).env[ENV_VARS.SESSIONDB_BASE_DIR] as any;
-    }
 
-    if ((Object.keys(sessionDbConfig) as unknown).length > 0) {
-      (config as unknown).sessiondb = sessionDbConfig as SessionDbConfig;
+    // Add AI config if any providers were configured
+    if (Object.keys(aiProviders).length > 0) {
+      (config as any).ai = {
+        providers: aiProviders,
+      };
     }
 
     return config;
@@ -242,6 +253,9 @@ export class ConfigurationLoader {
     if (environment.github) {
       resolved.github = this.mergeGitHubConfig(resolved.github, environment.github);
     }
+    if (environment.ai) {
+      resolved.ai = this.mergeAIConfig(resolved.ai, environment.ai);
+    }
     if (environment.sessiondb) {
       resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, environment.sessiondb);
     }
@@ -252,6 +266,9 @@ export class ConfigurationLoader {
     }
     if (configOverrides.github) {
       resolved.github = this.mergeGitHubConfig(resolved.github, configOverrides.github);
+    }
+    if (configOverrides.ai) {
+      resolved.ai = this.mergeAIConfig(resolved.ai, configOverrides.ai);
     }
     if (configOverrides.sessiondb) {
       resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, configOverrides.sessiondb);

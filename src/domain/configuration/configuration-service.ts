@@ -227,17 +227,23 @@ export class DefaultConfigurationService implements ConfigurationService {
 
     // Resolve GitHub credentials if needed
     if (
-      ((config as unknown).backend === "github-issues" || (config.github as unknown).credentials) &&
-      (resolved.github as unknown).credentials?.source === "environment"
+      ((config as unknown).backend === "github-issues" || config.github?.credentials) &&
+      config.github?.credentials
     ) {
       try {
         const token = await (this.credentialManager as unknown).getCredential("github");
         if (token) {
-          ((resolved.github as unknown).credentials as unknown).token = token;
+          resolved.github = {
+            ...resolved.github,
+            credentials: {
+              ...resolved.github?.credentials,
+              token,
+            },
+          };
         }
       } catch (error) {
-        // Credential resolution failures are non-fatal
-        // The service will prompt for credentials when needed
+        // Log but don't fail - credentials might be provided another way
+        console.warn("Failed to resolve GitHub credentials:", error);
       }
     }
 
@@ -339,23 +345,29 @@ export class DefaultConfigurationService implements ConfigurationService {
   ): void {
     // Credential validation
     if (providerConfig.credentials) {
-      const validSources = ["environment", "file", "prompt"];
-      if (!validSources.includes(providerConfig.credentials.source)) {
-        errors.push({
-          field: `${fieldPrefix}.credentials.source`,
-          message: `Invalid credential source: ${providerConfig.credentials.source}. Valid options: ${validSources.join(", ")}`,
-          code: "INVALID_CREDENTIAL_SOURCE",
-        });
-      }
+      // Source field is now optional - only validate if present
+      if (providerConfig.credentials.source) {
+        const validSources = ["environment", "file", "prompt"];
+        if (!validSources.includes(providerConfig.credentials.source)) {
+          errors.push({
+            field: `${fieldPrefix}.credentials.source`,
+            message: `Invalid credential source: ${providerConfig.credentials.source}. Valid options: ${validSources.join(", ")}`,
+            code: "INVALID_CREDENTIAL_SOURCE",
+          });
+        }
 
-      // File-based credential validation
-      if (providerConfig.credentials.source === "file" && !providerConfig.credentials.api_key && !providerConfig.credentials.api_key_file) {
-        warnings.push({
-          field: `${fieldPrefix}.credentials`,
-          message: "Neither api_key nor api_key_file specified for file-based credential source",
-          code: "INCOMPLETE_FILE_CREDENTIALS",
-        });
+        // File-based credential validation (only when source is explicitly set to "file")
+        if (providerConfig.credentials.source === "file" && !providerConfig.credentials.api_key && !providerConfig.credentials.api_key_file) {
+          warnings.push({
+            field: `${fieldPrefix}.credentials`,
+            message: "Neither api_key nor api_key_file specified for file-based credential source",
+            code: "INCOMPLETE_FILE_CREDENTIALS",
+          });
+        }
       }
+      
+      // General credential validation - credentials can be provided without source
+      // The config system will automatically determine the source based on availability
     }
 
     // Model configuration validation
