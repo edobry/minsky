@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { SessionPathResolver } from "../../session/session-path-resolver";
+import { SessionPathResolver } from "../session/session-path-resolver";
 import { InvalidPathError } from "../workspace-backend";
 
 describe("SessionPathResolver", () => {
