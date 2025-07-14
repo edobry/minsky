@@ -11,8 +11,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { randomUUID } from "crypto";
 import { Database } from "bun:sqlite";
 import { DatabaseIntegrityChecker } from "./database-integrity-checker";
-import type { StorageBackendType } from "../storage-backend-factory";
-import { log } from "../../../utils/logger";
+import type { StorageBackendType } from "./storage-backend-factory";
+import { log } from "../../utils/logger";
 import { tmpdir } from "os";
 
 // Test data
