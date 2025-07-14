@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, jest } from "bun:test";
-import { sessionPrFromParams } from "../session.js";
-import { MinskyError, ValidationError } from "../../errors/index.js";
+import { sessionPrFromParams } from "./session.js";
+import { MinskyError, ValidationError } from "../errors/index.js";
 
 // Mock dependencies
 const mockGitService = {

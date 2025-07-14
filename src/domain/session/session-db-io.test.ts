@@ -7,7 +7,7 @@ import { readSessionDbFile, writeSessionsToFile } from "./session-db-io.ts";
 import { initializeSessionDbState, type SessionDbState } from "./session-db.ts";
 import { join } from "path";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { setupTestMocks } from "../../utils/test-utils/mocking.ts";
+import { setupTestMocks } from "../utils/test-utils/mocking.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();

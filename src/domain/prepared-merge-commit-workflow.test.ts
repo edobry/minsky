@@ -11,8 +11,8 @@ const TEST_ARRAY_SIZE = 3;
  * create regular PR branches instead of prepared merge commits.
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { GitService } from "../git.js";
-import { sessionPrFromParams } from "../session.js";
+import { GitService } from "./git.js";
+import { sessionPrFromParams } from "./session.js";
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.js";
 import { log } from "../utils/logger.js";
 
