@@ -642,9 +642,8 @@ Examples:
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
-      // Import gitService and checkPrBranchExists for validation
+      // Import gitService for validation
       const { createGitService } = await import("../../../domain/git.js");
-      const { checkPrBranchExists } = await import("../../../domain/session.js");
 
       // Conditional validation: require body/bodyPath only for new PRs (not refreshing existing ones)
       if (!params!.body && !params!.bodyPath) {
@@ -664,7 +663,32 @@ Examples:
 
         if (sessionName) {
           const gitService = createGitService();
-          const prBranchExists = await checkPrBranchExists(sessionName, gitService, currentDir);
+          const prBranch = `pr/${sessionName}`;
+          
+          // Check if PR branch exists locally or remotely
+          let prBranchExists = false;
+          try {
+            // Check if branch exists locally
+            const localBranchOutput = await gitService.execInRepository(
+              currentDir,
+              `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
+            );
+            const localBranchExists = localBranchOutput.trim() !== "not-exists";
+
+            if (localBranchExists) {
+              prBranchExists = true;
+            } else {
+              // Check if branch exists remotely
+              const remoteBranchOutput = await gitService.execInRepository(
+                currentDir,
+                `git ls-remote --heads origin ${prBranch}`
+              );
+              prBranchExists = remoteBranchOutput.trim().length > 0;
+            }
+          } catch (error) {
+            // If we can't check branch existence, assume it doesn't exist
+            prBranchExists = false;
+          }
           
           if (!prBranchExists) {
             // No existing PR branch, so body/bodyPath is required
