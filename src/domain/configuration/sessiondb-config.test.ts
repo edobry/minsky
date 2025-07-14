@@ -12,8 +12,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { mkdirSync, rmSync, existsSync } from "fs";
 
-import { ConfigurationLoader } from "../config-loader";
-import { SessionDbConfig } from "../types";
+import { ConfigurationLoader } from "./config-loader";
+import { SessionDbConfig } from "./types";
 
 describe("SessionDB Configuration Loading", () => {
   let testDir: string;
