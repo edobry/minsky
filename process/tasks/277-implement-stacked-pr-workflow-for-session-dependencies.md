@@ -10,6 +10,8 @@
 
 Implement a stacked PR workflow that allows sessions to be created from existing session branches instead of always starting from the main branch. This enables a development workflow where features can be built incrementally on top of each other before the base features are merged.
 
+**Implementation Approach**: Before developing custom stacked PR logic, this task will first evaluate existing tools (git town, git-branchless, git-machete, etc.) to determine if integration with mature tooling is preferable to custom implementation.
+
 ## Current State Analysis
 
 Currently, Minsky sessions:
@@ -166,6 +168,35 @@ session:
 
 ## Implementation Plan
 
+### Phase 0: Research and Evaluate Existing Tools
+
+Before implementing stacked PR workflows from scratch, investigate existing tools and libraries that might provide this functionality:
+
+**Tools to Evaluate:**
+- **git town**: Comprehensive git workflow tool with stacked branch support
+- **git-branchless**: Modern git workflow tooling with stacked commits
+- **git-machete**: Tool for managing git branch hierarchies
+- **git-stack**: Lightweight tool for managing stacked branches
+- **Graphite CLI**: Professional stacked PR workflow tool
+
+**Evaluation Criteria:**
+- Integration complexity with existing Minsky architecture
+- Feature overlap with planned requirements
+- Maintenance burden vs. custom implementation
+- License compatibility and stability
+- Performance and reliability
+
+**Decision Framework:**
+- If existing tool provides 80%+ of required functionality → integrate/wrap it
+- If existing tool provides solid foundation → build on top of it
+- If no suitable tool exists → proceed with custom implementation
+
+**Deliverables:**
+- Evaluation report comparing tools against requirements
+- Recommendation for integration vs. custom implementation
+- If integration chosen: proof-of-concept integration
+- If custom implementation chosen: detailed architecture plan
+
 ### Phase 1: Basic Stacked Session Creation
 1. Add base branch/session parameters to session start
 2. Extend session record schema
@@ -270,7 +301,7 @@ session:
 
 ### Technical Risks
 - **Complexity**: Stacked workflows add significant complexity
-  - *Mitigation*: Phased implementation, comprehensive testing
+  - *Mitigation*: Evaluate existing tools first, phased implementation, comprehensive testing
 - **Performance**: Large dependency graphs could impact performance
   - *Mitigation*: Efficient graph algorithms, caching, limits
 - **Data Integrity**: Dependency tracking could become inconsistent
@@ -290,12 +321,13 @@ session:
 
 ## Future Enhancements
 
-1. **GitHub Integration**: Map stacked sessions to GitHub PR stacks
-2. **Parallel Development**: Support multiple parallel dependency chains
-3. **Automatic Rebasing**: Auto-rebase sessions when base changes
-4. **Conflict Prediction**: Predict conflicts before they occur
-5. **Team Collaboration**: Share dependency graphs across team members
-6. **CI/CD Integration**: Trigger builds for entire dependency chains
+1. **Tool Integration**: If Phase 0 identifies suitable tools, integrate with git town, git-branchless, or similar
+2. **GitHub Integration**: Map stacked sessions to GitHub PR stacks
+3. **Parallel Development**: Support multiple parallel dependency chains
+4. **Automatic Rebasing**: Auto-rebase sessions when base changes
+5. **Conflict Prediction**: Predict conflicts before they occur
+6. **Team Collaboration**: Share dependency graphs across team members
+7. **CI/CD Integration**: Trigger builds for entire dependency chains
 
 ## Related Tasks
 
