@@ -10,7 +10,7 @@ import { join } from "path";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { randomUUID } from "crypto";
 import { Database } from "bun:sqlite";
-import { registerSessiondbCommands } from "./sessiondb.js";
+import { registerSessiondbCommands } from "./sessiondb";
 import { sharedCommandRegistry } from "../../shared/command-registry";
 import type { CommandExecutionContext } from "../../shared/command-registry";
 import { log } from "../../../../utils/logger";

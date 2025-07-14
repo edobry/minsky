@@ -2,11 +2,11 @@
  * Shared Command CLI Integration Tests
  */
 import { describe, test, expect, beforeEach, spyOn } from "bun:test";
-import createIntegratedCliProgram from "../../../adapters/cli/integration-example.js";
+import createIntegratedCliProgram from "../../../adapters/cli/integration-example";
 import {
   sharedCommandRegistry,
 } from "../../../adapters/shared/command-registry.js";
-import * as gitCommands from "../../../adapters/shared/commands/git.js";
+import * as gitCommands from "../../../adapters/shared/commands/git";
 
 describe("Shared Command CLI Integration", () => {
   let registerGitSpy: ReturnType<typeof spyOn>;

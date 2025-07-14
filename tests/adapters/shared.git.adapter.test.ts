@@ -6,18 +6,18 @@ const TEST_ARRAY_SIZE = 3;
  * @refactored Uses project utilities instead of raw Bun APIs
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
-import { registerGitCommands } from "../../../../adapters/shared/commands/git.js";
+import { registerGitCommands } from "../../../../adapters/shared/commands/git";
 import {
   sharedCommandRegistry,
   CommandCategory,
 } from "../../../../adapters/shared/command-registry.js";
-import * as gitDomain from "../../../../domain/git.js";
+import * as gitDomain from "../../../../domain/git";
 import {
   expectToHaveBeenCalled,
   getMockCallArg,
   expectToHaveLength,
 } from "../../../../utils/test-utils/assertions.js";
-import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
+import { setupTestMocks } from "../../../../utils/test-utils/mocking";
 
 const EXPECTED_GIT_COMMANDS_COUNT = 8;
 

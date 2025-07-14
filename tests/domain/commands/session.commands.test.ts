@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { type SessionDeleteParams } from "../../../src/schemas/session.js";
+import { type SessionDeleteParams } from "../../../src/schemas/session";
 import {
   createMock,
   mockModule,

@@ -7,7 +7,7 @@
  */
 import { describe, expect } from "bun:test";
 import * as descriptions from "./option-descriptions";
-import { setupTestMocks } from "./test-utils/mocking.js";
+import { setupTestMocks } from "./test-utils/mocking";
 // Set up automatic mock cleanup
 setupTestMocks();
 

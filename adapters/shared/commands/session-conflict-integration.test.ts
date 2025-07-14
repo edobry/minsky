@@ -6,8 +6,8 @@
  */
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { registerSessionCommands } from "./session.js";
-import { sharedCommandRegistry, CommandCategory } from "../../shared/command-registry.js";
+import { registerSessionCommands } from "./session";
+import { sharedCommandRegistry, CommandCategory } from "../../shared/command-registry";
 
 // Mock the session domain functions
 const mockUpdateSessionFromParams = mock(() => Promise.resolve({

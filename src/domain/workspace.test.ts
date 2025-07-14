@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
-import { resolveWorkspacePath } from "./workspace.js";
-import type { WorkspaceResolutionOptions, TestDependencies } from "./workspace.js";
+import { resolveWorkspacePath } from "./workspace";
+import type { WorkspaceResolutionOptions, TestDependencies } from "./workspace";
 import { promises as fs } from "fs";
 import { join } from "path";
 describe("resolveWorkspacePath", () => {

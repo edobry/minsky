@@ -6,7 +6,7 @@ const TEST_ARRAY_SIZE = 3;
  */
 
 import { describe, test, expect } from "bun:test";
-import type { TaskData } from "../../../types/tasks/taskData.js";
+import type { TaskData } from "../../../types/tasks/taskData";
 import {
   parseTasksFromMarkdown,
   formatTasksToMarkdown,

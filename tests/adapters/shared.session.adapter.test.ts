@@ -4,15 +4,15 @@
  * @refactored Uses project utilities instead of raw Bun APIs
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
-import * as sessionDomain from "../../../../domain/session.js";
+import * as sessionDomain from "../../../../domain/session";
 import {
   expectToHaveBeenCalled,
   getMockCallArg,
   expectToHaveLength,
 } from "../../../../utils/test-utils/assertions.js";
-import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
-import { sharedCommandRegistry, CommandCategory } from "../../../shared/command-registry.js";
-import { registerSessionCommands } from "../../../shared/commands/session.js";
+import { setupTestMocks } from "../../../../utils/test-utils/mocking";
+import { sharedCommandRegistry, CommandCategory } from "../../../shared/command-registry";
+import { registerSessionCommands } from "../../../shared/commands/session";
 
 // Set up automatic mock cleanup
 setupTestMocks();

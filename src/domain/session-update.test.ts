@@ -6,9 +6,9 @@ const TEST_VALUE = 123;
  * @refactored Uses project utilities instead of raw Bun APIs
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { updateSessionFromParams } from "./session.js";
-import { MinskyError, ValidationError, ResourceNotFoundError } from "../errors/index.js";
-import { createMock, setupTestMocks } from "../utils/test-utils/mocking.js";
+import { updateSessionFromParams } from "./session";
+import { MinskyError, ValidationError, ResourceNotFoundError } from "../errors/index";
+import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 import { expectToBeInstanceOf, expectToHaveBeenCalled } from "../../utils/test-utils/assertions.ts";
 
 // Set up automatic mock cleanup

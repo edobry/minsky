@@ -11,9 +11,9 @@ import {
   type SessionContextOptions,
   type ResolvedSessionContext,
 } from "./session-context-resolver.js";
-import { ValidationError, ResourceNotFoundError } from "../errors/index.js";
-import { createMock } from "../../utils/test-utils/mocking.js";
-import type { SessionProviderInterface } from "./session.js";
+import { ValidationError, ResourceNotFoundError } from "../errors/index";
+import { createMock } from "../../utils/test-utils/mocking";
+import type { SessionProviderInterface } from "./session";
 
 // Mock session provider with basic functionality
 const createMockSessionProvider = (sessions: any[] = []): SessionProviderInterface => {
