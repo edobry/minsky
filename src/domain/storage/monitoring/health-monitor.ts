@@ -8,7 +8,7 @@
 import { log } from "../../../utils/logger";
 import { StorageBackendFactory } from "../storage-backend-factory";
 import { SessionDbConfig } from "../../configuration/types";
-import { configurationService } from "../../configuration";
+
 import config from "config";
 import { getErrorMessage } from "../../../errors";
 

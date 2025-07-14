@@ -1,8 +1,3 @@
----
-description: REQUIRED when making any code, test, config, or doc change for a task in a session workspace
-globs:
-alwaysApply: false
----
 # Session-First Workflow
 
 **Purpose:**
@@ -79,6 +74,28 @@ Before any file operation (especially edits), the following verifications **MUST
   Proceeding with edit...
   ```
 - This logging should primarily be in the AI/tool's direct output to the user. Optional logging to a `.session-edit-log` file can also be considered.
+
+### 3.5. **CRITICAL ENFORCEMENT**: Zero-Tolerance Absolute Path Violations
+
+**Following repeated violations of the absolute path requirement, this section provides zero-tolerance enforcement:**
+
+1. **Mandatory Pre-Edit Verification**: Before ANY file edit in a session workspace, the assistant MUST:
+   - Verify the file path starts with `/Users/edobry/.local/state/minsky/sessions/task#[ID]/`
+   - Output the "Minsky Session Edit Pre-Check" message
+   - REJECT any edit attempt using relative paths
+
+2. **Violation Response Protocol**: If user reports absolute path violation:
+   - **FIRST VIOLATION**: Immediate correction with rule reminder
+   - **SECOND VIOLATION**: Critical error - update rule enforcement
+   - **THIRD VIOLATION**: Terminal error - complete operational pause
+
+3. **Tool Usage Restrictions**: 
+   - `edit_file` tool MUST use absolute paths in session workspaces
+   - `read_file` tool MUST use absolute paths in session workspaces
+   - `delete_file` tool MUST use absolute paths in session workspaces
+   - NO EXCEPTIONS for "convenience" or "brevity"
+
+**This enforcement mechanism addresses the documented pattern of repeated absolute path violations.**
 
 ## 4. No Temporary or Test-Only Main Workspace Changes
 
@@ -169,6 +186,11 @@ When working with code and tests:
 
 - This ensures all work happens in the correct workspace, preventing accidental changes to the main workspace.
 - It promotes proper command usage, reducing errors and workflow disruptions.
+- It improves code quality by addressing linter issues proactively.
+- **Absolute paths eliminate ambiguity** about which workspace is being modified.
+
+---
+
 - It improves code quality by addressing linter issues proactively.
 - **Absolute paths eliminate ambiguity** about which workspace is being modified.
 
