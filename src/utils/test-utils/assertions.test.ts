@@ -9,7 +9,7 @@ import {
   expectToHaveProperty,
   expectToBeCloseTo,
   expectToContainEqual,
-} from "../assertions";
+} from "./assertions";
 
 const TEST_ARRAY_SIZE = 5;
 const SIZE_6 = 6;
