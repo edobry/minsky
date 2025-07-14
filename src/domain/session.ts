@@ -560,7 +560,23 @@ export async function getSessionDirFromParams(
   } else if (params.name) {
     sessionName = params.name;
   } else {
-    throw new ResourceNotFoundError("You must provide either a session name or task ID");
+    throw new ResourceNotFoundError(`🚫 Session Directory: Missing Required Parameter
+
+You must provide either a session name or task ID to get the session directory.
+
+📖 Usage Examples:
+
+  # Get directory by session name
+  minsky session dir <session-name>
+
+  # Get directory by task ID
+  minsky session dir --task <task-id>
+  minsky session dir -t <task-id>
+
+💡 Tips:
+  • List available sessions: minsky session list
+  • Get session by task ID: minsky session get --task <task-id>
+  • Check current session: minsky session inspect`);
   }
 
   const session = await deps.sessionDB.getSession(sessionName);
@@ -945,7 +961,7 @@ export async function checkPrBranchExistsOptimized(
   sessionDB: SessionProviderInterface
 ): Promise<boolean> {
   const sessionRecord = await sessionDB.getSession(sessionName);
-  
+
   // If no session record, fall back to git operations
   if (!sessionRecord) {
     log.debug("No session record found, falling back to git operations", { sessionName });
@@ -954,23 +970,23 @@ export async function checkPrBranchExistsOptimized(
 
   // Check if we have cached PR state and it's not stale
   if (sessionRecord.prState && !isPrStateStale(sessionRecord.prState)) {
-    log.debug("Using cached PR state", { 
-      sessionName, 
+    log.debug("Using cached PR state", {
+      sessionName,
       exists: sessionRecord.prState.exists,
-      lastChecked: sessionRecord.prState.lastChecked 
+      lastChecked: sessionRecord.prState.lastChecked
     });
     return sessionRecord.prState.exists;
   }
 
   // Cache is stale or missing, perform git operations and update cache
-  log.debug("PR state cache is stale or missing, refreshing", { 
-    sessionName, 
+  log.debug("PR state cache is stale or missing, refreshing", {
+    sessionName,
     hasState: !!sessionRecord.prState,
-    isStale: sessionRecord.prState ? isPrStateStale(sessionRecord.prState) : false 
+    isStale: sessionRecord.prState ? isPrStateStale(sessionRecord.prState) : false
   });
 
   const exists = await checkPrBranchExists(sessionName, gitService, currentDir);
-  
+
   // Update the session record with fresh PR state
   const prBranch = `pr/${sessionName}`;
   const updatedPrState = {
@@ -982,11 +998,11 @@ export async function checkPrBranchExistsOptimized(
   };
 
   await sessionDB.updateSession(sessionName, { prState: updatedPrState });
-  
-  log.debug("Updated PR state cache", { 
-    sessionName, 
-    exists, 
-    lastChecked: updatedPrState.lastChecked 
+
+  log.debug("Updated PR state cache", {
+    sessionName,
+    exists,
+    lastChecked: updatedPrState.lastChecked
   });
 
   return exists;
@@ -1001,7 +1017,7 @@ export async function updatePrStateOnCreation(
 ): Promise<void> {
   const prBranch = `pr/${sessionName}`;
   const now = new Date().toISOString();
-  
+
   const prState = {
     branchName: prBranch,
     exists: true,
@@ -1011,11 +1027,11 @@ export async function updatePrStateOnCreation(
   };
 
   await sessionDB.updateSession(sessionName, { prState });
-  
-  log.debug("Updated PR state on creation", { 
-    sessionName, 
-    prBranch, 
-    createdAt: now 
+
+  log.debug("Updated PR state on creation", {
+    sessionName,
+    prBranch,
+    createdAt: now
   });
 }
 
@@ -1027,7 +1043,7 @@ export async function updatePrStateOnMerge(
   sessionDB: SessionProviderInterface
 ): Promise<void> {
   const now = new Date().toISOString();
-  
+
   const sessionRecord = await sessionDB.getSession(sessionName);
   if (!sessionRecord?.prState) {
     log.debug("No PR state found for session, cannot update merge state", { sessionName });
@@ -1042,10 +1058,10 @@ export async function updatePrStateOnMerge(
   };
 
   await sessionDB.updateSession(sessionName, { prState: updatedPrState });
-  
-  log.debug("Updated PR state on merge", { 
-    sessionName, 
-    mergedAt: now 
+
+  log.debug("Updated PR state on merge", {
+    sessionName,
+    mergedAt: now
   });
 }
 
