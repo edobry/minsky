@@ -49,7 +49,7 @@ export async function execGitWithTimeout(
     context = []
   } = options;
 
-  const startTime = (Date as any).now();
+  const startTime = (Date as unknown).now();
   const fullCommand = workdir ? `git -C ${workdir} ${command}` : `git ${command}`;
 
   try {
@@ -58,7 +58,7 @@ export async function execGitWithTimeout(
       ...(workdir && { cwd: workdir })
     });
 
-    const executionTimeMs = (Date as any).now() - startTime;
+    const executionTimeMs = (Date as unknown).now() - startTime;
 
     return {
       stdout,
@@ -68,7 +68,7 @@ export async function execGitWithTimeout(
       executionTimeMs
     };
   } catch (error: any) {
-    const executionTimeMs = (Date as any).now() - startTime;
+    const executionTimeMs = (Date as unknown).now() - startTime;
 
     // Handle timeout errors with enhanced error messages
     if ((error as any)?.killed && (error as any)?.signal === "SIGTERM") {
@@ -119,14 +119,14 @@ export async function execGitWithTimeout(
  */
 function extractConflictFiles(stdout: string, stderr: string): string[] {
   const output = `${stdout}\n${stderr}`;
-  const conflictLines = ((output as any).split("\n") as any).filter(line => 
-    (line as any).includes("CONFLICT") && (line as any).includes(" in ")
+  const conflictLines = ((output as unknown).split("\n") as unknown).filter(line => 
+    (line as unknown).includes("CONFLICT") && (line as unknown).includes(" in ")
   );
   
-  const files = ((conflictLines as any).map(line => {
+  const files = ((conflictLines as unknown).map(line => {
     const match = line.match(/CONFLICT.*in (.+?)(?:\s|$)/);
     return match ? match[1] : null;
-  }) as any).filter(Boolean) as string[];
+  }) as unknown).filter(Boolean) as string[];
 
   // Remove duplicates
   return [...new Set(files)];
@@ -143,12 +143,12 @@ function analyzeConflictTypes(
   const output = `${stdout}\n${stderr}`;
   const types: { [file: string]: "modify/modify" | "add/add" | "delete/modify" | "other" } = {};
 
-  (conflictFiles as any).forEach(file => {
-    if ((output as any).includes(`CONFLICT (content): Merge conflict in ${file}`)) {
+  (conflictFiles as unknown).forEach(file => {
+    if ((output as unknown).includes(`CONFLICT (content): Merge conflict in ${file}`)) {
       types[file] = "modify/modify";
-    } else if ((output as any).includes(`CONFLICT (add/add): Merge conflict in ${file}`)) {
+    } else if ((output as unknown).includes(`CONFLICT (add/add): Merge conflict in ${file}`)) {
       types[file] = "add/add";
-    } else if ((output as any).includes(`CONFLICT (modify/delete): ${file}`)) {
+    } else if ((output as unknown).includes(`CONFLICT (modify/delete): ${file}`)) {
       types[file] = "delete/modify";
     } else {
       types[file] = "other";
@@ -173,7 +173,7 @@ export async function gitCloneWithTimeout(
     {
       ...options,
       context: [
-        ...(options as any)!.context || [],
+        ...(options as unknown)!.context || [],
         { label: "Repository URL", value: repoUrl },
         { label: "Target directory", value: targetDir }
       ]
@@ -193,7 +193,7 @@ export async function gitFetchWithTimeout(
     {
       ...options,
       context: [
-        ...(options as any)!.context || [],
+        ...(options as unknown)!.context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -213,7 +213,7 @@ export async function gitPushWithTimeout(
     {
       ...options,
       context: [
-        ...(options as any)!.context || [],
+        ...(options as unknown)!.context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -233,7 +233,7 @@ export async function gitPullWithTimeout(
     {
       ...options,
       context: [
-        ...(options as any)!.context || [],
+        ...(options as unknown)!.context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -251,7 +251,7 @@ export async function gitMergeWithTimeout(
     {
       ...options,
       context: [
-        ...(options as any)!.context || [],
+        ...(options as unknown)!.context || [],
         { label: "Branch to merge", value: branch }
       ]
     }

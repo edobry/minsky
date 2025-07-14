@@ -139,7 +139,7 @@ describe("Shared Rules Commands", () => {
     }));
 
     // Clear the registry for testing
-    (sharedCommandRegistry as any).commands = new Map();
+    (sharedCommandRegistry as unknown).commands = new Map();
   });
 
   afterEach(() => {

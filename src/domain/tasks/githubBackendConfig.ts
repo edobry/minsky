@@ -29,23 +29,23 @@ function extractGitHubRepoFromRemote(
     const remoteUrl = ((execSync("git remote get-url origin", {
       cwd: workspacePath,
       encoding: "utf8",
-    }) as any).toString() as any).trim();
+    }) as unknown).toString() as unknown).trim();
 
     // Parse GitHub repository from various URL formats
     // SSH: git@github.com:owner/repo.git
     // HTTPS: https://github.com/owner/repo.git
-    const sshMatch = (remoteUrl as any).match(/git@github\.com:([^\/]+)\/([^\.]+)/);
-    const httpsMatch = (remoteUrl as any).match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+    const sshMatch = (remoteUrl as unknown).match(/git@github\.com:([^\/]+)\/([^\.]+)/);
+    const httpsMatch = (remoteUrl as unknown).match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
 
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {
       return {
         owner: match[1],
-        repo: (match[2] as any).replace(/\.git$/, ""), // Remove .git suffix
+        repo: (match[2] as unknown).replace(/\.git$/, ""), // Remove .git suffix
       };
     }
 
-    return null as any;
+    return null as unknown;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
@@ -65,13 +65,13 @@ export function getGitHubBackendConfig(
   const { logErrors = false } = options || {};
 
   // Check for GitHub token in environment
-  const githubToken = (process.env as any).GITHUBTOKEN || (process.env as any).GH_TOKEN;
+  const githubToken = (process.env as unknown).GITHUBTOKEN || (process.env as unknown).GH_TOKEN;
 
   if (!githubToken) {
     if (logErrors) {
       log.error("GitHub token not found in environment. Set GITHUB_TOKEN or GH_TOKEN in .env file");
     }
-    return null as any;
+    return null as unknown;
   }
 
   // Try to auto-detect repository from git remote
@@ -81,15 +81,15 @@ export function getGitHubBackendConfig(
     if (logErrors) {
       log.error("Could not detect GitHub repository from git remote");
     }
-    return null as any;
+    return null as unknown;
   }
 
   return {
     name: "github-issues",
     workspacePath,
     githubToken,
-    owner: (repoInfo as any).owner,
-    repo: (repoInfo as any).repo,
+    owner: (repoInfo as unknown).owner,
+    repo: (repoInfo as unknown).repo,
   };
 }
 
@@ -102,11 +102,11 @@ export async function createGitHubLabels(
   repo: string,
   labels: Record<string, string>
 ): Promise<void> {
-  for (const [status, labelName] of (Object as any).entries(labels)) {
+  for (const [status, labelName] of (Object as unknown).entries(labels)) {
     try {
       // Check if label already exists
       try {
-        await (octokit.rest.issues as any).getLabel({
+        await (octokit.rest.issues as unknown).getLabel({
           owner,
           repo,
           name: labelName,
@@ -121,7 +121,7 @@ export async function createGitHubLabels(
       }
 
       // Create the label
-      await (octokit.rest.issues as any).createLabel({
+      await (octokit.rest.issues as unknown).createLabel({
         owner,
         repo,
         name: labelName,

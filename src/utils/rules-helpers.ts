@@ -19,7 +19,7 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
       if (stats.isFile()) {
         // If it's a file, read its contents
         const content = String(await fs.readFile(contentPath, "utf-8"));
-        return (content as any).toString();
+        return (content as unknown).toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
         throw new Error(`Failed to read _content from file ${contentPath}: Not a file`);
@@ -42,8 +42,8 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
  * Parse glob patterns from a string, handling both comma-separated values and JSON arrays
  */
 export function parseGlobs(globsStr?: string): string[] | undefined {
-  if (!globsStr || (globsStr as any).trim() === "") {
-    return undefined as any;
+  if (!globsStr || (globsStr as unknown).trim() === "") {
+    return undefined as unknown;
   }
 
   // Try to parse as JSON array first
@@ -57,5 +57,5 @@ export function parseGlobs(globsStr?: string): string[] | undefined {
   }
 
   // Handle as comma-separated string
-  return (globsStr as any).split(",").map((glob) => (glob as any).trim());
+  return (globsStr as unknown).split(",").map((glob) => (glob as unknown).trim());
 }

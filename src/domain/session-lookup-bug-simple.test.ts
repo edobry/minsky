@@ -44,18 +44,18 @@ describe("Session Creation Bug Fix (TDD)", () => {
       },
       deleteSession: async () => true,
       getNewSessionRepoPath: () => join(tempDir, "local-minsky", "sessions", "test-session"),
-    } as any;
+    } as unknown;
 
     const mockTaskService = {
       getTask: async () => ({ id: "168", title: "Test Task" }),
       getTaskStatus: async () => "TODO",
       setTaskStatus: async () => undefined,
-    } as any;
+    } as unknown;
 
     const mockWorkspaceUtils = {
       isSessionWorkspace: () => false,
       getWorkspaceRepoName: () => "local-minsky",
-    } as any;
+    } as unknown;
 
     // This mock simulates the ACTUAL GitService bug behavior
     const mockGitService = {
@@ -73,7 +73,7 @@ describe("Session Creation Bug Fix (TDD)", () => {
         throw new Error("git clone failed");
       },
       branchWithoutSession: async () => ({ branch: "test" }),
-    } as any;
+    } as unknown;
 
     // Act: Try to start a session (should fail cleanly)
     let sessionStartFailed = false;

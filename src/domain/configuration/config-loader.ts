@@ -83,7 +83,7 @@ export class ConfigurationLoader {
 
     // GitHub token for credentials
     if ((process as any).env[ENV_VARS.GITHUB_TOKEN]) {
-      (config as any).github = {
+      (config as unknown).github = {
         credentials: {
           token: (process as any).env[ENV_VARS.GITHUB_TOKEN],
           source: "environment",
@@ -96,7 +96,7 @@ export class ConfigurationLoader {
     if ((process as any).env[ENV_VARS.SESSIONDB_BACKEND]) {
       const backend = (process as any).env[ENV_VARS.SESSIONDB_BACKEND];
       if (backend === "json" || backend === "sqlite" || backend === "postgres") {
-        (sessionDbConfig as any).backend = backend;
+        (sessionDbConfig as unknown).backend = backend;
       }
     }
     if ((process as any).env[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
@@ -109,8 +109,8 @@ export class ConfigurationLoader {
       (sessionDbConfig as any).baseDir = (process as any).env[ENV_VARS.SESSIONDB_BASE_DIR] as any;
     }
 
-    if ((Object.keys(sessionDbConfig) as any).length > 0) {
-      (config as any).sessiondb = sessionDbConfig as SessionDbConfig;
+    if ((Object.keys(sessionDbConfig) as unknown).length > 0) {
+      (config as unknown).sessiondb = sessionDbConfig as SessionDbConfig;
     }
 
     return config;
@@ -123,17 +123,17 @@ export class ConfigurationLoader {
     const configPath = this.expandTilde(CONFIG_PATHS.GLOBAL_USER);
 
     if (!existsSync(configPath)) {
-      return null as any;
+      return null as unknown;
     }
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" }).toString();
-      const contentStr = typeof content === "string" ? content : (content as any).toString();
+      const contentStr = typeof content === "string" ? content : (content as unknown).toString();
       return parseYaml(contentStr) as GlobalUserConfig;
     } catch (error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-      (console as any).error(`Failed to load global user config from ${configPath}:`, error as any);
-      return null as any;
+      (console as unknown).error(`Failed to load global user config from ${configPath}:`, error as unknown);
+      return null as unknown;
     }
   }
 
@@ -144,16 +144,16 @@ export class ConfigurationLoader {
     const configPath = join(workingDir, CONFIG_PATHS.REPOSITORY);
 
     if (!existsSync(configPath)) {
-      return null as any;
+      return null as unknown;
     }
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" }).toString();
-      const contentStr = typeof content === "string" ? content : (content as any).toString();
+      const contentStr = typeof content === "string" ? content : (content as unknown).toString();
       return parseYaml(contentStr) as RepositoryConfig;
     } catch (error) {
       // Silently fail - configuration loading should be resilient
-      return null as any;
+      return null as unknown;
     }
   }
 
@@ -350,8 +350,8 @@ export class ConfigurationLoader {
    * Expand tilde in file paths
    */
   private expandTilde(filePath: string): string {
-    if ((filePath as any).startsWith("~/")) {
-      return join(homedir(), (filePath as any).slice(2));
+    if ((filePath as unknown).startsWith("~/")) {
+      return join(homedir(), (filePath as unknown).slice(2));
     }
     return filePath;
   }

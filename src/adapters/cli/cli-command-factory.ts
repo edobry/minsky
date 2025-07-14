@@ -47,7 +47,7 @@ export interface CliFactoryConfig {
 class CliCommandFactory {
   private initialized = false;
   private config: CliFactoryConfig = {
-    enableDevWarnings: (process.env as any).NODE_ENV !== "production" as any,
+    enableDevWarnings: (process.env as unknown).NODE_ENV !== "production" as unknown,
     strictValidation: true,
   };
 
@@ -67,7 +67,7 @@ class CliCommandFactory {
    */
   customizeCommand(commandId: ValidCommandId, options: CliCommandOptions): void {
     this.ensureInitialized();
-    (cliBridge as any).registerCommandCustomization(commandId!, options as any);
+    (cliBridge as unknown).registerCommandCustomization(commandId!, options as unknown);
   }
 
   /**
@@ -78,7 +78,7 @@ class CliCommandFactory {
    */
   customizeCategory(category: CommandCategory, options: CategoryCommandOptions): void {
     this.ensureInitialized();
-    (cliBridge as any).registerCategoryCustomization(category, options as any);
+    (cliBridge as unknown).registerCategoryCustomization(category, options as unknown);
   }
 
   /**
@@ -89,7 +89,7 @@ class CliCommandFactory {
    */
   createCommand(commandId: ValidCommandId): Command | null {
     this.ensureInitialized();
-    return (cliBridge as any).generateCommand(commandId);
+    return (cliBridge as unknown).generateCommand(commandId);
   }
 
   /**
@@ -100,7 +100,7 @@ class CliCommandFactory {
    */
   createCategoryCommand(category: CommandCategory): Command | null {
     this.ensureInitialized();
-    return (cliBridge as any).generateCategoryCommand(category, { viaFactory: true });
+    return (cliBridge as unknown).generateCategoryCommand(category, { viaFactory: true });
   }
 
   /**
@@ -110,7 +110,7 @@ class CliCommandFactory {
    */
   registerAllCommands(program: Command): void {
     this.ensureInitialized();
-    (cliBridge as any).generateAllCategoryCommands(program, { viaFactory: true });
+    (cliBridge as unknown).generateAllCategoryCommands(program, { viaFactory: true });
   }
 
   /**
@@ -139,7 +139,7 @@ const cliFactory = new CliCommandFactory();
  * @deprecated Use cliFactory.customizeCommand() instead
  */
 export function customizeCommand(commandId: string, options: CliCommandOptions): void {
-  cliFactory.customizeCommand(commandId!, options as any);
+  cliFactory.customizeCommand(commandId!, options as unknown);
 }
 
 /**
@@ -150,7 +150,7 @@ export function customizeCategory(
   category: CommandCategory,
   options: CategoryCommandOptions
 ): void {
-  cliFactory.customizeCategory(category, options as any);
+  cliFactory.customizeCategory(category, options as unknown);
 }
 
 /**
@@ -188,7 +188,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   }
 
   // Task commands customization
-  cliFactory.customizeCategory((CommandCategory as any).TASKS, {
+  cliFactory.customizeCategory((CommandCategory as unknown).TASKS, {
     aliases: ["task"],
     commandOptions: {
       "tasks.list": {
@@ -265,7 +265,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   });
 
   // Git commands customization
-  cliFactory.customizeCategory((CommandCategory as any).GIT, {
+  cliFactory.customizeCategory((CommandCategory as unknown).GIT, {
     commandOptions: {
       "git.commit": {
         parameters: {
@@ -278,7 +278,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   });
 
   // Session commands customization
-  cliFactory.customizeCategory((CommandCategory as any).SESSION, {
+  cliFactory.customizeCategory((CommandCategory as unknown).SESSION, {
     aliases: ["sess"],
     commandOptions: {
       "session.list": {
@@ -401,61 +401,61 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   });
 
   // Config commands customization
-  cliFactory.customizeCategory((CommandCategory as any).CONFIG, {
+  cliFactory.customizeCategory((CommandCategory as unknown).CONFIG, {
     commandOptions: {
       "config.list": {
         outputFormatter: (result: any) => {
           // Check if JSON output was requested
-          if ((result as any).json) {
+          if ((result as unknown).json) {
             // For JSON output, return flattened key-value pairs (matching normal output)
-            const flattened = flattenObjectToKeyValue((result as any).resolved);
+            const flattened = flattenObjectToKeyValue((result as unknown).resolved);
             log.cli(JSON.stringify(flattened, null, 2));
             return;
           }
 
-          if ((result as any).success && (result as any).resolved) {
+          if ((result as unknown).success && (result as unknown).resolved) {
             let output = "";
 
             // Show sources if explicitly requested
-            if ((result as any).showSources && (result as any).sources) {
-              output += formatConfigurationSources((result as any).resolved, (result as any).sources);
+            if ((result as unknown).showSources && (result as unknown).sources) {
+              output += formatConfigurationSources((result as unknown).resolved, (result as unknown).sources);
             } else {
               // For config list, show flattened key=value pairs
-              output += formatFlattenedConfiguration((result as any).resolved);
+              output += formatFlattenedConfiguration((result as unknown).resolved);
             }
 
-            log.cli(output as any);
-          } else if ((result as any).error) {
-            log.cli(`Failed to load configuration: ${(result as any).error}`);
+            log.cli(output as unknown);
+          } else if ((result as unknown).error) {
+            log.cli(`Failed to load configuration: ${(result as unknown).error}`);
           } else {
-            log.cli(JSON.stringify(result as any, null, 2));
+            log.cli(JSON.stringify(result as unknown, null, 2));
           }
         },
       },
       "config.show": {
         outputFormatter: (result: any) => {
           // Check if JSON output was requested
-          if ((result as any).json) {
-            log.cli(JSON.stringify(result as any, null, 2));
+          if ((result as unknown).json) {
+            log.cli(JSON.stringify(result as unknown, null, 2));
             return;
           }
 
-          if ((result as any).success && (result as any).configuration) {
+          if ((result as unknown).success && (result as unknown).configuration) {
             let output = "";
 
             // Show sources if explicitly requested
-            if ((result as any).showSources && (result as any).sources) {
-              output += formatConfigurationSources((result as any).configuration, (result as any).sources);
+            if ((result as unknown).showSources && (result as unknown).sources) {
+              output += formatConfigurationSources((result as unknown).configuration, (result as unknown).sources);
             } else {
               // Default human-friendly structured view
-              output += formatResolvedConfiguration((result as any).configuration);
+              output += formatResolvedConfiguration((result as unknown).configuration);
             }
 
-            log.cli(output as any);
-          } else if ((result as any).error) {
-            log.cli(`Failed to load configuration: ${(result as any).error}`);
+            log.cli(output as unknown);
+          } else if ((result as unknown).error) {
+            log.cli(`Failed to load configuration: ${(result as unknown).error}`);
           } else {
-            log.cli(JSON.stringify(result as any, null, 2));
+            log.cli(JSON.stringify(result as unknown, null, 2));
           }
         },
       },
@@ -463,7 +463,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   });
 
   // SessionDB commands customization
-  cliFactory.customizeCategory((CommandCategory as any).SESSIONDB, {
+  cliFactory.customizeCategory((CommandCategory as unknown).SESSIONDB, {
     commandOptions: {
       "sessiondb.migrate": {
         useFirstRequiredParamAsArgument: true,
@@ -504,8 +504,8 @@ function formatConfigurationSources(resolved: any, sources: any[]): string {
 
   // Show source precedence
   output += "Source Precedence (highest to lowest):\n";
-  (sources as any).forEach((source, index) => {
-    output += `  ${index + 1}. ${(source as any).name}\n`;
+  (sources as unknown).forEach((source, index) => {
+    output += `  ${index + 1}. ${(source as unknown).name}\n`;
   });
 
   output += "\n📋 RESOLVED CONFIGURATION\n";
@@ -520,38 +520,38 @@ function formatResolvedConfiguration(resolved: any): string {
   let output = "📋 CURRENT CONFIGURATION\n";
 
   // Task Storage
-  output += `📁 Task Storage: ${getBackendDisplayName((resolved as any).backend)}`;
-  if ((resolved as any).backend === "github-issues" && (resolved as any).backendConfig?.["github-issues"]) {
-    const github = (resolved as any).backendConfig["github-issues"];
+  output += `📁 Task Storage: ${getBackendDisplayName((resolved as unknown).backend)}`;
+  if ((resolved as unknown).backend === "github-issues" && (resolved as unknown).backendConfig?.["github-issues"]) {
+    const github = (resolved as unknown).backendConfig["github-issues"];
     output += ` (${github.owner}/${github.repo})`;
   }
 
   // Authentication
-  if ((Object.keys(resolved.credentials) as any).length > 0) {
+  if ((Object.keys(resolved.credentials) as unknown).length > 0) {
     output += "\n🔐 Authentication: ";
     const authServices = [];
-    for (const [service, creds] of (Object as any).entries((resolved as any).credentials)) {
+    for (const [service, creds] of (Object as unknown).entries((resolved as unknown).credentials)) {
       if (creds && typeof creds === "object") {
-        const credsObj = creds as any;
+        const credsObj = creds as unknown;
         const serviceName = service === "github" ? "GitHub" : service;
-        const source = (credsObj as any).source === "environment" ? "env" : (credsObj as any).source;
-        (authServices as any).push(`${serviceName} (${source})`);
+        const source = (credsObj as unknown).source === "environment" ? "env" : (credsObj as unknown).source;
+        (authServices as unknown).push(`${serviceName} (${source})`);
       }
     }
-    output += (authServices as any).join(", ");
+    output += (authServices as unknown).join(", ");
   }
 
   // Session Storage
-  if ((resolved as any).sessiondb) {
-    const sessionBackend = (resolved.sessiondb as any).backend || "json";
+  if ((resolved as unknown).sessiondb) {
+    const sessionBackend = (resolved.sessiondb as unknown).backend || "json";
     output += `\n💾 Session Storage: ${getSessionBackendDisplayName(sessionBackend)}`;
 
-    if (sessionBackend === "sqlite" && (resolved.sessiondb as any).dbPath) {
-      output += ` (${(resolved.sessiondb as any).dbPath})`;
-    } else if (sessionBackend === "postgres" && (resolved.sessiondb as any).connectionString) {
+    if (sessionBackend === "sqlite" && (resolved.sessiondb as unknown).dbPath) {
+      output += ` (${(resolved.sessiondb as unknown).dbPath})`;
+    } else if (sessionBackend === "postgres" && (resolved.sessiondb as unknown).connectionString) {
       output += " (configured)";
-    } else if (sessionBackend === "json" && (resolved.sessiondb as any).baseDir) {
-      output += ` (${(resolved.sessiondb as any).baseDir})`;
+    } else if (sessionBackend === "json" && (resolved.sessiondb as unknown).baseDir) {
+      output += ` (${(resolved.sessiondb as unknown).baseDir})`;
     }
   }
 
@@ -598,24 +598,24 @@ function formatDetectionCondition(condition: string): string {
 }
 
 function formatConfigSection(config: any): string {
-  if (!config || (Object as any).keys(config as any).length === 0) {
+  if (!config || (Object as unknown).keys(config as unknown).length === 0) {
     return "  (empty)";
   }
 
   let output = "";
-  for (const [key, value] of (Object as any).entries(config as any)) {
-    if (Array.isArray(value as any)) {
-      output += `  ${key}: (${(value as any).length} items)\n`;
-      (value as any).forEach((item, index) => {
+  for (const [key, value] of (Object as unknown).entries(config as unknown)) {
+    if (Array.isArray(value as unknown)) {
+      output += `  ${key}: (${(value as unknown).length} items)\n`;
+      (value as unknown).forEach((item, index) => {
         if (typeof item === "object" && item !== null) {
-          output += `    ${index}: ${JSON.stringify(item as any)}\n`;
+          output += `    ${index}: ${JSON.stringify(item as unknown)}\n`;
         } else {
           output += `    ${index}: ${item}\n`;
         }
       });
     } else if (typeof value === "object" && value !== null) {
       output += `  ${key}:\n`;
-      for (const [subKey, subValue] of (Object as any).entries(value as any)) {
+      for (const [subKey, subValue] of (Object as unknown).entries(value as unknown)) {
         if (typeof subValue === "object" && subValue !== null) {
           // Special handling for credentials
           if (key === "credentials") {
@@ -633,7 +633,7 @@ function formatConfigSection(config: any): string {
     }
   }
 
-  return (output as any).trimEnd();
+  return (output as unknown).trimEnd();
 }
 
 function sanitizeCredentials(creds: any): any {
@@ -642,8 +642,8 @@ function sanitizeCredentials(creds: any): any {
   }
 
   const sanitized = { ...creds };
-  if ((sanitized as any).token) {
-    (sanitized as any).token = `${"*".repeat(20)} (hidden)`;
+  if ((sanitized as unknown).token) {
+    (sanitized as unknown).token = `${"*".repeat(20)} (hidden)`;
   }
 
   return sanitized;
@@ -653,34 +653,34 @@ function formatFlattenedConfiguration(resolved: any): string {
   const flatten = (obj: any, prefix = ""): string[] => {
     const result: string[] = [];
 
-    for (const [key, value] of (Object as any).entries(obj as any)) {
+    for (const [key, value] of (Object as unknown).entries(obj as unknown)) {
       const fullKey = prefix ? `${prefix}.${key}` : key;
 
       if (value === null || value === undefined) {
-        (result as any).push(`${fullKey}=(null)`);
-      } else if (typeof value === "object" && !Array.isArray(value as any)) {
+        (result as unknown).push(`${fullKey}=(null)`);
+      } else if (typeof value === "object" && !Array.isArray(value as unknown)) {
         // Recursively flatten objects
-        (result as any).push(...flatten(value as any, fullKey));
-      } else if (Array.isArray(value as any)) {
-        if ((value as any).length === 0) {
-          (result as any).push(`${fullKey}=(empty array)`);
+        (result as unknown).push(...flatten(value as unknown, fullKey));
+      } else if (Array.isArray(value as unknown)) {
+        if ((value as unknown).length === 0) {
+          (result as unknown).push(`${fullKey}=(empty array)`);
         } else {
-          (value as any).forEach((item, index) => {
+          (value as unknown).forEach((item, index) => {
             if (typeof item === "object") {
-              (result as any).push(...flatten(item as any, `${fullKey}[${index}]`));
+              (result as unknown).push(...flatten(item as unknown, `${fullKey}[${index}]`));
             } else {
-              (result as any).push(`${fullKey}[${index}]=${item}`);
+              (result as unknown).push(`${fullKey}[${index}]=${item}`);
             }
           });
         }
       } else if (
         typeof value === "string" &&
-        ((fullKey as any).includes("token") || (fullKey as any).includes("password"))
+        ((fullKey as unknown).includes("token") || (fullKey as unknown).includes("password"))
       ) {
         // Hide sensitive values
-        (result as any).push(`${fullKey}=*** (hidden)`);
+        (result as unknown).push(`${fullKey}=*** (hidden)`);
       } else {
-        (result as any).push(`${fullKey}=${value}`);
+        (result as unknown).push(`${fullKey}=${value}`);
       }
     }
 
@@ -688,7 +688,7 @@ function formatFlattenedConfiguration(resolved: any): string {
   };
 
   const flatEntries = flatten(resolved);
-  return (flatEntries as any).join("\n");
+  return (flatEntries as unknown).join("\n");
 }
 
 function flattenObjectToKeyValue(obj: any): any {
@@ -696,11 +696,11 @@ function flattenObjectToKeyValue(obj: any): any {
 
   function flatten(current: any, prefix = ""): void {
     if (typeof current === "object" && current !== null) {
-      const keys = (Object as any).keys(current);
+      const keys = (Object as unknown).keys(current);
       for (const key of keys) {
         const fullKey = prefix ? `${prefix}.${key}` : key;
         if (typeof current[key] === "object" && current[key] !== null) {
-          flatten((current as any)[key], fullKey);
+          flatten((current as unknown)[key], fullKey);
         } else {
           flattened[fullKey] = current[key];
         }
@@ -708,7 +708,7 @@ function flattenObjectToKeyValue(obj: any): any {
     }
   }
 
-  flatten(obj as any);
+  flatten(obj as unknown);
   return flattened;
 }
 
@@ -719,7 +719,7 @@ function flattenObjectToKeyValue(obj: any): any {
  */
 export function initializeCliCommands(program: Command, config?: Partial<CliFactoryConfig>): void {
   // Initialize the factory
-  cliFactory.initialize(config as any);
+  cliFactory.initialize(config as unknown);
 
   // Setup common customizations
   setupCommonCommandCustomizations(program);

@@ -64,7 +64,7 @@ describe("Session DB I/O Functions", () => {
       // This test covers the specific scenario that caused the runtime error:
       // "undefined is not an object (evaluating 'options.baseDir')"
       expect(() => {
-        const result = readSessionDbFile(undefined as any);
+        const result = readSessionDbFile(undefined as unknown);
         expect(result).toHaveProperty("sessions");
         expect(Array.isArray(result.sessions)).toBe(true);
         expect(result).toHaveProperty("baseDir");
@@ -75,7 +75,7 @@ describe("Session DB I/O Functions", () => {
     // Regression test for Task #166: Fix options.baseDir runtime error
     test("should handle null options parameter without throwing runtime error", () => {
       expect(() => {
-        const result = readSessionDbFile(null as any);
+        const result = readSessionDbFile(null as unknown);
         expect(result).toHaveProperty("sessions");
         expect(Array.isArray(result.sessions)).toBe(true);
         expect(result).toHaveProperty("baseDir");
@@ -129,7 +129,7 @@ describe("Session DB I/O Functions", () => {
       });
 
       expect(() => {
-        await writeSessionsToFile(testState.sessions, undefined as any);
+        await writeSessionsToFile(testState.sessions, undefined as unknown);
         expect(typeof success).toBe("boolean");
       }).not.toThrow();
     });
@@ -141,7 +141,7 @@ describe("Session DB I/O Functions", () => {
       });
 
       expect(() => {
-        await writeSessionsToFile(testState.sessions, null as any);
+        await writeSessionsToFile(testState.sessions, null as unknown);
         expect(typeof success).toBe("boolean");
       }).not.toThrow();
     });

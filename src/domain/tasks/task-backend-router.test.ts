@@ -67,7 +67,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Remove the isInTreeBackend method to test auto-detection
-      delete (markdownBackend as any).isInTreeBackend;
+      delete (markdownBackend as unknown).isInTreeBackend;
       // Also delete from prototype if needed
       const proto = Object.getPrototypeOf(markdownBackend);
       if (proto && typeof proto.isInTreeBackend === "function") {
@@ -75,7 +75,7 @@ describe("TaskBackendRouter", () => {
       }
 
       // Verify it's actually deleted
-      expect(typeof (markdownBackend as any).isInTreeBackend).toBe("undefined");
+      expect(typeof (markdownBackend as unknown).isInTreeBackend).toBe("undefined");
 
       const routingInfo = router.getBackendRoutingInfo(markdownBackend);
 
@@ -93,7 +93,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Remove the isInTreeBackend method to test auto-detection
-      delete (jsonBackend as any).isInTreeBackend;
+      delete (jsonBackend as unknown).isInTreeBackend;
       // Also delete from prototype if needed
       const proto = Object.getPrototypeOf(jsonBackend);
       if (proto && typeof proto.isInTreeBackend === "function") {
@@ -101,7 +101,7 @@ describe("TaskBackendRouter", () => {
       }
 
       // Verify it's actually deleted
-      expect(typeof (jsonBackend as any).isInTreeBackend).toBe("undefined");
+      expect(typeof (jsonBackend as unknown).isInTreeBackend).toBe("undefined");
 
       const routingInfo = router.getBackendRoutingInfo(jsonBackend);
 
@@ -119,7 +119,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Remove the isInTreeBackend method to test auto-detection
-      delete (jsonBackend as any).isInTreeBackend;
+      delete (jsonBackend as unknown).isInTreeBackend;
       // Also delete from prototype if needed
       const proto = Object.getPrototypeOf(jsonBackend);
       if (proto && typeof proto.isInTreeBackend === "function") {
@@ -127,7 +127,7 @@ describe("TaskBackendRouter", () => {
       }
 
       // Verify it's actually deleted
-      expect(typeof (jsonBackend as any).isInTreeBackend).toBe("undefined");
+      expect(typeof (jsonBackend as unknown).isInTreeBackend).toBe("undefined");
 
       const routingInfo = router.getBackendRoutingInfo(jsonBackend);
 
@@ -145,7 +145,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Remove the isInTreeBackend method to test auto-detection
-      delete (jsonBackend as any).isInTreeBackend;
+      delete (jsonBackend as unknown).isInTreeBackend;
       // Also delete from prototype if needed
       const proto = Object.getPrototypeOf(jsonBackend);
       if (proto && typeof proto.isInTreeBackend === "function") {
@@ -153,7 +153,7 @@ describe("TaskBackendRouter", () => {
       }
 
       // Verify it's actually deleted
-      expect(typeof (jsonBackend as any).isInTreeBackend).toBe("undefined");
+      expect(typeof (jsonBackend as unknown).isInTreeBackend).toBe("undefined");
 
       const routingInfo = router.getBackendRoutingInfo(jsonBackend);
 
@@ -173,7 +173,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Mock the isInTreeBackend method to return true
-      (backend as any).isInTreeBackend = () => true;
+      (backend as unknown).isInTreeBackend = () => true;
 
       const routingInfo = router.getBackendRoutingInfo(backend);
 
@@ -190,7 +190,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Mock the isInTreeBackend method to return false
-      (backend as any).isInTreeBackend = () => false;
+      (backend as unknown).isInTreeBackend = () => false;
 
       const routingInfo = router.getBackendRoutingInfo(backend);
 
@@ -223,7 +223,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Remove the isInTreeBackend method to use auto-detection
-      delete (backend as any).isInTreeBackend;
+      delete (backend as unknown).isInTreeBackend;
       // Also delete from prototype if needed
       const proto = Object.getPrototypeOf(backend);
       if (proto && typeof proto.isInTreeBackend === "function") {
@@ -267,7 +267,7 @@ describe("TaskBackendRouter", () => {
       const mockSqliteBackend = {
         name: "sqlite",
         constructor: { name: "SqliteTaskBackend" }
-      } as any;
+      } as unknown;
 
       const routingInfo = router.getBackendRoutingInfo(mockSqliteBackend);
       
@@ -282,7 +282,7 @@ describe("TaskBackendRouter", () => {
       const mockPostgresBackend = {
         name: "postgres",
         constructor: { name: "PostgresTaskBackend" }
-      } as any;
+      } as unknown;
 
       const routingInfo = router.getBackendRoutingInfo(mockPostgresBackend);
       
@@ -298,7 +298,7 @@ describe("TaskBackendRouter", () => {
       const mockUnknownBackend = {
         name: "unknown",
         constructor: { name: "UnknownTaskBackend" }
-      } as any;
+      } as unknown;
 
       const routingInfo = router.getBackendRoutingInfo(mockUnknownBackend);
       
@@ -319,7 +319,7 @@ describe("TaskBackendRouter", () => {
         getStorageLocation: () => {
           throw new Error("Storage location not available");
         }
-      } as any;
+      } as unknown;
 
       const routingInfo = router.getBackendRoutingInfo(mockBackend);
       

@@ -10,7 +10,7 @@ import { createConfigShowCommand } from "./show";
 
 export function createConfigCommand(): Command {
   const configCmd = (new Command("config")
-    .description("Configuration management commands") as any).addHelpText(
+    .description("Configuration management commands") as unknown).addHelpText(
     "after",
     `
 Examples:
@@ -21,8 +21,8 @@ Examples:
   );
 
   // Add subcommands
-  (configCmd as any).addCommand(createConfigListCommand());
-  (configCmd as any).addCommand(createConfigShowCommand());
+  (configCmd as unknown).addCommand(createConfigListCommand());
+  (configCmd as unknown).addCommand(createConfigShowCommand());
 
   return configCmd;
 } 

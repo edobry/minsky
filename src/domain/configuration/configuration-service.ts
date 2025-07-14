@@ -37,18 +37,18 @@ export class DefaultConfigurationService implements ConfigurationService {
    */
   async loadConfiguration(workingDir: string): Promise<ConfigurationLoadResult> {
     // Load base configuration from all sources
-    const result = await (this.loader as any).loadConfiguration(workingDir);
+    const result = await (this.loader as unknown).loadConfiguration(workingDir);
 
     // Apply backend auto-detection if enabled
-    const resolved = await this.applyBackendDetection(workingDir, (result as any).resolved);
+    const resolved = await this.applyBackendDetection(workingDir, (result as unknown).resolved);
 
     // Resolve credentials
     const finalResolved = await this.resolveCredentials(resolved);
 
     return {
       resolved: finalResolved,
-      sources: (result as any).sources,
-    } as any;
+      sources: (result as unknown).sources,
+    } as unknown;
   }
 
   /**
@@ -59,14 +59,14 @@ export class DefaultConfigurationService implements ConfigurationService {
     const warnings: Array<{ field: string; message: string; code: string }> = [];
 
     // Version validation
-    if (!(config as any).version) {
-      (errors as any).push({
+    if (!(config as unknown).version) {
+      (errors as unknown).push({
         field: "version",
         message: "Configuration version is required",
         code: "MISSING_VERSION",
       });
-    } else if ((config as any).version !== 1) {
-      (errors as any).push({
+    } else if ((config as unknown).version !== 1) {
+      (errors as unknown).push({
         field: "version",
         message: "Unsupported configuration version. Expected: 1",
         code: "UNSUPPORTED_VERSION",
@@ -74,27 +74,27 @@ export class DefaultConfigurationService implements ConfigurationService {
     }
 
     // Backend validation
-    if ((config as any).backends && (config.backends as any).default) {
+    if ((config as unknown).backends && (config.backends as unknown).default) {
       const validBackends = ["markdown", "json-file", "github-issues"];
-      if (!(validBackends as any).includes((config.backends as any).default)) {
-        (errors as any).push({
+      if (!(validBackends as unknown).includes((config.backends as unknown).default)) {
+        (errors as unknown).push({
           field: "backends.default",
-          message: `Invalid backend: ${(config.backends as any).default}. Valid options: ${(validBackends as any).join(", ")}`,
+          message: `Invalid backend: ${(config.backends as unknown).default}. Valid options: ${(validBackends as unknown).join(", ")}`,
           code: "INVALID_BACKEND",
         });
       }
 
       // GitHub Issues backend validation
-      if ((config.backends as any).default === "github-issues") {
-        if (!((config.backends as any)["github-issues"] as any).owner) {
-          (errors as any).push({
+      if ((config.backends as unknown).default === "github-issues") {
+        if (!((config.backends as unknown)["github-issues"] as unknown).owner) {
+          (errors as unknown).push({
             field: "backends.github-issues.owner",
             message: "GitHub owner is required for github-issues backend",
             code: "MISSING_GITHUB_OWNER",
           });
         }
-        if (!((config.backends as any)["github-issues"] as any).repo) {
-          (errors as any).push({
+        if (!((config.backends as unknown)["github-issues"] as unknown).repo) {
+          (errors as unknown).push({
             field: "backends.github-issues.repo",
             message: "GitHub repository name is required for github-issues backend",
             code: "MISSING_GITHUB_REPO",
@@ -104,17 +104,17 @@ export class DefaultConfigurationService implements ConfigurationService {
     }
 
     // SessionDB validation
-    if ((config as any).sessiondb) {
-      this.validateSessionDbConfig((config as any).sessiondb, errors, warnings, "sessiondb");
+    if ((config as unknown).sessiondb) {
+      this.validateSessionDbConfig((config as unknown).sessiondb, errors, warnings, "sessiondb");
     }
 
     // AI configuration validation
-    if ((config as any).ai) {
-      this.validateAIConfig((config as any).ai, errors, warnings, "ai");
+    if ((config as unknown).ai) {
+      this.validateAIConfig((config as unknown).ai, errors, warnings, "ai");
     }
 
     return {
-      valid: (errors as any).length === 0,
+      valid: (errors as unknown).length === 0,
       errors,
       warnings,
     };
@@ -128,14 +128,14 @@ export class DefaultConfigurationService implements ConfigurationService {
     const warnings: Array<{ field: string; message: string; code: string }> = [];
 
     // Version validation
-    if (!(config as any).version) {
-      (errors as any).push({
+    if (!(config as unknown).version) {
+      (errors as unknown).push({
         field: "version",
         message: "Configuration version is required",
         code: "MISSING_VERSION",
       });
-    } else if ((config as any).version !== 1) {
-      (errors as any).push({
+    } else if ((config as unknown).version !== 1) {
+      (errors as unknown).push({
         field: "version",
         message: "Unsupported configuration version. Expected: 1",
         code: "UNSUPPORTED_VERSION",
@@ -143,20 +143,20 @@ export class DefaultConfigurationService implements ConfigurationService {
     }
 
     // GitHub credential validation
-    if ((config as any).github && (config.github as any).credentials) {
-      const github = (config.github as any).credentials;
+    if ((config as unknown).github && (config.github as unknown).credentials) {
+      const github = (config.github as unknown).credentials;
       const validSources: CredentialSource[] = ["environment", "file", "prompt"];
 
-      if (!(validSources as any).includes(github.source)) {
-        (errors as any).push({
+      if (!(validSources as unknown).includes(github.source)) {
+        (errors as unknown).push({
           field: "github.credentials.source",
-          message: `Invalid credential source: ${github.source}. Valid options: ${(validSources as any).join(", ")}`,
+          message: `Invalid credential source: ${github.source}. Valid options: ${(validSources as unknown).join(", ")}`,
           code: "INVALID_CREDENTIAL_SOURCE",
         });
       }
 
-      if (github.source === "file" && !(github as any).token && !github.token_file) {
-        (warnings as any).push({
+      if (github.source === "file" && !(github as unknown).token && !github.token_file) {
+        (warnings as unknown).push({
           field: "github.credentials",
           message: "Neither token nor token_file specified for file-based credential source",
           code: "INCOMPLETE_FILE_CREDENTIALS",
@@ -165,24 +165,24 @@ export class DefaultConfigurationService implements ConfigurationService {
     }
 
     // SessionDB validation
-    if ((config as any).sessiondb) {
-      this.validateSessionDbConfig((config as any).sessiondb, errors, warnings, "sessiondb");
+    if ((config as unknown).sessiondb) {
+      this.validateSessionDbConfig((config as unknown).sessiondb, errors, warnings, "sessiondb");
     }
 
     // AI configuration validation
-    if ((config as any).ai) {
-      this.validateAIConfig((config as any).ai, errors, warnings, "ai");
+    if ((config as unknown).ai) {
+      this.validateAIConfig((config as unknown).ai, errors, warnings, "ai");
     }
 
     // PostgreSQL configuration validation
-    if ((config as any).postgres) {
-      if ((config.postgres as any).connection_string) {
-        this.validateConnectionString((config.postgres as any).connection_string, "postgres.connection_string", errors, warnings);
+    if ((config as unknown).postgres) {
+      if ((config.postgres as unknown).connection_string) {
+        this.validateConnectionString((config.postgres as unknown).connection_string, "postgres.connection_string", errors, warnings);
       }
     }
 
     return {
-      valid: (errors as any).length === 0,
+      valid: (errors as unknown).length === 0,
       errors,
       warnings,
     };
@@ -196,21 +196,21 @@ export class DefaultConfigurationService implements ConfigurationService {
     config: ResolvedConfig
   ): Promise<ResolvedConfig> {
     // If backend is already explicitly set or auto-detection is disabled, use as-is
-    if (!(config as any).detectionRules || (config.detectionRules as any).length === 0) {
+    if (!(config as unknown).detectionRules || (config.detectionRules as unknown).length === 0) {
       return config;
     }
 
     // Only auto-detect if we're using the default backend from detection rules
     const defaultBackend =
-      (config.detectionRules.find((rule) => rule.condition === "always" as any) as any).backend || "json-file";
-    if ((config as any).backend !== defaultBackend) {
+      (config.detectionRules.find((rule) => rule.condition === "always" as unknown) as unknown).backend || "json-file";
+    if ((config as unknown).backend !== defaultBackend) {
       return config; // Backend was explicitly configured
     }
 
     // Run detection
-    const detectedBackend = await (this.backendDetector as any).detectBackend(
+    const detectedBackend = await (this.backendDetector as unknown).detectBackend(
       workingDir,
-      (config as any).detectionRules
+      (config as unknown).detectionRules
     );
 
     return {
@@ -227,13 +227,13 @@ export class DefaultConfigurationService implements ConfigurationService {
 
     // Resolve GitHub credentials if needed
     if (
-      ((config as any).backend === "github-issues" || (config.github as any).credentials) &&
-      (resolved.github as any).credentials?.source === "environment"
+      ((config as unknown).backend === "github-issues" || (config.github as unknown).credentials) &&
+      (resolved.github as unknown).credentials?.source === "environment"
     ) {
       try {
-        const token = await (this.credentialManager as any).getCredential("github");
+        const token = await (this.credentialManager as unknown).getCredential("github");
         if (token) {
-          ((resolved.github as any).credentials as any).token = token;
+          ((resolved.github as unknown).credentials as unknown).token = token;
         }
       } catch (error) {
         // Credential resolution failures are non-fatal
@@ -322,7 +322,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     if (aiConfig.providers) {
       for (const [providerName, providerConfig] of Object.entries(aiConfig.providers)) {
         if (providerConfig && typeof providerConfig === "object") {
-          this.validateAIProviderConfig(providerConfig as any, errors, warnings, `${fieldPrefix}.providers.${providerName}`);
+          this.validateAIProviderConfig(providerConfig as unknown, errors, warnings, `${fieldPrefix}.providers.${providerName}`);
         }
       }
     }

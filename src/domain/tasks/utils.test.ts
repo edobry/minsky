@@ -40,7 +40,7 @@ describe("normalizeTaskId", () => {
 
   for (const { input, note } of invalidInputs) {
     test(`should return null for invalid input "${String(input)}" (${note})`, () => {
-      expect(normalizeTaskId(input as any)).toBeNull();
+      expect(normalizeTaskId(input as unknown)).toBeNull();
     });
   }
 });

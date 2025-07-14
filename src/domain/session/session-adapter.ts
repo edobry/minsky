@@ -143,7 +143,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   async addSession(_record: SessionRecord): Promise<void> {
     await this.readDb();
     const newState = addSessionFn(this.state, _record);
-    await this.writeDb((newState as any).sessions);
+    await this.writeDb((newState as unknown).sessions);
   }
 
   /**
@@ -155,7 +155,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   ): Promise<void> {
     await this.readDb();
     const newState = updateSessionFn(this.state, session, _updates);
-    await this.writeDb((newState as any).sessions);
+    await this.writeDb((newState as unknown).sessions);
   }
 
   /**
@@ -163,15 +163,15 @@ export class SessionAdapter implements LocalSessionProviderInterface {
    */
   async deleteSession(session: string): Promise<boolean> {
     await this.readDb();
-    const originalLength = (this.state.sessions as any).length;
+    const originalLength = (this.state.sessions as unknown).length;
     const newState = deleteSessionFn(this.state, session);
 
     // If no change occurred (session not found)
-    if ((newState.sessions as any).length === originalLength) {
+    if ((newState.sessions as unknown).length === originalLength) {
       return false;
     }
 
-    await this.writeDb((newState as any).sessions);
+    await this.writeDb((newState as unknown).sessions);
     return true;
   }
 

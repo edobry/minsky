@@ -228,7 +228,7 @@ describe("Tasks Domain Methods", () => {
       // Arrange
       const params: TaskStatusSetParams = {
         taskId: "TEST_VALUE",
-        status: "INVALID_STATUS" as any,
+        status: "INVALID_STATUS" as unknown,
         json: false,
       };
       const error = new Error("Status must be one of: TODO, DONE, IN-PROGRESS, IN-REVIEW");
