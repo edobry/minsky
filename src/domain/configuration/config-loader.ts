@@ -74,7 +74,7 @@ export class ConfigurationLoader {
    * Load environment variable overrides
    * 
    * Automatically maps environment variables to config paths by computing
-   * variable names from the config structure (e.g., github.credentials.token -> GITHUB_TOKEN)
+   * variable names from the config structure (e.g., ai.providers.openai.credentials.api_key -> AI_PROVIDERS_OPENAI_CREDENTIALS_API_KEY)
    */
   private loadEnvironmentConfig(): Partial<ResolvedConfig> {
     const config: Partial<ResolvedConfig> = {};
@@ -84,29 +84,27 @@ export class ConfigurationLoader {
       (config as any).backend = (process as any).env[ENV_VARS.BACKEND] as any;
     }
 
-    // GitHub credentials - standard environment variable
-    if ((process as any).env.GITHUB_TOKEN) {
+    // GitHub credentials - computed from config path
+    if ((process as any).env.GITHUB_CREDENTIALS_TOKEN) {
       (config as any).github = {
         credentials: {
-          token: (process as any).env.GITHUB_TOKEN,
+          token: (process as any).env.GITHUB_CREDENTIALS_TOKEN,
         },
       };
     }
 
-    // AI provider credentials - standard environment variables
+    // AI provider credentials - computed from config paths
     const aiProviders: Record<string, any> = {};
     
-    // Standard AI provider environment variables (computed from config paths)
-    const aiEnvMappings = {
-      openai: "OPENAI_API_KEY",
-      anthropic: "ANTHROPIC_API_KEY", 
-      google: "GOOGLE_AI_API_KEY",
-      cohere: "COHERE_API_KEY",
-      mistral: "MISTRAL_API_KEY",
-    };
-
-    for (const [provider, envVar] of Object.entries(aiEnvMappings)) {
-      const apiKey = (process as any).env[envVar];
+    // AI provider environment variables computed from config paths
+    const aiProviders_list = ["openai", "anthropic", "google", "cohere", "mistral"];
+    
+    for (const provider of aiProviders_list) {
+      // Config path: ai.providers.{provider}.credentials.api_key
+      // Environment variable: AI_PROVIDERS_{PROVIDER}_CREDENTIALS_API_KEY
+      const envVarName = `AI_PROVIDERS_${provider.toUpperCase()}_CREDENTIALS_API_KEY`;
+      const apiKey = (process as any).env[envVarName];
+      
       if (apiKey) {
         aiProviders[provider] = {
           credentials: {
