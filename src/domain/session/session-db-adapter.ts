@@ -13,7 +13,7 @@ import type { SessionDbState } from "./session-db";
 import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import { configurationService } from "../configuration";
+
 import config from "config";
 import { homedir } from "os";
 import { join } from "path";
