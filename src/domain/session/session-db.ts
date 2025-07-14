@@ -16,6 +16,13 @@ export interface SessionRecord {
   createdAt: string;
   taskId: string;
   branch: string;
+  prState?: {
+    branchName: string;
+    exists: boolean;
+    lastChecked: string; // ISO timestamp
+    createdAt?: string;   // When PR branch was created
+    mergedAt?: string;    // When merged (for cleanup)
+  };
 }
 
 /**
