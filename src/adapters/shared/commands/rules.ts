@@ -14,10 +14,10 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../../shared/command-registry.js";
-import { RuleService, type RuleFormat } from "../../../domain/rules.js";
-import { resolveWorkspacePath } from "../../../domain/workspace.js";
-import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers.js";
-import { log } from "../../../utils/logger.js";
+import { RuleService, type RuleFormat } from "../../../domain/rules";
+import { resolveWorkspacePath } from "../../../domain/workspace";
+import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers";
+import { log } from "../../../utils/logger";
 import {
   RULE_FORMAT_DESCRIPTION,
   RULE_TAGS_DESCRIPTION,

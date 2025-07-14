@@ -17,7 +17,7 @@ import {
   type ZodParseResult 
 } from "../../../schemas/runtime";
 import { validateError } from "../../../schemas/error";
-import { ensureError } from "../../../errors/index.js";
+import { ensureError } from "../../../errors/index";
 
 /**
  * MCP-specific execution context

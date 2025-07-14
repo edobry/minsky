@@ -1,9 +1,9 @@
 /**
  * MCP adapter for session commands
  */
-import type { CommandMapper } from "../../mcp/command-mapper.js";
-import { registerSessionCommandsWithMcp } from "./shared-command-integration.js";
-import { log } from "../../utils/logger.js";
+import type { CommandMapper } from "../../mcp/command-mapper";
+import { registerSessionCommandsWithMcp } from "./shared-command-integration";
+import { log } from "../../utils/logger";
 
 /**
  * Registers session tools with the MCP command mapper

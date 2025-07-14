@@ -12,7 +12,7 @@ import {
   type ResolvedSessionContext,
 } from "./session-context-resolver.js";
 import { ValidationError, ResourceNotFoundError } from "../errors/index";
-import { createMock } from "../../utils/test-utils/mocking";
+import { createMock } from "../utils/test-utils/mocking";
 import type { SessionProviderInterface } from "./session";
 
 // Mock session provider with basic functionality

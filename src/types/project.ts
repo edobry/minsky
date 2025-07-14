@@ -5,7 +5,7 @@
 
 import fs from "fs";
 import path from "path";
-import { log } from "../utils/logger.js";
+import { log } from "../utils/logger";
 
 /**
  * ProjectContext represents the context information for a Minsky project.

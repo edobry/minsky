@@ -20,8 +20,8 @@ import { readdir, readFile, writeFile, mkdir } from "fs/promises";
 import { join, resolve, relative } from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
-import { log } from "../utils/logger.js";
-import { exit } from "../utils/process.js";
+import { log } from "../utils/logger";
+import { exit } from "../utils/process";
 
 // Get current directory
 const __dirname = fileURLToPath(new URL(".", import.meta.url));

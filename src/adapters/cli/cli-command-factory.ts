@@ -8,13 +8,13 @@
  */
 
 import { Command } from "commander";
-import { CommandCategory } from "../shared/command-registry.js";
+import { CommandCategory } from "../shared/command-registry";
 import {
   CliCommandBridge,
   type CliCommandOptions,
   type CategoryCommandOptions,
 } from "../shared/bridges/cli-bridge.js";
-import { log } from "../../utils/logger.js";
+import { log } from "../../utils/logger";
 
 /**
  * Private CLI bridge instance - should not be exported or accessed directly

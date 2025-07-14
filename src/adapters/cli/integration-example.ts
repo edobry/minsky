@@ -7,13 +7,13 @@
  */
 
 import { Command } from "commander";
-import { registerGitCommands } from "../shared/commands/git.js";
-import { registerTasksCommands } from "../shared/commands/tasks.js";
-import { registerSessionCommands } from "../shared/commands/session.js";
-import { registerRulesCommands } from "../shared/commands/rules.js";
-import { registerCategorizedCliCommands } from "../shared/bridges/cli-bridge.js";
-import { CommandCategory } from "../shared/command-registry.js";
-import { log } from "../../utils/logger.js";
+import { registerGitCommands } from "../shared/commands/git";
+import { registerTasksCommands } from "../shared/commands/tasks";
+import { registerSessionCommands } from "../shared/commands/session";
+import { registerRulesCommands } from "../shared/commands/rules";
+import { registerCategorizedCliCommands } from "../shared/bridges/cli-bridge";
+import { CommandCategory } from "../shared/command-registry";
+import { log } from "../../utils/logger";
 
 /**
  * Demonstrates the integration of shared commands with Commander.js

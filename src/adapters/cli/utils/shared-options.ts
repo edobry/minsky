@@ -7,7 +7,7 @@
  */
 
 import { Command } from "commander";
-import { normalizeTaskId } from "../../../domain/tasks.js";
+import { normalizeTaskId } from "../../../domain/tasks";
 // Removed unused schema type imports
 import {
   SESSION_DESCRIPTION,
