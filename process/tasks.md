@@ -348,7 +348,7 @@
 
 - [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
 
-- [x] Improve Error Handling for MCP Server Port Conflicts [#184](process/tasks/184-improve-error-handling-for-mcp-server-port-conflicts.md)
+
 
 - [ ] Restore Full Test Suite for `init` Command [#185](process/tasks/185-restore-full-test-suite-for-init-command.md)
 
@@ -364,7 +364,7 @@
 
 - [x] Replace Direct process.exit() Calls with Custom exit() Utility [#194](process/tasks/194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
 
-- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#195](process/tasks/195-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
+
 
 - [x] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
 
