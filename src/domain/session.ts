@@ -45,6 +45,7 @@ import {
   updatePrStateOnMerge,
   extractPrDescription
 } from "./session/session-update-operations";
+import { sessionPrImpl } from "./session/session-pr-operations";
 
 export interface SessionRecord {
   session: string;
