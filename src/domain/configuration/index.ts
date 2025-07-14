@@ -1,19 +1,14 @@
 /**
  * Configuration system exports for Minsky
  *
- * This module provides the main exports for the configuration system,
- * making it easy for other parts of the codebase to import and use
- * configuration functionality.
+ * This module provides the minimal exports needed for the node-config based
+ * configuration system, maintaining backward compatibility where needed.
  */
 
-// Core service and components
-export { DefaultConfigurationService } from "./configuration-service";
+// Node-config adapter for backward compatibility
 export { NodeConfigAdapter } from "./node-config-adapter";
-export { ConfigurationLoader } from "./config-loader";
-export { DefaultCredentialManager } from "./credential-manager";
-export { DefaultBackendDetector } from "./backend-detector";
 
-// Types and interfaces
+// Types and interfaces still needed
 export type {
   ConfigurationService,
   ConfigurationLoadResult,
@@ -30,14 +25,19 @@ export type {
   CredentialSource,
   CredentialManager,
   BackendDetector,
+  SessionDbConfig,
+  GitHubConfig,
+  AIConfig,
+  AIProviderConfig,
+  PostgresConfig,
+  LoggerConfig,
 } from "./types";
 
 // Constants
 export { DEFAULT_CONFIG, CONFIG_PATHS, ENV_VARS } from "./types";
 
-// Import the class to create singleton instance
-import { DefaultConfigurationService } from "./configuration-service.js";
-
-// Create a singleton instance for easy usage
-// Using DefaultConfigurationService for proper workingDir handling
-export const configurationService = new DefaultConfigurationService();
+// Node-config is the primary configuration system
+// Components should use: import config from "config"; config.get("key");
+// This export is only for backward compatibility during transition
+import { NodeConfigAdapter } from "./node-config-adapter";
+export const configurationService = new NodeConfigAdapter();
