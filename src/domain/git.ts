@@ -308,7 +308,7 @@ export class GitService implements GitServiceInterface {
 
   // Add public method to get session record
   public async getSessionRecord(sessionName: string): Promise<any | undefined> {
-    return (this.sessionDb as unknown).getSession(sessionName);
+    return this.sessionDb.getSession(sessionName);
   }
 
   private async ensureBaseDir(): Promise<void> {
@@ -316,7 +316,7 @@ export class GitService implements GitServiceInterface {
   }
 
   private generateSessionId(): string {
-    return (Math.random().toString(36) as unknown).substring(2, 8);
+    return Math.random().toString(36).substring(2, 8);
   }
 
   getSessionWorkdir(session: string): string {
@@ -329,34 +329,34 @@ export class GitService implements GitServiceInterface {
   async clone(options: CloneOptions): Promise<CloneResult> {
     await this.ensureBaseDir();
 
-    const session = (options as unknown).session || this.generateSessionId();
-    const workdir = (options as unknown).workdir;
+    const session = options.session || this.generateSessionId();
+    const workdir = options.workdir;
 
     log.debug("Clone operation starting", {
-      repoUrl: (options as unknown).repoUrl,
+      repoUrl: options.repoUrl,
       workdir,
       session,
     });
 
     try {
       // Validate repo URL
-      if (!(options as unknown).repoUrl || (options.repoUrl as unknown).trim() === "") {
-        log.error("Invalid repository URL", { repoUrl: (options as unknown).repoUrl });
+      if (!options.repoUrl || options.repoUrl.trim() === "") {
+        log.error("Invalid repository URL", { repoUrl: options.repoUrl });
         throw new MinskyError("Repository URL is required for cloning");
       }
 
       // Clone the repository with verbose logging FIRST
-      log.debug(`Executing: git clone ${(options as unknown).repoUrl} ${workdir}`);
-      const cloneCmd = `git clone ${(options as unknown).repoUrl} ${workdir}`;
-      try {
-        // Create session directory structure ONLY when ready to clone
-        // This ensures no orphaned directories if validation fails
-        await mkdir(dirname(workdir), { recursive: true });
-        log.debug("Session parent directory created", { parentDir: dirname(workdir) });
+      log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
+      const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
 
+      // Ensure parent directory exists
+      await mkdir(dirname(workdir), { recursive: true });
+      log.debug("Session parent directory created", { parentDir: dirname(workdir) });
+
+      try {
         const { stdout, stderr } = await execAsync(cloneCmd);
         log.debug("git clone succeeded", {
-          stdout: (stdout.trim() as unknown).substring(0, 200),
+          stdout: stdout.trim().substring(0, 200),
         });
       } catch (cloneErr) {
         log.error("git clone command failed", {
@@ -392,8 +392,8 @@ export class GitService implements GitServiceInterface {
           const dirContents = await fs.readdir(workdir);
           log.debug("Clone directory contents", {
             workdir,
-            fileCount: (dirContents as unknown).length,
-            firstFewFiles: (dirContents as unknown).slice(0, 5),
+            fileCount: dirContents.length,
+            firstFewFiles: dirContents.slice(0, 5),
           });
         } catch (err) {
           log.warn("Could not read clone directory", {
@@ -417,7 +417,7 @@ export class GitService implements GitServiceInterface {
       log.error("Error during git clone", {
         error: getErrorMessage(error as any),
         stack: error instanceof Error ? (error as any).stack : undefined,
-        repoUrl: (options as unknown).repoUrl,
+        repoUrl: options.repoUrl,
         workdir,
       });
       throw new MinskyError(`Failed to clone git repository: ${getErrorMessage(error as any)}`);
@@ -426,24 +426,24 @@ export class GitService implements GitServiceInterface {
 
   async branch(options: BranchOptions): Promise<BranchResult> {
     await this.ensureBaseDir();
-    log.debug("Getting session for branch", { session: (options as unknown).session });
+    log.debug("Getting session for branch", { session: options.session });
 
-    const record = await (this.sessionDb as unknown).getSession((options as unknown).session);
+    const record = await this.sessionDb.getSession(options.session);
     if (!record) {
-      throw new Error(`Session '${(options as unknown).session}' not found.`);
+      throw new Error(`Session '${options.session}' not found.`);
     }
 
     // Make sure to use the normalized repo name for consistency
-    const repoName = (record as unknown).repoName || normalizeRepoName((record as unknown).repoUrl);
+    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     log.debug("Branch: got repoName", { repoName });
 
-    const workdir = this.getSessionWorkdir((options as unknown).session);
+    const workdir = this.getSessionWorkdir(options.session);
     log.debug("Branch: calculated workdir", { workdir });
 
-    await execAsync(`git -C ${workdir} checkout -b ${(options as unknown).branch}`);
+    await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
     return {
       workdir,
-      branch: (options as unknown).branch,
+      branch: options.branch,
     };
   }
 
@@ -458,12 +458,12 @@ export class GitService implements GitServiceInterface {
   }): Promise<BranchResult> {
     await this.ensureBaseDir();
 
-    const workdir = this.getSessionWorkdir((options as unknown).session);
-    await execAsync(`git -C ${workdir} checkout -b ${(options as unknown).branch}`);
+    const workdir = this.getSessionWorkdir(options.session);
+    await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
 
     return {
       workdir,
-      branch: (options as unknown).branch,
+      branch: options.branch,
     };
   }
 
@@ -472,50 +472,50 @@ export class GitService implements GitServiceInterface {
 
     const deps: PrDependencies = {
       execAsync,
-      getSession: async (name: string) => (this.sessionDb as unknown).getSession(name),
+      getSession: async (name: string) => this.sessionDb.getSession(name),
       getSessionWorkdir: (session: string) => this.getSessionWorkdir(session),
       getSessionByTaskId: async (taskId: string) =>
-        (this.sessionDb as unknown).getSessionByTaskId?.(taskId),
+        this.sessionDb.getSessionByTaskId?.(taskId),
     };
 
-    const result = await this.prWithDependencies(options as unknown, deps);
+    const result = await this.prWithDependencies(options, deps);
 
     try {
-      const workdir = await this.determineWorkingDirectory(options as unknown, deps);
-      const branch = await this.determineCurrentBranch(workdir, options as unknown, deps);
+      const workdir = await this.determineWorkingDirectory(options, deps);
+      const branch = await this.determineCurrentBranch(workdir, options, deps);
 
-      const taskId = await this.determineTaskId(options as unknown, workdir, branch, deps);
+      const taskId = await this.determineTaskId(options, workdir, branch, deps);
 
-      if (taskId && !(options as unknown).noStatusUpdate) {
+      if (taskId && !options.noStatusUpdate) {
         try {
           const taskService = new TaskService({
             workspacePath: workdir,
             backend: "markdown",
           });
 
-          const previousStatus = await (taskService as unknown).getTaskStatus(taskId);
+          const previousStatus = await taskService.getTaskStatus(taskId);
 
-          await (taskService as unknown).setTaskStatus(taskId, TASK_STATUS.IN_REVIEW);
+          await taskService.setTaskStatus(taskId, TASK_STATUS.IN_REVIEW);
 
-          (result as unknown).statusUpdateResult = {
+          result.statusUpdateResult = {
             taskId,
             previousStatus,
             newStatus: TASK_STATUS.IN_REVIEW,
           };
 
-          if ((options as unknown).debug) {
+          if (options.debug) {
             log.debug(
               `Updated task ${taskId} status: ${previousStatus || "unknown"} → ${TASK_STATUS.IN_REVIEW}`
             );
           }
         } catch (error) {
-          if ((options as unknown).debug) {
+          if (options.debug) {
             log.debug(`Failed to update task status: ${getErrorMessage(error as any)}`);
           }
         }
       }
     } catch (error) {
-      if ((options as unknown).debug) {
+      if (options.debug) {
         log.debug(`Task status update skipped: ${getErrorMessage(error as any)}`);
       }
     }
@@ -526,22 +526,22 @@ export class GitService implements GitServiceInterface {
   async prWithDependencies(options: PrOptions, deps: PrDependencies): Promise<PrResult> {
     await this.ensureBaseDir();
 
-    const workdir = await this.determineWorkingDirectory(options as unknown, deps);
+    const workdir = await this.determineWorkingDirectory(options, deps);
 
-    if ((options as unknown).debug) {
+    if (options.debug) {
       log.debug(`Using workdir: ${workdir}`);
     }
 
-    const branch = await this.determineCurrentBranch(workdir, options as unknown, deps);
+    const branch = await this.determineCurrentBranch(workdir, options, deps);
 
-    if ((options as unknown).debug) {
+    if (options.debug) {
       log.debug(`Using branch: ${branch}`);
     }
 
     const { baseBranch, mergeBase, comparisonDescription } =
-      await this.determineBaseBranchAndMergeBase(workdir, branch, options as unknown, deps);
+      await this.determineBaseBranchAndMergeBase(workdir, branch, options, deps);
 
-    if ((options as unknown).debug) {
+    if (options.debug) {
       log.debug(`Using merge base: ${mergeBase}`);
       log.debug(`Comparison: ${comparisonDescription}`);
     }
@@ -561,23 +561,23 @@ export class GitService implements GitServiceInterface {
     options: PrOptions,
     deps: PrDependencies
   ): Promise<string> {
-    if ((options as unknown).repoPath) {
-      return (options as unknown).repoPath;
+    if (options.repoPath) {
+      return options.repoPath;
     }
 
     // Try to resolve session from taskId if provided
-    let sessionName = (options as unknown).session;
-    if (!sessionName && (options as unknown).taskId) {
-      if (!(deps as unknown).getSessionByTaskId) {
+    let sessionName = options.session;
+    if (!sessionName && options.taskId) {
+      if (!deps.getSessionByTaskId) {
         throw new Error("getSessionByTaskId dependency not available");
       }
-      const sessionRecord = await (deps as unknown).getSessionByTaskId((options as unknown).taskId);
+      const sessionRecord = await deps.getSessionByTaskId(options.taskId);
       if (!sessionRecord) {
-        throw new Error(`No session found for task ID "${(options as unknown).taskId}"`);
+        throw new Error(`No session found for task ID "${options.taskId}"`);
       }
-      sessionName = (sessionRecord as unknown).session;
+      sessionName = sessionRecord.session;
       log.debug("Resolved session from task ID", {
-        taskId: (options as unknown).taskId,
+        taskId: options.taskId,
         session: sessionName,
       });
     }
@@ -606,13 +606,13 @@ You need to specify one of these options to identify the target repository:
 `);
     }
 
-    const session = await (deps as unknown).getSession(sessionName);
+    const session = await deps.getSession(sessionName);
     if (!session) {
       const context = (createErrorContext().addCommand("minsky git pr") as unknown).build();
 
       throw new MinskyError(createSessionNotFoundMessage(sessionName, context as unknown));
     }
-    const workdir = (deps as unknown).getSessionWorkdir(sessionName);
+    const workdir = deps.getSessionWorkdir(sessionName);
 
     log.debug("Using workdir for PR", { workdir, session: sessionName });
     return workdir;
@@ -623,12 +623,12 @@ You need to specify one of these options to identify the target repository:
     options: PrOptions,
     deps: PrDependencies
   ): Promise<string> {
-    if ((options as unknown).branch) {
-      log.debug("Using specified branch for PR", { branch: (options as unknown).branch });
-      return (options as unknown).branch;
+    if (options.branch) {
+      log.debug("Using specified branch for PR", { branch: options.branch });
+      return options.branch;
     }
 
-    const { stdout } = await (deps as unknown).execAsync(`git -C ${workdir} branch --show-current`);
+    const { stdout } = await deps.execAsync(`git -C ${workdir} branch --show-current`);
     const branch = (stdout as unknown).trim();
 
     log.debug("Using current branch for PR", { branch });
@@ -643,7 +643,7 @@ You need to specify one of these options to identify the target repository:
   ): Promise<string> {
     // Try to get the remote HEAD branch
     try {
-      const { stdout } = await (deps as unknown).execAsync(
+      const { stdout } = await deps.execAsync(
         `git -C ${workdir} symbolic-ref refs/remotes/origin/HEAD --short`
       );
       const baseBranch = ((stdout as unknown).trim() as unknown).replace("origin/", "");
@@ -658,7 +658,7 @@ You need to specify one of these options to identify the target repository:
 
     // Try to get the upstream branch
     try {
-      const { stdout } = await (deps as unknown).execAsync(
+      const { stdout } = await deps.execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref ${branch}@{upstream}`
       );
       const baseBranch = ((stdout as unknown).trim() as unknown).replace("origin/", "");
@@ -673,7 +673,7 @@ You need to specify one of these options to identify the target repository:
 
     // Check if main exists
     try {
-      await (deps as unknown).execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/main`);
+      await deps.execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/main`);
       log.debug("Using main as base branch");
       return "main";
     } catch (err) {
@@ -684,7 +684,7 @@ You need to specify one of these options to identify the target repository:
 
     // Check if master exists
     try {
-      await (deps as unknown).execAsync(
+      await deps.execAsync(
         `git -C ${workdir} show-ref --verify refs/remotes/origin/master`
       );
       log.debug("Using master as base branch");
@@ -705,7 +705,7 @@ You need to specify one of these options to identify the target repository:
     options: PrOptions,
     deps: PrDependencies
   ): Promise<{ baseBranch: string; mergeBase: string; comparisonDescription: string }> {
-    const baseBranch = await this.findBaseBranch(workdir, branch, options as unknown, deps);
+    const baseBranch = await this.findBaseBranch(workdir, branch, options, deps);
     log.debug("Using base branch for PR", { baseBranch });
 
     let mergeBase: string;
@@ -713,7 +713,7 @@ You need to specify one of these options to identify the target repository:
 
     try {
       // Find common ancestor of the current branch and the base branch
-      const { stdout } = await (deps as unknown).execAsync(
+      const { stdout } = await deps.execAsync(
         `git -C ${workdir} merge-base origin/${baseBranch} ${branch}`
       );
       mergeBase = (stdout as unknown).trim();
@@ -728,7 +728,7 @@ You need to specify one of these options to identify the target repository:
 
       // If merge-base fails, get the first commit of the branch
       try {
-        const { stdout } = await (deps as unknown).execAsync(
+        const { stdout } = await deps.execAsync(
           `git -C ${workdir} rev-list --max-parents=0 HEAD`
         );
         mergeBase = (stdout as unknown).trim();
@@ -929,7 +929,7 @@ You need to specify one of these options to identify the target repository:
     deps: PrDependencies
   ): Promise<string> {
     try {
-      const { stdout } = await (deps as unknown).execAsync(
+      const { stdout } = await deps.execAsync(
         `git -C ${workdir} log --oneline ${mergeBase}..${branch}`,
         { maxBuffer: 1024 * 1024 }
       );
@@ -954,14 +954,14 @@ You need to specify one of these options to identify the target repository:
 
     try {
       // Get modified files in name-status format for processing
-      const { stdout: nameStatus } = await (deps as unknown).execAsync(
+      const { stdout: nameStatus } = await deps.execAsync(
         `git -C ${workdir} diff --name-status ${mergeBase} ${branch}`,
         { maxBuffer: 1024 * 1024 }
       );
       diffNameStatus = nameStatus;
 
       // Get name-only format for display
-      const { stdout: nameOnly } = await (deps as unknown).execAsync(
+      const { stdout: nameOnly } = await deps.execAsync(
         `git -C ${workdir} diff --name-only ${mergeBase}..${branch}`,
         { maxBuffer: 1024 * 1024 }
       );
@@ -985,7 +985,7 @@ You need to specify one of these options to identify the target repository:
 
     try {
       // Get uncommitted changes
-      const { stdout } = await (deps as unknown).execAsync(`git -C ${workdir} diff --name-status`, {
+      const { stdout } = await deps.execAsync(`git -C ${workdir} diff --name-status`, {
         maxBuffer: 1024 * 1024,
       });
       uncommittedChanges = stdout;
@@ -995,7 +995,7 @@ You need to specify one of these options to identify the target repository:
 
     try {
       // Get untracked files
-      const { stdout } = await (deps as unknown).execAsync(
+      const { stdout } = await deps.execAsync(
         `git -C ${workdir} ls-files --others --exclude-standard`,
         { maxBuffer: 1024 * 1024 }
       );
@@ -1022,7 +1022,7 @@ You need to specify one of these options to identify the target repository:
 
     try {
       // Try to get diff stats from git
-      const { stdout: statOutput } = await (deps as unknown).execAsync(
+      const { stdout: statOutput } = await deps.execAsync(
         `git -C ${workdir} diff --stat ${mergeBase}..${branch}`,
         { maxBuffer: 1024 * 1024 }
       );
@@ -1223,19 +1223,19 @@ You need to specify one of these options to identify the target repository:
     await this.ensureBaseDir();
     let workdir: string;
     let branch: string;
-    const remote = (options as unknown).remote || "origin";
+    const remote = options.remote || "origin";
 
     // 1. Resolve workdir
-    if ((options as unknown).session) {
-      const record = await (this.sessionDb as unknown).getSession((options as unknown).session);
+    if (options.session) {
+      const record = await this.sessionDb.getSession(options.session);
       if (!record) {
-        throw new Error(`Session '${(options as unknown).session}' not found.`);
+        throw new Error(`Session '${options.session}' not found.`);
       }
-      const repoName = (record as unknown).repoName || normalizeRepoName((record as unknown).repoUrl);
-      workdir = this.getSessionWorkdir((options as unknown).session);
-      branch = (options as unknown).session; // Session branch is named after the session
-    } else if ((options as unknown).repoPath) {
-      workdir = (options as unknown).repoPath;
+      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+      workdir = this.getSessionWorkdir(options.session);
+      branch = options.session; // Session branch is named after the session
+    } else if (options.repoPath) {
+      workdir = options.repoPath;
       // Get current branch from repo
       const { stdout: branchOut } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
@@ -1260,7 +1260,7 @@ You need to specify one of these options to identify the target repository:
 
     // 3. Build push command
     let pushCmd = `git -C ${workdir} push ${remote} ${branch}`;
-    if ((options as unknown).force) {
+    if (options.force) {
       pushCmd += " --force";
     }
 
@@ -1294,14 +1294,14 @@ You need to specify one of these options to identify the target repository:
     deps: PrDependencies
   ): Promise<string | undefined> {
     // 1. Use taskId directly from options if available
-    if ((options as unknown).taskId) {
-      log.debug("Using provided task ID", { taskId: (options as unknown).taskId });
-      return (options as unknown).taskId;
+    if (options.taskId) {
+      log.debug("Using provided task ID", { taskId: options.taskId });
+      return options.taskId;
     }
 
     // 2. Try to get taskId from session
-    if ((options as unknown).session) {
-      const session = await (deps as unknown).getSession((options as unknown).session);
+    if (options.session) {
+      const session = await deps.getSession(options.session);
       if (session && (session as unknown).taskId) {
         log.debug("Found task ID in session metadata", { taskId: (session as unknown).taskId });
         return (session as unknown).taskId;
@@ -1346,26 +1346,26 @@ You need to specify one of these options to identify the target repository:
   async preparePr(options: PreparePrOptions): Promise<PreparePrResult> {
     let workdir: string;
     let sourceBranch: string;
-    const baseBranch = (options as unknown).baseBranch || "main";
+    const baseBranch = options.baseBranch || "main";
 
     // Add debugging for session lookup
-    if ((options as unknown).session) {
-      log.debug(`Attempting to look up session in database: ${(options as unknown).session}`);
+    if (options.session) {
+      log.debug(`Attempting to look up session in database: ${options.session}`);
     }
 
     // Determine working directory and current branch
-    if ((options as unknown).session) {
-      let record = await (this.sessionDb as unknown).getSession((options as unknown).session);
+    if (options.session) {
+      let record = await this.sessionDb.getSession(options.session);
 
       // Add more detailed debugging
       log.debug(
-        `Session database lookup result: ${(options as unknown).session}, found: ${!!record}, recordData: ${record ? JSON.stringify({ repoName: (record as unknown).repoName, repoUrl: (record as unknown).repoUrl, taskId: (record as unknown).taskId }) : "null"}`
+        `Session database lookup result: ${options.session}, found: ${!!record}, recordData: ${record ? JSON.stringify({ repoName: record.repoName, repoUrl: record.repoUrl, taskId: record.taskId }) : "null"}`
       );
 
       // TASK #168 FIX: Implement session self-repair for preparePr
       if (!record) {
         log.debug("Session not found in database, attempting self-repair in preparePr", {
-          session: (options as unknown).session,
+          session: options.session,
         });
 
         // Check if we're currently in a session workspace directory
@@ -1377,9 +1377,9 @@ You need to specify one of these options to identify the target repository:
           const sessionNameFromPath = pathParts[sessionsIndex + 1];
 
           // If the session name matches the one we're looking for, attempt self-repair
-          if (sessionNameFromPath === (options as unknown).session) {
+          if (sessionNameFromPath === options.session) {
             log.debug("Attempting to register orphaned session in preparePr", {
-              session: (options as unknown).session,
+              session: options.session,
               currentDir,
             });
 
@@ -1394,41 +1394,41 @@ You need to specify one of these options to identify the target repository:
 
               // Create session record
               const newSessionRecord: SessionRecord = {
-                session: (options as unknown).session,
+                session: options.session,
                 repoUrl: (repoUrl as unknown).trim(),
                 repoName,
                 createdAt: (new Date() as unknown).toISOString(),
                 taskId,
-                branch: (options as unknown).session,
+                branch: options.session,
               };
 
               // Register the session
-              await (this.sessionDb as unknown).addSession(newSessionRecord);
+              await this.sessionDb.addSession(newSessionRecord);
               record = newSessionRecord;
 
               log.debug("Successfully registered orphaned session in preparePr", {
-                session: (options as unknown).session,
+                session: options.session,
                 repoUrl: (repoUrl as unknown).trim(),
                 taskId,
               });
             } catch (selfRepairError) {
               log.debug("Session self-repair failed in preparePr", {
-                session: (options as unknown).session,
+                session: options.session,
                 error: selfRepairError,
               });
 
               // Before throwing error, let's try to understand what sessions are in the database
               try {
-                const allSessions = await (this.sessionDb as unknown).listSessions();
+                const allSessions = await this.sessionDb.listSessions();
                 log.debug(
-                  `All sessions in database: count=${(allSessions as unknown).length}, sessionNames=${((allSessions.map((s) => s.session as unknown) as unknown).slice(0, 10) as unknown).join(", ")}, searchedFor=${(options as unknown).session}`
+                  `All sessions in database: count=${(allSessions as unknown).length}, sessionNames=${((allSessions.map((s) => s.session as unknown) as unknown).slice(0, 10) as unknown).join(", ")}, searchedFor=${options.session}`
                 );
               } catch (listError) {
                 log.error(`Failed to list sessions for debugging: ${listError}`);
               }
 
               throw new MinskyError(`
-🔍 Session "${(options as unknown).session}" Not Found in Database
+🔍 Session "${options.session}" Not Found in Database
 
 The session exists in the file system but isn't registered in the session database.
 This can happen when sessions are created outside of Minsky or the database gets out of sync.
@@ -1440,10 +1440,10 @@ This can happen when sessions are created outside of Minsky or the database gets
 
 🔄 If session exists, re-register it:
    cd /path/to/main/workspace
-   minsky sessions import "${(options as unknown).session}"
+   minsky sessions import "${options.session}"
 
 🆕 Or create a fresh session:
-   minsky session start ${(options as unknown).session}
+   minsky session start ${options.session}
 
 📁 Alternative - use repository path directly:
    minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
@@ -1460,16 +1460,16 @@ Session requested: "${(options as any).session}"
           } else {
             // Before throwing error, let's try to understand what sessions are in the database
             try {
-              const allSessions = await (this.sessionDb as unknown).listSessions();
+              const allSessions = await this.sessionDb.listSessions();
               log.debug(
-                `All sessions in database: count=${(allSessions as unknown).length}, sessionNames=${((allSessions.map((s) => s.session as unknown) as unknown).slice(0, 10) as unknown).join(", ")}, searchedFor=${(options as unknown).session}`
+                `All sessions in database: count=${(allSessions as unknown).length}, sessionNames=${((allSessions.map((s) => s.session as unknown) as unknown).slice(0, 10) as unknown).join(", ")}, searchedFor=${options.session}`
               );
             } catch (listError) {
               log.error(`Failed to list sessions for debugging: ${listError}`);
             }
 
             throw new MinskyError(`
-🔍 Session "${(options as unknown).session}" Not Found in Database
+🔍 Session "${options.session}" Not Found in Database
 
 The session exists in the file system but isn't registered in the session database.
 This can happen when sessions are created outside of Minsky or the database gets out of sync.
@@ -1481,10 +1481,10 @@ This can happen when sessions are created outside of Minsky or the database gets
 
 🔄 If session exists, re-register it:
    cd /path/to/main/workspace
-   minsky sessions import "${(options as unknown).session}"
+   minsky sessions import "${options.session}"
 
 🆕 Or create a fresh session:
-   minsky session start ${(options as unknown).session}
+   minsky session start ${options.session}
 
 📁 Alternative - use repository path directly:
    minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
@@ -1501,16 +1501,16 @@ Session requested: "${(options as any).session}"
         } else {
           // Before throwing error, let's try to understand what sessions are in the database
           try {
-            const allSessions = await (this.sessionDb as unknown).listSessions();
+            const allSessions = await this.sessionDb.listSessions();
             log.debug(
-              `All sessions in database: count=${(allSessions as unknown).length}, sessionNames=${((allSessions.map((s) => s.session as unknown) as unknown).slice(0, 10) as unknown).join(", ")}, searchedFor=${(options as unknown).session}`
+              `All sessions in database: count=${(allSessions as unknown).length}, sessionNames=${((allSessions.map((s) => s.session as unknown) as unknown).slice(0, 10) as unknown).join(", ")}, searchedFor=${options.session}`
             );
           } catch (listError) {
             log.error(`Failed to list sessions for debugging: ${listError}`);
           }
 
           throw new MinskyError(`
-🔍 Session "${(options as unknown).session}" Not Found in Database
+🔍 Session "${options.session}" Not Found in Database
 
 The session exists in the file system but isn't registered in the session database.
 This can happen when sessions are created outside of Minsky or the database gets out of sync.
@@ -1522,10 +1522,10 @@ This can happen when sessions are created outside of Minsky or the database gets
 
 🔄 If session exists, re-register it:
    cd /path/to/main/workspace
-   minsky sessions import "${(options as unknown).session}"
+   minsky sessions import "${options.session}"
 
 🆕 Or create a fresh session:
-   minsky session start ${(options as unknown).session}
+   minsky session start ${options.session}
 
 📁 Alternative - use repository path directly:
    minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
@@ -1540,15 +1540,15 @@ Session requested: "${(options as any).session}"
 `);
         }
       }
-      const repoName = (record as unknown).repoName || normalizeRepoName((record as unknown).repoUrl);
-      workdir = this.getSessionWorkdir((options as unknown).session);
+      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+      workdir = this.getSessionWorkdir(options.session);
       // Get current branch from repo instead of assuming session name is branch name
       const { stdout: branchOut } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
       sourceBranch = (branchOut as unknown).trim();
-    } else if ((options as unknown).repoPath) {
-      workdir = (options as unknown).repoPath;
+    } else if (options.repoPath) {
+      workdir = options.repoPath;
       // Get current branch from repo
       const { stdout: branchOut } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
@@ -1566,13 +1566,13 @@ Session requested: "${(options as any).session}"
 
     // Create PR branch name with pr/ prefix - always use the current git branch name
     // Fix for task #95: Don't use title for branch naming
-    const prBranchName = (options as unknown).branchName || sourceBranch;
+    const prBranchName = options.branchName || sourceBranch;
     const prBranch = `pr/${prBranchName}`;
 
     log.debug("Creating PR branch using git branch as basis", {
       sourceBranch,
       prBranch,
-      usedProvidedBranchName: Boolean((options as unknown).branchName),
+      usedProvidedBranchName: Boolean(options.branchName),
     });
 
     // Verify base branch exists
@@ -1623,9 +1623,9 @@ Session requested: "${(options as any).session}"
     // Create commit message file for merge commit (Task #025)
     const commitMsgFile = `${workdir}/.pr_title`;
     try {
-      let commitMessage = (options as unknown).title || `Merge ${sourceBranch} into ${prBranch}`;
-      if ((options as unknown).body) {
-        commitMessage += `\n\n${(options as unknown).body}`;
+      let commitMessage = options.title || `Merge ${sourceBranch} into ${prBranch}`;
+      if (options.body) {
+        commitMessage += `\n\n${options.body}`;
       }
 
       // CRITICAL BUG FIX: Improve commit message file handling
@@ -1735,8 +1735,8 @@ Session requested: "${(options as any).session}"
     return {
       prBranch,
       baseBranch,
-      title: (options as unknown).title,
-      body: (options as unknown).body,
+      title: options.title,
+      body: options.body,
     };
   }
 
@@ -1757,18 +1757,18 @@ Session requested: "${(options as any).session}"
 
   async mergePr(options: MergePrOptions): Promise<MergePrResult> {
     let workdir: string;
-    const baseBranch = (options as unknown).baseBranch || "main";
+    const baseBranch = options.baseBranch || "main";
 
     // 1. Determine working directory
-    if ((options as unknown).session) {
-      const record = await (this.sessionDb as unknown).getSession((options as unknown).session);
+    if (options.session) {
+      const record = await this.sessionDb.getSession(options.session);
       if (!record) {
-        throw new Error(`Session '${(options as unknown).session}' not found.`);
+        throw new Error(`Session '${options.session}' not found.`);
       }
-      const repoName = (record as unknown).repoName || normalizeRepoName((record as unknown).repoUrl);
-      workdir = this.getSessionWorkdir((options as unknown).session);
-    } else if ((options as unknown).repoPath) {
-      workdir = (options as unknown).repoPath;
+      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+      workdir = this.getSessionWorkdir(options.session);
+    } else if (options.repoPath) {
+      workdir = options.repoPath;
     } else {
       // Try to infer from current directory
       workdir = (process as any).cwd();
@@ -2044,8 +2044,8 @@ Session requested: "${(options as any).session}"
   ): Promise<CloneResult> {
     await (deps as unknown).mkdir(this.baseDir, { recursive: true });
 
-    const session = (options as unknown).session || this.generateSessionId();
-    const repoName = normalizeRepoName((options as unknown).repoUrl);
+    const session = options.session || this.generateSessionId();
+    const repoName = normalizeRepoName(options.repoUrl);
     const normalizedRepoName = (repoName as unknown).replace(/[^a-zA-Z0-9-_]/g, "-");
 
     const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
@@ -2055,7 +2055,7 @@ Session requested: "${(options as any).session}"
 
     try {
       // Validate repo URL
-      if (!(options as unknown).repoUrl || (options.repoUrl as unknown).trim() === "") {
+      if (!options.repoUrl || options.repoUrl.trim() === "") {
         throw new Error("Repository URL is required for cloning");
       }
 
@@ -2071,7 +2071,7 @@ Session requested: "${(options as any).session}"
       }
 
       // Clone the repository
-      const cloneCmd = `git clone ${(options as unknown).repoUrl} ${workdir}`;
+      const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
       await (deps as unknown).execAsync(cloneCmd);
 
       // Verify the clone was successful by checking for .git directory
@@ -2095,17 +2095,17 @@ Session requested: "${(options as any).session}"
     options: BranchOptions,
     deps: PrDependencies
   ): Promise<BranchResult> {
-    const record = await (deps as unknown).getSession((options as unknown).session);
+    const record = await (deps as unknown).getSession(options.session);
     if (!record) {
-      throw new Error(`Session '${(options as unknown).session}' not found.`);
+      throw new Error(`Session '${options.session}' not found.`);
     }
 
-    const workdir = (deps as unknown).getSessionWorkdir((options as unknown).session);
+    const workdir = (deps as unknown).getSessionWorkdir(options.session);
 
-    await (deps as unknown).execAsync(`git -C ${workdir} checkout -b ${(options as unknown).branch}`);
+    await (deps as unknown).execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
     return {
       workdir,
-      branch: (options as unknown).branch,
+      branch: options.branch,
     };
   }
 
@@ -2115,18 +2115,18 @@ Session requested: "${(options as any).session}"
   async pushWithDependencies(options: PushOptions, deps: PrDependencies): Promise<PushResult> {
     let workdir: string;
     let branch: string;
-    const remote = (options as unknown).remote || "origin";
+    const remote = options.remote || "origin";
 
     // 1. Resolve workdir
-    if ((options as unknown).session) {
-      const record = await (deps as unknown).getSession((options as unknown).session);
+    if (options.session) {
+      const record = await (deps as unknown).getSession(options.session);
       if (!record) {
-        throw new Error(`Session '${(options as unknown).session}' not found.`);
+        throw new Error(`Session '${options.session}' not found.`);
       }
-      workdir = (deps as unknown).getSessionWorkdir((options as unknown).session);
-      branch = (options as unknown).session; // Session branch is named after the session
-    } else if ((options as unknown).repoPath) {
-      workdir = (options as unknown).repoPath;
+      workdir = (deps as unknown).getSessionWorkdir(options.session);
+      branch = options.session; // Session branch is named after the session
+    } else if (options.repoPath) {
+      workdir = options.repoPath;
       // Get current branch from repo
       const { stdout: branchOut } = await (deps as unknown).execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
@@ -2151,7 +2151,7 @@ Session requested: "${(options as any).session}"
 
     // 3. Build push command
     let pushCmd = `git -C ${workdir} push ${remote} ${branch}`;
-    if ((options as unknown).force) {
+    if (options.force) {
       pushCmd += " --force";
     }
 
@@ -2274,20 +2274,20 @@ export async function createPullRequestFromParams(params: {
   try {
     const git = new GitService();
     const result = await git.pr({
-      session: (params as unknown).session,
-      repoPath: (params as unknown).repo,
-      branch: (params as unknown).branch,
-      taskId: (params as unknown).taskId,
-      debug: (params as unknown).debug,
-      noStatusUpdate: (params as unknown).noStatusUpdate,
+      session: params.session,
+      repoPath: params.repo,
+      branch: params.branch,
+      taskId: params.taskId,
+      debug: params.debug,
+      noStatusUpdate: params.noStatusUpdate,
     });
     return result;
   } catch (error) {
     log.error("Error creating pull request", {
-      session: (params as unknown).session,
-      repo: (params as unknown).repo,
-      branch: (params as unknown).branch,
-      taskId: (params as unknown).taskId,
+      session: params.session,
+      repo: params.repo,
+      branch: params.branch,
+      taskId: params.taskId,
       error: getErrorMessage(error as any),
       stack: error instanceof Error ? (error as any).stack : undefined,
     });
@@ -2356,13 +2356,13 @@ export async function preparePrFromParams(params: {
 }): Promise<PreparePrResult> {
   const git = new GitService();
   return await git.preparePr({
-    session: (params as unknown).session,
-    repoPath: (params as unknown).repo,
-    baseBranch: (params as unknown).baseBranch,
-    title: (params as unknown).title,
-    body: (params as unknown).body,
-    branchName: (params as unknown).branchName,
-    debug: (params as unknown).debug,
+    session: params.session,
+    repoPath: params.repo,
+    baseBranch: params.baseBranch,
+    title: params.title,
+    body: params.body,
+    branchName: params.branchName,
+    debug: params.debug,
   });
 }
 
@@ -2378,18 +2378,18 @@ export async function mergePrFromParams(params: {
   try {
     const git = new GitService();
     const result = await git.mergePr({
-      prBranch: (params as unknown).prBranch,
-      repoPath: (params as unknown).repo,
-      baseBranch: (params as unknown).baseBranch,
-      session: (params as unknown).session,
+      prBranch: params.prBranch,
+      repoPath: params.repo,
+      baseBranch: params.baseBranch,
+      session: params.session,
     });
     return result;
   } catch (error) {
     log.error("Error merging PR branch", {
-      prBranch: (params as unknown).prBranch,
-      baseBranch: (params as unknown).baseBranch,
-      session: (params as unknown).session,
-      repo: (params as any).repo,
+      prBranch: params.prBranch,
+      baseBranch: params.baseBranch,
+      session: params.session,
+      repo: params.repo,
       error: getErrorMessage(error as any),
       stack: error instanceof Error ? (error as any).stack : undefined,
     });
@@ -2409,17 +2409,17 @@ export async function cloneFromParams(params: {
   try {
     const git = new GitService();
     const result = await git.clone({
-      repoUrl: (params as unknown).url,
-      workdir: (params as unknown).workdir,
-      session: (params as unknown).session,
-      branch: (params as unknown).branch,
+      repoUrl: params.url,
+      workdir: params.workdir,
+      session: params.session,
+      branch: params.branch,
     });
     return result;
   } catch (error) {
     log.error("Error cloning repository", {
-      url: (params as unknown).url,
-      session: (params as unknown).session,
-      branch: (params as unknown).branch,
+      url: params.url,
+      session: params.session,
+      branch: params.branch,
       error: getErrorMessage(error as any),
       stack: error instanceof Error ? (error as any).stack : undefined,
     });
@@ -2437,14 +2437,14 @@ export async function branchFromParams(params: {
   try {
     const git = new GitService();
     const result = await (git as unknown).branch({
-      session: (params as unknown).session,
-      branch: (params as unknown).name,
+      session: params.session,
+      branch: params.name,
     });
     return result;
   } catch (error) {
     log.error("Error creating branch", {
-      session: (params as unknown).session,
-      name: (params as any).name,
+      session: params.session,
+      name: params.name,
       error: getErrorMessage(error as any),
       stack: error instanceof Error ? (error as any).stack : undefined,
     });
@@ -2465,19 +2465,19 @@ export async function pushFromParams(params: {
   try {
     const git = new GitService();
     const result = await git.push({
-      session: (params as unknown).session,
-      repoPath: (params as unknown).repo,
-      remote: (params as unknown).remote,
-      force: (params as unknown).force,
-      debug: (params as unknown).debug,
+      session: params.session,
+      repoPath: params.repo,
+      remote: params.remote,
+      force: params.force,
+      debug: params.debug,
     });
     return result;
   } catch (error) {
     log.error("Error pushing changes", {
-      session: (params as unknown).session,
-      repo: (params as unknown).repo,
-      remote: (params as unknown).remote,
-      force: (params as unknown).force,
+      session: params.session,
+      repo: params.repo,
+      remote: params.remote,
+      force: params.force,
       error: getErrorMessage(error as any),
       stack: error instanceof Error ? (error as any).stack : undefined,
     });
