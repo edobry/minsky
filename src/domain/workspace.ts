@@ -192,7 +192,7 @@ export async function resolveWorkspacePath(
   const { access = fs.access } = deps;
 
   // For task operations, always use the main workspace.
-  if ((options as unknown)!.forTaskOperations) {
+  if (options?.forTaskOperations) {
     const sessionInfo = await getSessionFromWorkspace((process as any).cwd());
     if (sessionInfo && (sessionInfo as any)!.upstreamRepository) {
       return resolveMainWorkspaceFromRepoUrl((sessionInfo as unknown)!.upstreamRepository);
@@ -200,31 +200,31 @@ export async function resolveWorkspacePath(
     // If not in a session, or session has no upstream, fall through to normal logic.
   }
 
-  // If workspace path is explicitly provided, use it
-  if ((options as unknown)!.workspace) {
-    // Validate if it's a valid workspace
+  // 1. Check if explicit workspace path provided
+  if (options?.workspace) {
     try {
-      const processDir = join((options as unknown)!.workspace, "process");
-      await access(processDir);
-      return (options as unknown)!.workspace;
-    } catch (error) {
+      await access(options.workspace);
+      return options.workspace;
+    } catch {
+      // If explicit workspace doesn't exist, throw error
       throw new Error(
-        `Invalid workspace path: ${(options as unknown)!.workspace}. Path must be a valid Minsky workspace.`
+        `Invalid workspace path: ${options.workspace}. Path must be a valid Minsky workspace.`
       );
     }
   }
 
-  // For backward compatibility, use sessionRepo if provided
-  if ((options as unknown)!.sessionRepo) {
-    return (options as unknown)!.sessionRepo;
+  // 2. Use session workspace if provided
+  if (options?.sessionWorkspace) {
+    return options.sessionWorkspace;
   }
 
-  // Use current directory or provided session workspace as workspace
-  const checkPath = (options as any)!.sessionWorkspace || (process as any).cwd();
+  // 3. For backward compatibility, use sessionRepo if provided
+  if (options?.sessionRepo) {
+    return options.sessionRepo;
+  }
 
-  // Note: We're no longer redirecting to the upstream repository path when in a session
-  // This allows rules commands to operate on the current directory's rules
-  return checkPath;
+  // 4. Use current directory as workspace
+  return process.cwd();
 }
 
 /**
