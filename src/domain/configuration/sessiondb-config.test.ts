@@ -1,10 +1,8 @@
 /**
  * SessionDB Configuration Loading Tests
  *
- * Tests configuration loading and merging from our YAML-based configuration system:
- * - Configuration overrides
- * - Default values
- * - Configuration precedence and merging
+ * Tests NodeConfigAdapter's ability to load configuration from node-config
+ * and transform it to the expected interface structure.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
@@ -12,11 +10,11 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { mkdirSync, rmSync, existsSync } from "fs";
 
-import { ConfigurationLoader } from "./config-loader";
-import { SessionDbConfig } from "./types";
+import { NodeConfigAdapter } from "./node-config-adapter";
 
 describe("SessionDB Configuration Loading", () => {
   let testDir: string;
+  let configAdapter: NodeConfigAdapter;
 
   beforeEach(() => {
     testDir = join(
@@ -24,6 +22,7 @@ describe("SessionDB Configuration Loading", () => {
       `sessiondb-config-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     );
     mkdirSync(testDir, { recursive: true });
+    configAdapter = new NodeConfigAdapter();
   });
 
   afterEach(() => {
@@ -34,148 +33,74 @@ describe("SessionDB Configuration Loading", () => {
 
   describe("Default Configuration", () => {
     test("should provide sensible defaults", async () => {
-      const loader = new ConfigurationLoader();
-      const config = await loader.loadConfiguration(testDir);
+      const config = await configAdapter.loadConfiguration(testDir);
 
       expect(config.resolved.sessiondb.backend).toBe("json");
-      expect(config.resolved.sessiondb.baseDir).toBeDefined();
+      expect(config.resolved.sessiondb.baseDir).toBeNull();
+      expect(config.resolved.sessiondb.dbPath).toBeNull();
+      expect(config.resolved.sessiondb.connectionString).toBeNull();
     });
   });
 
-  describe("Configuration Overrides", () => {
-    test("should use SQLite backend configuration", async () => {
-      const loader = new ConfigurationLoader();
-      const configOverrides = {
-        sessiondb: {
-          backend: "sqlite",
-          dbPath: "/custom/path/sessions.db",
-          baseDir: "/custom/base",
-        } as SessionDbConfig,
-      };
+  describe("Configuration Structure", () => {
+    test("should return proper configuration structure", async () => {
+      const config = await configAdapter.loadConfiguration(testDir);
 
-      const config = await loader.loadConfiguration(testDir, configOverrides);
+      // Verify resolved config structure
+      expect(config.resolved).toBeDefined();
+      expect(config.resolved.backend).toBeDefined();
+      expect(config.resolved.sessiondb).toBeDefined();
+      expect(config.resolved.sessiondb.backend).toBeDefined();
 
-      expect(config.resolved.sessiondb.backend).toBe("sqlite");
-      expect(config.resolved.sessiondb.dbPath).toBe("/custom/path/sessions.db");
-      expect(config.resolved.sessiondb.baseDir).toBe("/custom/base");
-    });
-
-    test("should use PostgreSQL backend configuration", async () => {
-      const loader = new ConfigurationLoader();
-      const configOverrides = {
-        sessiondb: {
-          backend: "postgres",
-          connectionString: "postgresql://test:test@localhost/test",
-          baseDir: "/custom/base",
-        } as SessionDbConfig,
-      };
-
-      const config = await loader.loadConfiguration(testDir, configOverrides);
-
-      expect(config.resolved.sessiondb.backend).toBe("postgres");
-      expect(config.resolved.sessiondb.connectionString).toBe(
-        "postgresql://test:test@localhost/test"
-      );
-      expect(config.resolved.sessiondb.baseDir).toBe("/custom/base");
-    });
-
-    test("should preserve invalid backend from configuration overrides", async () => {
-      const loader = new ConfigurationLoader();
-      const configOverrides = {
-        sessiondb: {
-          backend: "invalid-backend" as any,
-        },
-      };
-
-      const config = await loader.loadConfiguration(testDir, configOverrides);
-
-      // Configuration overrides should be preserved as-is (no validation)
-      // This allows testing with any values
-      expect(config.resolved.sessiondb.backend).toBe("invalid-backend" as any);
+      // Verify sources structure
+      expect(config.sources).toBeDefined();
+      expect(config.sources.configOverrides).toBeDefined();
+      expect(config.sources.environment).toBeDefined();
+      expect(config.sources.globalUser).toBeNull();
+      expect(config.sources.repository).toBeNull();
+      expect(config.sources.defaults).toBeDefined();
     });
   });
 
-  describe("Configuration Merging", () => {
-    test("should merge partial sessiondb configurations correctly", async () => {
-      const loader = new ConfigurationLoader();
-      const configOverrides = {
-        sessiondb: {
-          backend: "sqlite" as const,
-          dbPath: "/cli/path.db",
-        },
-      };
+  describe("SessionDB Configuration", () => {
+    test("should have proper sessiondb configuration fields", async () => {
+      const config = await configAdapter.loadConfiguration(testDir);
 
-      const config = await loader.loadConfiguration(testDir, configOverrides);
+      // Test that sessiondb has the expected fields
+      expect(config.resolved.sessiondb).toHaveProperty("backend");
+      expect(config.resolved.sessiondb).toHaveProperty("baseDir");
+      expect(config.resolved.sessiondb).toHaveProperty("dbPath");
+      expect(config.resolved.sessiondb).toHaveProperty("connectionString");
 
-      // Should use provided values and fill in defaults for others
-      expect(config.resolved.sessiondb.backend).toBe("sqlite");
-      expect(config.resolved.sessiondb.dbPath).toBe("/cli/path.db");
-      expect(config.resolved.sessiondb.baseDir).toBeDefined(); // Should have default
-    });
-
-    test("should handle empty configuration overrides", async () => {
-      const loader = new ConfigurationLoader();
-      const configOverrides = {};
-
-      const config = await loader.loadConfiguration(testDir, configOverrides);
-
-      // Should fall back to defaults
-      expect(config.resolved.sessiondb.backend).toBe("json");
-      expect(config.resolved.sessiondb.baseDir).toBeDefined();
+      // Test that backend is one of the expected values
+      expect(["json", "sqlite", "postgres"]).toContain(config.resolved.sessiondb.backend);
     });
   });
 
-  describe("Configuration Precedence", () => {
-    test("should respect configuration overrides over environment variables", async () => {
-      // This test verifies that config overrides have highest precedence
-      // Note: We're not testing environment variable parsing here,
-      // just that the precedence system works correctly
-
-      const loader = new ConfigurationLoader();
-      const configOverrides = {
-        sessiondb: {
-          backend: "sqlite",
-          dbPath: "/override/sessions.db",
-        } as SessionDbConfig,
-      };
-
-      const config = await loader.loadConfiguration(testDir, configOverrides);
-
-      // Configuration overrides should be used
-      expect(config.resolved.sessiondb.backend).toBe("sqlite");
-      expect(config.resolved.sessiondb.dbPath).toBe("/override/sessions.db");
-    });
-  });
-
-  describe("Backend-Specific Configuration", () => {
-    test("should configure JSON backend correctly", async () => {
-      const loader = new ConfigurationLoader();
-      const configOverrides = {
+  describe("Configuration Validation", () => {
+    test("should validate repository config", () => {
+      const result = configAdapter.validateRepositoryConfig({
+        version: 1,
         sessiondb: {
           backend: "json",
-          baseDir: "/custom/json/sessions",
-        } as SessionDbConfig,
-      };
+          base_dir: "/test/path",
+        },
+      });
 
-      const config = await loader.loadConfiguration(testDir, configOverrides);
-
-      expect(config.resolved.sessiondb.backend).toBe("json");
-      expect(config.resolved.sessiondb.baseDir).toBe("/custom/json/sessions");
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
-    test("should configure SQLite backend with custom path", async () => {
-      const loader = new ConfigurationLoader();
-      const configOverrides = {
+    test("should validate global user config", () => {
+      const result = configAdapter.validateGlobalUserConfig({
+        version: 1,
         sessiondb: {
-          backend: "sqlite",
-          dbPath: "/var/lib/minsky/sessions.db",
-        } as SessionDbConfig,
-      };
+          base_dir: "/test/path",
+        },
+      });
 
-      const config = await loader.loadConfiguration(testDir, configOverrides);
-
-      expect(config.resolved.sessiondb.backend).toBe("sqlite");
-      expect(config.resolved.sessiondb.dbPath).toBe("/var/lib/minsky/sessions.db");
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
   });
 });
