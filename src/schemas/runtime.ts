@@ -112,6 +112,61 @@ export const cliOptionsSchema = z.object({
 });
 
 /**
+ * MCP Command Request schema
+ */
+export const mcpCommandRequestSchema = z.object({
+  commandId: z.string(),
+  parameters: z.record(z.string(), z.any()),
+  mcpContext: z.record(z.string(), z.any()).optional(),
+  debug: z.boolean().optional(),
+  format: z.string().optional(),
+});
+
+/**
+ * MCP Command Response schema
+ */
+export const mcpCommandResponseSchema = z.object({
+  success: z.boolean(),
+  result: z.any().optional(),
+  error: z.object({
+    message: z.string(),
+    type: z.string().optional(),
+    details: z.any().optional(),
+    stack: z.string().optional(),
+  }).optional(),
+});
+
+/**
+ * Parameter definition schema for validation
+ */
+export const parameterDefinitionSchema = z.object({
+  schema: z.any(), // Zod schema
+  required: z.boolean().optional(),
+  defaultValue: z.any().optional(),
+  description: z.string().optional(),
+});
+
+/**
+ * Zod parse result schema
+ */
+export const zodParseResultSchema = z.union([
+  z.object({
+    success: z.literal(true),
+    data: z.any(),
+  }),
+  z.object({
+    success: z.literal(false),
+    error: z.object({
+      errors: z.array(z.object({
+        message: z.string(),
+        code: z.string().optional(),
+        path: z.array(z.union([z.string(), z.number()])).optional(),
+      })),
+    }),
+  }),
+]);
+
+/**
  * Type definitions for runtime schemas
  */
 export type BunRuntime = z.infer<typeof bunRuntimeSchema>;
@@ -122,6 +177,10 @@ export type ExecResult = z.infer<typeof execResultSchema>;
 export type CommandDefinition = z.infer<typeof commandDefinitionSchema>;
 export type CommandRegistry = z.infer<typeof commandRegistrySchema>;
 export type CliOptions = z.infer<typeof cliOptionsSchema>;
+export type McpCommandRequest = z.infer<typeof mcpCommandRequestSchema>;
+export type McpCommandResponse = z.infer<typeof mcpCommandResponseSchema>;
+export type ParameterDefinition = z.infer<typeof parameterDefinitionSchema>;
+export type ZodParseResult = z.infer<typeof zodParseResultSchema>;
 
 /**
  * Utility function to safely validate Bun runtime
@@ -286,4 +345,50 @@ export function validateCliOptions(options: unknown): CliOptions {
   
   // Return empty object if validation fails
   return {};
+} 
+
+/**
+ * Validate MCP command request
+ */
+export function validateMcpCommandRequest(request: unknown): McpCommandRequest {
+  const result = mcpCommandRequestSchema.safeParse(request);
+  if (result.success) {
+    return result.data;
+  }
+  
+  throw new Error(`Invalid MCP command request: ${result.error.message}`);
+}
+
+/**
+ * Validate parameter definition
+ */
+export function validateParameterDefinition(paramDef: unknown): ParameterDefinition {
+  const result = parameterDefinitionSchema.safeParse(paramDef);
+  if (result.success) {
+    return result.data;
+  }
+  
+  // Create fallback with minimal schema
+  return {
+    schema: z.any(),
+    required: false,
+  };
+}
+
+/**
+ * Validate Zod parse result
+ */
+export function validateZodParseResult(parseResult: unknown): ZodParseResult {
+  const result = zodParseResultSchema.safeParse(parseResult);
+  if (result.success) {
+    return result.data;
+  }
+  
+  // Return failure result if validation fails
+  return {
+    success: false,
+    error: {
+      errors: [{ message: "Invalid parse result structure" }],
+    },
+  };
 } 
