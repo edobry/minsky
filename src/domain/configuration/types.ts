@@ -172,11 +172,8 @@ export interface ValidationWarning {
 
 export type CredentialSource = "environment" | "file" | "prompt";
 
-export interface ConfigurationService {
-  loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult>;
-  validateRepositoryConfig(_config: RepositoryConfig): ValidationResult;
-  validateGlobalUserConfig(_config: GlobalUserConfig): ValidationResult;
-}
+// ConfigurationService interface removed - use direct config.get() instead
+// For validation, use the functions from config-schemas.ts
 
 export interface CredentialManager {
   getCredential(_service: "github"): Promise<string | undefined>;
