@@ -20,26 +20,30 @@ This rule serves as the **primary entry point** for all testing guidance in the 
 
 ## Test Architecture Overview (Task #270)
 
-**Key Principle: Tests are organized by architectural layer, not interface type**
+**Key Principle: Tests are co-located with their modules following standard TypeScript conventions**
 
 ```
-__tests__/
+src/
 ├── domain/
-│   └── commands/         # *FromParams function tests (business logic)
-├── adapters/             # Interface-specific tests  
-│   ├── cli/              # CLI adapter tests
-│   ├── mcp/              # MCP adapter tests
-│   └── shared/           # Shared adapter tests
-└── [other categories]
-
-src/domain/__tests__/     # Domain service tests (existing location)
+│   ├── session.ts
+│   ├── session.test.ts              # Domain service tests
+│   ├── session.commands.test.ts     # Domain command tests
+│   └── tests/                       # Complex integration tests only
+├── adapters/
+│   ├── cli/
+│   │   ├── session.ts
+│   │   └── session.adapter.test.ts  # CLI adapter tests
+│   └── mcp/
+│       ├── session.ts
+│       └── session.adapter.test.ts  # MCP adapter tests
 ```
 
 **Quick Decision Guide:**
-- Testing `*FromParams` functions? → `__tests__/domain/commands/`
-- Testing domain services? → `src/domain/__tests__/`
-- Testing command registration? → `__tests__/adapters/`
-- Testing interface formatting? → `__tests__/adapters/[interface]/`
+- Testing domain services? → Co-locate: `src/domain/[module].test.ts`
+- Testing `*FromParams` functions? → Co-locate: `src/domain/[module].commands.test.ts`
+- Testing CLI adapters? → Co-locate: `src/adapters/cli/[module].adapter.test.ts`
+- Testing MCP adapters? → Co-locate: `src/adapters/mcp/[module].adapter.test.ts`
+- Complex integration tests? → Use `tests/` directories when co-location doesn't fit
 
 ## Rule Relationships
 
