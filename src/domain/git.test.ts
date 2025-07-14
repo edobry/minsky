@@ -12,11 +12,11 @@ import {
   setupTestMocks,
   mockModule,
   createMockFileSystem,
-} from "../utils/test-utils/mocking.js";
+} from "../utils/test-utils/mocking";
 import {
   expectToHaveBeenCalled,
   expectToHaveBeenCalledWith,
-} from "../utils/test-utils/assertions.js";
+} from "../utils/test-utils/assertions";
 import { createGitService } from "./git";
 import { commitChangesFromParams, pushFromParams } from "./git";
 

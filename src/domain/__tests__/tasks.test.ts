@@ -12,10 +12,10 @@ import {
   setTaskStatusFromParams,
   type Task,
   TASK_STATUS,
-} from "../tasks.js";
-import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
-import { expectToBeInstanceOf } from "../../utils/test-utils/assertions.js";
-import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.js";
+} from "../tasks";
+import { ValidationError, ResourceNotFoundError } from "../../errors/index";
+import { expectToBeInstanceOf } from "../../utils/test-utils/assertions";
+import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
 
 const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
 
@@ -183,6 +183,8 @@ describe("interface-agnostic task functions", () => {
       try {
         await getTaskStatusFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
       }
     });
   });
@@ -216,8 +218,6 @@ describe("interface-agnostic task functions", () => {
       try {
         await setTaskStatusFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
-      } catch (e) {
-        expectToBeInstanceOf(e, ValidationError);
       } catch (e) {
         expectToBeInstanceOf(e, ValidationError);
       }

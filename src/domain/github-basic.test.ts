@@ -6,7 +6,7 @@
  * This test suite will be reimplemented after improving the test utilities.
  */
 import { describe, test, expect } from "bun:test";
-import { GitHubBackend } from "../repository/github.js";
+import { GitHubBackend } from "../repository/github";
 describe("GitHub Basic Functionality", () => {
   test("initializes with correct repository URL", () => {
     const repoUrl = "https://github.com/username/repo.git";

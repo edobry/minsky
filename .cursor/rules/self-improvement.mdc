@@ -1,8 +1,3 @@
----
-description: REQUIRED when user signals error, confusion, dissatisfaction, or expresses preferences for future behavior
-globs:
-alwaysApply: false
----
 
 # Self-Improvement
 
@@ -228,9 +223,55 @@ This rule MUST be applied whenever:
 5. The user asks you to do something differently
 6. Your action results in an error
 
-## ⚠️ Critical Variable Naming Protocol
+## ⚠️ Critical PR Creation Protocol
 
-For variable naming enforcement protocols, see [variable-naming-protocol](mdc:.cursor/rules/variable-naming-protocol.mdc).
+**Addresses repeated failures in PR creation workflow**
+
+### Documented PR Creation Failures
+
+**Pattern 1: Committing PR Description Files**
+- **Error**: Creating and committing `pr-description.md` files to repository
+- **User Signal**: "dont make the file in the repo, it shouldnt be committed, since when is it standard practice to commit a file w a prr description"
+- **Root Cause**: Process Error - wrong methodology for PR descriptions
+- **Correct Approach**: Use `--body` parameter with heredoc or tmp directory, never commit PR description files
+
+**Pattern 2: Title Duplication in PR Body**
+- **Error**: Putting title in BOTH `--title` parameter AND as first line of `--body` content
+- **User Signal**: "JFC DO YOU NOT SEE YOU'RE DUPLICATING THE TITLE"
+- **Root Cause**: Pattern Error - failed to understand title/body separation
+- **Correct Approach**: Title only in `--title`, body starts with `## Summary` (no title duplication)
+
+**Pattern 3: Wrong Task Content in PR**
+- **Error**: Using Task #214 content for Task #272 PR
+- **User Signal**: "you duplicated the feat(#214): implement session-ID-based storage architecture line"
+- **Root Cause**: Instruction Error - misunderstood user correction about duplication
+- **Correct Approach**: Match PR content exactly to current task, verify task numbers align
+
+### Mandatory PR Creation Verification
+
+**Before any PR creation, verify:**
+- [ ] Using `--body` parameter or tmp directory (never commit PR description files)
+- [ ] Title only in `--title` parameter (not duplicated in body)
+- [ ] Body content starts with `## Summary` (no title header)
+- [ ] PR content matches current task number and scope
+- [ ] No file artifacts committed to repository
+
+**If user reports PR creation error twice: Treat as critical protocol failure**
+
+### Enhanced Error Detection for PR Creation
+
+When user signals PR creation error with phrases like:
+- "dont make the file in the repo"
+- "you duplicated the title"
+- "you put it in the body AGAIN"
+
+**Immediate Response Protocol:**
+1. **STOP ALL PR OPERATIONS** immediately
+2. **REMOVE any committed PR description files** from repository
+3. **RECREATE PR using proper CLI approach** with correct title/body separation
+4. **UPDATE RULES** to prevent this specific pattern
+
+## ⚠️ Critical Variable Naming Protocol
 
 **This pattern has been identified as a critical, recurring failure that must be eliminated.**
 

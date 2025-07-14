@@ -6,12 +6,12 @@
  * currently scattered throughout the codebase.
  */
 
-import { log } from "../../utils/logger.js";
-import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../../errors/index.js";
-import { taskIdSchema } from "../../schemas/common.js";
-import { getCurrentSession, getCurrentSessionContext } from "../workspace.js";
-import type { SessionProviderInterface } from "../session.js";
-import { createSessionProvider } from "../session.js";
+import { log } from "../../utils/logger";
+import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../../errors/index";
+import { taskIdSchema } from "../../schemas/common";
+import { getCurrentSession, getCurrentSessionContext } from "../workspace";
+import type { SessionProviderInterface } from "../session";
+import { createSessionProvider } from "../session";
 
 /**
  * Session context resolution options

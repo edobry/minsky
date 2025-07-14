@@ -2,12 +2,12 @@
  * Repository backend interface for Minsky.
  * Defines the contract for different repository backends (local, remote, GitHub).
  */
-import { normalizeRepoName } from "./repo-utils.js";
-import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils.js";
-import { createSessionProvider } from "./session.js";
-import { getCurrentWorkingDirectory } from "../utils/process.js";
-import {ValidationError, MinskyError, getErrorMessage} from "../errors/index.js";
-import { log } from "../utils/logger.js";
+import { normalizeRepoName } from "./repo-utils";
+import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils";
+import { createSessionProvider } from "./session";
+import { getCurrentWorkingDirectory } from "../utils/process";
+import {ValidationError, MinskyError, getErrorMessage} from "../errors/index";
+import { log } from "../utils/logger";
 
 /**
  * Repository backend types supported by the system.

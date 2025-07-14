@@ -7,8 +7,8 @@
 
 import { exec } from "child_process";
 import { promisify } from "util";
-import { createGitTimeoutErrorMessage, createMergeConflictErrorMessage } from "../errors/enhanced-error-templates.js";
-import { MinskyError } from "../errors/index.js";
+import { createGitTimeoutErrorMessage, createMergeConflictErrorMessage } from "../errors/enhanced-error-templates";
+import { MinskyError } from "../errors/index";
 
 const execAsync = promisify(exec);
 

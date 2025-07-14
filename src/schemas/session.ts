@@ -8,7 +8,7 @@ import {
   taskIdSchema,
   repoPathSchema,
   flagSchema,
-} from "./common.js";
+} from "./common";
 
 /**
  * Schema for a session record

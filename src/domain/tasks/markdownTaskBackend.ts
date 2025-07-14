@@ -4,8 +4,8 @@
  */
 
 import { join } from "path";
-import { log } from "../../utils/logger.js";
-import { getErrorMessage } from "../../errors/index.js";
+import { log } from "../../utils/logger";
+import { getErrorMessage } from "../../errors/index";
 // @ts-ignore - matter is a third-party library
 import matter from "gray-matter";
 
@@ -15,22 +15,22 @@ import type {
   TaskListOptions,
   CreateTaskOptions,
   DeleteTaskOptions,
-} from "../tasks.js";
+} from "../tasks";
 import type {
   TaskData,
   TaskSpecData,
   TaskBackendConfig,
   TaskReadOperationResult,
   TaskWriteOperationResult,
-} from "../../types/tasks/taskData.js";
-import { TaskStatus } from "./taskConstants.js";
+} from "../../types/tasks/taskData";
+import { TaskStatus } from "./taskConstants";
 
 import {
   parseTasksFromMarkdown,
   formatTasksToMarkdown,
   parseTaskSpecFromMarkdown,
   formatTaskSpecToMarkdown,
-} from "./taskFunctions.js";
+} from "./taskFunctions";
 
 import {
   readTasksFile,
@@ -41,7 +41,7 @@ import {
   getTasksFilePath,
   getTaskSpecFilePath,
   getTaskSpecRelativePath,
-} from "./taskIO.js";
+} from "./taskIO";
 
 // Helper import to avoid promise conversion issues
 import { readdir } from "fs/promises";

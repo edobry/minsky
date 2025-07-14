@@ -30,7 +30,7 @@ import { TaskService } from "../../../domain/tasks/taskService";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";
 // Import task status constants from centralized location
-import { TASK_STATUS } from "../../../domain/tasks/taskConstants.js";
+import { TASK_STATUS } from "../../../domain/tasks/taskConstants";
 // Schemas removed as they are unused in this file
 
 /**
