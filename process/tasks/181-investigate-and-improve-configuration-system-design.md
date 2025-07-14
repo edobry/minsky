@@ -1,148 +1,228 @@
-# Task #181: Investigate and improve configuration system design
+# Task #181: Complete Configuration System Migration to Node-Config
 
 ## Status
 
-BACKLOG
+IN-PROGRESS
 
 ## Priority
 
-MEDIUM
+HIGH
 
 ## Context
 
-During implementation of the AI completion backend (Task #160), we discovered that Minsky's configuration system has over-engineered patterns that don't follow typical configuration system conventions. The current system forces unnecessary complexity on users and developers.
+**UPDATED CONTEXT**: Investigation revealed that Task #209 started but did not complete the migration from our custom configuration system to node-config. The commit claimed "90% reduction in configuration-related code" but actually:
+
+1. **Kept all custom configuration code** (2,500+ lines still exist)
+2. **Added node-config usage** on top of existing system
+3. **Disabled failing tests** instead of fixing them
+4. **Created a hybrid system** that's more complex than before
+
+We now have **two parallel configuration systems** running simultaneously:
+- **Custom system**: `ConfigurationLoader`, `ConfigurationService`, custom environment variable mapping
+- **Node-config system**: Direct `config.get()` calls, `custom-environment-variables.yaml`
 
 ## Problem Statement
 
-The current Minsky configuration system has several issues:
+The current configuration system has these critical issues:
 
-1. **Unnecessary `source` field**: The AI credentials configuration requires a `source` field (`environment`, `file`, `prompt`) that's redundant with the natural precedence hierarchy already implemented in the code.
+1. **Incomplete Migration**: Task #209 was marked "DONE" but only partially completed the node-config migration
+2. **Parallel Systems**: We're running both custom and node-config systems simultaneously
+3. **Duplicated Environment Variable Handling**: Custom `loadEnvironmentConfig()` + node-config's `custom-environment-variables.yaml`
+4. **Disabled Tests**: Critical tests were disabled instead of being properly migrated
+5. **Over-Engineering**: 2,500+ lines of custom code that duplicates node-config functionality
+6. **Inconsistent Usage**: Some components use `configurationService.loadConfiguration()`, others use `config.get()`
 
-2. **Over-engineered schema**: The configuration schema forces explicit source declarations when standard configuration systems check all sources in precedence order automatically.
+## Current Architecture Problems
 
-3. **Inconsistent with established patterns**: Most configuration systems (Docker, Kubernetes, Node.js apps, etc.) automatically check environment variables first, then config files, without requiring users to specify which source they're using.
+### **Hybrid System Complexity**
+```typescript
+// Some components use custom system
+import { configurationService } from "../configuration";
+const result = await configurationService.loadConfiguration(workingDir);
+const backend = result.resolved.backend;
 
-4. **Unnecessary cognitive load**: Users have to understand and specify the `source` field when the system could determine this automatically.
+// Others use node-config directly
+import config from "config";
+const backend = config.get("backend");
+```
 
-## Current Implementation Analysis
+### **Duplicated Environment Variable Mapping**
+```typescript
+// Custom system (src/domain/configuration/config-loader.ts)
+if (process.env[ENV_VARS.GITHUB_TOKEN]) {
+  config.github = {
+    credentials: { token: process.env[ENV_VARS.GITHUB_TOKEN] }
+  };
+}
 
-The code already implements a proper 5-level precedence hierarchy:
+// Node-config system (config/custom-environment-variables.yaml)
+github:
+  credentials:
+    token: "GITHUB_TOKEN"
+```
 
-1. CLI flags
-2. Environment variables
-3. Global user config (`~/.config/minsky/config.yaml`)
-4. Repository config
-5. Defaults
-
-However, the schema in `src/domain/configuration/types.ts` forces users to explicitly declare the source of their credentials, which contradicts this automatic precedence system.
+### **Maintained Custom Code That Should Be Deleted**
+- `src/domain/configuration/config-loader.ts` (11,086 bytes)
+- `src/domain/configuration/configuration-service.ts` (21,692 bytes)
+- `src/domain/configuration/credential-manager.ts` (5,539 bytes)
+- `src/domain/configuration/backend-detector.ts` (2,085 bytes)
+- Plus all related test files and utilities
 
 ## Requirements
 
-### 1. Schema Simplification
+### **Phase 1: Test Suite Evaluation and Preservation (CRITICAL)**
 
-- [ ] Remove the unnecessary `source` field from AI credentials configuration
-- [ ] Allow credentials to be specified directly without source declarations
+**BEFORE ANY REFACTORING**, we must ensure all desired configuration behavior is captured in tests:
 
-### 2. Automatic Source Detection
+- [ ] **Audit existing test coverage** for configuration system
+- [ ] **Document all configuration behaviors** that must be preserved
+- [ ] **Identify test gaps** in current coverage
+- [ ] **Create comprehensive test suite** covering all configuration scenarios
+- [ ] **Ensure tests pass** with current hybrid system before migration
+- [ ] **Re-enable disabled tests** from task #209 and fix them properly
 
-- [ ] Implement automatic precedence checking for AI credentials
-- [ ] Environment variables should be checked first (e.g., `OPENAI_API_KEY`)
-- [ ] Config file values should be used if env vars not present
-- [ ] Prompt for missing credentials only as last resort
+**Key Test Areas to Verify:**
+- [ ] Environment variable precedence and mapping
+- [ ] Configuration file loading (repository, global user, defaults)
+- [ ] Credential resolution (GitHub, AI providers)
+- [ ] Backend detection and selection
+- [ ] Error handling for missing/invalid configuration
+- [ ] Working directory handling for different contexts
+- [ ] Session database configuration
+- [ ] AI provider configuration
 
-### 3. Configuration Schema Updates
+### **Phase 2: Complete Node-Config Migration**
 
-- [ ] Update `AICredentialsConfig` type to remove `source` field
-- [ ] Update related validation logic
-- [ ] Update configuration loading logic to handle simplified schema
+- [ ] **Replace all `configurationService.loadConfiguration()` calls** with `config.get()`
+- [ ] **Remove custom environment variable mapping** (`loadEnvironmentConfig()` method)
+- [ ] **Use node-config's `custom-environment-variables.yaml`** exclusively
+- [ ] **Update all components** to use consistent node-config API
+- [ ] **Ensure AI config service** uses same logic as general config system
 
-### 4. User Experience Improvements
+### **Phase 3: Delete Custom Configuration System**
 
-- [ ] Simplify configuration examples in documentation
-- [ ] Provide clear error messages when credentials are missing
+- [ ] **Delete custom configuration files** (2,400+ lines as originally planned):
+  - `src/domain/configuration/config-loader.ts`
+  - `src/domain/configuration/configuration-service.ts`
+  - `src/domain/configuration/credential-manager.ts`
+  - `src/domain/configuration/backend-detector.ts`
+  - Related test files and utilities
 
-### 5. Testing and Validation
+- [ ] **Keep only essential files**:
+  - `src/domain/configuration/types.ts` (TypeScript interfaces)
+  - `src/domain/configuration/node-config-adapter.ts` (if needed for compatibility)
+  - `src/domain/configuration/index.ts` (minimal exports)
 
-- [ ] Add tests for automatic credential detection
-- [ ] Test precedence order (env vars > config file > prompt)
-- [ ] Test error handling for missing credentials
+### **Phase 4: Simplify Configuration Schema**
 
-## Implementation Steps
+- [ ] **Remove unnecessary `source` field** from AI credentials configuration
+- [ ] **Use automatic environment variable mapping** from config paths
+- [ ] **Flatten credential structure** (remove unnecessary nesting)
+- [ ] **Use generated environment variable names** (e.g., `AI_PROVIDERS_OPENAI_API_KEY`)
 
-### Phase 1: Analysis and Design
+### **Phase 5: Validation and Documentation**
 
-- [ ] Audit all uses of the `source` field in the codebase
-- [ ] Document current configuration patterns across the system
-- [ ] Identify other over-engineered configuration patterns
-- [ ] Design simplified configuration schema
+- [ ] **All tests pass** with simplified node-config system
+- [ ] **No custom configuration code** remains
+- [ ] **Environment variables work** via node-config mapping
+- [ ] **Documentation updated** to reflect simplified system
+- [ ] **Migration guide** for users with existing configurations
 
-### Phase 2: Schema Simplification
+## Implementation Strategy
 
-- [ ] Update `AICredentialsConfig` type definition
-- [ ] Remove `source` field requirements
-- [ ] Update validation schemas (Zod, etc.)
-- [ ] Update configuration loading logic
+### **Step 1: Test Suite Audit (MANDATORY FIRST STEP)**
 
-### Phase 3: Automatic Detection Implementation
+```bash
+# Find all configuration-related tests
+find src -name "*.test.ts" -exec grep -l "configuration\|config" {} \;
 
-- [ ] Implement automatic environment variable detection
-- [ ] Update config file parsing to handle simplified format
-- [ ] Implement fallback to prompting for missing credentials
-- [ ] Add proper error handling and user feedback
+# Check disabled tests from task #209
+find src -name "*.test.ts.disabled" -exec grep -l "configuration\|config" {} \;
 
-### Phase 4: Testing and Documentation
+# Document current test coverage
+bun test --coverage src/domain/configuration/
+```
 
-- [ ] Add comprehensive tests for new configuration behavior
-- [ ] Update configuration documentation
-- [ ] Update all configuration examples
+**Deliverables:**
+- [ ] **Test coverage report** showing current configuration test status
+- [ ] **Behavior documentation** listing all configuration features that must work
+- [ ] **Test gap analysis** identifying missing test scenarios
+- [ ] **Re-enabled test plan** for previously disabled tests
 
-## Technical Considerations
+### **Step 2: Environment Variable Mapping Analysis**
 
-### Error Handling
+Compare current systems:
+```typescript
+// Document what custom system does
+// Document what node-config system does
+// Identify gaps and overlaps
+// Plan unified approach
+```
 
-- Clear error messages when credentials are missing
-- Helpful suggestions for where to add credentials
-- Graceful handling of malformed configuration
+### **Step 3: Gradual Migration**
 
-### Security
+1. **Fix one component at a time**
+2. **Test each change** before moving to next
+3. **Maintain backward compatibility** during transition
+4. **Delete custom code** only after all usages migrated
 
-- Ensure environment variables are properly handled
-- Avoid logging sensitive credential information
-- Maintain secure credential storage practices
+### **Step 4: Automatic Environment Variable Generation**
 
-## Verification Criteria
-
-### Functional Requirements
-
-- [ ] AI credentials can be configured via environment variables without `source` field
-- [ ] AI credentials can be configured via config file without `source` field
-- [ ] Precedence order works correctly (env vars > config file > prompt)
-- [ ] Error messages are clear and helpful when credentials are missing
-
-### Code Quality
-
-- [ ] Configuration loading logic is simplified and easier to understand
-- [ ] No unnecessary complexity in configuration schemas
-- [ ] Proper test coverage for all configuration scenarios
-- [ ] Documentation is updated and accurate
-
-### User Experience
-
-- [ ] Configuration setup is simpler for new users
-- [ ] Error messages guide users to correct solutions
-- [ ] Configuration examples are clear and minimal
+Instead of hardcoded mappings, use computed names:
+```yaml
+# config/custom-environment-variables.yaml
+github:
+  token: "GITHUB_TOKEN"  # github.token -> GITHUB_TOKEN
+ai:
+  providers:
+    openai:
+      api_key: "AI_PROVIDERS_OPENAI_API_KEY"  # ai.providers.openai.api_key -> AI_PROVIDERS_OPENAI_API_KEY
+```
 
 ## Success Criteria
 
-1. **Simplified Configuration**: Users can configure AI credentials by simply setting environment variables or adding values to config files without specifying source
-2. **Maintained Functionality**: All configuration functionality works correctly
-3. **Better UX**: Configuration setup is more intuitive and follows standard patterns
-4. **Clean Codebase**: Configuration logic is simpler and more maintainable
-5. **Comprehensive Testing**: All configuration scenarios are properly tested
+### **Functional Requirements**
+- [ ] **Single configuration system**: Only node-config, no custom code
+- [ ] **Environment variables work**: Via node-config's `custom-environment-variables.yaml`
+- [ ] **All tests pass**: Including previously disabled tests
+- [ ] **No regression**: All existing functionality preserved
+- [ ] **Simplified schema**: No unnecessary `source` fields or nesting
+
+### **Code Quality**
+- [ ] **90% code reduction**: 2,400+ lines of custom configuration code deleted
+- [ ] **Consistent API**: All components use `config.get()`
+- [ ] **No duplication**: Single source of truth for configuration
+- [ ] **Standard patterns**: Follows node-config conventions
+
+### **User Experience**
+- [ ] **Simpler configuration**: Environment variables work automatically
+- [ ] **Better error messages**: Clear guidance when configuration is missing
+- [ ] **Standard conventions**: Familiar to Node.js developers
+
+## Risk Mitigation
+
+### **Test-First Approach**
+- **NEVER delete custom code** until all tests pass with node-config
+- **Document all behaviors** before changing implementation
+- **Gradual migration** with validation at each step
+
+### **Rollback Plan**
+- **Git branch** for each migration phase
+- **Ability to revert** to hybrid system if needed
+- **Comprehensive testing** before declaring complete
 
 ## References
 
-- Task #160: Add AI Completion Backend (where this issue was discovered)
-- `src/domain/configuration/config-loader.ts`: Current configuration loading implementation
-- `src/domain/configuration/types.ts`: Current configuration type definitions
-- Standard configuration patterns from Docker, Kubernetes, Node.js ecosystem
+- **Task #209**: Incomplete migration that created current hybrid system
+- **Commit 5972bc1a**: Shows what was actually done vs. claimed
+- **Node-config documentation**: https://github.com/node-config/node-config
+- **Current hybrid system**: Mix of custom + node-config code
+
+## Timeline
+
+**Estimated effort**: 2-3 days
+- **Day 1**: Test suite evaluation and documentation
+- **Day 2**: Migration implementation and testing
+- **Day 3**: Custom code deletion and validation
+
+**Critical path**: Test suite evaluation MUST be completed before any refactoring begins.

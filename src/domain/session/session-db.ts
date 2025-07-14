@@ -130,8 +130,8 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
     throw new Error("Session record is required");
   }
 
-  // Use repository-based path structure: /repos/{repoName}/sessions/{sessionId}/
-  return join(state.baseDir, record.repoName, "sessions", record.session);
+  // Use simplified session-based path structure: /sessions/{sessionId}/
+  return join(state.baseDir, "sessions", record.session);
 }
 
 /**

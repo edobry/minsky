@@ -10,9 +10,9 @@ import {
   validateSessionContext,
   type SessionContextOptions,
   type ResolvedSessionContext,
-} from "../session-context-resolver.js";
-import { ValidationError, ResourceNotFoundError } from "../../../errors/index.js";
-import { createMock } from "../../../utils/test-utils/mocking.js";
+} from "./session-context-resolver.js";
+import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
+import { createMock } from "../../utils/test-utils/mocking.js";
 import type { SessionProviderInterface } from "../session.js";
 
 // Mock session provider with basic functionality
@@ -191,4 +191,4 @@ describe("validateSessionContext", () => {
 
     expect(isValid).toBe(false);
   });
-}); 
+});

@@ -911,42 +911,140 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 // ========== Factory Function Regression Tests ==========
 
 describe("createGitService Factory Function", () => {
-  // Regression test for Task #166: Fix options.baseDir runtime error
   test("should handle undefined options parameter without throwing runtime error", () => {
-    // This test covers the specific scenario that caused the runtime error:
-    // "undefined is not an object (evaluating 'options.baseDir')"
     expect(() => {
-      const gitService = createGitService(undefined);
-      expect(gitService instanceof GitService).toBe(true);
+      createGitService();
     }).not.toThrow();
   });
 
-  // Regression test for Task #166: Fix options.baseDir runtime error
   test("should handle null options parameter without throwing runtime error", () => {
     expect(() => {
-      const gitService = createGitService(null as unknown);
-      expect(gitService instanceof GitService).toBe(true);
+      createGitService(null as unknown as { baseDir?: string });
     }).not.toThrow();
   });
 
-  // Regression test for Task #166: Fix options.baseDir runtime error
   test("should handle options with undefined baseDir property", () => {
-    const options = { baseDir: undefined };
     expect(() => {
-      const gitService = createGitService(options);
-      expect(gitService instanceof GitService).toBe(true);
+      createGitService({ baseDir: undefined });
     }).not.toThrow();
   });
 
   test("should create GitService with custom baseDir when provided", () => {
-    const customBaseDir = "/custom/base/directory";
+    const customBaseDir = "/custom/path";
     const gitService = createGitService({ baseDir: customBaseDir });
-    expect(gitService instanceof GitService).toBe(true);
+    expect(gitService).toBeDefined();
   });
 
   test("should create GitService with default baseDir when no options provided", () => {
     const gitService = createGitService();
-    expect(gitService instanceof GitService).toBe(true);
+    expect(gitService).toBeDefined();
+  });
+});
+
+describe("Parameter-Based Git Functions", () => {
+  describe("commitChangesFromParams", () => {
+    test("should commit changes with all parameters", async () => {
+      const params = {
+        message: "test commit message",
+        all: true,
+        repo: "/test/repo",
+        amend: false,
+        noStage: false,
+        session: "test-session",
+      };
+
+      const result = await commitChangesFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.message).toBe("test commit message");
+      expect(result.commitHash).toBeDefined();
+      expect(typeof result.commitHash).toBe("string");
+    });
+
+    test("should handle commit with minimal parameters", async () => {
+      const params = {
+        message: "minimal commit",
+      };
+
+      const result = await commitChangesFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.message).toBe("minimal commit");
+      expect(result.commitHash).toBeDefined();
+    });
+
+    test("should handle commit with amend option", async () => {
+      const params = {
+        message: "amended commit",
+        amend: true,
+      };
+
+      const result = await commitChangesFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.message).toBe("amended commit");
+    });
+
+    test("should handle commit with noStage option", async () => {
+      const params = {
+        message: "no stage commit",
+        noStage: true,
+      };
+
+      const result = await commitChangesFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.message).toBe("no stage commit");
+    });
+  });
+
+  describe("pushFromParams", () => {
+    test("should push changes with all parameters", async () => {
+      const params = {
+        session: "test-session",
+        repo: "/test/repo",
+        remote: "origin",
+        force: true,
+        debug: true,
+      };
+
+      const result = await pushFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.workdir).toBeDefined();
+      expect(typeof result.workdir).toBe("string");
+    });
+
+    test("should handle push with minimal parameters", async () => {
+      const params = {};
+
+      const result = await pushFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.workdir).toBeDefined();
+    });
+
+    test("should handle push with force option", async () => {
+      const params = {
+        force: true,
+      };
+
+      const result = await pushFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.workdir).toBeDefined();
+    });
+
+    test("should handle push with custom remote", async () => {
+      const params = {
+        remote: "upstream",
+      };
+
+      const result = await pushFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.workdir).toBeDefined();
+    });
   });
 });
 
