@@ -11,29 +11,23 @@ logger:
   level: "LOGLEVEL"
   enableAgentLogs: "ENABLE_AGENT_LOGS"
 
-# GitHub credentials
+# GitHub credentials (align with custom system expectation)
 github:
-  credentials:
-    token: "GITHUB_TOKEN"
+  token: "GITHUB_TOKEN"
 
-# AI provider credentials (using standard environment variable names)
+# AI provider credentials (align with custom system expectation)
 ai:
   providers:
     openai:
-      credentials:
-        api_key: "OPENAI_API_KEY"
+      api_key: "AI_PROVIDERS_OPENAI_API_KEY"
     anthropic:
-      credentials:
-        api_key: "ANTHROPIC_API_KEY"
+      api_key: "AI_PROVIDERS_ANTHROPIC_API_KEY"
     google:
-      credentials:
-        api_key: "GOOGLE_AI_API_KEY"
+      api_key: "AI_PROVIDERS_GOOGLE_API_KEY"
     cohere:
-      credentials:
-        api_key: "COHERE_API_KEY"
+      api_key: "AI_PROVIDERS_COHERE_API_KEY"
     mistral:
-      credentials:
-        api_key: "MISTRAL_API_KEY"
+      api_key: "AI_PROVIDERS_MISTRAL_API_KEY"
 
 # SessionDB configuration
 sessiondb:
