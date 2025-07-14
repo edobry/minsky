@@ -10,6 +10,7 @@ import { z } from "zod";
 import type { CommandParameterDefinition } from "../command-registry";
 import { paramNameToFlag } from "../schema-bridge";
 import { getErrorMessage } from "../../../errors/index";
+import { formatZodError } from "../../../utils/zod-error-formatter";
 
 /**
  * Configuration options for parameter mapping
@@ -36,7 +37,7 @@ export interface ParameterMappingOptions {
 }
 
 /**
- * Maps a parameter name to Commander options with additional config
+ * Represents a parameter mapping with its definition and options
  */
 export interface ParameterMapping {
   name: string;
@@ -45,38 +46,36 @@ export interface ParameterMapping {
 }
 
 /**
- * Creates an array of Command Option objects from parameter mappings
+ * Creates Commander.js options from parameter mappings
  */
 export function createOptionsFromMappings(mappings: ParameterMapping[]): Option[] {
-  return ((mappings as any).filter((mapping) => !mapping.options.asArgument) as any).map(createOptionFromMapping);
+  return mappings.filter((mapping) => !(mapping.options as unknown).asArgument).map(createOptionFromMapping);
 }
 
 /**
- * Adds arguments to a command from parameter mappings
+ * Adds Commander.js arguments from parameter mappings
  */
 export function addArgumentsFromMappings(command: Command, mappings: ParameterMapping[]): Command {
-  ((mappings as any).filter((mapping) => mapping.options.asArgument)
-    .sort((a, b) => {
-      // Required arguments come first
-      if (a.paramDef.required && !b.paramDef.required) return -1;
-      if (!a.paramDef.required && b.paramDef.required) return 1;
-      return 0;
-    }) as any).forEach((mapping) => {
-    // Schema type not needed for arguments, only for options
+  const argumentMappings = mappings.filter((mapping) => (mapping.options as unknown).asArgument);
 
-    // Format the argument name
-    const argName = formatArgumentName(
-      (mapping as any).name,
-      (mapping.paramDef as any).required,
-      (mapping.options as any).variadic
-    );
+  argumentMappings.forEach((mapping) => {
+    const { name, paramDef, options } = mapping;
 
-    // Add the argument to the command
-    command.argument(
-      argName,
-      (mapping.options as any).description || (mapping.paramDef as any).description || "",
-      (mapping.options as any).parser
-    );
+    // Format argument name
+    const argName = formatArgumentName(name, (paramDef as unknown).required, (options as unknown).variadic);
+
+    // Add argument to command
+    if ((options as unknown).variadic) {
+      command.argument(argName, (options as unknown).description || (paramDef as unknown).description || "");
+    } else {
+      command.argument(argName, (options as unknown).description || (paramDef as unknown).description || "");
+    }
+
+    // Add custom parser if provided
+    if ((options as unknown).parser) {
+      // Note: Commander.js doesn't have a direct way to add parsers to arguments
+      // This would need to be handled in the action function
+    }
   });
 
   return command;
@@ -89,25 +88,25 @@ function createOptionFromMapping(mapping: ParameterMapping): Option {
   const { name, paramDef, options } = mapping;
 
   // Get schema type for proper option definition
-  const schemaType = getZodSchemaType((paramDef as any).schema);
+  const schemaType = getZodSchemaType((paramDef as unknown).schema);
 
   // Format option flag
-  const flag = formatOptionFlag(name, (options as any).alias, schemaType);
+  const flag = formatOptionFlag(name, (options as unknown).alias, schemaType);
 
   // Create the option
-  const option = new Option(flag, (options as any).description || (paramDef as any).description || "");
+  const option = new Option(flag, (options as unknown).description || (paramDef as unknown).description || "");
 
   // Apply additional configuration
-  if ((options as any).hidden) {
+  if ((options as unknown).hidden) {
     option.hideHelp();
   }
 
-  if ((paramDef as any).defaultValue !== undefined || (options as any).defaultValue !== undefined) {
-    option.default((options as any).defaultValue ?? (paramDef as any).defaultValue);
+  if ((paramDef as unknown).defaultValue !== undefined || (options as unknown).defaultValue !== undefined) {
+    option.default((options as unknown).defaultValue ?? (paramDef as unknown).defaultValue);
   }
 
   // Add proper type handling based on schema
-  addTypeHandlingToOption(option, schemaType, (options as any).parser);
+  addTypeHandlingToOption(option, schemaType, (options as unknown).parser);
 
   return option;
 }
@@ -172,7 +171,7 @@ function addTypeHandlingToOption(
   switch (schemaType) {
   case "number":
     return option.argParser((value) => {
-      const num = Number(value as any);
+      const num = Number(value as unknown);
       if (isNaN(num)) {
         throw new Error("Option requires a number value");
       }
@@ -183,7 +182,7 @@ function addTypeHandlingToOption(
     return option;
 
   case "array":
-    return option.argParser((value) => ((value as any).split(",") as any).map((v) => (v as any).trim()));
+    return option.argParser((value) => ((value as unknown).split(",") as unknown).map((v) => (v as unknown).trim()));
 
   default:
     return option;
@@ -204,12 +203,12 @@ function getZodSchemaType(schema: z.ZodTypeAny): string | undefined {
 
   // Handle optional types and nullable types (unwrap and check inner type)
   if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
-    return getZodSchemaType((schema as any).unwrap());
+    return getZodSchemaType((schema as unknown).unwrap());
   }
 
   // Handle default types (access inner type differently)
   if (schema instanceof z.ZodDefault) {
-    return getZodSchemaType((schema._def as any).innerType);
+    return getZodSchemaType((schema._def as unknown).innerType);
   }
 
   // Handle enums
@@ -226,17 +225,17 @@ export function createParameterMappings(
   parameters: Record<string, CommandParameterDefinition>,
   customOptions: Record<string, ParameterMappingOptions> = {}
 ): ParameterMapping[] {
-  return (Object.entries(parameters) as any).map(([name, paramDef]) => ({
+  return (Object.entries(parameters) as unknown).map(([name, paramDef]) => ({
     name,
     paramDef,
     options: {
       // Apply default options
-      hidden: (paramDef as any).cliHidden,
+      hidden: (paramDef as unknown).cliHidden,
 
       // Override with custom options if available
       ...customOptions[name],
     },
-  })) as any;
+  })) as unknown;
 }
 
 /**
@@ -249,17 +248,17 @@ export function normalizeCliParameters(
   const result: Record<string, any> = {};
 
   // Process each parameter
-  for (const [paramName, paramDef] of (Object as any).entries(parametersSchema)) {
+  for (const [paramName, paramDef] of (Object as unknown).entries(parametersSchema)) {
     const rawValue = cliParameters[paramName];
 
     // Handle undefined values
     if (rawValue === undefined) {
       // Use default value if available
-      if ((paramDef as any).defaultValue !== undefined) {
-        (result as any)[paramName] = (paramDef as any).defaultValue;
+      if ((paramDef as unknown).defaultValue !== undefined) {
+        (result as unknown)[paramName] = (paramDef as unknown).defaultValue;
       }
       // Skip optional parameters
-      if (!(paramDef as any).required) {
+      if (!(paramDef as unknown).required) {
         continue;
       }
       // Error for required parameters without default
@@ -267,10 +266,16 @@ export function normalizeCliParameters(
     } else {
       // Parse and validate the value
       try {
-        const parsedValue = (paramDef.schema as any).parse(rawValue);
-        (result as any)[paramName] = parsedValue;
+        const parsedValue = (paramDef.schema as unknown).parse(rawValue);
+        (result as unknown)[paramName] = parsedValue;
       } catch (error) {
-        throw new Error(`Invalid value for parameter '${paramName}': ${getErrorMessage(error as any)}`);
+        // Use user-friendly error formatting for Zod validation errors
+        if (error instanceof z.ZodError) {
+          const userFriendlyMessage = formatZodError(error, paramName);
+          throw new Error(`Invalid value for parameter '${paramName}': ${userFriendlyMessage}`);
+        } else {
+          throw new Error(`Invalid value for parameter '${paramName}': ${getErrorMessage(error as any)}`);
+        }
       }
     }
   }

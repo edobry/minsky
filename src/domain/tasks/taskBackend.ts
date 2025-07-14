@@ -3,11 +3,11 @@
  * Separates data retrieval, pure operations, and side effects
  */
 
-import type { TaskData, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData.js";
+import type { TaskData, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData";
 import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
-} from "../../types/tasks/taskData.js";
+} from "../../types/tasks/taskData";
 
 /**
  * TaskBackend interface defines operations for task management

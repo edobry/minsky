@@ -317,7 +317,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
     // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementation(
       () => Promise.resolve(value) as unknown as ReturnType<T>
-    ) as any;
+    ) as unknown;
   };
 
   // Add mockResolvedValueOnce method
@@ -325,7 +325,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
     // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementationOnce(
       () => Promise.resolve(value) as unknown as ReturnType<T>
-    ) as any;
+    ) as unknown;
   };
 
   // Add mockRejectedValue method
@@ -333,7 +333,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
     // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementation(
       () => Promise.reject(value) as unknown as ReturnType<T>
-    ) as any;
+    ) as unknown;
   };
 
   // Add mockRejectedValueOnce method
@@ -341,7 +341,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
     // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementationOnce(
       () => Promise.reject(value) as unknown as ReturnType<T>
-    ) as any;
+    ) as unknown;
   };
 
   // If there"s an initial implementation, set it
@@ -389,10 +389,10 @@ export function spyOn<T extends object, M extends keyof T>(
   });
 
   // Store the original implementation for restoration
-  (mockFn as any).mock.originalImplementation = original;
+  (mockFn as unknown).mock.originalImplementation = original;
 
   // Replace the method with our mock
-  (object as any)[method] = mockFn;
+  (object as unknown)[method] = mockFn;
 
   return mockFn;
 }
@@ -418,7 +418,7 @@ export function resetAllMocks(): void {
  * @returns An auto-mocked version of the module
  */
 export function autoMockModule<T extends object>(module: T): T {
-  const mockedModule = { ...module } as any;
+  const mockedModule = { ...module } as unknown;
 
   // Recursively replace all functions with mocks
   for (const key in mockedModule) {

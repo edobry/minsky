@@ -124,29 +124,29 @@ export class CliCommandBridge {
    * @internal
    */
   generateCommand(commandId: string, context?: { viaFactory?: boolean }): Command | null {
-    log.systemDebug(`generateCommand called with commandId: ${commandId}`);
+    log.debug(`generateCommand called with commandId: ${commandId}`);
 
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context as any).viaFactory) {
+    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
       log.warn(
         `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
       );
     }
 
     const commandDef = (sharedCommandRegistry as any).getCommand(commandId);
-    log.systemDebug(`commandDef found: ${!!commandDef}`);
+    log.debug(`commandDef found: ${!!commandDef}`);
     if (!commandDef) {
       return null as any;
     }
 
     const options = this.getCommandOptions(commandId);
-    log.systemDebug(`options retrieved: ${!!options}`);
+    log.debug(`options retrieved: ${!!options}`);
 
     // Create the basic command
     const command = (new Command(commandDef.name) as any).description(
       (commandDef as any).description
     );
-    log.systemDebug(`command created: ${(command as any).name()}`);
+    log.debug(`command created: ${(command as any).name()}`);
 
     // Add aliases if specified
     if (options.aliases && options.aliases.length) {
@@ -160,9 +160,9 @@ export class CliCommandBridge {
     }
 
     // Create parameter mappings
-    log.systemDebug("About to create parameter mappings");
+    log.debug("About to create parameter mappings");
     const mappings = this.createCommandParameterMappings(commandDef!, options as any);
-    log.systemDebug(`Parameter mappings created: ${(mappings as any).length}`);
+    log.debug(`Parameter mappings created: ${(mappings as any).length}`);
 
     // Add arguments to the command
     addArgumentsFromMappings(command!, mappings);
@@ -246,8 +246,16 @@ export class CliCommandBridge {
     category: CommandCategory,
     context?: { viaFactory?: boolean }
   ): Command | null {
+    // Add safety check for undefined category
+    if (!category) {
+      log.error(
+        "[CLI Bridge] Invalid category passed to generateCategoryCommand: category is undefined or null"
+      );
+      return null;
+    }
+
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context as any).viaFactory) {
+    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
       log.warn(
         `[CLI Bridge] Direct usage detected for category '${category}'. Consider using CLI Command Factory for proper customization support.`
       );
@@ -340,7 +348,7 @@ export class CliCommandBridge {
    */
   generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean }): void {
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context as any).viaFactory) {
+    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
       log.warn(
         "[CLI Bridge] Direct usage of generateAllCategoryCommands detected. Consider using CLI Command Factory for proper customization support."
       );
@@ -349,7 +357,12 @@ export class CliCommandBridge {
     // Get unique categories from all commands
     const categories = new Set<CommandCategory>();
     (sharedCommandRegistry.getAllCommands() as any).forEach((cmd) => {
-      (categories as any).add(cmd.category);
+      // Only add valid categories (not undefined/null)
+      if (cmd.category) {
+        (categories as any).add(cmd.category);
+      } else {
+        log.error(`[CLI Bridge] Command '${cmd.id}' has undefined category, skipping`);
+      }
     });
 
     // Generate commands for each category
@@ -467,6 +480,9 @@ export class CliCommandBridge {
         } else if ((commandDef as any).id === "session.pr" && "prBranch" in result) {
           // Handle session pr results - format them nicely
           this.formatSessionPrDetails(result as any);
+        } else if ((commandDef as any).id === "session.approve" && ((result as any).result && "session" in (result as any).result)) {
+          // Handle session approve results - format them nicely
+          this.formatSessionApprovalDetails((result as any).result);
         } else if ((commandDef as any).id === "rules.list" && "rules" in result) {
           // Handle rules list results
           if (Array.isArray((result as any).rules)) {
@@ -500,6 +516,9 @@ export class CliCommandBridge {
               `Task ${taskId} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
             );
           }
+        } else if ((commandDef as any).id === "debug.echo") {
+          // Handle debug.echo results with friendly formatting
+          this.formatDebugEchoDetails(result as any);
         } else {
           // Special handling for delete command - check if this is a user-friendly result
           if ((commandDef as any).id === "tasks.delete") {
@@ -539,7 +558,7 @@ export class CliCommandBridge {
               } else {
                 // For complex objects, try to show a meaningful summary
                 if (key === "session" && value && typeof value === "object") {
-                  this.formatSessionDetails(value as Record<string, any>);
+                  this.formatSessionStartSuccess(value as Record<string, any>);
                 } else {
                   log.cli(`${key}: ${JSON.stringify(value as any)}`);
                 }
@@ -571,6 +590,41 @@ export class CliCommandBridge {
     if ((session as any).repoUrl && (session as any).repoUrl !== (session as any).repoName) {
       log.cli(`Repository URL: ${(session as any).repoUrl}`);
     }
+  }
+
+  /**
+   * Format session start success message for human-readable output
+   */
+  private formatSessionStartSuccess(session: Record<string, any>): void {
+    if (!session) return;
+
+    // Display a user-friendly success message for session creation
+    log.cli("✅ Session started successfully!");
+    log.cli("");
+
+    if ((session as any).session) {
+      log.cli(`📁 Session: ${(session as any).session}`);
+    }
+
+    if ((session as any).taskId) {
+      log.cli(`🎯 Task: ${(session as any).taskId}`);
+    }
+
+    if ((session as any).repoName) {
+      log.cli(`📦 Repository: ${(session as any).repoName}`);
+    }
+
+    if ((session as any).branch) {
+      log.cli(`🌿 Branch: ${(session as any).branch}`);
+    }
+
+    log.cli("");
+    log.cli("🚀 Ready to start development!");
+    log.cli("");
+    log.cli("💡 Next steps:");
+    log.cli("   • Your session workspace is ready for editing");
+    log.cli("   • All changes will be tracked on your session branch");
+    log.cli("   • Run \"minsky session pr\" when ready to create a pull request");
   }
 
   /**
@@ -633,6 +687,103 @@ export class CliCommandBridge {
     if ((result as any).taskUpdated) {
       log.cli("✅ Task status updated to IN-REVIEW");
     }
+  }
+
+  /**
+   * Format session approval details for human-readable output
+   */
+  private formatSessionApprovalDetails(result: Record<string, any>): void {
+    if (!result) return;
+
+    const sessionName = (result as any).session || "unknown";
+    const taskId = (result as any).taskId || "";
+    const commitHash = (result as any).commitHash || "";
+    const mergeDate = (result as any).mergeDate || "";
+    const mergedBy = (result as any).mergedBy || "";
+    const baseBranch = (result as any).baseBranch || "main";
+    const prBranch = (result as any).prBranch || "";
+    const isNewlyApproved = (result as any).isNewlyApproved !== false; // default to true for backward compatibility
+
+    // Header - different based on whether newly approved or already approved
+    if (isNewlyApproved) {
+      log.cli("✅ Session approved and merged successfully!");
+    } else {
+      log.cli("ℹ️  Session was already approved and merged");
+    }
+    log.cli("");
+
+    // Session Details
+    log.cli("📝 Session Details:");
+    log.cli(`   Session: ${sessionName}`);
+    if (taskId) {
+      const taskStatusMessage = isNewlyApproved ? "(status updated to DONE)" : "(already marked as DONE)";
+      log.cli(`   Task: ${taskId} ${taskStatusMessage}`);
+    }
+    log.cli(`   Merged by: ${mergedBy}`);
+    if (mergeDate) {
+      const date = new Date(mergeDate);
+      log.cli(`   Merge date: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
+    }
+    log.cli("");
+
+    // Technical Details
+    log.cli("🔧 Technical Details:");
+    log.cli(`   Base branch: ${baseBranch}`);
+    if (prBranch) {
+      log.cli(`   PR branch: ${prBranch}`);
+    }
+    if (commitHash) {
+      log.cli(`   Commit hash: ${commitHash.substring(0, 8)}`);
+    }
+    log.cli("");
+
+    // Success message - different based on whether newly approved or already approved
+    if (isNewlyApproved) {
+      log.cli("🎉 Your work has been successfully merged and the session is complete!");
+    } else {
+      log.cli("✅ Session is already complete - no action needed!");
+    }
+  }
+
+  /**
+   * Format debug echo details for human-readable output
+   */
+  private formatDebugEchoDetails(result: Record<string, any>): void {
+    if (!result) return;
+
+    // Display a user-friendly debug echo response
+    log.cli("🔍 Debug Echo Response");
+    log.cli("");
+
+    if (result.timestamp) {
+      log.cli(`⏰ Timestamp: ${result.timestamp}`);
+    }
+
+    if (result.interface) {
+      log.cli(`🔗 Interface: ${result.interface}`);
+    }
+
+    if (result.echo && typeof result.echo === "object") {
+      log.cli("📝 Echo Parameters:");
+      const echoParams = result.echo as Record<string, any>;
+
+      if (Object.keys(echoParams).length === 0) {
+        log.cli("   (no parameters provided)");
+      } else {
+        Object.entries(echoParams).forEach(([key, value]) => {
+          if (typeof value === "string") {
+            log.cli(`   ${key}: "${value}"`);
+          } else if (typeof value === "object" && value !== null) {
+            log.cli(`   ${key}: ${JSON.stringify(value)}`);
+          } else {
+            log.cli(`   ${key}: ${value}`);
+          }
+        });
+      }
+    }
+
+    log.cli("");
+    log.cli("✅ Debug echo completed successfully");
   }
 
   /**

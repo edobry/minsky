@@ -14,7 +14,7 @@ import { join, resolve } from "path";
 import { readdir, readFile, writeFile, mkdir, copyFile } from "fs/promises";
 import { existsSync } from "fs";
 import { getErrorMessage } from "../errors/index";
-import { exit } from "../utils/process.js";
+import { exit } from "../utils/process";
 
 interface MigrationOptions {
   dryRun: boolean;

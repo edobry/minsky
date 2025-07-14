@@ -14,16 +14,16 @@ import {
   ConfigurationError,
   GitOperationError,
   ensureError,
-} from "../../../errors/index.js";
-import { log, isStructuredMode } from "../../../utils/logger.js";
-import { exit } from "../../../utils/process.js";
+} from "../../../errors/index";
+import { log, isStructuredMode } from "../../../utils/logger";
+import { exit } from "../../../utils/process";
 /**
  * Determines if debug mode is enabled based on environment variables
  */
 export const isDebugMode = (): boolean =>
-  (process.env as any).DEBUG === "true" ||
-  (process.env as any).DEBUG === "1" ||
-  (typeof (process.env as any).NODE_DEBUG === "string" && (process.env.NODE_DEBUG as any).includes("minsky"));
+  (process.env as unknown).DEBUG === "true" ||
+  (process.env as unknown).DEBUG === "1" ||
+  (typeof (process.env as unknown).NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"));
 
 /**
  * Handles CLI command errors with consistent formatting
@@ -43,7 +43,7 @@ export function handleCliError(error: any): never {
   // Format error message based on type
   if (error instanceof ValidationError) {
     // Use cliError for human-readable output (stderr)
-    log.cliError(`Validation error: ${(normalizedError as any).message}`);
+    log.cliError(`Validation error: ${(normalizedError as unknown).message}`);
 
     // Show validation details in debug mode
     if (isDebugMode() && (error as any).errors) {
@@ -76,24 +76,24 @@ export function handleCliError(error: any): never {
       log.cliError(`Command: ${(error as any).command}`);
     }
   } else if (error instanceof MinskyError) {
-    log.cliError(`Error: ${(normalizedError as any).message}`);
+    log.cliError(`Error: ${(normalizedError as unknown).message}`);
   } else {
-    log.cliError(`Unexpected error: ${(normalizedError as any).message}`);
+    log.cliError(`Unexpected error: ${(normalizedError as unknown).message}`);
   }
 
   // Show detailed debug information only in debug mode
   if (isDebugMode()) {
     log.cliError("\nDebug information:");
-    if ((normalizedError as any).stack) {
-      log.cliError((normalizedError as any).stack);
+    if ((normalizedError as unknown).stack) {
+      log.cliError((normalizedError as unknown).stack);
     }
 
     // Log cause chain if available
-    if (normalizedError instanceof MinskyError && (normalizedError as any).cause) {
+    if (normalizedError instanceof MinskyError && (normalizedError as unknown).cause) {
       log.cliError("\nCaused by:");
-      const cause = (normalizedError as any).cause;
+      const cause = (normalizedError as unknown).cause;
       if (cause instanceof Error) {
-        log.cliError((cause as any).stack || (cause as any).message);
+        log.cliError((cause as unknown).stack || (cause as unknown).message);
       } else {
         log.cliError(String(cause));
       }
@@ -105,12 +105,12 @@ export function handleCliError(error: any): never {
   if (isStructuredMode()) {
     if (error instanceof MinskyError) {
       // For Minsky errors, we can log with additional context
-      log.error("CLI operation failed", error as any);
+      log.error("CLI operation failed", error as unknown);
     } else {
       // For other errors, log with basic information
       log.error("CLI operation failed", {
-        message: (normalizedError as any).message,
-        stack: (normalizedError as any).stack,
+        message: (normalizedError as unknown).message,
+        stack: (normalizedError as unknown).stack,
       });
     }
   }
@@ -128,19 +128,19 @@ export function outputResult<T>(
   result: T,
   options: { json?: boolean; formatter?: (result: any) => void }
 ): void {
-  if ((options as any).json) {
+  if ((options as unknown).json) {
     // For JSON output, use agent logger to ensure it goes to stdout
     // This ensures machine-readable output is separated from human-readable messages
     if (isStructuredMode()) {
       // In structured mode, log to agent logger
-      log.agent({ message: "Command result", result } as any);
+      log.agent({ message: "Command result", result } as unknown);
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
-      log.cli(JSON.stringify(result as any, undefined, 2));
+      log.cli(JSON.stringify(result as unknown, undefined, 2));
     }
-  } else if ((options as any).formatter) {
-    (options as any).formatter(result as any);
+  } else if ((options as unknown).formatter) {
+    (options as unknown).formatter(result as unknown);
   } else {
-    log.cli(String(result as any));
+    log.cli(String(result as unknown));
   }
 }

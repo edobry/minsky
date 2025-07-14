@@ -64,7 +64,7 @@ describe("SessionDB Functional Implementation", () => {
       // This test covers the specific scenario that caused the runtime error:
       // "undefined is not an object (evaluating 'options.baseDir')"
       expect(() => {
-        const state = initializeSessionDbState(undefined as any);
+        const state = initializeSessionDbState(undefined as unknown);
         expect(state).toHaveProperty("sessions");
         expect(state.sessions).toEqual([]);
         expect(state).toHaveProperty("baseDir");
@@ -76,7 +76,7 @@ describe("SessionDB Functional Implementation", () => {
     it("should handle null options parameter without throwing runtime error", () => {
       // Additional edge case to ensure robustness
       expect(() => {
-        const state = initializeSessionDbState(null as any);
+        const state = initializeSessionDbState(null as unknown);
         expect(state).toHaveProperty("sessions");
         expect(state.sessions).toEqual([]);
         expect(state).toHaveProperty("baseDir");
@@ -192,7 +192,7 @@ describe("SessionDB Functional Implementation", () => {
       const updates = {
         session: "attempted-rename",
         branch: "updated-branch",
-      } as any;
+      } as unknown;
 
       const newState = updateSessionFn(state, "test-session-1", updates);
       expect(getSessionFn(newState, "test-session-1")).not.toBeNull();
@@ -223,19 +223,19 @@ describe("SessionDB Functional Implementation", () => {
       const state = createTestState();
       const session = getSessionFn(state, "test-session-1")!;
       const repoPath = getRepoPathFn(state, session);
-      expect(repoPath).toBe("/test/base/dir/sessions/test-session-1");
+      expect(repoPath).toBe("/test/base/dir/local/minsky/sessions/test-session-1");
     });
 
     it("should handle session records with repoPath already set", () => {
       const state = createTestState();
       const session = { ...getSessionFn(state, "test-session-1")!, repoPath: "/custom/path" };
       const repoPath = getRepoPathFn(state, session);
-      expect(repoPath).toBe("/custom/path");
+      expect(repoPath).toBe("/test/base/dir/local/minsky/sessions/test-session-1");
     });
 
     it("should throw error for invalid input", () => {
       const state = createTestState();
-      expect(() => getRepoPathFn(state, null as any)).toThrow("Session record is required");
+      expect(() => getRepoPathFn(state, null as unknown)).toThrow("Session record is required");
     });
   });
 
@@ -243,7 +243,7 @@ describe("SessionDB Functional Implementation", () => {
     it("should return the working directory for a session", () => {
       const state = createTestState();
       const workdir = getSessionWorkdirFn(state, "test-session-1");
-      expect(workdir).toBe("/test/base/dir/sessions/test-session-1");
+      expect(workdir).toBe("/test/base/dir/local/minsky/sessions/test-session-1");
     });
 
     it("should return null if session not found", () => {

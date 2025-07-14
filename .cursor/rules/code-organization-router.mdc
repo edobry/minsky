@@ -7,6 +7,50 @@ alwaysApply: false
 
 This rule serves as the entry point for all code organization guidance in the Minsky project. Use it to navigate to the appropriate code organization rules based on your specific scenario.
 
+## ⚠️ Critical Anti-Patterns to Avoid
+
+**MANDATORY CHECK**: Before creating any new module, verify it doesn't exhibit these anti-patterns:
+
+### God Module Anti-Pattern
+- **Symptom**: Single module combining multiple unrelated responsibilities
+- **Example**: `isolation.ts` combining state management + data generation + database utilities
+- **Fix**: Split into focused modules with single responsibilities
+- **Check**: Ask "Would an experienced developer immediately understand this module's purpose from its name?"
+
+### Non-Idiomatic Organization
+- **Symptom**: Organization that doesn't follow ecosystem standards
+- **Example**: Custom patterns when standard testing utility organization exists
+- **Fix**: Research and follow established patterns for the domain (testing, CLI, etc.)
+- **Check**: "Does this follow standard practices other projects use?"
+
+### Vague Naming
+- **Symptom**: Module names that don't describe functionality
+- **Example**: `isolation.ts`, `utils.ts`, `helpers.ts`
+- **Fix**: Use descriptive names that indicate purpose (`setup.ts`, `database.ts`, `fixtures.ts`)
+- **Check**: "Can someone understand what this module does without reading the code?"
+
+## 🔍 Pattern Research Protocol
+
+**MANDATORY STEP**: Before implementing any non-trivial organization, research ecosystem standards:
+
+### Research Process
+1. **Identify the Domain**: What type of functionality are you organizing? (testing, CLI, data processing, etc.)
+2. **Study Established Patterns**: Look at how successful projects in the same domain organize similar code
+3. **Question Custom Solutions**: Ask "Is there a standard way to solve this problem?"
+4. **Verify Ecosystem Fit**: Ensure your approach would be familiar to developers experienced in this domain
+
+### Examples of Standard Patterns to Follow
+- **Testing Utilities**: `setup.ts`, `fixtures.ts`, `database.ts` (not `isolation.ts`)
+- **CLI Commands**: Command-per-file with shared utilities (not monolithic command files)
+- **Data Models**: Domain-grouped models (not technical-layer grouping)
+- **Configuration**: Environment-based config files (not single mega-config)
+
+### Red Flags Requiring Research
+- Creating modules with names like `utils.ts`, `helpers.ts`, `manager.ts`, `handler.ts`
+- Combining multiple unrelated responsibilities in one module
+- Inventing custom patterns when standard solutions exist
+- Organization that feels "clever" or "unique"
+
 ## Rule Application Matrix
 
 | Scenario | Primary Rules | Supporting Rules |
@@ -17,6 +61,7 @@ This rule serves as the entry point for all code organization guidance in the Mi
 | Organizing import statements | no-dynamic-imports | N/A |
 | Large file refactoring | file-size | domain-oriented-modules |
 | Command/adapter organization | command-organization | domain-oriented-modules |
+| **Test utility organization** | **idiomatic-patterns** | **testing-boundaries** |
 
 ## Rule Relationships
 

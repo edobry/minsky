@@ -12,7 +12,7 @@ import { z } from "zod";
  */
 export const pathSchema = (z
   .string()
-  .min(1, "Path cannot be empty") as any).describe("File or directory path");
+  .min(1, "Path cannot be empty") as unknown).describe("File or directory path");
 
 /**
  * Schema for Git repository paths
@@ -22,7 +22,7 @@ export const pathSchema = (z
  */
 export const repoPathSchema = (z
   .string()
-  .min(1, "Repository URI cannot be empty") as any).describe("Repository URI");
+  .min(1, "Repository URI cannot be empty") as unknown).describe("Repository URI");
 
 /**
  * Schema for session names
@@ -41,16 +41,16 @@ export const taskIdSchema = (z
     // Normalize the task ID to #XXX format
     if (!val) return val;
 
-    let normalized = (val as any).trim();
+    let normalized = (val as unknown).trim();
 
     // Handle formats like "task#064" or "task#64"
     if (normalized.toLowerCase().startsWith("task#")) {
-      normalized = (normalized as any).substring(5); // "task#".length
+      normalized = (normalized as unknown).substring(5); // "task#".length
     }
 
     // Remove all leading '#' characters to avoid multiple hashes
     while (normalized.startsWith("#")) {
-      normalized = (normalized as any).substring(1);
+      normalized = (normalized as unknown).substring(1);
     }
 
     // Check if the result is a valid number (integer)
@@ -61,7 +61,7 @@ export const taskIdSchema = (z
 
     // Add the '#' prefix to ensure canonical format
     return `#${normalized}`;
-  }) as any).refine((val) => /^#[a-zA-Z0-9]+$/.test(val), {
+  }) as unknown).refine((val) => /^#[a-zA-Z0-9_]+$/.test(val), {
   message: "Task ID must be in format #TEST_VALUE or TEST_VALUE",
 });
 
@@ -69,7 +69,7 @@ export const taskIdSchema = (z
  * Schema for boolean flags with optional description
  */
 export const flagSchema = (_description: string) =>
-  (z.boolean().optional().default(false) as any).describe(_description);
+  (z.boolean().optional().default(false) as unknown).describe(_description);
 
 /**
  * Schema for JSON output option
@@ -86,7 +86,7 @@ export const commonCommandOptionsSchema = (z
     repo: repoPathSchema.optional().describe("Repository URI"),
     workspace: pathSchema.optional().describe("URI of the upstream repository"),
     task: taskIdSchema.optional().describe("Task ID"),
-  }) as any).partial();
+  }) as unknown).partial();
 
 /**
  * Type for common command options
@@ -104,10 +104,10 @@ export const sessionSchema = z.string().min(1).describe("Session identifier");
  * Common parameters shared across repository operations
  */
 export const commonRepoSchema = z.object({
-  session: (sessionSchema.optional() as any).describe("Session name"),
+  session: (sessionSchema.optional() as unknown).describe("Session name"),
   repo: z.string().optional().describe("Repository URI"),
   workspace: z.string().optional().describe("URI of the upstream repository"),
-  json: (z.boolean().optional() as any).describe("Return output as JSON"),
+  json: (z.boolean().optional() as unknown).describe("Return output as JSON"),
 });
 
 export const filePathSchema = z.string().min(1);

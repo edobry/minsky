@@ -8,7 +8,7 @@ import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import type { SpawnSyncReturns, SpawnSyncOptionsWithStringEncoding } from "child_process";
 import type { WriteFileOptions } from "fs";
-import { log } from "./logger.js";
+import { log } from "./logger";
 
 // Create a virtual filesystem for testing
 const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
@@ -19,7 +19,7 @@ export function mockMkdirSync(path: string, _options?: { recursive?: boolean }):
   virtualFS.set(path, { isDirectory: true });
 
   // If recursive, create parent directories
-  if ((_options as any).recursive) {
+  if ((_options as unknown)!.recursive) {
     let parent = dirname(path);
     while (parent && parent !== "." && parent !== "/") {
       virtualFS.set(parent, { isDirectory: true });
@@ -41,8 +41,8 @@ export function mockRmSync(
   log.debug(`[MOCK] Removing ${path}`);
 
   // If recursive, remove all children first
-  if ((_options as any).recursive) {
-    const children = (Array.from(virtualFS.keys()) as any).filter((key) => (key as any).startsWith(`${path}/`));
+  if ((_options as unknown)!.recursive) {
+    const children = (Array.from(virtualFS.keys()) as unknown).filter((key) => (key as unknown).startsWith(`${path}/`));
     for (const child of children) {
       virtualFS.delete(child);
     }
@@ -65,10 +65,10 @@ export function mockWriteFileSync(path: string, data: string, _options?: WriteFi
 export function mockReadFileSync(path: string, _options?: { encoding?: BufferEncoding }): string {
   log.debug(`[MOCK] Reading file ${path}`);
   const file = virtualFS.get(path);
-  if (!file || (file as any).isDirectory) {
+  if (!file || (file as unknown)?.isDirectory) {
     throw new Error(`ENOENT: no such file or directory, open '${path}'`);
   }
-  return (file as any).content || "";
+  return (file as unknown)?.content || "";
 }
 
 // Use function type assertions to avoid TypeScript errors with type compatibility
@@ -97,7 +97,7 @@ export interface MinskyTestEnv {
  * Creates a unique test directory name
  */
 export function createUniqueTestDir(prefix: string): string {
-  return `/tmp/${prefix}-${(process as any).pid || 0}-${(Date as any).now()}-${(Math.random().toString(UUID_LENGTH) as any).substring(2, SHORT_ID_LENGTH)}`;
+  return `/tmp/${prefix}-${(process as any)?.pid || 0}-${(Date as any).now()}-${(Math.random().toString(UUID_LENGTH) as unknown).substring(2, SHORT_ID_LENGTH)}`;
 }
 
 /**
@@ -176,13 +176,13 @@ export const mockFS = {
  * @throws Error If command execution failed
  */
 export function ensureValidCommandResult(result: SpawnSyncReturns<string>): void {
-  if (!result || (result as any).status === null) {
+  if (!result || (result as unknown)!.status === null) {
     log.error("Command execution failed or was killed");
     throw new Error("Command execution failed");
   }
 
-  if ((result as any).status !== 0) {
-    log.error(`Command failed with status ${(result as any).status}`);
-    log.error(`Stderr: ${(result as any).stderr}`);
+  if ((result as unknown)!.status !== 0) {
+    log.error(`Command failed with status ${(result as unknown)!.status}`);
+    log.error(`Stderr: ${(result as unknown)!.stderr}`);
   }
 }

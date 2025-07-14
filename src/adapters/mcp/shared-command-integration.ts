@@ -5,9 +5,9 @@
  * with the MCP command mapper, eliminating the need for manual command duplication.
  */
 
-import type { CommandMapper } from "../../mcp/command-mapper.js";
-import { sharedCommandRegistry, CommandCategory } from "../shared/command-registry.js";
-import { log } from "../../utils/logger.js";
+import type { CommandMapper } from "../../mcp/command-mapper";
+import { sharedCommandRegistry, CommandCategory } from "../shared/command-registry";
+import { log } from "../../utils/logger";
 
 /**
  * Configuration for MCP shared command registration
@@ -64,7 +64,7 @@ export function registerSharedCommandsWithMcp(
       // The exact method depends on the CommandMapper interface
       // This is a simplified version - the actual implementation may need
       // to handle parameter schema conversion from Zod to MCP format
-      (commandMapper as any).addCommand({
+      (commandMapper as unknown).addCommand({
         name: command.id,
         description,
         parameters: command.parameters,

@@ -114,7 +114,7 @@ export function mockModule(
     }
 
     // If no factory was provided and autoMock is enabled, create an automatic mock
-    if (mockOptions.autoMock) {
+    if (mockOptions?.autoMock) {
       const originalModule = originalModules.get(modulePath);
       if (originalModule) {
         const autoMocked = createAutoMock(modulePath, originalModule);

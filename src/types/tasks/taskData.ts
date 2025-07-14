@@ -3,11 +3,11 @@
  * These types represent the pure data structures used in task operations
  */
 
-import type { TaskStatus } from "../../domain/tasks/taskConstants.js";
+import type { TaskStatus } from "../../domain/tasks/taskConstants";
 
 // Re-export task status types from centralized location
-export type { TaskStatus } from "../../domain/tasks/taskConstants.js";
-export { TaskStatus as TaskStatusType } from "../../domain/tasks/taskConstants.js";
+export type { TaskStatus } from "../../domain/tasks/taskConstants";
+export { TaskStatus as TaskStatusType } from "../../domain/tasks/taskConstants";
 
 /**
  * TaskData represents the pure data representation of a task
@@ -100,13 +100,13 @@ export interface TaskWriteOperationResult extends TaskFileOperationResult {
  */
 export function toTaskData(task: any): TaskData {
   return {
-    id: (task as any).id,
-    title: (task as any).title,
-    description: (task as any).description,
-    status: (task as any).status,
-    specPath: task.specPath,
-    worklog: task.worklog,
-    mergeInfo: task.mergeInfo,
+    id: (task as unknown)!.id,
+    title: (task as unknown)!.title,
+    description: (task as unknown)!.description,
+    status: (task as unknown)!.status,
+    specPath: task!.specPath,
+    worklog: task!.worklog,
+    mergeInfo: task!.mergeInfo,
   };
 }
 
@@ -117,12 +117,12 @@ export function toTaskData(task: any): TaskData {
  */
 export function fromTaskData(taskData: TaskData): any {
   return {
-    id: (taskData as any).id,
-    title: (taskData as any).title,
-    description: (taskData as any).description,
-    status: (taskData as any).status,
-    specPath: taskData.specPath,
-    worklog: taskData.worklog,
-    mergeInfo: taskData.mergeInfo,
+    id: (taskData as unknown)!.id,
+    title: (taskData as unknown)!.title,
+    description: (taskData as unknown)!.description,
+    status: (taskData as unknown)!.status,
+    specPath: taskData!.specPath,
+    worklog: taskData!.worklog,
+    mergeInfo: taskData!.mergeInfo,
   };
 }

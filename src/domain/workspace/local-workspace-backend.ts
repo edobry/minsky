@@ -32,7 +32,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
     const relativeToBoundary = relative(normalizedWorkspace, targetPath);
     
     // If the relative path starts with "..", it's outside the workspace
-    if ((relativeToBoundary as any).startsWith("..") || relativeToBoundary === "..") {
+    if ((relativeToBoundary as unknown).startsWith("..") || relativeToBoundary === "..") {
       throw new InvalidPathError(
         `Path '${relativePath}' resolves outside workspace boundaries`,
         normalizedWorkspace,
@@ -60,10 +60,10 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       const relativePath = relative(workspaceDir, fullPath);
       
       return {
-        name: ((relativePath as any).split("/") as any).pop() || relativePath,
+        name: ((relativePath as unknown).split("/") as unknown).pop() || relativePath,
         path: relativePath,
         type: stats.isDirectory() ? "directory" : "file",
-        size: stats.isFile() ? (stats as any).size : undefined as any,
+        size: stats.isFile() ? (stats as unknown)?.size : undefined as unknown,
         lastModified: stats.mtime,
       };
     } catch (error) {
@@ -72,7 +72,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         "file_info",
         workspaceDir,
         relative(workspaceDir, fullPath),
-        error instanceof Error ? error : undefined as any
+        error instanceof Error ? error : undefined as unknown
       );
     }
   }
@@ -96,7 +96,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       log.debug("Read file from workspace", {
         workspaceDir,
         relativePath,
-        contentLength: (content as any).length,
+        contentLength: (content as unknown).length,
       });
       
       return content;
@@ -106,8 +106,8 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
       
       // Handle file not found
-      if (error instanceof Error && "code" in error && (error as any).code === "ENOENT") {
-        throw new FileNotFoundError(workspaceDir, relativePath, error as any);
+      if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
+        throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);
       }
       
       throw new WorkspaceError(
@@ -115,7 +115,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         "read_file",
         workspaceDir,
         relativePath,
-        error instanceof Error ? error : undefined as any
+        error instanceof Error ? error : undefined as unknown
       );
     }
   }
@@ -129,7 +129,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       await fs.mkdir(dir, { recursive: true });
       
       // Write the file atomically by writing to a temp file first
-      const tempPath = `${fullPath}.tmp.${(Date as any).now()}`;
+      const tempPath = `${fullPath}.tmp.${(Date as unknown).now()}`;
       
       try {
         await fs.writeFile(tempPath, content, "utf8");
@@ -138,7 +138,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         log.debug("Wrote file to workspace", {
           workspaceDir,
           relativePath,
-          contentLength: (content as any).length,
+          contentLength: (content as unknown).length,
         });
         
         return {
@@ -205,8 +205,8 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
       
       // Handle file not found
-      if (error instanceof Error && "code" in error && (error as any).code === "ENOENT") {
-        throw new FileNotFoundError(workspaceDir, relativePath, error as any);
+      if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
+        throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);
       }
       
       const message = `Failed to delete: ${getErrorMessage(error as any)}`;
@@ -240,10 +240,10 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       const fileInfos: FileInfo[] = [];
       
       for (const entry of entries) {
-        const entryPath = join(fullPath, entry as any);
+        const entryPath = join(fullPath, entry as unknown);
         try {
           const fileInfo = await this.getFileInfo(entryPath, workspaceDir);
-          (fileInfos as any).push(fileInfo);
+          (fileInfos as unknown).push(fileInfo);
         } catch (error) {
           // Log but don't fail on individual file errors
           log.warn("Failed to get info for directory entry", {
@@ -256,15 +256,15 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       log.debug("Listed directory contents", {
         workspaceDir,
         relativePath: relativePath || ".",
-        entryCount: (fileInfos as any).length,
+        entryCount: (fileInfos as unknown).length,
       });
       
-      return (fileInfos as any).sort((a, b) => {
+      return (fileInfos as unknown).sort((a, b) => {
         // Sort directories first, then files, then alphabetically
-        if ((a as any).type !== (b as any).type) {
-          return (a as any).type === "directory" ? -1 : 1;
+        if ((a as unknown)?.type !== (b as unknown)?.type) {
+          return (a as unknown)?.type === "directory" ? -1 : 1;
         }
-        return (a.name as any).localeCompare((b as any).name);
+        return (a.name as unknown).localeCompare((b as unknown).name);
       });
     } catch (error) {
       if (error instanceof InvalidPathError || error instanceof DirectoryError) {
@@ -272,8 +272,8 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
       
       // Handle directory not found
-      if (error instanceof Error && "code" in error && (error as any).code === "ENOENT") {
-        throw new FileNotFoundError(workspaceDir, relativePath || ".", error as any);
+      if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
+        throw new FileNotFoundError(workspaceDir, relativePath || ".", error as unknown);
       }
       
       throw new WorkspaceError(
@@ -281,7 +281,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         "list_directory",
         workspaceDir,
         relativePath,
-        error instanceof Error ? error : undefined as any
+        error instanceof Error ? error : undefined as unknown
       );
     }
   }

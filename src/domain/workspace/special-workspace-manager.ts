@@ -40,18 +40,16 @@ interface LockInfo {
  * - Error recovery and workspace repair
  */
 export class SpecialWorkspaceManager {
-  private readonly repoUrl!: string;
   private readonly workspacePath: string;
   private readonly lockPath: string;
   private readonly lockTimeoutMs: number;
 
-  constructor(options: SpecialWorkspaceOptions) {
-    this.repoUrl = options.repoUrl;
-    this.lockTimeoutMs = options?.lockTimeoutMs ?? 5 * 60 * 1000; // 5 minutes
+  constructor(private readonly repoUrl: string, options: SpecialWorkspaceOptions) {
+    this.lockTimeoutMs = options!?.lockTimeoutMs ?? 5 * 60 * 1000; // 5 minutes
 
     // Determine workspace paths
-    const baseDir = options?.baseDir ?? join(homedir(), ".local", "state", "minsky");
-    const workspaceName = options?.workspaceName ?? "task-operations";
+    const baseDir = options!?.baseDir ?? join(homedir(), ".local", "state", "minsky");
+    const workspaceName = options!?.workspaceName ?? "task-operations";
     this.workspacePath = join(baseDir, workspaceName);
     this.lockPath = join("/tmp", `minsky-${workspaceName}.lock`);
   }
@@ -60,7 +58,7 @@ export class SpecialWorkspaceManager {
    * Get the workspace path
    */
   getWorkspacePath(): string {
-    return this.workspacePath;
+    return this!.workspacePath;
   }
 
   /**
@@ -68,7 +66,7 @@ export class SpecialWorkspaceManager {
    */
   async initialize(): Promise<void> {
     await this.withLock("initialize", async () => {
-      if (!existsSync(this.workspacePath)) {
+      if (!existsSync(this!.workspacePath)) {
         await this.createOptimizedWorkspace();
       } else {
         await this.validateWorkspace();
@@ -85,18 +83,18 @@ export class SpecialWorkspaceManager {
 
       try {
         // Fetch latest changes (shallow)
-        await execAsync("git fetch --depth=1 origin main", { cwd: this.workspacePath });
+        await execAsync("git fetch --depth=1 origin main", { cwd: this!.workspacePath });
 
         // Reset to latest upstream
-        await execAsync("git reset --hard origin/main", { cwd: this.workspacePath });
+        await execAsync("git reset --hard origin/main", { cwd: this!.workspacePath });
 
         log.debug("Special workspace updated to latest upstream", {
-          workspacePath: this.workspacePath,
+          workspacePath: this!.workspacePath,
         });
       } catch (error) {
         log.error("Failed to update workspace, attempting repair", {
           error: getErrorMessage(error as any),
-          workspacePath: this.workspacePath,
+          workspacePath: this!.workspacePath,
         });
 
         // Try to repair workspace
@@ -112,36 +110,36 @@ export class SpecialWorkspaceManager {
     await this.withLock("commitAndPush", async () => {
       try {
         // Stage all process/ changes
-        await execAsync("git add process/", { cwd: this.workspacePath });
+        await execAsync("git add process/", { cwd: this!.workspacePath });
 
         // Check if there are any changes to commit
         const { stdout: statusOutput } = await execAsync("git status --porcelain", {
-          cwd: this.workspacePath,
+          cwd: this!.workspacePath,
         });
 
-        if (!(statusOutput as any).trim()) {
+        if (!(statusOutput as unknown).trim()) {
           log.debug("No changes to commit in special workspace");
           return;
         }
 
         // Commit changes
-        const escapedMessage = (message as any).replace(/"/g, "\\\"");
+        const escapedMessage = (message as unknown).replace(/"/g, "\\\"");
         await execAsync(`git commit -m "${escapedMessage}"`, {
-          cwd: this.workspacePath,
+          cwd: this!.workspacePath,
         });
 
         // Push to upstream
-        await execAsync("git push origin HEAD:main", { cwd: this.workspacePath });
+        await execAsync("git push origin HEAD:main", { cwd: this!.workspacePath });
 
         log.debug("Successfully committed and pushed changes", {
           message,
-          workspacePath: this.workspacePath,
+          workspacePath: this!.workspacePath,
         });
       } catch (error) {
         log.error("Failed to commit and push changes", {
           error: getErrorMessage(error as any),
           message,
-          workspacePath: this.workspacePath,
+          workspacePath: this!.workspacePath,
         });
         throw error;
       }
@@ -154,15 +152,15 @@ export class SpecialWorkspaceManager {
   async rollback(): Promise<void> {
     await this.withLock("rollback", async () => {
       try {
-        await execAsync("git reset --hard HEAD~1", { cwd: this.workspacePath });
+        await execAsync("git reset --hard HEAD~1", { cwd: this!.workspacePath });
 
         log.debug("Successfully rolled back last commit", {
-          workspacePath: this.workspacePath,
+          workspacePath: this!.workspacePath,
         });
       } catch (error) {
         log.error("Failed to rollback changes", {
           error: getErrorMessage(error as any),
-          workspacePath: this.workspacePath,
+          workspacePath: this!.workspacePath,
         });
         throw error;
       }
@@ -175,13 +173,13 @@ export class SpecialWorkspaceManager {
   async repair(): Promise<void> {
     await this.withLock("repair", async () => {
       log.debug("Repairing special workspace by re-cloning", {
-        workspacePath: this.workspacePath,
+        workspacePath: this!.workspacePath,
       });
 
       try {
         // Remove existing workspace
-        if (existsSync(this.workspacePath)) {
-          await fs.rm(this.workspacePath, { recursive: true, force: true });
+        if (existsSync(this!.workspacePath)) {
+          await fs.rm(this!.workspacePath, { recursive: true, force: true });
         }
 
         // Create fresh workspace
@@ -191,7 +189,7 @@ export class SpecialWorkspaceManager {
       } catch (error) {
         log.error("Failed to repair workspace", {
           error: getErrorMessage(error as any),
-          workspacePath: this.workspacePath,
+          workspacePath: this!.workspacePath,
         });
         throw error;
       }
@@ -203,15 +201,15 @@ export class SpecialWorkspaceManager {
    */
   async isHealthy(): Promise<boolean> {
     try {
-      if (!existsSync(this.workspacePath)) {
+      if (!existsSync(this!.workspacePath)) {
         return false;
       }
 
       // Check if it's a valid git repository
-      await execAsync("git rev-parse --git-dir", { cwd: this.workspacePath });
+      await execAsync("git rev-parse --git-dir", { cwd: this!.workspacePath });
 
       // Check if process/ directory exists
-      const processDir = join(this.workspacePath, "process");
+      const processDir = join(this!.workspacePath, "process");
       if (!existsSync(processDir)) {
         return false;
       }
@@ -226,47 +224,47 @@ export class SpecialWorkspaceManager {
    * Create an optimized workspace with shallow clone and sparse checkout
    */
   private async createOptimizedWorkspace(): Promise<void> {
-    const baseDir = dirname(this.workspacePath);
+    const baseDir = dirname(this!.workspacePath);
 
     // Ensure base directory exists
     await fs.mkdir(baseDir, { recursive: true });
 
     log.debug("Creating optimized special workspace", {
-      repoUrl: this.repoUrl,
-      workspacePath: this.workspacePath,
+      repoUrl: this!.repoUrl,
+      workspacePath: this!.workspacePath,
     });
 
     try {
       // Clone with optimizations: shallow, no blobs initially
       await execAsync(
-        `git clone --depth=1 --filter=blob:none --no-checkout "${this.repoUrl}" "${this.workspacePath}"`,
+        `git clone --depth=1 --filter=blob:none --no-checkout "${this!.repoUrl}" "${this!.workspacePath}"`,
         { cwd: baseDir }
       );
 
       // Configure sparse checkout to only include process/ directory
-      await execAsync("git config core.sparseCheckout true", { cwd: this.workspacePath });
+      await execAsync("git config core.sparseCheckout true", { cwd: this!.workspacePath });
       await fs.writeFile(
-        join(this.workspacePath, ".git", "info", "sparse-checkout"),
+        join(this!.workspacePath, ".git", "info", "sparse-checkout"),
         "process/\n",
         "utf8"
       );
 
       // Checkout with sparse checkout applied
-      await execAsync("git checkout main", { cwd: this.workspacePath });
+      await execAsync("git checkout main", { cwd: this!.workspacePath });
 
       log.debug("Successfully created optimized workspace", {
-        workspacePath: this.workspacePath,
+        workspacePath: this!.workspacePath,
       });
     } catch (error) {
       // Clean up on failure
-      if (existsSync(this.workspacePath)) {
-        await fs.rm(this.workspacePath, { recursive: true, force: true });
+      if (existsSync(this!.workspacePath)) {
+        await fs.rm(this!.workspacePath, { recursive: true, force: true });
       }
 
       log.error("Failed to create optimized workspace", {
         error: getErrorMessage(error as any),
-        repoUrl: this.repoUrl,
-        workspacePath: this.workspacePath,
+        repoUrl: this!.repoUrl,
+        workspacePath: this!.workspacePath,
       });
 
       throw new Error(`Failed to create special workspace: ${getErrorMessage(error as any)}`);
@@ -280,7 +278,7 @@ export class SpecialWorkspaceManager {
     const isHealthy = await this.isHealthy();
     if (!isHealthy) {
       log.warn("Workspace is not healthy, triggering repair", {
-        workspacePath: this.workspacePath,
+        workspacePath: this!.workspacePath,
       });
       await this.repair();
     }
@@ -302,9 +300,9 @@ export class SpecialWorkspaceManager {
    * Acquire a file-based lock
    */
   private async acquireLock(operation: string): Promise<void> {
-    const startTime = (Date as any).now();
+    const startTime = (Date as unknown).now();
 
-    while ((Date as any).now() - startTime < this.lockTimeoutMs) {
+    while ((Date as unknown).now() - startTime < this?.lockTimeoutMs) {
       try {
         // Check if lock file exists
         if (existsSync(this.lockPath)) {
@@ -312,7 +310,7 @@ export class SpecialWorkspaceManager {
           const lockInfo: LockInfo = JSON.parse(String(lockContent));
 
           // Check if lock is stale
-          if ((Date as any).now() - (lockInfo as any).timestamp > this.lockTimeoutMs) {
+          if ((Date as unknown).now() - (lockInfo as unknown)?.timestamp > this?.lockTimeoutMs) {
             log.warn("Removing stale lock", {
               lockPath: this.lockPath,
               lockInfo,
@@ -335,7 +333,7 @@ export class SpecialWorkspaceManager {
         await fs.writeFile(this.lockPath, JSON.stringify(lockInfo), { flag: "wx" });
         return; // Successfully acquired lock
       } catch (error: any) {
-        if ((error as any).code === "EEXIST") {
+        if ((error as any)?.code === "EEXIST") {
           // Lock file was created by another process, wait and retry
           await new Promise((resolve) => setTimeout(resolve, 100));
           continue;
@@ -370,5 +368,5 @@ export class SpecialWorkspaceManager {
 export function createSpecialWorkspaceManager(
   options: SpecialWorkspaceOptions
 ): SpecialWorkspaceManager {
-  return new SpecialWorkspaceManager(options);
+  return new SpecialWorkspaceManager(options.repoUrl, options);
 }

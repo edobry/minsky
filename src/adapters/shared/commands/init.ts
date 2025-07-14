@@ -6,10 +6,10 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
-} from "../command-registry.js";
-import { initializeProjectFromParams } from "../../../domain/init.js";
-import { log } from "../../../utils/logger.js";
-import { ValidationError } from "../../../errors/index.js";
+} from "../command-registry";
+import { initializeProjectFromParams } from "../../../domain/init";
+import { log } from "../../../utils/logger";
+import { ValidationError } from "../../../errors/index";
 // Removed unused initParamsSchema import
 
 const initParams: CommandParameterMap = {
@@ -304,7 +304,7 @@ export function registerInitCommands() {
         // This would involve setting up GitHub API configuration, but that's not implemented yet
         // For now, we proceed with the basic initialization
         if (backend === "github-issues") {
-          log.info("GitHub Issues backend selected", { githubOwner, githubRepo });
+          log.debug("GitHub Issues backend selected", { githubOwner, githubRepo });
           // Future: Set up GitHub API configuration, webhooks, etc.
         }
 

@@ -14,7 +14,7 @@ import {
   TASK_ID_DESCRIPTION,
   RULE_FORMAT_DESCRIPTION,
   RULE_TAGS_DESCRIPTION,
-} from "../../utils/option-descriptions.js";
+} from "../../utils/option-descriptions";
 
 // Define local type for CommandSchema since @minsky/core isn't available in this context
 interface CommandSchema<_Params, Result> {
@@ -31,18 +31,18 @@ interface CommandSchema<_Params, Result> {
   handler: (params: any) => Promise<Result>;
 }
 
-import { registerGitCommands } from "../shared/commands/git.js";
-import { registerTasksCommands } from "../shared/commands/tasks.js";
-import { registerSessionCommands } from "../shared/commands/session.js";
-import { registerRulesCommands } from "../shared/commands/rules.js";
-import { CommandCategory } from "../shared/command-registry.js";
-import { log } from "../../utils/logger.js";
+import { registerGitCommands } from "../shared/commands/git";
+import { registerTasksCommands } from "../shared/commands/tasks";
+import { registerSessionCommands } from "../shared/commands/session";
+import { registerRulesCommands } from "../shared/commands/rules";
+import { CommandCategory } from "../shared/command-registry";
+import { log } from "../../utils/logger";
 
 // Mock import for demonstration purposes
 // In a real implementation, this would be imported from the MCP adapter bridge
 const mcpBridge = {
   registerSharedCommands: (categories: any) => {
-    log.debug(`Registering MCP commands for categories: ${(categories as any).join(", ")}`);
+    log.debug(`Registering MCP commands for categories: ${(categories as unknown).join(", ")}`);
     // Implementation would:
     // 1. Get commands from shared registry for the specified categories
     // 2. Create MCP command schemas from them
@@ -80,11 +80,11 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP git.commit called with params:", params as any);
+    log.debug("MCP git.commit called with params:", params as unknown);
     return {
       success: true,
       commitHash: "example-hash",
-      message: (params as any).message,
+      message: (params as unknown)!.message,
     };
   },
 };
@@ -114,10 +114,10 @@ const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP tasks.status.get called with params:", params as any);
+    log.debug("MCP tasks.status.get called with params:", params as unknown);
     return {
       success: true,
-      taskId: (params as any).taskId,
+      taskId: (params as unknown)!.taskId,
       _status: "TODO", // Example _status
     };
   },
@@ -138,7 +138,7 @@ const sessionListCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP session.list called with params:", params as any);
+    log.debug("MCP session.list called with params:", params as unknown);
     return {
       success: true,
       sessions: [
@@ -179,7 +179,7 @@ const rulesListCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP rules.list called with params:", params as any);
+    log.debug("MCP rules.list called with params:", params as unknown);
     return {
       success: true,
       rules: [
@@ -220,11 +220,11 @@ export function setupMcpWithSharedCommands(): void {
   registerRulesCommands();
 
   // Bridge the commands to MCP
-  (mcpBridge as any).registerSharedCommands([
-    (CommandCategory as any).GIT,
-    (CommandCategory as any).TASKS,
-    (CommandCategory as any).SESSION,
-    (CommandCategory as any).RULES,
+  (mcpBridge as unknown).registerSharedCommands([
+    (CommandCategory as unknown).GIT,
+    (CommandCategory as unknown).TASKS,
+    (CommandCategory as unknown).SESSION,
+    (CommandCategory as unknown).RULES,
   ]);
 
   log.debug("MCP setup complete with shared commands");

@@ -22,41 +22,35 @@ detectionRules:
 
 # Session database configuration
 sessiondb:
-  backend: "json"
+  backend: "sqlite"
   baseDir: null
   dbPath: null
   connectionString: null
 
+# Logger configuration
+logger:
+  mode: "auto"          # "HUMAN" | "STRUCTURED" | "auto"
+  level: "info"         # "debug" | "info" | "warn" | "error"
+  enableAgentLogs: false # Enable JSON logs in HUMAN mode
+
 # GitHub configuration
-github:
-  credentials:
-    source: "environment"
+github: {}
 
 # AI configuration
 ai:
   providers:
     openai:
-      credentials:
-        source: "environment"
       enabled: true
       models: []
     anthropic:
-      credentials:
-        source: "environment"
       enabled: true
       models: []
     google:
-      credentials:
-        source: "environment"
       enabled: true
       models: []
     cohere:
-      credentials:
-        source: "environment"
       enabled: true
       models: []
     mistral:
-      credentials:
-        source: "environment"
       enabled: true
       models: []

@@ -1,16 +1,16 @@
 import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { join } from "path";
-import { getMinskyStateDir, getSessionDbPath } from "../utils/paths.js";
-import { 
-  MinskyError, 
-  ResourceNotFoundError, 
+import { getMinskyStateDir, getSessionDir } from "../utils/paths";
+import {
+  MinskyError,
+  ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
   createCommandFailureMessage,
   createErrorContext
-} from "../errors/index.js";
-import { taskIdSchema } from "../schemas/common.js";
+} from "../errors/index";
+import { taskIdSchema } from "../schemas/common";
 import type {
   SessionListParams,
   SessionGetParams,
@@ -19,24 +19,24 @@ import type {
   SessionDirParams,
   SessionUpdateParams,
   SessionPrParams,
-} from "../schemas/session.js";
-import { log } from "../utils/logger.js";
-import { installDependencies } from "../utils/package-manager.js";
-import { type GitServiceInterface, preparePrFromParams } from "./git.js";
-import { createGitService } from "./git.js";
-import { ConflictDetectionService } from "./git/conflict-detection.js";
-import { normalizeRepoName, resolveRepoPath } from "./repo-utils.js";
-import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
+} from "../schemas/session";
+import { log } from "../utils/logger";
+import { installDependencies } from "../utils/package-manager";
+import { type GitServiceInterface, preparePrFromParams } from "./git";
+import { createGitService } from "./git";
+import { ConflictDetectionService } from "./git/conflict-detection";
+import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
+import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
+import { execAsync } from "../utils/exec";
 import {
   type WorkspaceUtilsInterface,
   getCurrentSession,
   getCurrentSessionContext,
-} from "./workspace.js";
-import * as WorkspaceUtils from "./workspace.js";
-import { SessionDbAdapter } from "./session/session-db-adapter.js";
-import { createTaskFromDescription } from "./templates/session-templates.js";
-import { resolveSessionContextWithFeedback } from "./session/session-context-resolver.js";
-import { startSessionImpl } from "./session/start-session-operations.js";
+} from "./workspace";
+import * as WorkspaceUtils from "./workspace";
+import { SessionDbAdapter } from "./session/session-db-adapter";
+import { createTaskFromDescription } from "./templates/session-templates";
+import { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
 
 export interface SessionRecord {
   session: string;
@@ -55,6 +55,13 @@ export interface SessionRecord {
     depth?: number;
   };
   branch?: string; // Branch property is already part of the interface
+  prState?: {
+    branchName: string;
+    exists: boolean;
+    lastChecked: string; // ISO timestamp
+    createdAt?: string;   // When PR branch was created
+    mergedAt?: string;    // When merged (for cleanup)
+  };
 }
 
 export interface Session {
@@ -195,6 +202,10 @@ export async function startSessionFromParams(
     resolveRepoPath?: typeof resolveRepoPath;
   }
 ): Promise<Session> {
+  // Validate parameters using Zod schema (already done by type)
+  const { name, repo, task, description, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
+    params;
+
   // Create dependencies with defaults
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
@@ -209,7 +220,274 @@ export async function startSessionFromParams(
     resolveRepoPath: depsInput?.resolveRepoPath || resolveRepoPath,
   };
 
-  return startSessionImpl(params, deps);
+  try {
+    log.debug("Starting session with params", {
+      name,
+      task,
+      inputBranch: branch,
+      noStatusUpdate,
+      quiet,
+      json,
+      skipInstall,
+      packageManager,
+    });
+
+    const currentDir = process.env.PWD || process.cwd();
+    const isInSession = await deps.workspaceUtils.isSessionWorkspace(currentDir);
+    if (isInSession) {
+      throw new MinskyError(`🚫 Cannot Start Session from Within Another Session
+
+You're currently inside a session workspace, but sessions can only be created from the main workspace.
+
+📍 Current location: ${currentDir}
+
+🔄 How to exit this session workspace:
+
+1️⃣ Navigate to your main workspace:
+   cd /path/to/your/main/project
+
+2️⃣ Or use the session directory command to find your way:
+   minsky session dir
+
+3️⃣ Then try creating your session again:
+   minsky session start --task <id> [session-name]
+   minsky session start --description "<description>" [session-name]
+
+💡 Why this restriction exists:
+Sessions are isolated workspaces for specific tasks. Creating nested sessions would cause conflicts and confusion.
+
+Need help? Run 'minsky sessions list' to see all available sessions.`);
+    }
+
+    // Determine repo URL or path first
+    let repoUrl = repo;
+    if (!repoUrl) {
+      try {
+        repoUrl = await deps.resolveRepoPath({});
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        throw new MinskyError(
+          `--repo is required (not in a git repo and no --repo provided): ${error.message}`
+        );
+      }
+    }
+
+    // Determine the session name using task ID if provided
+    let sessionName = name;
+    let taskId: string | undefined = task;
+
+    // Auto-create task if description is provided but no task ID
+    if (description && !taskId) {
+      const taskSpec = createTaskFromDescription(description);
+      const createdTask = await deps.taskService.createTaskFromTitleAndDescription(
+        taskSpec.title,
+        taskSpec.description
+      );
+      taskId = createdTask.id;
+      if (!quiet) {
+        log.cli(`Created task ${taskId}: ${taskSpec.title}`);
+      }
+    }
+
+
+
+    if (taskId && !sessionName) {
+      // Normalize the task ID format using Zod validation
+      const normalizedTaskId = taskIdSchema.parse(taskId);
+      taskId = normalizedTaskId;
+
+      // Verify the task exists
+      const taskObj = await deps.taskService.getTask(normalizedTaskId);
+      if (!taskObj) {
+        throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
+      }
+
+      // Use the task ID as the session name
+      sessionName = `task${taskId}`;
+    }
+
+    if (!sessionName) {
+      throw new ValidationError("Session name could not be determined from task ID");
+    }
+
+    // Check if session already exists
+    const existingSession = await deps.sessionDB.getSession(sessionName);
+    if (existingSession) {
+      throw new MinskyError(`Session '${sessionName}' already exists`);
+    }
+
+    // Check if a session already exists for this task
+    if (taskId) {
+      const existingSessions = await deps.sessionDB.listSessions();
+      const taskSession = existingSessions.find((s: SessionRecord) => {
+        const normalizedSessionTaskId = s.taskId?.startsWith("#") ? s.taskId : `#${s.taskId}`;
+        const normalizedInputTaskId = taskId?.startsWith("#") ? taskId : `#${taskId}`;
+        return normalizedSessionTaskId === normalizedInputTaskId;
+      });
+
+      if (taskSession) {
+        throw new MinskyError(
+          `A session for task ${taskId} already exists: '${taskSession.session}'`
+        );
+      }
+    }
+
+    // Extract the repository name
+    const repoName = normalizeRepoName(repoUrl);
+
+    // Normalize the repo name for local repositories to ensure path consistency
+    let normalizedRepoName = repoName;
+    if (repoName.startsWith("local/")) {
+      // Replace slashes with dashes in the path segments after "local/"
+      const parts = repoName.split("/");
+      if (parts.length > 1) {
+        // Keep "local" as is, but normalize the rest
+        normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
+      }
+    } else {
+      // For other repository types, normalize as usual
+      normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
+    }
+
+    // Generate the expected repository path using simplified session-ID-based structure
+    const sessionDir = getSessionDir(sessionName);
+
+    // Check if session directory already exists and clean it up
+    if (existsSync(sessionDir)) {
+      try {
+        rmSync(sessionDir, { recursive: true, force: true });
+      } catch (error) {
+        throw new MinskyError(
+          `Failed to clean up existing session directory: ${getErrorMessage(error)}`
+        );
+      }
+    }
+
+    // Prepare session record but don't add to DB yet
+    const sessionRecord: SessionRecord = {
+      session: sessionName,
+      repoUrl,
+      repoName,
+      createdAt: new Date().toISOString(),
+      taskId,
+      branch: branch || sessionName,
+    };
+
+    let sessionAdded = false;
+    // Define branchName outside try block so it's available in return statement
+    const branchName = branch || sessionName;
+
+    try {
+      // First clone the repo
+      const gitCloneResult = await deps.gitService.clone({
+        repoUrl,
+        session: sessionName,
+        workdir: sessionDir, // Explicit workdir path computed by SessionDB
+      });
+
+      // Create a branch based on the session name - use branchWithoutSession
+      // since session record hasn't been added to DB yet
+      const branchResult = await deps.gitService.branchWithoutSession({
+        repoName: normalizedRepoName,
+        session: sessionName,
+        branch: branchName,
+      });
+
+      // Only add session to DB after git operations succeed
+      await deps.sessionDB.addSession(sessionRecord);
+      sessionAdded = true;
+    } catch (gitError) {
+      // Clean up session record if it was added but git operations failed
+      if (sessionAdded) {
+        try {
+          await deps.sessionDB.deleteSession(sessionName);
+        } catch (cleanupError) {
+          log.error("Failed to cleanup session record after git error", {
+            sessionName,
+            gitError: getErrorMessage(gitError),
+            cleanupError:
+              getErrorMessage(cleanupError),
+          });
+        }
+      }
+
+      // Clean up the directory if it was created
+      if (existsSync(sessionDir)) {
+        try {
+          rmSync(sessionDir, { recursive: true, force: true });
+        } catch (cleanupError) {
+          log.error("Failed to cleanup session directory after git error", {
+            sessionDir,
+            gitError: getErrorMessage(gitError),
+            cleanupError:
+              getErrorMessage(cleanupError),
+          });
+        }
+      }
+
+      throw gitError;
+    }
+
+    // Install dependencies if not skipped
+    if (!skipInstall) {
+      try {
+        const { success, error } = await installDependencies(sessionDir, {
+          packageManager: packageManager,
+          quiet: quiet,
+        });
+
+        if (!success && !quiet) {
+          log.cliWarn(`Warning: Dependency installation failed. You may need to run install manually.
+Error: ${error}`);
+        }
+      } catch (installError) {
+        // Log but don't fail session creation
+        if (!quiet) {
+          log.cliWarn(
+            `Warning: Dependency installation failed. You may need to run install manually.
+Error: ${getErrorMessage(installError)}`
+          );
+        }
+      }
+    }
+
+    // Update task status to IN-PROGRESS if requested and if we have a task ID
+    if (taskId && !noStatusUpdate) {
+      try {
+        // Get the current status first
+        const previousStatus = await deps.taskService.getTaskStatus(taskId);
+
+        // Update the status to IN-PROGRESS
+        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
+      } catch (error) {
+        // Log the error but don't fail the session creation
+        log.cliWarn(
+          `Warning: Failed to update status for task ${taskId}: ${getErrorMessage(error)}`
+        );
+      }
+    }
+
+    if (!quiet) {
+      log.debug(`Started session for task ${taskId}`, { session: sessionName });
+    }
+
+    return {
+      session: sessionName,
+      repoUrl,
+      repoName: normalizedRepoName,
+      branch: branchName,
+      taskId,
+    };
+  } catch (error) {
+    if (error instanceof MinskyError) {
+      throw error;
+    } else {
+      throw new MinskyError(
+        `Failed to start session: ${getErrorMessage(error)}`,
+        error
+      );
+    }
+  }
 }
 
 /**
@@ -282,7 +560,23 @@ export async function getSessionDirFromParams(
   } else if (params.name) {
     sessionName = params.name;
   } else {
-    throw new ResourceNotFoundError("You must provide either a session name or task ID");
+    throw new ResourceNotFoundError(`🚫 Session Directory: Missing Required Parameter
+
+You must provide either a session name or task ID to get the session directory.
+
+📖 Usage Examples:
+
+  # Get directory by session name
+  minsky session dir <session-name>
+
+  # Get directory by task ID
+  minsky session dir --task <task-id>
+  minsky session dir -t <task-id>
+
+💡 Tips:
+  • List available sessions: minsky session list
+  • Get session by task ID: minsky session get --task <task-id>
+  • Check current session: minsky session inspect`);
   }
 
   const session = await deps.sessionDB.getSession(sessionName);
@@ -446,21 +740,21 @@ export async function updateSessionFromParams(
       // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
       const branchToMerge = branch || await deps.gitService.fetchDefaultBranch(workdir);
       const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
-      
+
       // Enhanced conflict detection and smart merge handling
       if (dryRun) {
         log.cli("🔍 Performing dry run conflict check...");
-        
+
         const conflictPrediction = await ConflictDetectionService.predictConflicts(
           workdir, currentBranch, remoteBranchToMerge
         );
-        
+
         if (conflictPrediction.hasConflicts) {
           log.cli("⚠️  Conflicts detected during dry run:");
           log.cli(conflictPrediction.userGuidance);
           log.cli("\n🛠️  Recovery commands:");
           conflictPrediction.recoveryCommands.forEach(cmd => log.cli(`   ${cmd}`));
-          
+
           throw new MinskyError("Dry run detected conflicts. Use the guidance above to resolve them.");
         } else {
           log.cli("✅ No conflicts detected. Safe to proceed with update.");
@@ -479,57 +773,68 @@ export async function updateSessionFromParams(
       // ConflictDetectionService expects plain branch names and adds origin/ internally
       const normalizedBaseBranch = branchToMerge;
 
-      // Use smart session update for enhanced conflict handling
-      const updateResult = await ConflictDetectionService.smartSessionUpdate(
-        workdir, 
-        currentBranch, 
-        normalizedBaseBranch,
-        {
-          skipIfAlreadyMerged,
-          autoResolveConflicts: autoResolveDeleteConflicts
-        }
-      );
+      // Use smart session update for enhanced conflict handling (only if not forced)
+      if (!force) {
+        const updateResult = await ConflictDetectionService.smartSessionUpdate(
+          workdir,
+          currentBranch,
+          normalizedBaseBranch,
+          {
+            skipIfAlreadyMerged,
+            autoResolveConflicts: autoResolveDeleteConflicts
+          }
+        );
 
-      if (!updateResult.updated && updateResult.skipped) {
-        log.cli(`✅ ${updateResult.reason}`);
-        
-        if (updateResult.reason?.includes("already in base")) {
-          log.cli("\n💡 Your session changes are already merged. You can create a PR with --skip-update:");
-          log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
-        }
-        
-        return {
-          session: sessionName,
-          repoName: sessionRecord.repoName || "unknown", 
-          repoUrl: sessionRecord.repoUrl,
-          branch: currentBranch,
-          createdAt: sessionRecord.createdAt,
-          taskId: sessionRecord.taskId,
-        };
-      }
+        if (!updateResult.updated && updateResult.skipped) {
+          log.cli(`✅ ${updateResult.reason}`);
 
-      if (!updateResult.updated && updateResult.conflictDetails) {
-        // Enhanced conflict guidance
-        log.cli("🚫 Update failed due to merge conflicts:");
-        log.cli(updateResult.conflictDetails);
-        
-        if (updateResult.divergenceAnalysis) {
-          const analysis = updateResult.divergenceAnalysis;
-          log.cli("\n📊 Branch Analysis:");
-          log.cli(`   • Session ahead: ${analysis.aheadCommits} commits`);
-          log.cli(`   • Session behind: ${analysis.behindCommits} commits`);
-          log.cli(`   • Recommended action: ${analysis.recommendedAction}`);
-          
-          if (analysis.sessionChangesInBase) {
-            log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
+          if (updateResult.reason?.includes("already in base")) {
+            log.cli("\n💡 Your session changes are already merged. You can create a PR with --skip-update:");
             log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
           }
-        }
-        
-        throw new MinskyError(updateResult.conflictDetails);
-      }
 
-      log.debug("Enhanced merge completed successfully", { updateResult });
+          return {
+            session: sessionName,
+            repoName: sessionRecord.repoName || "unknown",
+            repoUrl: sessionRecord.repoUrl,
+            branch: currentBranch,
+            createdAt: sessionRecord.createdAt,
+            taskId: sessionRecord.taskId,
+          };
+        }
+
+        if (!updateResult.updated && updateResult.conflictDetails) {
+          // Enhanced conflict guidance
+          log.cli("🚫 Update failed due to merge conflicts:");
+          log.cli(updateResult.conflictDetails);
+
+          if (updateResult.divergenceAnalysis) {
+            const analysis = updateResult.divergenceAnalysis;
+            log.cli("\n📊 Branch Analysis:");
+            log.cli(`   • Session ahead: ${analysis.aheadCommits} commits`);
+            log.cli(`   • Session behind: ${analysis.behindCommits} commits`);
+            log.cli(`   • Recommended action: ${analysis.recommendedAction}`);
+
+            if (analysis.sessionChangesInBase) {
+              log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
+              log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
+            }
+          }
+
+          throw new MinskyError(updateResult.conflictDetails);
+        }
+
+        log.debug("Enhanced merge completed successfully", { updateResult });
+      } else {
+        log.debug("Skipping conflict detection due to force flag", { force });
+        // When forced, perform a simple merge without conflict detection
+        try {
+          await deps.gitService.mergeBranch(workdir, normalizedBaseBranch);
+          log.debug("Forced merge completed");
+        } catch (mergeError) {
+          log.debug("Forced merge failed, but continuing due to force flag", { error: getErrorMessage(mergeError) });
+        }
+      }
 
       // Push changes if needed
       if (!noPush) {
@@ -599,13 +904,13 @@ export async function updateSessionFromParams(
 /**
  * Helper function to check if a PR branch exists for a session
  */
-async function checkPrBranchExists(
+export async function checkPrBranchExists(
   sessionName: string,
   gitService: GitServiceInterface,
   currentDir: string
 ): Promise<boolean> {
   const prBranch = `pr/${sessionName}`;
-  
+
   try {
     // Check if branch exists locally
     const localBranchOutput = await gitService.execInRepository(
@@ -613,18 +918,18 @@ async function checkPrBranchExists(
       `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
     );
     const localBranchExists = localBranchOutput.trim() !== "not-exists";
-    
+
     if (localBranchExists) {
       return true;
     }
-    
+
     // Check if branch exists remotely
     const remoteBranchOutput = await gitService.execInRepository(
       currentDir,
       `git ls-remote --heads origin ${prBranch}`
     );
     const remoteBranchExists = remoteBranchOutput.trim().length > 0;
-    
+
     return remoteBranchExists;
   } catch (error) {
     log.debug("Error checking PR branch existence", {
@@ -637,6 +942,130 @@ async function checkPrBranchExists(
 }
 
 /**
+ * Check if PR state cache is stale (older than 5 minutes)
+ */
+function isPrStateStale(prState: { lastChecked: string }): boolean {
+  const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+  const lastChecked = new Date(prState.lastChecked).getTime();
+  const now = Date.now();
+  return (now - lastChecked) > STALE_THRESHOLD_MS;
+}
+
+/**
+ * Optimized PR branch existence check using cached state
+ */
+export async function checkPrBranchExistsOptimized(
+  sessionName: string,
+  gitService: GitServiceInterface,
+  currentDir: string,
+  sessionDB: SessionProviderInterface
+): Promise<boolean> {
+  const sessionRecord = await sessionDB.getSession(sessionName);
+
+  // If no session record, fall back to git operations
+  if (!sessionRecord) {
+    log.debug("No session record found, falling back to git operations", { sessionName });
+    return checkPrBranchExists(sessionName, gitService, currentDir);
+  }
+
+  // Check if we have cached PR state and it's not stale
+  if (sessionRecord.prState && !isPrStateStale(sessionRecord.prState)) {
+    log.debug("Using cached PR state", {
+      sessionName,
+      exists: sessionRecord.prState.exists,
+      lastChecked: sessionRecord.prState.lastChecked
+    });
+    return sessionRecord.prState.exists;
+  }
+
+  // Cache is stale or missing, perform git operations and update cache
+  log.debug("PR state cache is stale or missing, refreshing", {
+    sessionName,
+    hasState: !!sessionRecord.prState,
+    isStale: sessionRecord.prState ? isPrStateStale(sessionRecord.prState) : false
+  });
+
+  const exists = await checkPrBranchExists(sessionName, gitService, currentDir);
+
+  // Update the session record with fresh PR state
+  const prBranch = `pr/${sessionName}`;
+  const updatedPrState = {
+    branchName: prBranch,
+    exists,
+    lastChecked: new Date().toISOString(),
+    createdAt: sessionRecord.prState?.createdAt || (exists ? new Date().toISOString() : undefined),
+    mergedAt: sessionRecord.prState?.mergedAt
+  };
+
+  await sessionDB.updateSession(sessionName, { prState: updatedPrState });
+
+  log.debug("Updated PR state cache", {
+    sessionName,
+    exists,
+    lastChecked: updatedPrState.lastChecked
+  });
+
+  return exists;
+}
+
+/**
+ * Update PR state when a PR branch is created
+ */
+export async function updatePrStateOnCreation(
+  sessionName: string,
+  sessionDB: SessionProviderInterface
+): Promise<void> {
+  const prBranch = `pr/${sessionName}`;
+  const now = new Date().toISOString();
+
+  const prState = {
+    branchName: prBranch,
+    exists: true,
+    lastChecked: now,
+    createdAt: now,
+    mergedAt: undefined
+  };
+
+  await sessionDB.updateSession(sessionName, { prState });
+
+  log.debug("Updated PR state on creation", {
+    sessionName,
+    prBranch,
+    createdAt: now
+  });
+}
+
+/**
+ * Update PR state when a PR branch is merged
+ */
+export async function updatePrStateOnMerge(
+  sessionName: string,
+  sessionDB: SessionProviderInterface
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  const sessionRecord = await sessionDB.getSession(sessionName);
+  if (!sessionRecord?.prState) {
+    log.debug("No PR state found for session, cannot update merge state", { sessionName });
+    return;
+  }
+
+  const updatedPrState = {
+    ...sessionRecord.prState,
+    exists: false,
+    lastChecked: now,
+    mergedAt: now
+  };
+
+  await sessionDB.updateSession(sessionName, { prState: updatedPrState });
+
+  log.debug("Updated PR state on merge", {
+    sessionName,
+    mergedAt: now
+  });
+}
+
+/**
  * Helper function to extract title and body from existing PR branch
  */
 async function extractPrDescription(
@@ -645,7 +1074,7 @@ async function extractPrDescription(
   currentDir: string
 ): Promise<{ title: string; body: string } | null> {
   const prBranch = `pr/${sessionName}`;
-  
+
   try {
     // Try to get from remote first
     const remoteBranchOutput = await gitService.execInRepository(
@@ -653,13 +1082,13 @@ async function extractPrDescription(
       `git ls-remote --heads origin ${prBranch}`
     );
     const remoteBranchExists = remoteBranchOutput.trim().length > 0;
-    
+
     let commitMessage = "";
-    
+
     if (remoteBranchExists) {
       // Fetch the PR branch to ensure we have latest
       await gitService.execInRepository(currentDir, `git fetch origin ${prBranch}`);
-      
+
       // Get the commit message from the remote branch's last commit
       commitMessage = await gitService.execInRepository(
         currentDir,
@@ -672,7 +1101,7 @@ async function extractPrDescription(
         `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
       );
       const localBranchExists = localBranchOutput.trim() !== "not-exists";
-      
+
       if (localBranchExists) {
         // Get the commit message from the local branch's last commit
         commitMessage = await gitService.execInRepository(
@@ -683,12 +1112,12 @@ async function extractPrDescription(
         return null;
       }
     }
-    
+
     // Parse the commit message to extract title and body
     const lines = commitMessage.trim().split("\n");
     const title = lines[0] || "";
     const body = lines.slice(1).join("\n").trim();
-    
+
     return { title, body };
   } catch (error) {
     log.debug("Error extracting PR description", {
@@ -703,7 +1132,13 @@ async function extractPrDescription(
 /**
  * Interface-agnostic function for creating a PR for a session
  */
-export async function sessionPrFromParams(params: SessionPrParams): Promise<{
+export async function sessionPrFromParams(
+  params: SessionPrParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+  }
+): Promise<{
   prBranch: string;
   baseBranch: string;
   title?: string;
@@ -717,7 +1152,7 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") {
       // Extract the validation error message
-      const zodError = error as any;
+      const zodError = error as unknown;
       const message = zodError.errors?.[0]?.message || "Invalid parameters";
       throw new ValidationError(message);
     }
@@ -734,7 +1169,7 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
   }
 
   // Get current git branch
-  const gitService = createGitService();
+  const gitService = depsInput?.gitService || createGitService();
   const currentBranch = await gitService.getCurrentBranch(currentDir);
 
   // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* branch)
@@ -839,7 +1274,7 @@ Need help? Run 'git status' to see what files have changed.
 
   // Determine the session name
   let sessionName = params.session;
-  const sessionDb = createSessionProvider();
+  const sessionDb = depsInput?.sessionDB || createSessionProvider();
 
   // If no session name provided but task ID is, try to find the session by task ID
   if (!sessionName && params.task) {
@@ -885,15 +1320,15 @@ Need help? Run 'git status' to see what files have changed.
 
   // STEP 4.5: PR Branch Detection and Title/Body Handling
   // This implements the new refresh functionality
-  const prBranchExists = await checkPrBranchExists(sessionName, gitService, currentDir);
-  
+  const prBranchExists = await checkPrBranchExistsOptimized(sessionName, gitService, currentDir, sessionDb);
+
   let titleToUse = params.title;
   let bodyToUse = bodyContent;
-  
+
   if (!titleToUse && prBranchExists) {
     // Case: Existing PR + no title → Auto-reuse existing title/body (refresh)
     log.cli("🔄 Refreshing existing PR (reusing title and body)...");
-    
+
     const existingDescription = await extractPrDescription(sessionName, gitService, currentDir);
     if (existingDescription) {
       titleToUse = existingDescription.title;
@@ -933,7 +1368,7 @@ Need help? Run 'git status' to see what files have changed.
   // STEP 5: Enhanced session update with conflict detection (unless --skip-update is specified)
   if (!params.skipUpdate) {
     log.cli("🔍 Checking for conflicts before PR creation...");
-    
+
     try {
       // Use enhanced update with conflict detection options
       await updateSessionFromParams({
@@ -941,7 +1376,7 @@ Need help? Run 'git status' to see what files have changed.
         repo: params.repo,
         json: false,
         force: false,
-        noStash: false, 
+        noStash: false,
         noPush: false,
         dryRun: false,
         skipConflictCheck: params.skipConflictCheck,
@@ -951,7 +1386,7 @@ Need help? Run 'git status' to see what files have changed.
       log.cli("✅ Session updated successfully");
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      
+
       // Enhanced error handling for common conflict scenarios
       if (errorMessage.includes("already in base") || errorMessage.includes("already merged")) {
         log.cli("💡 Your session changes are already in the base branch. Proceeding with PR creation...");
@@ -976,6 +1411,9 @@ Need help? Run 'git status' to see what files have changed.
     baseBranch: params.baseBranch,
     debug: params.debug,
   });
+
+  // Update PR state cache after successful creation
+  await updatePrStateOnCreation(sessionName, sessionDb);
 
   // Update task status to IN-REVIEW if associated with a task
   if (!params.noStatusUpdate) {
@@ -1014,6 +1452,7 @@ export async function approveSessionFromParams(
     gitService?: GitServiceInterface;
     taskService?: {
       setTaskStatus?: (taskId: string, status: string) => Promise<any>;
+      getTaskStatus?: (taskId: string) => Promise<string | undefined>;
       getBackendForTask?: (taskId: string) => Promise<any>;
     };
     workspaceUtils?: any;
@@ -1027,6 +1466,7 @@ export async function approveSessionFromParams(
   baseBranch: string;
   prBranch: string;
   taskId?: string;
+  isNewlyApproved: boolean;
 }> {
   let sessionNameToUse = params.session;
   let taskId: string | undefined;
@@ -1107,43 +1547,189 @@ export async function approveSessionFromParams(
   const prBranch = `pr/${featureBranch}`;
   const baseBranch = "main"; // Default base branch, could be made configurable
 
+  // Early exit check: If task is already DONE and PR branch doesn't exist, session is already complete
+  if (taskId && deps.taskService.getTaskStatus) {
+    try {
+      const currentStatus = await deps.taskService.getTaskStatus(taskId);
+      if (currentStatus === TASK_STATUS.DONE) {
+        // Check if PR branch exists
+        try {
+          await deps.gitService.execInRepository(workingDirectory, `git show-ref --verify --quiet refs/heads/${prBranch}`);
+          // PR branch exists, continue with normal flow
+          log.debug(`PR branch ${prBranch} exists, continuing with normal flow`);
+        } catch (branchError) {
+          // PR branch doesn't exist and task is already DONE - session is complete
+          log.debug(`Session ${sessionNameToUse} is already complete: task ${taskId} is DONE and PR branch ${prBranch} doesn't exist`);
+
+          // Get current HEAD info for the response
+          const commitHash = (
+            await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
+          ).trim();
+          const mergedBy = (
+            await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+          ).trim();
+          const mergeDate = new Date().toISOString();
+
+          return {
+            session: sessionNameToUse,
+            commitHash,
+            mergeDate,
+            mergedBy,
+            baseBranch,
+            prBranch,
+            taskId,
+            isNewlyApproved: false,
+          };
+        }
+      } else {
+        log.debug(`Task ${taskId} is not DONE (status: ${currentStatus}), continuing with normal flow`);
+      }
+    } catch (statusError) {
+      // If we can't check the status, continue with normal flow
+      log.debug(`Could not check task status for ${taskId}, continuing with normal approval flow`);
+    }
+  }
+
   try {
     // Execute git commands to merge the PR branch in the main repository
     // First, check out the base branch
     await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
     // Fetch latest changes
     await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
-    // Perform the fast-forward merge from local PR branch
-    await deps.gitService.execInRepository(workingDirectory, `git merge --ff-only ${prBranch}`);
 
-    // Get commit hash and date
-    const commitHash = (
-      await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
-    ).trim();
-    const mergeDate = new Date().toISOString();
-    const mergedBy = (
-      await deps.gitService.execInRepository(workingDirectory, "git config user.name")
-    ).trim();
+    // Check if the PR branch has already been merged
+    let isNewlyApproved = true;
+    let commitHash: string = "";
+    let mergeDate: string = "";
+    let mergedBy: string = "";
 
-    // Push the changes
-    await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
-
-    // Delete the PR branch from remote only if it exists there
     try {
-      // Check if remote branch exists first
-      await deps.gitService.execInRepository(
-        workingDirectory,
-        `git show-ref --verify --quiet refs/remotes/origin/${prBranch}`
-      );
-      // If it exists, delete it
-      await deps.gitService.execInRepository(
-        workingDirectory,
-        `git push origin --delete ${prBranch}`
-      );
+      // Check if the PR branch exists locally
+      await deps.gitService.execInRepository(workingDirectory, `git show-ref --verify --quiet refs/heads/${prBranch}`);
+
+      // Get the commit hash of the PR branch
+      const prBranchCommitHash = (
+        await deps.gitService.execInRepository(workingDirectory, `git rev-parse ${prBranch}`)
+      ).trim();
+
+      // REMOVED: Problematic race condition check
+      // Instead of checking git merge-base --is-ancestor, let git merge handle it
+      // This avoids the race condition where the check can fail during merge process
+
+      // Attempt the merge - if it fails because already merged, git will tell us
+      try {
+        await deps.gitService.execInRepository(workingDirectory, `git merge --ff-only ${prBranch}`);
+
+        // If merge succeeds, it's newly approved
+        isNewlyApproved = true;
+
+        // Get commit hash and date for the new merge
+        commitHash = (
+          await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
+        ).trim();
+        mergeDate = new Date().toISOString();
+        mergedBy = (
+          await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+        ).trim();
+
+        // Push the changes
+        await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
+
+        // Delete the PR branch from remote only if it exists there
+        try {
+          // Check if remote branch exists first using execAsync directly to avoid error logging
+          // This is expected to fail if the branch doesn't exist, which is normal
+          await execAsync(`git show-ref --verify --quiet refs/remotes/origin/${prBranch}`, {
+            cwd: workingDirectory
+          });
+          // If it exists, delete it
+          await deps.gitService.execInRepository(
+            workingDirectory,
+            `git push origin --delete ${prBranch}`
+          );
+        } catch (error) {
+          // Remote branch doesn't exist, which is fine - just log it
+          log.debug(`Remote PR branch ${prBranch} doesn't exist, skipping deletion`);
+        }
+
+        // Clean up local branches after successful merge
+        await cleanupLocalBranches(deps.gitService, workingDirectory, prBranch, sessionNameToUse, taskId);
+
+        // Update PR state to reflect merge
+        await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
+
+      } catch (mergeError) {
+        // Merge failed - check if it's because already merged
+        const errorMessage = getErrorMessage(mergeError as Error);
+
+        if (errorMessage.includes("Already up to date") || errorMessage.includes("nothing to commit")) {
+          // PR branch has already been merged
+          isNewlyApproved = false;
+          log.debug(`PR branch ${prBranch} has already been merged`);
+
+          // Update PR state to reflect it's already merged
+          await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
+
+          // Get current HEAD info for already merged case
+          commitHash = (
+            await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
+          ).trim();
+
+          // For already merged PRs, try to get the merge commit info
+          try {
+            const mergeCommitInfo = await deps.gitService.execInRepository(
+              workingDirectory,
+              `git log --merges --oneline --grep="Merge.*${prBranch}" -n 1 --format="%H|%ai|%an"`
+            );
+            if (mergeCommitInfo.trim()) {
+              const parts = mergeCommitInfo.trim().split("|");
+              if (parts.length >= 3 && parts[0] && parts[1] && parts[2]) {
+                commitHash = parts[0];
+                mergeDate = new Date(parts[1]).toISOString();
+                mergedBy = parts[2];
+              } else {
+                // Fallback to current HEAD info if format is unexpected
+                mergeDate = new Date().toISOString();
+                mergedBy = (
+                  await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+                ).trim();
+              }
+            } else {
+              // Fallback to current HEAD info if we can't find the merge commit
+              mergeDate = new Date().toISOString();
+              mergedBy = (
+                await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+              ).trim();
+            }
+          } catch (error) {
+            // Fallback to current HEAD info
+            mergeDate = new Date().toISOString();
+            mergedBy = (
+              await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+            ).trim();
+          }
+        } else {
+          // Some other merge error - re-throw it
+          throw mergeError;
+        }
+      }
     } catch (error) {
-      // Remote branch doesn't exist, which is fine - just log it
-      log.debug(`Remote PR branch ${prBranch} doesn't exist, skipping deletion`);
+      // PR branch doesn't exist locally, it might have been already merged and cleaned up
+      isNewlyApproved = false;
+      log.debug(`PR branch ${prBranch} doesn't exist locally, assuming already merged`);
+
+      // Get current HEAD info
+      commitHash = (
+        await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
+      ).trim();
+      mergeDate = new Date().toISOString();
+      mergedBy = (
+        await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+      ).trim();
     }
+
+    // The merge logic has been moved inside the try block above
+    // No need for separate isNewlyApproved check here
 
     // Create merge info
     const mergeInfo = {
@@ -1154,13 +1740,49 @@ export async function approveSessionFromParams(
       baseBranch,
       prBranch,
       taskId,
+      isNewlyApproved,
     };
 
-    // Update task status to DONE if we have a task ID
-    if (taskId && deps.taskService.setTaskStatus) {
+    // Update task status to DONE if we have a task ID and it's not already DONE
+    if (taskId && deps.taskService.setTaskStatus && deps.taskService.getTaskStatus) {
       try {
-        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
-        log.cli(`Updated task ${taskId} status to DONE`);
+        // Check current status first to avoid unnecessary updates
+        const currentStatus = await deps.taskService.getTaskStatus(taskId);
+
+        if (currentStatus !== TASK_STATUS.DONE) {
+          log.debug(`Updating task ${taskId} status from ${currentStatus} to DONE`);
+          await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
+
+          // After updating task status, check if there are uncommitted changes that need to be committed
+          try {
+            const statusOutput = await deps.gitService.execInRepository(workingDirectory, "git status --porcelain");
+            const hasUncommittedChanges = statusOutput.trim().length > 0;
+
+            if (hasUncommittedChanges) {
+              log.debug("Task status update created uncommitted changes, committing them");
+
+              // Stage the tasks.md file (or any other changed files from task status update)
+              await deps.gitService.execInRepository(workingDirectory, "git add process/tasks.md");
+
+              // Commit the task status update
+              await deps.gitService.execInRepository(workingDirectory, `git commit -m "Update task ${taskId} status to DONE"`);
+
+              // Push the commit
+              await deps.gitService.execInRepository(workingDirectory, "git push");
+
+              log.debug(`Committed and pushed task ${taskId} status update`);
+            } else {
+              log.debug("No uncommitted changes from task status update");
+            }
+          } catch (commitError) {
+            // Log the error but don't fail the whole operation
+            const errorMsg = `Failed to commit task status update: ${getErrorMessage(commitError as Error)}`;
+            log.error(errorMsg, { taskId, error: commitError });
+            log.cli(`Warning: ${errorMsg}`);
+          }
+        } else {
+          log.debug(`Task ${taskId} is already DONE, skipping status update`);
+        }
       } catch (error) {
         // BUG FIX: Use proper logging instead of console.error and make error visible
         const errorMsg = `Failed to update task status: ${getErrorMessage(error)}`;
@@ -1178,6 +1800,66 @@ export async function approveSessionFromParams(
       throw new MinskyError(
         `Failed to approve session: ${getErrorMessage(error)}`
       );
+    }
+  }
+}
+
+/**
+ * Clean up local branches after successful merge
+ * Handles failures gracefully to not break the overall approval process
+ */
+async function cleanupLocalBranches(
+  gitService: GitServiceInterface,
+  workingDirectory: string,
+  prBranch: string,
+  sessionName: string,
+  taskId?: string
+): Promise<void> {
+  // Extract task ID from session name if not provided and session follows task# pattern
+  const taskBranchName = taskId ? taskId.replace("#", "") : sessionName.replace("task#", "");
+
+  // Clean up the PR branch (e.g., pr/task#265)
+  try {
+    await gitService.execInRepository(workingDirectory, `git branch -d ${prBranch}`);
+    log.debug(`Successfully deleted local PR branch: ${prBranch}`);
+  } catch (error) {
+    // Log but don't fail the operation if branch cleanup fails
+    log.debug(`Failed to delete local PR branch ${prBranch}: ${getErrorMessage(error)}`);
+  }
+
+  // Clean up the task branch (e.g., task#265 or 265)
+  // Try various possible branch name formats
+  const possibleTaskBranches = [];
+
+  // Add sessionName if it looks like a task branch (task#265)
+  if (sessionName && sessionName !== prBranch) {
+    possibleTaskBranches.push(sessionName);
+  }
+
+  // Add numeric version if we have a task ID (265)
+  if (taskBranchName && taskBranchName !== sessionName) {
+    possibleTaskBranches.push(taskBranchName);
+  }
+
+  // Add task prefix version (task265, task#265)
+  if (taskBranchName) {
+    possibleTaskBranches.push(`task${taskBranchName}`);
+    possibleTaskBranches.push(`task#${taskBranchName}`);
+  }
+
+  // Filter out duplicates, empty strings, PR branch, and invalid branch names
+  const uniqueBranches = [...new Set(possibleTaskBranches)].filter(
+    branch => branch && branch !== prBranch && !branch.startsWith("#")
+  );
+
+  for (const branch of uniqueBranches) {
+    try {
+      await gitService.execInRepository(workingDirectory, `git branch -d ${branch}`);
+      log.debug(`Successfully deleted local task branch: ${branch}`);
+      break; // Stop after first successful deletion
+    } catch (error) {
+      // Log but continue trying other branch names
+      log.debug(`Failed to delete local task branch ${branch}: ${getErrorMessage(error)}`);
     }
   }
 }
@@ -1367,9 +2049,9 @@ export async function sessionReviewFromParams(
       // Check if taskService has getTaskSpecData method dynamically
       if (
         "getTaskSpecData" in taskService &&
-        typeof (taskService as any).getTaskSpecData === "function"
+        typeof (taskService as unknown).getTaskSpecData === "function"
       ) {
-        const taskSpec = await (taskService as any).getTaskSpecData(taskId);
+        const taskSpec = await (taskService as unknown).getTaskSpecData(taskId);
         result.taskSpec = taskSpec;
       } else {
         log.debug("Task service does not support getTaskSpecData method");

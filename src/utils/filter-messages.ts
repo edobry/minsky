@@ -5,7 +5,7 @@
  * @migrated Uses native Bun test patterns
  */
 
-import type { TaskStatus } from "../domain/tasks/taskConstants.js";
+import type { TaskStatus } from "../domain/tasks/taskConstants";
 
 /**
  * Generates a message indicating which status filter is being applied
@@ -33,13 +33,13 @@ export function generateFilterMessages(options: { status?: TaskStatus; all?: boo
   const messages: string[] = [];
 
   // Add status filter message if status is provided
-  const status = (options as any).status;
+  const status = (options as unknown)!.status;
   if (status) {
-    (messages as any).push(getStatusFilterMessage(status));
+    (messages as unknown).push(getStatusFilterMessage(status));
   }
   // Add active tasks message if not showing all tasks and no specific status filter
-  else if (!(options as any).all) {
-    (messages as any).push(getActiveTasksMessage());
+  else if (!(options as unknown)!.all) {
+    (messages as unknown).push(getActiveTasksMessage());
   }
 
   return messages;

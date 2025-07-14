@@ -2,8 +2,8 @@ import { join } from "path";
 import { mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { createSessionProvider, type SessionProviderInterface } from "../session.js";
-import { normalizeRepositoryURI } from "../repository-uri.js";
+import { createSessionProvider, type SessionProviderInterface } from "../session";
+import { normalizeRepositoryURI } from "../repository-uri";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -11,7 +11,7 @@ import type {
   BranchResult,
   Result,
   RepoStatus,
-} from "./index.js";
+} from "./index";
 
 // Define a global for process to avoid linting errors
 declare const process: {
@@ -40,18 +40,18 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param config Backend configuration
    */
   constructor(config: RepositoryBackendConfig) {
-    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
+    const xdgStateHome = (process.env as unknown).XDG_STATE_HOME || join((process.env as unknown).HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
 
     // Extract configuration options
-    (this as any).repoUrl = (config as any).repoUrl;
-    this.defaultBranch = (config as any).branch;
+    (this as unknown).repoUrl = (config as unknown).repoUrl;
+    this.defaultBranch = (config as unknown).branch;
 
-    if (!(this as any).repoUrl) {
+    if (!(this as unknown).repoUrl) {
       throw new Error("Repository URL is required for Remote Git backend");
     }
 
-    (this as any).repoName = normalizeRepositoryURI((this as any).repoUrl);
+    (this as unknown).repoName = normalizeRepositoryURI((this as unknown).repoUrl);
     this.sessionDb = createSessionProvider();
   }
 
@@ -94,7 +94,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
     try {
       // Clone the repository
-      let cloneCmd = `git clone ${(this as any).repoUrl} ${workdir}`;
+      let cloneCmd = `git clone ${(this as unknown).repoUrl} ${workdir}`;
 
       // Add branch if specified
       if (this.defaultBranch) {
@@ -111,28 +111,28 @@ export class RemoteGitBackend implements RepositoryBackend {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
 
       // Provide more informative error messages for common Git issues
-      if ((normalizedError?.message as any).includes("Authentication failed")) {
+      if ((normalizedError?.message as unknown).includes("Authentication failed")) {
         throw new Error(`
 🔐 Git Authentication Failed
 
 Unable to authenticate with the Git repository.
 
 💡 Quick fixes:
-   • Verify you have access to this repository: ${(this as any).repoUrl}
+   • Verify you have access to this repository: ${(this as unknown).repoUrl}
    • Check your Git credentials are configured
    • Ensure SSH keys or tokens are set up for your Git provider
 
-Repository: ${(this as any).repoUrl}
+Repository: ${(this as unknown).repoUrl}
 `);
       } else if (
-        (normalizedError?.message as any).includes("not found") ||
-        (normalizedError?.message as any).includes("does not exist")
+        (normalizedError?.message as unknown).includes("not found") ||
+        (normalizedError?.message as unknown).includes("does not exist")
       ) {
-        throw new Error(`Git repository not found: ${(this as any).repoUrl}. Check the URL.`);
-      } else if ((normalizedError?.message as any).includes("timed out")) {
+        throw new Error(`Git repository not found: ${(this as unknown).repoUrl}. Check the URL.`);
+      } else if ((normalizedError?.message as unknown).includes("timed out")) {
         throw new Error("Git connection timed out. Check your network connection and try again.");
       } else {
-        throw new Error(`Failed to clone Git repository: ${(normalizedError as any).message}`);
+        throw new Error(`Failed to clone Git repository: ${(normalizedError as unknown).message}`);
       }
     }
   }
@@ -157,7 +157,7 @@ Repository: ${(this as any).repoUrl}
       };
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-      throw new Error(`Failed to create branch in Git repository: ${(normalizedError as any).message}`);
+      throw new Error(`Failed to create branch in Git repository: ${(normalizedError as unknown).message}`);
     }
   }
 
@@ -174,7 +174,7 @@ Repository: ${(this as any).repoUrl}
       const { stdout: branchOutput } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
-      const branch = (branchOutput as any).trim();
+      const branch = (branchOutput as unknown).trim();
 
       // Get ahead/behind counts
       let ahead = 0;
@@ -183,8 +183,8 @@ Repository: ${(this as any).repoUrl}
         const { stdout: revListOutput } = await execAsync(
           `git -C ${workdir} rev-list --left-right --count @{upstream}...HEAD`
         );
-        const counts = ((revListOutput as any).trim() as any).split(/\s+/);
-        if (counts && (counts as any).length === 2) {
+        const counts = ((revListOutput as unknown).trim() as unknown).split(/\s+/);
+        if (counts && (counts as unknown).length === 2) {
           behind = parseInt(counts[0] || "0", 10);
           ahead = parseInt(counts[1] || "0", 10);
         }
@@ -194,11 +194,11 @@ Repository: ${(this as any).repoUrl}
 
       // Check for unstaged changes
       const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
-      const dirty = ((statusOutput as any).trim() as any).length > 0;
+      const dirty = ((statusOutput as unknown).trim() as unknown).length > 0;
 
       // Get remotes
       const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote`);
-      const remotes = ((remoteOutput.trim() as any).split("\n") as any).filter(Boolean);
+      const remotes = ((remoteOutput.trim() as unknown).split("\n") as unknown).filter(Boolean);
 
       return {
         branch,
@@ -212,7 +212,7 @@ Repository: ${(this as any).repoUrl}
       };
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-      throw new Error(`Failed to get Git repository status: ${(normalizedError as any).message}`);
+      throw new Error(`Failed to get Git repository status: ${(normalizedError as unknown).message}`);
     }
   }
 
@@ -232,7 +232,7 @@ Repository: ${(this as any).repoUrl}
   async validate(): Promise<Result> {
     try {
       // Basic validation - check if URL looks like a git repository
-      if (!(this as any).repoUrl) {
+      if (!(this as unknown).repoUrl) {
         return {
           success: false,
           message: "Repository URL is required for Remote Git backend",
@@ -241,16 +241,16 @@ Repository: ${(this as any).repoUrl}
 
       // Check if the URL has a git protocol, or ends with .git
       const isGitUrl =
-        (this.repoUrl as any).startsWith("git@") ||
-        (this.repoUrl as any).startsWith("git://") ||
-        (this.repoUrl as any).startsWith("http://") ||
-        (this.repoUrl as any).startsWith("https://") ||
-        (this.repoUrl as any).endsWith(".git");
+        (this.repoUrl as unknown).startsWith("git@") ||
+        (this.repoUrl as unknown).startsWith("git://") ||
+        (this.repoUrl as unknown).startsWith("http://") ||
+        (this.repoUrl as unknown).startsWith("https://") ||
+        (this.repoUrl as unknown).endsWith(".git");
 
       if (!isGitUrl) {
         return {
           success: false,
-          message: `URL "${(this as any).repoUrl}" doesn't appear to be a valid Git repository URL`,
+          message: `URL "${(this as unknown).repoUrl}" doesn't appear to be a valid Git repository URL`,
         };
       }
 
@@ -266,7 +266,7 @@ Repository: ${(this as any).repoUrl}
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
-        message: `Failed to validate Git repository: ${(normalizedError as any).message}`,
+        message: `Failed to validate Git repository: ${(normalizedError as unknown).message}`,
         error: normalizedError,
       };
     }
@@ -290,10 +290,10 @@ Repository: ${(this as any).repoUrl}
       // 3. Push to remote repository
 
       // This is a more complete implementation that would work with actual repositories
-      const sessions = await (this.sessionDb as any).listSessions();
-      const currentSessions = (sessions as any).filter((s) => (s as any).repoUrl === (this as any).repoUrl);
+      const sessions = await (this.sessionDb as unknown).listSessions();
+      const currentSessions = (sessions as unknown).filter((s) => (s as unknown).repoUrl === (this as unknown).repoUrl);
 
-      if ((currentSessions as any).length === 0) {
+      if ((currentSessions as unknown).length === 0) {
         return {
           success: false,
           message: "No active sessions found for this repository",
@@ -302,14 +302,14 @@ Repository: ${(this as any).repoUrl}
 
       // For each session with this repository, push changes
       for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir((session as any).session);
+        const workdir = this.getSessionWorkdir((session as unknown).session);
 
         try {
           // Determine current branch
           const { stdout: branchOutput } = await execAsync(
             `git -C ${workdir} rev-parse --abbrev-ref HEAD`
           );
-          const branch = (branchOutput as any).trim();
+          const branch = (branchOutput as unknown).trim();
 
           // Push to remote
           await execAsync(`git -C ${workdir} push origin ${branch}`);
@@ -368,10 +368,10 @@ Repository: ${(this as any).repoUrl}
       // 2. Determine the current branch
       // 3. Pull from remote repository
 
-      const sessions = await (this.sessionDb as any).listSessions();
-      const currentSessions = (sessions as any).filter((s) => (s as any).repoUrl === (this as any).repoUrl);
+      const sessions = await (this.sessionDb as unknown).listSessions();
+      const currentSessions = (sessions as unknown).filter((s) => (s as unknown).repoUrl === (this as unknown).repoUrl);
 
-      if ((currentSessions as any).length === 0) {
+      if ((currentSessions as unknown).length === 0) {
         return {
           success: false,
           message: "No active sessions found for this repository",
@@ -380,14 +380,14 @@ Repository: ${(this as any).repoUrl}
 
       // For each session with this repository, pull changes
       for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir((session as any).session);
+        const workdir = this.getSessionWorkdir((session as unknown).session);
 
         try {
           // Determine current branch
           const { stdout: branchOutput } = await execAsync(
             `git -C ${workdir} rev-parse --abbrev-ref HEAD`
           );
-          const branch = (branchOutput as any).trim();
+          const branch = (branchOutput as unknown).trim();
 
           // Pull from remote
           await execAsync(`git -C ${workdir} pull origin ${branch}`);

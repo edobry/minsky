@@ -11,6 +11,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task #277**: Created comprehensive task specification for stacked PR workflow implementation
+  - Enables sessions to start from existing session branches instead of always starting from main
+  - Adds dependency tracking and visualization for session relationships
+  - Supports PR stacks and cascading approvals
+  - Includes phased implementation plan with testing strategy
+  - Maintains backward compatibility with existing workflows
+
+### Changed
+
+- **Task #181**: Completed configuration system migration to idiomatic node-config implementation (Phase 6)
+  - Removed NodeConfigAdapter anti-pattern that was fighting against idiomatic node-config usage
+  - Implemented comprehensive Zod validation schemas for all configuration sections
+  - Converted all configuration access to direct `config.get()` calls throughout codebase
+  - Removed ConfigurationService interface and unnecessary abstraction layers
+  - Achieved true idiomatic node-config implementation with runtime validation and full TypeScript type safety
+  - All 10 configuration tests passing with zero regressions
+
+### Fixed
+
+- **Linter Issues**: Resolved all 119 linter errors using AST-based codemod approach
+  - Created comprehensive AST-based import extension fixer using ts-morph for safe, precise transformations
+  - Fixed 48 import statements and 5 export statements across 38 files
+  - Removed .js/.ts extensions from local imports/exports following Bun-native style guidelines
+  - Fixed parsing error in test file by removing duplicate catch block
+  - Demonstrated 6x effectiveness of AST-based approach over regex-based transformations
+  - All linter checks now pass with zero errors
+
+- **Session Start Output**: Enhanced `session start` command output formatting for improved user experience
+  - Replaced raw JSON output with user-friendly formatted display
+  - Added emojis and clear section headers for better readability
+  - Included helpful next steps for users after session creation
+  - Maintained support for `--json` and `--quiet` flags
+  - Provided clear session details: session name, task ID, repository, and branch
+
+- **Task #270**: Restructured test architecture to use co-location instead of separate `__tests__` directories
+  - Adopted standard TypeScript/JavaScript co-location pattern where tests are placed next to their modules
+  - Updated test naming conventions: `[module].test.ts`, `[module].commands.test.ts`, `[module].adapter.test.ts`
+  - Reserve `tests/` directories only for complex integration tests that don't fit co-location
+  - Updated all import paths to use shorter relative paths from co-located tests
+  - Updated configuration files (ESLint, codemod filters) to support both old and new patterns
+  - Created comprehensive test architecture documentation promoting co-location
+  - Established clear separation between domain logic and adapter tests
+  - Fixed architectural confusion between integration tests and adapter tests
+  - Updated cursor rules (`test-organization`, `testing-router`, `bun-test-patterns`) to promote co-location
+
+### Fixed
+
+- **Session Directory Command Path Resolution**
+  - Fixed session dir command returning incorrect old per-repo structure paths
+  - Changed from `/minsky/local-minsky/sessions/task#181` (old/wrong) to `/minsky/sessions/task#181` (correct)
+  - Updated getRepoPathFn to use simplified session-based structure matching actual filesystem layout
+  - Sessions are now correctly located directly in sessions/ directory, not per-repo subdirectories
+
+- **Session Directory Command Error Message**
+  - Improved error message for `minsky session dir` command when no parameters provided
+  - Replaced unfriendly error message with helpful usage examples and command syntax
+  - Added specific examples for both session name and task ID usage patterns
+  - Included tips for related commands like `session list`, `session get`, and `session inspect`
+  - Enhanced error message formatting with emojis and clear section headers for better readability
+  - Removed ugly JSON error logging that was cluttering the console output
+
+- **Session Approve Command Output Formatting**
+  - Fixed confusing output in `minsky session approve` command that showed error messages for expected operations
+  - Replaced raw JSON output with user-friendly formatted messages showing session details, task status, and merge information
+  - Removed misleading "Command execution failed" error messages that appeared even when operations succeeded
+  - Added proper CLI formatting with clear success indicators and structured information display
+
+### Improved
+
+- **Session Approve Command Idempotency**
+  - Made `minsky session approve` command fully idempotent - can be run multiple times safely
+  - Added detection of already-approved sessions by checking git merge ancestry
+  - Shows different status messages for newly approved vs already approved sessions:
+    - New approval: "✅ Session approved and merged successfully!"
+    - Already approved: "ℹ️ Session was already approved and merged"
+  - Added `isNewlyApproved` flag to JSON output for programmatic usage
+  - Preserves existing merge information when session is already approved
+
+### Added
+
+- **Task Relationship Establishment (#251 and #252)**
+
+  - Established relationship between Mobile/Voice Interface task (#251) and Task Management UI System task (#252)
+  - Added cross-references between tasks to identify shared components and architecture opportunities
+  - Enhanced task #251 to include shared chat UI architecture considerations and migration strategy from external AI services
+  - Updated task #252 to include chat UI integration and voice capabilities for natural language task management
+  - Defined shared components: chat UI, authentication, and backend services for unified interface approach
+  - Added migration path from external AI services (OpenAI/Claude) to self-hosted AI backend for full control
+  - Established foundation for Minsky-controlled chat interface rather than permanent reliance on external services
+
+_See: SpecStory history [2025-07-08_04-32-add-mobile-and-voice-interface-task](mdc:.specstory/history/2025-07-08_04-32-add-mobile-and-voice-interface-task.md) for task creation and relationship establishment._
+
 - **Task #164: Add Bun Binary Builds and GitHub Actions Release Workflow**
   - Added cross-platform binary compilation using `bun build --compile` with Just command runner
   - Implemented multi-platform support for Linux (x64, ARM64), macOS (x64, ARM64), and Windows (x64)
@@ -60,6 +152,18 @@ _See: SpecStory history [2025-01-28_task-229-mandatory-session-task-association]
 
 ### Changed
 
+- **Task #244: Refactored Task Specification to Focus on Testing-Boundaries Compliance**
+
+  - Completely rewrote task specification to address real root causes of test failures
+  - Removed over-engineered TestIsolationFramework approach in favor of simple, standard patterns
+  - Identified global singleton state interference (SessionDB, global variables) as primary issue
+  - Established focus on testing pure domain functions instead of global singletons
+  - Applied established testing-boundaries rules: test domain logic, not interface layers
+  - Simplified approach using standard Bun test patterns instead of complex frameworks
+  - Updated success criteria to reflect actual findings from testing-boundaries analysis
+  - Key insight: Domain tests pass individually but fail in suite due to global state interference
+  - Solution: Test pure functions with mock state parameters, not shared global singletons
+
 - **Enhanced Session PR Command with Required PR Descriptions**
 
   - Added validation to `minsky session pr` command to require either `--body` or `--body-path` parameter
@@ -72,6 +176,8 @@ _See: SpecStory history [2025-01-28_task-229-mandatory-session-task-association]
 - Task #216: Updated to include investigation of existing agent framework libraries (claude-code SDK, OpenHands/OpenCode, LangChain, LlamaIndex, AutoGen, Semantic Kernel, etc.) before implementing from scratch, with evaluation criteria and decision framework for build vs. buy vs. extend
 - Task 082: Simplified to focus only on context analysis and visualization, removing obsolete concepts that don't match how AI context actually works
 - Task 182: Reduced scope to MVP functionality (1-2 weeks effort) with advanced features moved to Task 183
+
+_See: SpecStory history [2025-01-29_task-244-testing-boundaries-compliance](mdc:.specstory/history/2025-01-29_task-244-testing-boundaries-compliance.md) for task specification refactoring._
 
 ### Added
 
@@ -167,6 +273,16 @@ _See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specst
 _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
 
 ### Fixed
+
+- **Task #255: Fix Session Dependency Installation Error**
+  - Fixed critical bug where session startup would fail with "null is not an object" error during dependency installation
+  - Issue: execSync returns null when stdio is "ignore" but code was calling .toString() on the null value
+  - Solution: Added proper null check before calling .toString() in src/utils/package-manager.ts
+  - All existing package manager tests pass (17/17)
+  - Session creation now works correctly in quiet mode without dependency installation errors
+  - Maintains backward compatibility with existing functionality for non-quiet mode
+
+_See: SpecStory history [2025-01-29_task-255-fix-session-dependency-installation](mdc:.specstory/history/2025-01-29_task-255-fix-session-dependency-installation.md) for implementation details._
 
 - **Task #166: Complete TypeScript Error Resolution After Removing @types/commander**
   - Successfully eliminated all 700+ TypeScript errors revealed after removing incompatible @types/commander package

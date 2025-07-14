@@ -115,11 +115,11 @@ class AnyMatcher extends AsymmetricMatcherBase {
   }
 
   toString(): string {
-    return `Any<${(this.expectedType as any)?.name || this.expectedType}>`;
+    return `Any<${(this.expectedType as unknown)?.name || this.expectedType}>`;
   }
 
   toJSON(): string {
-    return `Any<${(this.expectedType as any)?.name || this.expectedType}>`;
+    return `Any<${(this.expectedType as unknown)?.name || this.expectedType}>`;
   }
 }
 
@@ -395,8 +395,8 @@ export const asymmetricMatchers = {
 export function registerAsymmetricMatchers(expectObj: unknown): void {
   // Add each matcher to the expect object
   for (const [key, value] of Object.entries(asymmetricMatchers)) {
-    if (!(key in (expectObj as any))) {
-      (expectObj as any)[key] = value;
+    if (!(key in (expectObj as unknown))) {
+      (expectObj as unknown)[key] = value;
     }
   }
 }
@@ -405,7 +405,7 @@ export function registerAsymmetricMatchers(expectObj: unknown): void {
  * Check if an object is an asymmetric matcher
  */
 export function isAsymmetricMatcher(obj: unknown): obj is AsymmetricMatcher {
-  return obj !== null && typeof obj === "object" && typeof (obj as any).asymmetricMatch === "function";
+  return obj !== null && typeof obj === "object" && typeof (obj as unknown).asymmetricMatch === "function";
 }
 
 // Export a function to extend the global expect with asymmetric matchers
@@ -417,13 +417,13 @@ export function setupAsymmetricMatchers(): void {
     registerAsymmetricMatchers(bun.expect);
 
     // Override the equality comparison for assertions
-    const originalEquals = (bun.expect as any).equals;
+    const originalEquals = (bun.expect as unknown).equals;
     if (originalEquals) {
       // Save original
       const originalEqualsFn = originalEquals;
 
       // Override with matcher-aware version
-      (bun.expect as any).equals = (a: unknown, b: any): boolean => {
+      (bun.expect as unknown).equals = (a: unknown, b: any): boolean => {
         // Check if either value is an asymmetric matcher
         if (isAsymmetricMatcher(a)) {
           return a.asymmetricMatch(b);

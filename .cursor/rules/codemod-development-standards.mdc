@@ -1,0 +1,282 @@
+# Codemod Development Standards
+
+## Core Principle
+
+**AST-FIRST DEVELOPMENT**: Always evaluate AST-based solutions before regex alternatives.
+
+**EVIDENCE**: Task #166 demonstrated that AST-based approaches are **6x more effective** than regex approaches:
+- **AST-based fix-variable-naming-ast.ts**: 231 fixes, 100% success rate, zero syntax errors
+- **Regex-based approaches**: High syntax error rates, complex pattern matching, frequent failures
+
+## Mandatory Requirements
+
+### 1. AST-Based Approach First
+
+**REQUIRED**: For all code syntax or structure changes, use AST-based transformations.
+
+**Tool Selection**:
+- **Primary**: `ts-morph` for TypeScript/JavaScript transformations
+- **Alternative**: TypeScript Compiler API for advanced cases
+- **Prohibited**: Regex-based string manipulation for syntactic changes
+
+**Exception Policy**: Regex is only acceptable for simple text patterns that do not affect code structure.
+
+### 2. Root Cause Analysis
+
+**FROM automation-approaches.mdc**: Fix the root cause, not the symptoms.
+
+**Application**:
+- Identify why the problematic code pattern exists
+- Design transformations that address the underlying architectural issue
+- Avoid superficial fixes that mask deeper problems
+
+### 3. Simple Algorithms Over Complex Patterns
+
+**EVIDENCE**: Simple AST transformations outperformed complex regex patterns in Task #166.
+
+**Implementation**:
+- Use straightforward AST traversal and transformation
+- Avoid complex pattern matching when AST provides direct access
+- Prefer clear, readable transformation logic
+
+## Development Standards
+
+### Code Structure Requirements
+
+All codemods must follow this modular structure:
+
+```typescript
+interface CodemodIssue {
+  file: string;
+  line: number;
+  column: number;
+  description: string;
+  severity: "error" | "warning" | "info";
+  context: string;
+}
+
+class CodemodName {
+  private project: Project;
+  private issues: CodemodIssue[] = [];
+  private metrics: CodemodMetrics = { /* ... */ };
+
+  constructor() {
+    this.project = new Project();
+  }
+
+  addSourceFiles(patterns: string[]): void { /* ... */ }
+  findIssues(): CodemodIssue[] { /* ... */ }
+  fixIssues(): void { /* ... */ }
+  generateReport(): void { /* ... */ }
+  execute(patterns: string[]): Promise<void> { /* ... */ }
+}
+```
+
+### Error Handling Requirements
+
+**MANDATORY**: All AST-based codemods must include comprehensive error handling:
+
+```typescript
+try {
+  // AST transformation logic
+} catch (error) {
+  console.error(`Error processing ${filePath}:`, error);
+  this.metrics.errors.push(`Processing error: ${error}`);
+  // Continue processing other files
+}
+```
+
+### Performance Monitoring
+
+**REQUIRED**: Track and report these metrics:
+- Files processed
+- Issues found and fixed
+- Processing time
+- Success/failure rates
+- Error details
+
+### Validation Requirements
+
+**MANDATORY**: All codemods must implement:
+- **Pre-transformation validation**: Verify AST structure before changes
+- **Post-transformation validation**: Ensure syntactic correctness
+- **Type safety validation**: Confirm no type errors introduced
+
+## Testing Standards
+
+### Test Coverage Requirements
+
+**REQUIRED**: All codemods must include:
+- Unit tests for transformation functions
+- Integration tests for full codemod execution
+- Edge case tests for boundary conditions
+- Performance benchmarks
+
+### Test Structure
+
+```
+codemods/
+├── my-codemod.ts
+├── my-codemod.test.ts
+└── tests/
+    └── fixtures/
+        ├── input/
+        │   └── example.ts
+        └── expected/
+            └── example.ts
+```
+
+## Decision Tree: AST vs Regex
+
+**MANDATORY EVALUATION ORDER**:
+
+```
+Does the change involve code syntax or structure?
+├─ YES → MUST use AST approach
+│   ├─ TypeScript/JavaScript? → Use ts-morph
+│   ├─ JSON/YAML? → Use appropriate AST parser
+│   └─ Other language? → Find language-specific AST library
+└─ NO → Consider regex ONLY for simple text patterns
+    ├─ Simple find/replace? → Regex acceptable
+    ├─ Complex patterns? → Reconsider AST approach
+    └─ Multiple files? → Use AST for consistency
+```
+
+## Migration Requirements
+
+### Existing Regex Codemods
+
+**CATEGORIZATION** (based on Task #166 analysis):
+
+**HIGH PRIORITY FOR MIGRATION**:
+- Complex regex patterns with high error rates
+- Multi-step text manipulations
+- Syntax-aware transformations done with regex
+
+**MEDIUM PRIORITY**:
+- Simple regex patterns that could benefit from AST safety
+- Pattern-based fixes that affect code structure
+
+**LOW PRIORITY**:
+- Simple text replacements that don't affect syntax
+- Configuration file updates with clear patterns
+
+### Migration Process
+
+1. **Assess current approach**: Identify regex usage patterns
+2. **Design AST equivalent**: Map regex patterns to AST node types
+3. **Implement incrementally**: Test each transformation step
+4. **Validate equivalence**: Ensure same outcomes with better safety
+5. **Performance comparison**: Document improvements
+
+## Review and Approval Process
+
+### Pre-Merge Checklist
+
+**MANDATORY VERIFICATION**:
+- [ ] Uses AST-based approach (or justified exception documented)
+- [ ] Includes comprehensive error handling
+- [ ] Has complete test coverage (unit, integration, edge cases)
+- [ ] Follows modular design patterns
+- [ ] Includes performance monitoring and reporting
+- [ ] Provides clear documentation and usage examples
+
+### Exception Approval
+
+**REGEX EXCEPTIONS** require explicit justification:
+- Document why AST approach is not suitable
+- Provide evidence of safety and effectiveness
+- Include comprehensive test coverage
+- Get approval from codebase maintainers
+
+## Common Patterns (Evidence-Based)
+
+### 1. Variable Naming Fix (Gold Standard)
+
+**FROM fix-variable-naming-ast.ts** (231 fixes, 100% success):
+
+```typescript
+const parameters = func.getParameters();
+parameters.forEach(param => {
+  const paramName = param.getName();
+  if (paramName.startsWith("_")) {
+    const newName = paramName.substring(1);
+    param.rename(newName);
+  }
+});
+```
+
+### 2. Import Statement Transformation
+
+```typescript
+sourceFile.getImportDeclarations().forEach(importDecl => {
+  const moduleSpecifier = importDecl.getModuleSpecifierValue();
+  if (moduleSpecifier.startsWith("./old-path")) {
+    importDecl.setModuleSpecifier(
+      moduleSpecifier.replace("./old-path", "./new-path")
+    );
+  }
+});
+```
+
+### 3. Function Signature Updates
+
+```typescript
+const functions = sourceFile.getFunctions();
+functions.forEach(func => {
+  const params = func.getParameters();
+  params.forEach(param => {
+    if (param.getTypeNode()) {
+      // Safe AST transformation with type awareness
+    }
+  });
+});
+```
+
+## Integration with Existing Rules
+
+### Relationship to automation-approaches.mdc
+
+This rule implements the automation-approaches.mdc principle of "root cause analysis over symptom treatment" specifically for codemod development:
+
+- **Root Cause**: Use AST to understand and fix underlying code structure issues
+- **Symptom Treatment**: Use regex to patch surface-level text patterns
+
+### Enforcement Mechanism
+
+**VIOLATION CONSEQUENCES**:
+- Regex-based codemods without AST evaluation will be rejected
+- Missing error handling or testing will block merge
+- Performance metrics below AST standards require justification
+
+## Performance Targets
+
+**BASED ON TASK #166 EVIDENCE**:
+- Target: 95%+ success rate (match AST gold standard)
+- Requirement: Zero syntax errors introduced
+- Benchmark: Process 200+ files in under 5 seconds
+- Safety: Comprehensive error handling and recovery
+
+## Continuous Improvement
+
+### Feedback Loop
+
+1. **Monitor codemod effectiveness**: Track success rates and error patterns
+2. **Update standards**: Incorporate new evidence and best practices
+3. **Migrate legacy codemods**: Gradually replace regex with AST approaches
+4. **Document lessons learned**: Update this rule with new evidence
+
+### Success Metrics
+
+- **Effectiveness**: Percentage of successful transformations
+- **Safety**: Number of syntax errors introduced (target: 0)
+- **Performance**: Processing time per file
+- **Maintainability**: Code complexity and readability scores
+
+## Conclusion
+
+This rule establishes AST-first development as the standard for codemod development in the Minsky project, based on concrete evidence from Task #166 demonstrating 6x effectiveness improvement over regex approaches. All codemod development must follow these evidence-based standards to ensure reliability, maintainability, and effectiveness at scale.
+description:
+globs:
+alwaysApply: false
+---

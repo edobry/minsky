@@ -5,17 +5,17 @@ import {
   ResourceNotFoundError, 
   ValidationError,
   getErrorMessage,
-} from "../../errors/index.js";
-import { taskIdSchema } from "../../schemas/common.js";
-import type { SessionStartParams } from "../../schemas/session.js";
-import { log } from "../../utils/logger.js";
-import { installDependencies } from "../../utils/package-manager.js";
-import { type GitServiceInterface } from "../git.js";
-import { normalizeRepoName } from "../repo-utils.js";
-import { TASK_STATUS, type TaskServiceInterface } from "../tasks.js";
-import { type WorkspaceUtilsInterface } from "../workspace.js";
-import { createTaskFromDescription } from "../templates/session-templates.js";
-import type { SessionProviderInterface, SessionRecord, Session } from "../session.js";
+} from "../../errors/index";
+import { taskIdSchema } from "../../schemas/common";
+import type { SessionStartParams } from "../../schemas/session";
+import { log } from "../../utils/logger";
+import { installDependencies } from "../../utils/package-manager";
+import { type GitServiceInterface } from "../git";
+import { normalizeRepoName } from "../repo-utils";
+import { TASK_STATUS, type TaskServiceInterface } from "../tasks";
+import { type WorkspaceUtilsInterface } from "../workspace";
+import { createTaskFromDescription } from "../templates/session-templates";
+import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -96,10 +96,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Auto-create task if description is provided but no task ID
     if (description && !taskId) {
       const taskSpec = createTaskFromDescription(description);
-      const createdTask = await deps.taskService.createTaskFromTitleAndDescription(
-        taskSpec.title,
-        taskSpec.description
-      );
+      const createdTask = await deps.taskService.createTask(taskSpec.title);
       taskId = createdTask.id;
       if (!quiet) {
         log.cli(`Created task ${taskId}: ${taskSpec.title}`);
