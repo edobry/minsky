@@ -12,9 +12,9 @@ import {
   createSharedCommandRegistry,
   CommandCategory,
   CommandExecutionContext,
-} from "../command-registry.js";
-import { handleCliError, outputResult } from "../../cli/utils/index.js";
-import { log } from "../../../utils/logger.js";
+} from "../command-registry";
+import { handleCliError, outputResult } from "../../cli/utils/index";
+import { log } from "../../../utils/logger";
 import {
   type ParameterMapping,
   type ParameterMappingOptions,
@@ -22,7 +22,7 @@ import {
   createOptionsFromMappings,
   addArgumentsFromMappings,
   normalizeCliParameters,
-} from "./parameter-mapper.js";
+} from "./parameter-mapper";
 
 /**
  * CLI-specific execution context

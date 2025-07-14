@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import { MinskyError } from "../../errors/index.js";
+import { MinskyError } from "../../errors/index";
 
 /**
  * Command category enum

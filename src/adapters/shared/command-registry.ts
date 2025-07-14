@@ -7,11 +7,11 @@
  */
 
 import { z } from "zod";
-import { MinskyError } from "../../errors/index.js";
+import { MinskyError } from "../../errors/index";
 import {
   validateCommandDefinition,
   validateCommandRegistrationOptions,
-} from "../../schemas/command-registry.js";
+} from "../../schemas/command-registry";
 
 /**
  * Command category enum

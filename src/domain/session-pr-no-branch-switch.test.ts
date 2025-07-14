@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { preparePrFromParams } from "../git.js";
-import { createMock } from "../../utils/test-utils/mocking.js";
+import { preparePrFromParams } from "../git";
+import { createMock } from "../../utils/test-utils/mocking";
 
 describe("Session PR Command Branch Behavior", () => {
   test("should never switch user to PR branch during session pr creation", async () => {

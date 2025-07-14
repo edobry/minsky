@@ -11,7 +11,7 @@ import {
   UriFormat,
   extractRepositoryInfo,
   detectRepositoryFromCwd,
-} from "./uri-utils.js";
+} from "./uri-utils";
 import { getErrorMessage } from "../errors/index";
 
 /**

@@ -14,4 +14,4 @@ export {
   // Re-export from taskService.js
   TaskService,
   createTaskService,
-} from "./tasks/index.js";
+} from "./tasks/index";

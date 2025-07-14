@@ -13,7 +13,7 @@ import {
   CommandCategory,
   type CommandParameterMap,
   type CommandExecutionContext,
-} from "../../shared/command-registry.js";
+} from "../../shared/command-registry";
 import {
   getSessionFromParams,
   listSessionsFromParams,
@@ -24,9 +24,9 @@ import {
   approveSessionFromParams,
   sessionPrFromParams,
   inspectSessionFromParams,
-} from "../../../domain/session.js";
-import { log } from "../../../utils/logger.js";
-import { MinskyError } from "../../../errors/index.js";
+} from "../../../domain/session";
+import { log } from "../../../utils/logger";
+import { MinskyError } from "../../../errors/index";
 
 /**
  * Parameters for the session list command

@@ -4,7 +4,7 @@
  */
 
 import { join } from "path";
-import { getMinskyStateDir } from "../../utils/paths.js";
+import { getMinskyStateDir } from "../../utils/paths";
 
 /**
  * Session record structure

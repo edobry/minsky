@@ -6,7 +6,7 @@
 
 import { Command } from "commander";
 import config from "config";
-import { exit } from "../../utils/process.js";
+import { exit } from "../../utils/process";
 
 interface ListOptions {
   json?: boolean;

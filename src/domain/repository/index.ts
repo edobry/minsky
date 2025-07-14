@@ -9,7 +9,7 @@
 export * from "./RepositoryBackend";
 
 // Import RepositoryStatus but define our own ValidationResult
-import type { RepositoryStatus } from "../repository.js";
+import type { RepositoryStatus } from "../repository";
 
 import { DEFAULT_TIMEOUT_MS } from "../../utils/constants";
 import { getErrorMessage } from "../../errors/index";

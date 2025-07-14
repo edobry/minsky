@@ -9,7 +9,7 @@ import { promisify } from "util";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
 import { mkdir } from "fs/promises";
-import { RepositoryBackendType } from "./repository.js";
+import { RepositoryBackendType } from "./repository";
 import type {
   RepositoryBackend,
   RepositoryConfig,
@@ -17,13 +17,13 @@ import type {
   ValidationResult,
   CloneResult,
   BranchResult,
-} from "./repository.js";
+} from "./repository";
 import {
   RepositoryMetadataCache,
   generateRepoKey,
   RepositoryError,
-} from "../utils/repository-utils.js";
-import { normalizeRepoName } from "./repo-utils.js";
+} from "../utils/repository-utils";
+import { normalizeRepoName } from "./repo-utils";
 import { log } from "../utils/logger";
 
 const execAsync = promisify(exec);

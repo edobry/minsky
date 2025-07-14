@@ -11,10 +11,10 @@ export {
   listTasksFromParams,
   createTaskFromParams,
   getTaskSpecContentFromParams,
-} from "./taskCommands.js";
+} from "./taskCommands";
 
 // Re-export from taskFunctions.js
-export { normalizeTaskId } from "./taskFunctions.js";
+export { normalizeTaskId } from "./taskFunctions";
 
 // Re-export from taskService.js
-export { TaskService, createTaskService } from "./taskService.js";
+export { TaskService, createTaskService } from "./taskService";

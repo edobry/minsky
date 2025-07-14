@@ -13,14 +13,14 @@ import {
   CommandParameterMap,
   CommandCategory,
   CommandExecutionContext,
-} from "./legacy-command-registry.js";
+} from "./legacy-command-registry";
 import {
   SharedCommandRegistry as NewSharedCommandRegistry,
   CommandDefinition as NewCommandDefinition,
   SharedCommand as NewSharedCommand,
   createSharedCommandRegistry,
-} from "./command-registry.js";
-import { MinskyError } from "../../errors/index.js";
+} from "./command-registry";
+import { MinskyError } from "../../errors/index";
 
 /**
  * Migration adapter that wraps both registries and provides compatibility

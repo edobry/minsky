@@ -3,7 +3,7 @@
  */
 
 // Re-export task status types from centralized location
-export type { TaskStatus } from "./tasks/taskConstants.js";
+export type { TaskStatus } from "./tasks/taskConstants";
 // TaskStatusType doesn't exist in taskConstants.js, removing incorrect export
 
 /**

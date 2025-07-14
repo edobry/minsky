@@ -2,8 +2,8 @@
  * Utility functions for formatting Zod validation errors into user-friendly messages
  */
 import { ZodError, ZodIssue } from "zod";
-import { createValidationErrorMessage } from "../errors/message-templates.js";
-import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants.js";
+import { createValidationErrorMessage } from "../errors/message-templates";
+import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants";
 
 /**
  * Format a Zod validation error into a user-friendly message
