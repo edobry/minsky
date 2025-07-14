@@ -79,7 +79,7 @@ export class WorkspaceError extends Error {
     public readonly cause?: Error
   ) {
     super(message);
-    (this as unknown)?.name = "WorkspaceError";
+    this?.name = "WorkspaceError";
   }
 }
 
@@ -94,7 +94,7 @@ export class InvalidPathError extends WorkspaceError {
     cause?: Error
   ) {
     super(message, "path_validation", workspaceDir, relativePath, cause);
-    (this as unknown)?.name = "InvalidPathError";
+    this?.name = "InvalidPathError";
   }
 }
 
@@ -114,7 +114,7 @@ export class FileNotFoundError extends WorkspaceError {
       relativePath,
       cause
     );
-    (this as unknown)?.name = "FileNotFoundError";
+    this?.name = "FileNotFoundError";
   }
 }
 
@@ -129,6 +129,6 @@ export class DirectoryError extends WorkspaceError {
     cause?: Error
   ) {
     super(message, "directory_operation", workspaceDir, relativePath, cause);
-    (this as unknown)?.name = "DirectoryError";
+    this?.name = "DirectoryError";
   }
 } 

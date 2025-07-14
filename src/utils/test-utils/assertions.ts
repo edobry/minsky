@@ -23,7 +23,7 @@ export function expectToMatch(value: string, pattern: RegExp): void {
  * @param length The expected length
  */
 export function expectToHaveLength(value: unknown, length: number): void {
-  expect((value as unknown).length).toBe(length);
+  expect(value.length).toBe(length);
 }
 
 /**

@@ -38,26 +38,26 @@ import { SessionDbAdapter } from "./session/session-db-adapter";
 import { createTaskFromDescription } from "./templates/session-templates";
 import { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
 import { startSessionImpl } from "./session/session-start-operations";
-import { 
-  getSessionImpl, 
-  listSessionsImpl, 
-  deleteSessionImpl, 
-  getSessionDirImpl, 
-  inspectSessionImpl 
+import {
+  getSessionImpl,
+  listSessionsImpl,
+  deleteSessionImpl,
+  getSessionDirImpl,
+  inspectSessionImpl
 } from "./session/session-lifecycle-operations";
-import { 
-  updateSessionImpl, 
-  checkPrBranchExistsOptimized, 
-  updatePrStateOnCreation, 
+import {
+  updateSessionImpl,
+  checkPrBranchExistsOptimized,
+  updatePrStateOnCreation,
   updatePrStateOnMerge,
   extractPrDescription
 } from "./session/session-update-operations";
 import { sessionPrImpl } from "./session/session-pr-operations";
 import { approveSessionImpl } from "./session/session-approve-operations";
-import { 
-  sessionReviewImpl, 
-  type SessionReviewParams, 
-  type SessionReviewResult 
+import {
+  sessionReviewImpl,
+  type SessionReviewParams,
+  type SessionReviewResult
 } from "./session/session-review-operations";
 
 export interface SessionRecord {
@@ -404,66 +404,6 @@ export async function approveSessionFromParams(
 }
 
 /**
- * Clean up local branches after successful merge
- * Handles failures gracefully to not break the overall approval process
- */
-async function cleanupLocalBranches(
-  gitService: GitServiceInterface,
-  workingDirectory: string,
-  prBranch: string,
-  sessionName: string,
-  taskId?: string
-): Promise<void> {
-  // Extract task ID from session name if not provided and session follows task# pattern
-  const taskBranchName = taskId ? taskId.replace("#", "") : sessionName.replace("task#", "");
-
-  // Clean up the PR branch (e.g., pr/task#265)
-  try {
-    await gitService.execInRepository(workingDirectory, `git branch -d ${prBranch}`);
-    log.debug(`Successfully deleted local PR branch: ${prBranch}`);
-  } catch (error) {
-    // Log but don't fail the operation if branch cleanup fails
-    log.debug(`Failed to delete local PR branch ${prBranch}: ${getErrorMessage(error)}`);
-  }
-
-  // Clean up the task branch (e.g., task#265 or 265)
-  // Try various possible branch name formats
-  const possibleTaskBranches = [];
-
-  // Add sessionName if it looks like a task branch (task#265)
-  if (sessionName && sessionName !== prBranch) {
-    possibleTaskBranches.push(sessionName);
-  }
-
-  // Add numeric version if we have a task ID (265)
-  if (taskBranchName && taskBranchName !== sessionName) {
-    possibleTaskBranches.push(taskBranchName);
-  }
-
-  // Add task prefix version (task265, task#265)
-  if (taskBranchName) {
-    possibleTaskBranches.push(`task${taskBranchName}`);
-    possibleTaskBranches.push(`task#${taskBranchName}`);
-  }
-
-  // Filter out duplicates, empty strings, PR branch, and invalid branch names
-  const uniqueBranches = [...new Set(possibleTaskBranches)].filter(
-    branch => branch && branch !== prBranch && !branch.startsWith("#")
-  );
-
-  for (const branch of uniqueBranches) {
-    try {
-      await gitService.execInRepository(workingDirectory, `git branch -d ${branch}`);
-      log.debug(`Successfully deleted local task branch: ${branch}`);
-      break; // Stop after first successful deletion
-    } catch (error) {
-      // Log but continue trying other branch names
-      log.debug(`Failed to delete local task branch ${branch}: ${getErrorMessage(error)}`);
-    }
-  }
-}
-
-/**
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
@@ -477,20 +417,17 @@ export function createSessionProvider(options?: {
 
 /**
  * Inspects current session based on workspace location
+ * Using proper dependency injection for better testability
  */
 export async function inspectSessionFromParams(params: {
   json?: boolean;
 }): Promise<Session | null> {
-  // Auto-detect the current session from the workspace
-  const context = await getCurrentSessionContext(process.cwd());
+  // Set up dependencies with defaults
+  const deps = {
+    sessionDB: createSessionProvider(),
+  };
 
-  if (!context?.sessionId) {
-    throw new ResourceNotFoundError("No session detected for the current workspace");
-  }
-
-  const session = await createSessionProvider().getSession(context.sessionId);
-
-  return session;
+  return inspectSessionImpl(params, deps);
 }
 
 /**

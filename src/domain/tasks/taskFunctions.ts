@@ -18,12 +18,12 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
   if (!content) return tasks;
 
   // Split into lines and track code block state
-  const lines = (((content) as unknown).toString() as unknown).split("\n");
+  const lines = content.toString().split("\n");
   let inCodeBlock = false;
 
-  for (let i = 0; i < (lines as unknown).length; i++) {
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
-    if (((line as unknown).trim() as unknown).startsWith("```")) {
+    if (line.trim().startsWith("```")) {
       inCodeBlock = !inCodeBlock;
       continue;
     }
@@ -40,13 +40,13 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
 
     // Aggregate indented lines as description
     let description = "";
-    for (let j = i + 1; j < (lines as unknown).length; j++) {
+    for (let j = i + 1; j < lines.length; j++) {
       const subline = lines[j] ?? "";
-      if (((subline as unknown).trim() as unknown).startsWith("```")) break;
+      if (subline.trim().startsWith("```")) break;
       if (/^- \[.\]/.test(subline)) break; // next top-level task
       if (/^\s+- /.test(subline)) {
-        description += `${((subline as unknown).trim() as unknown).replace(/^- /, "") ?? ""}\n`;
-      } else if (((subline as unknown).trim() ?? "") === "") {
+        description += `${subline.trim().replace(/^- /, "") ?? ""}\n`;
+      } else if ((subline.trim() ?? "") === "") {
         continue;
       } else {
         break;
@@ -57,7 +57,7 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
       id,
       title,
       status,
-      description: (description as unknown).trim(),
+      description: description.trim(),
     });
   }
 
@@ -70,16 +70,16 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
  * @returns Formatted markdown content
  */
 export function formatTasksToMarkdown(tasks: TaskData[]): string {
-  if (!tasks || (tasks as unknown).length === 0) return "";
+  if (!tasks || tasks.length === 0) return "";
 
-  return ((tasks as unknown).map((task) => {
+  return tasks.map((task) => {
     const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
     const specPath = task.specPath || "#";
     const taskLine = `- [${checkbox}] ${task.title} [${task.id}](${specPath})`;
 
     // Always return only the task line - descriptions should remain in spec files
     return taskLine;
-  }) as unknown).join("\n\n");
+  }).join("\n\n");
 }
 
 /**
@@ -89,10 +89,10 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
  * @returns Found task or null
  */
 export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
-  if (!tasks || !id) return null as unknown;
+  if (!tasks || !id) return null;
 
   // First try exact match
-  const exactMatch = tasks.find((task) => (task as unknown).id === id);
+  const exactMatch = tasks.find((task) => task.id === id);
   if (exactMatch) {
     return exactMatch;
   }
@@ -100,13 +100,13 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
   // If no exact match, try numeric comparison
   // This handles case where ID is provided without leading zeros
   const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return null as unknown;
+  if (!normalizedId) return null;
 
-  const numericId = parseInt((normalizedId as unknown).replace(/^#/, ""), 10);
-  if (isNaN(numericId)) return null as unknown;
+  const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
+  if (isNaN(numericId)) return null;
 
   const numericMatch = tasks.find((task) => {
-    const taskNumericId = parseInt((task.id as unknown).replace(/^#/, ""), 10);
+    const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
     return !isNaN(taskNumericId) && taskNumericId === numericId;
   });
 
@@ -119,7 +119,7 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
  * @returns Normalized task ID or null if invalid
  */
 export function normalizeTaskId(id: string): string | undefined {
-  if (!id) return null as unknown;
+  if (!id) return null;
 
   // If already in #XXX format, validate and return
   if (/^#[a-zA-Z0-9_]+$/.test(id)) {
@@ -137,7 +137,7 @@ export function normalizeTaskId(id: string): string | undefined {
     return `#${match[1]}`;
   }
 
-  return null as unknown;
+  return null;
 }
 
 /**
@@ -146,10 +146,10 @@ export function normalizeTaskId(id: string): string | undefined {
  * @returns Next available task ID
  */
 export function getNextTaskId(tasks: TaskData[]): string {
-  if (!tasks || (tasks as unknown).length === 0) return "#001";
+  if (!tasks || tasks.length === 0) return "#001";
 
   const maxId = tasks.reduce((max, task) => {
-    const id = parseInt((task.id as unknown).replace(/^#/, ""), 10);
+    const id = parseInt(task.id.replace(/^#/, ""), 10);
     return !isNaN(id) && id > max ? id : max;
   }, 0);
 
@@ -175,8 +175,8 @@ export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus)
   }
 
   return tasks.map((task) =>
-    (task as unknown).id === normalizedId ||
-    parseInt((task.id as unknown).replace(/^#/, ""), 10) === parseInt((normalizedId as unknown).replace(/^#/, ""), 10)
+    task.id === normalizedId ||
+    parseInt(task.id.replace(/^#/, ""), 10) === parseInt(normalizedId.replace(/^#/, ""), 10)
       ? { ...task, status }
       : task
   );
@@ -192,7 +192,7 @@ export function addTask(tasks: TaskData[], newTask: TaskData): TaskData[] {
   if (!tasks || !newTask) return tasks;
 
   // Ensure the task has a valid ID
-  if (!(newTask as unknown).id || !normalizeTaskId((newTask as unknown).id)) {
+  if (!newTask.id || !normalizeTaskId(newTask.id)) {
     newTask = {
       ...newTask,
       id: getNextTaskId(tasks),
@@ -200,10 +200,10 @@ export function addTask(tasks: TaskData[], newTask: TaskData): TaskData[] {
   }
 
   // Check if task with the same ID already exists
-  const existingTask = getTaskById(tasks, (newTask as unknown).id);
+  const existingTask = getTaskById(tasks, newTask.id);
   if (existingTask) {
     // Replace the existing task
-    return tasks.map((task) => ((task as unknown).id === (existingTask as unknown).id ? newTask : task));
+    return tasks.map((task) => (task.id === existingTask.id ? newTask : task));
   }
 
   // Add the new task
@@ -222,17 +222,17 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
 
   return tasks.filter((task) => {
     // Filter by status
-    if ((filter as unknown).status && (task as unknown).status !== (filter as unknown).status) {
+    if (filter.status && task.status !== filter.status) {
       return false;
     }
 
     // Filter by ID
-    if ((filter as unknown).id) {
+    if (filter.id) {
       // Handle special case: if filter.id is a simple number (like "2") and task.id is "#002"
-      if (/^\d+$/.test((filter as unknown).id)) {
+      if (/^\d+$/.test(filter.id)) {
         // If filter is just digits, compare numeric values directly
-        const filterNum = parseInt((filter as unknown).id, 10);
-        const taskNum = parseInt((task.id as unknown).replace(/\D/g, ""), 10);
+        const filterNum = parseInt(filter.id, 10);
+        const taskNum = parseInt(task.id.replace(/\D/g, ""), 10);
 
         if (!isNaN(filterNum) && !isNaN(taskNum) && filterNum === taskNum) {
           return true;
@@ -240,13 +240,13 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
       }
 
       // Try normalized string comparison
-      const normalizedFilterId = normalizeTaskId((filter as unknown).id);
-      const normalizedTaskId = normalizeTaskId((task as unknown).id);
+      const normalizedFilterId = normalizeTaskId(filter.id);
+      const normalizedTaskId = normalizeTaskId(task.id);
 
       if (normalizedFilterId && normalizedTaskId) {
         // Strip the "#" prefix for more flexible comparison
-        const filterIdNum = parseInt((normalizedFilterId as unknown).replace(/^#/, ""), 10);
-        const taskIdNum = parseInt((normalizedTaskId as unknown).replace(/^#/, ""), 10);
+        const filterIdNum = parseInt(normalizedFilterId.replace(/^#/, ""), 10);
+        const taskIdNum = parseInt(normalizedTaskId.replace(/^#/, ""), 10);
 
         if (!isNaN(filterIdNum) && !isNaN(taskIdNum) && filterIdNum === taskIdNum) {
           return true;
@@ -260,18 +260,18 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
     }
 
     // Filter by title (string match)
-    if ((filter as unknown).title && typeof (filter as unknown).title === "string") {
-      return (task.title.toLowerCase() as unknown).includes((filter.title as unknown).toLowerCase());
+    if (filter.title && typeof filter.title === "string") {
+      return task.title.toLowerCase().includes(filter.title.toLowerCase());
     }
 
     // Filter by title (regex match)
-    if ((filter as unknown).title && (filter as unknown).title instanceof RegExp) {
-      return (filter.title as unknown).test((task as unknown).title);
+    if (filter.title && filter.title instanceof RegExp) {
+      return filter.title.test(task.title);
     }
 
     // Filter by spec path existence
-    if ((filter as unknown).hasSpecPath !== undefined) {
-      return (filter as unknown).hasSpecPath ? !!task.specPath : !task.specPath;
+    if (filter.hasSpecPath !== undefined) {
+      return filter.hasSpecPath ? !!task.specPath : !task.specPath;
     }
 
     return true;
@@ -288,10 +288,10 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
     return { title: "", description: "" };
   }
 
-  const lines = (((content) as unknown).toString() as unknown).split("\n");
+  const lines = content.toString().split("\n");
 
   // Extract title from the first heading
-  const titleLine = (lines as unknown).find((line) => (line as unknown).startsWith("# "));
+  const titleLine = lines.find((line) => line.startsWith("# "));
   if (!titleLine) {
     return { title: "", description: "" };
   }
@@ -300,9 +300,9 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
   // 1. Old format with task number: "# Task #XXX: Title"
   // 2. Old format without number: "# Task: Title"
   // 3. New clean format: "# Title"
-  const titleWithIdMatch = (titleLine as unknown).match(/^# Task #(\d+): (.+)$/);
-  const titleWithoutIdMatch = (titleLine as unknown).match(/^# Task: (.+)$/);
-  const cleanTitleMatch = (titleLine as unknown).match(/^# (.+)$/);
+  const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
+  const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
+  const cleanTitleMatch = titleLine.match(/^# (.+)$/);
 
   let title = "";
   let id: string | undefined;
@@ -318,26 +318,26 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
     // New clean format: "# Title"
     title = cleanTitleMatch[1];
     // Skip if this looks like an old task format to avoid false positives
-    if (!(title as unknown).startsWith("Task ")) {
+    if (!title.startsWith("Task ")) {
       // This is likely the new clean format
     }
   }
 
   // Extract description from the Context section
-  const contextIndex = (lines as unknown).findIndex((line) => (line as unknown).trim() === "## Context");
+  const contextIndex = lines.findIndex((line) => line.trim() === "## Context");
   let description = "";
 
   if (contextIndex !== -1) {
-    for (let i = contextIndex + 1; i < (lines as unknown).length; i++) {
+    for (let i = contextIndex + 1; i < lines.length; i++) {
       const line = lines[i] || "";
-      if (((line as unknown).trim() as unknown).startsWith("## ")) break;
-      if ((line as unknown).trim()) description += `${(line as unknown).trim()}\n`;
+      if (line.trim().startsWith("## ")) break;
+      if (line.trim()) description += `${line.trim()}\n`;
     }
   }
 
   return {
     title,
-    description: (description as unknown).trim(),
+    description: description.trim(),
     id,
   };
 }
@@ -351,12 +351,12 @@ export function formatTaskSpecToMarkdown(spec: TaskSpecData): string {
   if (!spec) return "";
 
   // Generate clean title format without task numbers
-  const titleLine = `# ${(spec as unknown).title}`;
+  const titleLine = `# ${spec.title}`;
 
   const contextSection = `
 ## Context
 
-${(spec as unknown).description}
+${spec.description}
 
 ## Requirements
 
@@ -389,7 +389,7 @@ export function isValidTaskStatus(status: string): status is TaskStatus {
  * @returns Formatted markdown content
  */
 export function formatTaskStateToMarkdown(state: TaskStatus): string {
-  return formatTasksToMarkdown((state as unknown).tasks);
+  return formatTasksToMarkdown(state.tasks);
 }
 
 /**
