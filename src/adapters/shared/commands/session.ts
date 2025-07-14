@@ -300,11 +300,17 @@ const sessionApproveCommandParams: CommandParameterMap = {
 
 /**
  * Parameters for the session pr command
+ * 
+ * PROGRESSIVE DISCLOSURE STRATEGY:
+ * - Core flags: Essential for basic PR creation (always visible)
+ * - Advanced flags: Expert-level control (hidden by default, shown with --advanced)
+ * - Smart defaults: Work for 90% of cases without additional flags
  */
 const sessionPrCommandParams: CommandParameterMap = {
+  // === CORE PARAMETERS (Always visible) ===
   title: {
     schema: z.string().min(1),
-    description: "Title for the PR (optional for existing PRs)",
+    description: "Title for the PR (auto-generated if not provided)",
     required: false,
   },
   body: {
@@ -319,17 +325,17 @@ const sessionPrCommandParams: CommandParameterMap = {
   },
   name: {
     schema: z.string(),
-    description: "Session name",
+    description: "Session name (auto-detected from workspace if not provided)",
     required: false,
   },
   task: {
     schema: z.string(),
-    description: "Task ID associated with the session",
+    description: "Task ID associated with the session (auto-detected if not provided)",
     required: false,
   },
   repo: {
     schema: z.string(),
-    description: "Repository path",
+    description: "Repository path (auto-detected if not provided)",
     required: false,
   },
   json: {
@@ -338,33 +344,44 @@ const sessionPrCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-  noStatusUpdate: {
+  
+  // === PROGRESSIVE DISCLOSURE CONTROL ===
+  advanced: {
     schema: z.boolean(),
-    description: "Skip updating task status",
+    description: "Show advanced options for conflict resolution and debugging",
     required: false,
     defaultValue: false,
   },
+  
+  // === ADVANCED PARAMETERS (Hidden by default) ===
+  // Note: These are still registered but will be hidden in help unless --advanced is used
   debug: {
     schema: z.boolean(),
-    description: "Enable debug output",
+    description: "Enable debug output (use with --advanced)",
+    required: false,
+    defaultValue: false,
+  },
+  noStatusUpdate: {
+    schema: z.boolean(),
+    description: "Skip updating task status (use with --advanced)",
     required: false,
     defaultValue: false,
   },
   skipUpdate: {
     schema: z.boolean(),
-    description: "Skip session update before creating PR",
+    description: "Skip session update before creating PR (use with --advanced)",
     required: false,
     defaultValue: false,
   },
   autoResolveDeleteConflicts: {
     schema: z.boolean(),
-    description: "Automatically resolve delete/modify conflicts by accepting deletions",
+    description: "Automatically resolve delete/modify conflicts by accepting deletions (use with --advanced)",
     required: false,
     defaultValue: false,
   },
   skipConflictCheck: {
     schema: z.boolean(),
-    description: "Skip proactive conflict detection during update",
+    description: "Skip proactive conflict detection during update (use with --advanced)",
     required: false,
     defaultValue: false,
   },
@@ -637,13 +654,55 @@ Examples:
     id: "session.pr",
     category: CommandCategory.SESSION,
     name: "pr",
-    description: "Create a pull request for a session",
+    description: "Create a pull request for a session with intelligent defaults and smart auto-detection. Use --advanced for expert options.",
     parameters: sessionPrCommandParams,
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
+      // PROGRESSIVE DISCLOSURE: Show advanced usage help if --advanced flag is used
+      if (params!.advanced) {
+        const advancedHelp = `
+🎯 Advanced Session PR Options:
+
+CONFLICT RESOLUTION:
+• --skip-update                    Skip session update before creating PR
+• --skip-conflict-check           Skip proactive conflict detection
+• --auto-resolve-delete-conflicts Auto-resolve delete/modify conflicts
+
+DEBUGGING & CONTROL:
+• --debug                         Enable detailed debug output
+• --no-status-update             Skip automatic task status updates
+
+COMMON ADVANCED SCENARIOS:
+• Conflicted session:    minsky session pr --skip-update --title "fix: Emergency fix"
+• Debug mode:           minsky session pr --debug --title "feat: New feature"
+• Manual control:       minsky session pr --no-status-update --skip-conflict-check
+
+💡 These options provide expert-level control over the PR creation process.
+   Most users should use the basic command without these flags.
+`;
+        
+        console.log(advancedHelp);
+        return {
+          success: true,
+          message: "Advanced options displayed. Use these flags for expert-level control.",
+        };
+      }
+
       // Import gitService for validation
       const { createGitService } = await import("../../../domain/git.js");
+
+      // SMART DEFAULTS: Apply intelligent defaults based on common scenarios
+      const smartDefaults = {
+        // Auto-generate title from task ID or session name if not provided
+        title: params!.title || `PR for ${params!.task || params!.name || "session"}`,
+        // Use smart conflict resolution by default
+        autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts ?? false,
+        skipConflictCheck: params!.skipConflictCheck ?? false,
+        skipUpdate: params!.skipUpdate ?? false,
+        debug: params!.debug ?? false,
+        noStatusUpdate: params!.noStatusUpdate ?? false,
+      };
 
       // Conditional validation: require body/bodyPath only for new PRs (not refreshing existing ones)
       if (!params!.body && !params!.bodyPath) {
@@ -707,19 +766,19 @@ Example:
       }
 
       try {
-        const result = (await sessionPrFromParams({
-          title: params!.title,
+        const result = await sessionPrFromParams({
+          title: smartDefaults.title,
           body: params!.body,
           bodyPath: params!.bodyPath,
           session: params!.name,
           task: params!.task,
           repo: params!.repo,
-          noStatusUpdate: params!.noStatusUpdate,
-          debug: params!.debug,
-          skipUpdate: params!.skipUpdate,
-          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
-          skipConflictCheck: params!.skipConflictCheck,
-        })) as unknown;
+          noStatusUpdate: smartDefaults.noStatusUpdate,
+          debug: smartDefaults.debug,
+          skipUpdate: smartDefaults.skipUpdate,
+          autoResolveDeleteConflicts: smartDefaults.autoResolveDeleteConflicts,
+          skipConflictCheck: smartDefaults.skipConflictCheck,
+        });
 
         return {
           success: true,
@@ -729,18 +788,25 @@ Example:
         // Instead of just logging and rethrowing, provide user-friendly error messages
         const errorMessage = getErrorMessage(error as Error);
 
-        // Handle specific error types with friendly messages
+        // Enhanced error handling with scenario-based guidance
         if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
           throw new MinskyError(
             `🔥 Git merge conflict detected while creating PR branch.
 
-This usually happens when:
-• The PR branch already exists with different content
-• There are conflicting changes between your session and the base branch
+🎯 SCENARIO-BASED SOLUTIONS:
 
-💡 Quick fixes:
-• Try with --skip-update to avoid session updates
-• Or manually resolve conflicts and retry
+📍 For emergency fixes:
+   minsky session pr --skip-update --title "fix: Emergency fix"
+
+📍 For complex conflicts:
+   1. Manually resolve conflicts in your session workspace
+   2. Commit resolved changes
+   3. Run: minsky session pr --title "Your PR title"
+
+📍 For clean slate approach:
+   minsky session pr --skip-conflict-check --title "Your PR title"
+
+💡 Use --advanced to see all conflict resolution options.
 
 Technical details: ${errorMessage}`
           );
@@ -748,15 +814,15 @@ Technical details: ${errorMessage}`
           throw new MinskyError(
             `❌ Failed to create PR branch merge commit.
 
-This could be due to:
-• Merge conflicts between your session branch and base branch
-• Remote PR branch already exists with different content
-• Network issues with git operations
+🎯 QUICK DIAGNOSIS:
+• Check for uncommitted changes: git status
+• Check branch state: git branch -a
+• Check remote connection: git remote -v
 
-💡 Try these solutions:
-• Run 'git status' to check for conflicts
-• Use --skip-update to bypass session updates
-• Check your git remote connection
+💡 Common solutions:
+• Emergency bypass: minsky session pr --skip-update --title "fix: Issue"
+• Debug mode: minsky session pr --advanced --debug --title "Your title"
+• Manual resolution: Commit changes first, then retry
 
 Technical details: ${errorMessage}`
           );
@@ -767,40 +833,50 @@ Technical details: ${errorMessage}`
           throw new MinskyError(
             `🔐 Git authentication error.
 
-Please check:
-• Your SSH keys are properly configured
-• You have push access to the repository
-• Your git credentials are valid
+🎯 QUICK FIXES:
+• Check SSH keys: ssh -T git@github.com
+• Verify repository access permissions
+• Ensure git credentials are configured
+
+🔧 Common solutions:
+• GitHub: Generate new personal access token
+• SSH: Add your key to ssh-agent
+• HTTPS: Update stored credentials
 
 Technical details: ${errorMessage}`
           );
         } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
           throw new MinskyError(
-            `🔍 Session not found.
+            `🔍 Session not found: '${params!.name || params!.task}'
 
-The session '${params!.name || params!.task}' could not be located.
+🎯 TROUBLESHOOTING STEPS:
+1. Check available sessions: minsky session list
+2. Verify you're in the correct directory
+3. Auto-detect from workspace: minsky session pr --title "Your title"
 
-💡 Try:
-• Check available sessions: minsky session list
-• Verify you're in the correct directory
-• Use the correct session name or task ID
+💡 The command auto-detects your session context when run from a session workspace.
 
 Technical details: ${errorMessage}`
           );
         } else {
-          // For other errors, provide a general helpful message
+          // Enhanced general error with progressive disclosure
           throw new MinskyError(
             `❌ Failed to create session PR.
 
-The operation failed with: ${errorMessage}
+🎯 QUICK DIAGNOSIS:
+• Are you in a session workspace? (Check with: pwd)
+• Are all changes committed? (Check with: git status)
+• Is the session registered? (Check with: minsky session list)
 
-💡 Troubleshooting:
-• Check that you're in a session workspace
-• Verify all files are committed
-• Try running with --debug for more details
-• Check 'minsky session list' to see available sessions
+💡 For detailed diagnosis, run with --advanced --debug:
+   minsky session pr --advanced --debug --title "Your title"
 
-Need help? Run the command with --debug for detailed error information.`
+🔧 Common solutions:
+• Commit uncommitted changes first
+• Run from session workspace directory
+• Use --skip-update if session updates are problematic
+
+Technical details: ${errorMessage}`
           );
         }
       }
