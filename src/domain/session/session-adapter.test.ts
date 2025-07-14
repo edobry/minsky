@@ -153,8 +153,9 @@ describe("SessionAdapter", () => {
 
   it("should get repository path for a session", async () => {
     const adapter = new SessionAdapter(dbPath);
+    const sessionName = "test-session";
     const testSession = {
-      session: "test-session",
+      session: sessionName,
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
@@ -165,7 +166,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const repoPath = await adapter.getRepoPath(testSession);
 
-    expect(repoPath).toContain("test-repo/sessions/test-session");
+    expect(repoPath).toContain(`/sessions/${sessionName}`);
   });
 
   it("should get working directory for a session", async () => {

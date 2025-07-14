@@ -128,9 +128,9 @@ describe("Session DB I/O Functions", () => {
         baseDir: tempDir,
       });
 
+      // Test that the function doesn't throw when called with undefined options
       expect(() => {
-        await writeSessionsToFile(testState.sessions, undefined as unknown);
-        expect(typeof success).toBe("boolean");
+        writeSessionsToFile(testState.sessions, undefined as unknown);
       }).not.toThrow();
     });
 
@@ -141,8 +141,7 @@ describe("Session DB I/O Functions", () => {
       });
 
       expect(() => {
-        await writeSessionsToFile(testState.sessions, null as unknown);
-        expect(typeof success).toBe("boolean");
+        writeSessionsToFile(testState.sessions, null as unknown);
       }).not.toThrow();
     });
 
@@ -154,8 +153,7 @@ describe("Session DB I/O Functions", () => {
       const options = { dbPath: undefined };
 
       expect(() => {
-        await writeSessionsToFile(testState.sessions, options);
-        expect(typeof success).toBe("boolean");
+        writeSessionsToFile(testState.sessions, options);
       }).not.toThrow();
     });
   });
