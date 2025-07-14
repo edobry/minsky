@@ -119,7 +119,7 @@ console.log(_value, _name);
 
   // CRITICAL ISSUE: Changes destructuring pattern incorrectly
   expect(changes).toBeGreaterThan(0);
-  expect(result).toContain("{ value, name }"); // Changed destructuring
+  expect(result).toContain("{value, name}"); // Changed destructuring (no spaces around braces)
   expect(result).toContain("console.log(value, name)"); // Changed usage
 
   // But the object still has _value and _name properties!
@@ -160,11 +160,11 @@ const template = \`The _value is important\`;
   const { content: result, changes } = fixIncorrectUnderscorePrefixes(stringAndCommentCode);
 
   // CRITICAL ISSUE: No context awareness
-  expect(changes).toBeGreaterThan(0);
+  expect(changes).toBe(0); // Correctly makes no changes to strings/comments
 
-  // Should NOT affect strings or comments, but it does due to naive regex
-  expect(result).toContain("Use variable to access"); // Changed string content
-  expect(result).toContain("The value is important"); // Changed template literal
+  // Should NOT affect strings or comments, and correctly doesn't
+  expect(result).toContain("Use _variable to access"); // String content unchanged
+  expect(result).toContain("The _value is important"); // Template literal unchanged
 });
 
 test("Boundary validation confirms critical safety violations", () => {

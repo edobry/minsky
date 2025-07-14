@@ -120,8 +120,9 @@ describe("Workspace Domain Methods", () => {
 
         // Assert
         expect(result).toEqual({
-          _session: "session-name",
+          session: "session-name",
           upstreamRepository: "https://github.com/org/repo.git",
+          gitRoot: "/Users/test/.local/state/minsky/sessions/session-name",
         });
       } finally {
         // Restore original HOME

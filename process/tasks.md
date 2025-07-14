@@ -342,13 +342,11 @@
 
 - [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
 
-- [ ] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
+- [+] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
 
 - [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
 
 - [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
-
-- [x] Improve Error Handling for MCP Server Port Conflicts [#184](process/tasks/184-improve-error-handling-for-mcp-server-port-conflicts.md)
 
 - [ ] Restore Full Test Suite for `init` Command [#185](process/tasks/185-restore-full-test-suite-for-init-command.md)
 
@@ -363,8 +361,6 @@
 - [x] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md)
 
 - [x] Replace Direct process.exit() Calls with Custom exit() Utility [#194](process/tasks/194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
-
-- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#195](process/tasks/195-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
 - [x] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
 
@@ -396,9 +392,7 @@
 
 - [x] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
 
-- [ ] Enhanced Session PR Workflow [#222](process/tasks/222-enhanced-session-pr-workflow.md)
-
-- [ ] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
+- [x] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
 
 - [+] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
 
@@ -434,21 +428,11 @@
 
 - [ ] Phase 3: Enhanced Planning/Execution Separation with Checkpointing [#240](process/tasks/240-phase-3-enhanced-planning-execution-separation-with-checkpointing.md)
 
-- [ ] Implement Task Dependencies and Basic Task Graphs [#241](process/tasks/241-implement-task-dependencies-and-basic-task-graphs.md)
-
-- [ ] Enhanced Planning/Execution Separation with Checkpointing [#242](process/tasks/242-enhanced-planning-execution-separation-with-checkpointing.md)
-
 - [ ] Advanced Visualization and Database Migration [#243](process/tasks/243-advanced-visualization-and-database-migration.md)
 
 - [x] Implement comprehensive test isolation framework to eliminate suite interference [#244](process/tasks/244-implement-comprehensive-test-isolation-framework-to-eliminate-suite-interference.md)
 
 - [x] Complete configuration system standardization and cleanup [#245](process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
-
-- [ ] Implement Basic Task Parent-Child Relationships [#246](process/tasks/246-implement-basic-task-parent-child-relationships.md)
-
-- [ ] Implement Task Hierarchy System (Parent-Child Relationships) [#247](process/tasks/247-implement-task-hierarchy-system-parent-child-relationships-.md)
-
-- [ ] Add AI-powered task decomposition and analysis [#248](process/tasks/248-add-ai-powered-task-decomposition-and-analysis.md)
 
 - [ ] Investigate and Improve Session-Aware Edit/Reapply MCP Tools with Fast-Apply APIs [#249](process/tasks/249-investigate-and-improve-session-aware-edit-reapply-mcp-tools-with-fast-apply-apis.md)
 
@@ -508,4 +492,4 @@
 
 - [ ] Implement Stacked PR Workflow for Session Dependencies [#277](process/tasks/277-implement-stacked-pr-workflow-for-session-dependencies.md)
 
-- [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system.md)
+- [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system-for-persistent-learning-and-knowledge-accumulation.md)

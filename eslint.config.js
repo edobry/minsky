@@ -97,6 +97,39 @@ export default [
       // === VARIABLE NAMING RULES ===
       "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
 
+      // === IMPORT RULES ===
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["*/*.js", "./*.js", "../*.js", "../../*.js", "../../../*.js", "../../../../*.js"],
+              message: "Use extensionless imports for local files (Bun-native style). Remove .js extension."
+            },
+            {
+              group: ["*/*.ts", "./*.ts", "../*.ts", "../../*.ts", "../../../*.ts", "../../../../*.ts"],
+              message: "Use extensionless imports for local files (Bun-native style). Remove .ts extension."
+            },
+            {
+              group: ["*/*.jsx", "./*.jsx", "../*.jsx", "../../*.jsx", "../../../*.jsx", "../../../../*.jsx"],
+              message: "Use extensionless imports for local files (Bun-native style). Remove .jsx extension."
+            },
+            {
+              group: ["*/*.tsx", "./*.tsx", "../*.tsx", "../../*.tsx", "../../../*.tsx", "../../../../*.tsx"],
+              message: "Use extensionless imports for local files (Bun-native style). Remove .tsx extension."
+            },
+            {
+              group: ["*/*.mjs", "./*.mjs", "../*.mjs", "../../*.mjs", "../../../*.mjs", "../../../../*.mjs"],
+              message: "Use extensionless imports for local files (Bun-native style). Remove .mjs extension."
+            },
+            {
+              group: ["*/*.cjs", "./*.cjs", "../*.cjs", "../../*.cjs", "../../../*.cjs", "../../../../*.cjs"],
+              message: "Use extensionless imports for local files (Bun-native style). Remove .cjs extension."
+            }
+          ]
+        }
+      ],
+
       // === STYLE RULES (DISABLED FOR NOW) ===
       "@typescript-eslint/no-explicit-any": "off", // Disabled - style preference
       "@typescript-eslint/no-unused-vars": "off", // Disabled - too noisy

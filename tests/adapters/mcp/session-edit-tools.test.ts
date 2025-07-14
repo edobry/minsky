@@ -2,7 +2,7 @@
  * Tests for session-aware edit tools
  */
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { registerSessionEditTools } from "../session-edit-tools";
+import { registerSessionEditTools } from "../../../src/adapters/mcp/session-edit-tools";
 import type { CommandMapper } from "../../../mcp/command-mapper";
 import { z } from "zod";
 import { mkdir, writeFile, readFile, stat } from "fs/promises";

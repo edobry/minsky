@@ -516,7 +516,7 @@ Examples:
           directory,
         };
       } catch (error) {
-        log.error("Failed to get session directory", {
+        log.debug("Failed to get session directory", {
           error: getErrorMessage(error as Error),
           session: params!.name,
           task: params!.task,
@@ -650,7 +650,7 @@ Examples:
         // Check if there's an existing PR branch to determine if we can refresh
         const currentDir = process.cwd();
         const isSessionWorkspace = currentDir.includes("/sessions/");
-        
+
         let sessionName = params!.name;
         if (!sessionName && isSessionWorkspace) {
           // Try to detect session name from current directory
@@ -664,7 +664,7 @@ Examples:
         if (sessionName) {
           const gitService = createGitService();
           const prBranch = `pr/${sessionName}`;
-          
+
           // Check if PR branch exists locally or remotely
           let prBranchExists = false;
           try {
@@ -689,7 +689,7 @@ Examples:
             // If we can't check branch existence, assume it doesn't exist
             prBranchExists = false;
           }
-          
+
           if (!prBranchExists) {
             // No existing PR branch, so body/bodyPath is required
             throw new Error(`PR description is required for meaningful pull requests.
