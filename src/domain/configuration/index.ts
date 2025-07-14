@@ -1,43 +1,77 @@
 /**
  * Configuration system exports for Minsky
  *
- * This module provides the minimal exports needed for the node-config based
- * configuration system, maintaining backward compatibility where needed.
+ * This module provides idiomatic node-config usage with Zod validation
+ * instead of the old NodeConfigAdapter anti-pattern.
  */
 
-// Node-config adapter for backward compatibility
-export { NodeConfigAdapter } from "./node-config-adapter";
+// Zod validation schemas and functions
+export {
+  validateConfig,
+  validateRepositoryConfig,
+  validateGlobalUserConfig,
+  SessionDbConfigSchema,
+  AIConfigSchema,
+  AIProviderConfigSchema,
+  GitHubConfigSchema,
+  LoggerConfigSchema,
+  DetectionRuleSchema,
+  BackendConfigSchema,
+  ConfigSchema,
+  RepositoryConfigSchema,
+  GlobalUserConfigSchema,
+  type SessionDbConfig,
+  type AIConfig,
+  type AIProviderConfig,
+  type GitHubConfig,
+  type LoggerConfig,
+  type DetectionRule,
+  type BackendConfig,
+  type Config,
+  type RepositoryConfig,
+  type GlobalUserConfig,
+  type ValidationResult,
+  type ValidationError,
+  type ValidationWarning,
+} from "./config-schemas";
 
-// Types and interfaces still needed
+// Legacy types still needed for backward compatibility
 export type {
-  ConfigurationService,
   ConfigurationLoadResult,
   ConfigurationSources,
   ResolvedConfig,
-  RepositoryConfig,
-  GlobalUserConfig,
-  BackendConfig,
   CredentialConfig,
-  DetectionRule,
-  ValidationResult,
-  ValidationError,
-  ValidationWarning,
   CredentialSource,
   CredentialManager,
   BackendDetector,
-  SessionDbConfig,
-  GitHubConfig,
-  AIConfig,
-  AIProviderConfig,
   PostgresConfig,
-  LoggerConfig,
 } from "./types";
 
 // Constants
 export { DEFAULT_CONFIG, CONFIG_PATHS, ENV_VARS } from "./types";
 
-// Node-config is the primary configuration system
-// Components should use: import config from "config"; config.get("key");
-// This export is only for backward compatibility during transition
-import { NodeConfigAdapter } from "./node-config-adapter";
-export const configurationService = new NodeConfigAdapter();
+// **RECOMMENDED USAGE: Direct node-config access**
+// 
+// Instead of using configurationService or NodeConfigAdapter,
+// use node-config directly for idiomatic configuration access:
+//
+// ```typescript
+// import config from "config";
+// import { validateConfig, type SessionDbConfig } from "./config-schemas";
+// 
+// // Direct access with type safety
+// const sessiondbConfig = config.get<SessionDbConfig>("sessiondb");
+// const backend = config.get<string>("backend");
+// 
+// // Validation with Zod
+// const validation = validateConfig(config);
+// if (!validation.valid) {
+//   console.error("Configuration validation failed:", validation.errors);
+// }
+// ```
+//
+// This approach provides:
+// - Type safety with TypeScript generics
+// - Runtime validation with Zod schemas
+// - Standard node-config patterns
+// - No unnecessary abstraction layers
