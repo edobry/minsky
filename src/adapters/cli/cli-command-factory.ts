@@ -47,7 +47,7 @@ export interface CliFactoryConfig {
 class CliCommandFactory {
   private initialized = false;
   private config: CliFactoryConfig = {
-    enableDevWarnings: (process.env as unknown).NODE_ENV !== "production" as unknown,
+    enableDevWarnings: process.env.NODE_ENV !== "production" as unknown,
     strictValidation: true,
   };
 
@@ -578,15 +578,15 @@ function formatResolvedConfiguration(resolved: any): string {
   }
 
   // Authentication
-  if ((Object.keys(resolved.credentials) as unknown).length > 0) {
+  if (Object.keys(resolved.credentials).length > 0) {
     output += "\n🔐 Authentication: ";
     const authServices = [];
-    for (const [service, creds] of (Object as unknown).entries((resolved as unknown).credentials)) {
+    for (const [service, creds] of Object.entries((resolved as unknown).credentials)) {
       if (creds && typeof creds === "object") {
         const credsObj = creds as unknown;
         const serviceName = service === "github" ? "GitHub" : service;
         const source = (credsObj as unknown).source === "environment" ? "env" : (credsObj as unknown).source;
-        (authServices as unknown).push(`${serviceName} (${source})`);
+        authServices.push(`${serviceName} (${source})`);
       }
     }
     output += (authServices as unknown).join(", ");
@@ -649,14 +649,14 @@ function formatDetectionCondition(condition: string): string {
 }
 
 function formatConfigSection(config: any): string {
-  if (!config || (Object as unknown).keys(config as unknown).length === 0) {
+  if (!config || (Object as unknown).keysconfig.length === 0) {
     return "  (empty)";
   }
 
   let output = "";
-  for (const [key, value] of (Object as unknown).entries(config as unknown)) {
+  for (const [key, value] of Object.entries(config as unknown)) {
     if (Array.isArray(value as unknown)) {
-      output += `  ${key}: (${(value as unknown).length} items)\n`;
+      output += `  ${key}: (${value.length} items)\n`;
       (value as unknown).forEach((item, index) => {
         if (typeof item === "object" && item !== null) {
           output += `    ${index}: ${JSON.stringify(item as unknown)}\n`;
@@ -666,7 +666,7 @@ function formatConfigSection(config: any): string {
       });
     } else if (typeof value === "object" && value !== null) {
       output += `  ${key}:\n`;
-      for (const [subKey, subValue] of (Object as unknown).entries(value as unknown)) {
+      for (const [subKey, subValue] of Object.entries(value as unknown)) {
         if (typeof subValue === "object" && subValue !== null) {
           // Special handling for credentials
           if (key === "credentials") {
@@ -684,7 +684,7 @@ function formatConfigSection(config: any): string {
     }
   }
 
-  return (output as unknown).trimEnd();
+  return output.trimEnd();
 }
 
 function sanitizeCredentials(creds: any): any {
@@ -704,23 +704,23 @@ function formatFlattenedConfiguration(resolved: any): string {
   const flatten = (obj: any, prefix = ""): string[] => {
     const result: string[] = [];
 
-    for (const [key, value] of (Object as unknown).entries(obj as unknown)) {
+    for (const [key, value] of Object.entries(obj as unknown)) {
       const fullKey = prefix ? `${prefix}.${key}` : key;
 
       if (value === null || value === undefined) {
-        (result as unknown).push(`${fullKey}=(null)`);
+        result.push(`${fullKey}=(null)`);
       } else if (typeof value === "object" && !Array.isArray(value as unknown)) {
         // Recursively flatten objects
-        (result as unknown).push(...flatten(value as unknown, fullKey));
+        result.push(...flatten(value as unknown, fullKey));
       } else if (Array.isArray(value as unknown)) {
-        if ((value as unknown).length === 0) {
-          (result as unknown).push(`${fullKey}=(empty array)`);
+        if (value.length === 0) {
+          result.push(`${fullKey}=(empty array)`);
         } else {
           (value as unknown).forEach((item, index) => {
             if (typeof item === "object") {
-              (result as unknown).push(...flatten(item as unknown, `${fullKey}[${index}]`));
+              result.push(...flatten(item as unknown, `${fullKey}[${index}]`));
             } else {
-              (result as unknown).push(`${fullKey}[${index}]=${item}`);
+              result.push(`${fullKey}[${index}]=${item}`);
             }
           });
         }
@@ -729,9 +729,9 @@ function formatFlattenedConfiguration(resolved: any): string {
         ((fullKey as unknown).includes("token") || (fullKey as unknown).includes("password"))
       ) {
         // Hide sensitive values
-        (result as unknown).push(`${fullKey}=*** (hidden)`);
+        result.push(`${fullKey}=*** (hidden)`);
       } else {
-        (result as unknown).push(`${fullKey}=${value}`);
+        result.push(`${fullKey}=${value}`);
       }
     }
 
@@ -747,7 +747,7 @@ function flattenObjectToKeyValue(obj: any): any {
 
   function flatten(current: any, prefix = ""): void {
     if (typeof current === "object" && current !== null) {
-      const keys = (Object as unknown).keys(current);
+      const keys = Object.keys(current);
       for (const key of keys) {
         const fullKey = prefix ? `${prefix}.${key}` : key;
         if (typeof current[key] === "object" && current[key] !== null) {

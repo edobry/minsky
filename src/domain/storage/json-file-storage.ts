@@ -187,7 +187,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       return {
         success: true,
-        bytesWritten: (json as unknown).length,
+        bytesWritten: json.length,
       };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
@@ -208,12 +208,12 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
   async getEntity(id: string, options?: DatabaseQueryOptions): Promise<T | null> {
     const result = await this.readState();
     if (!(result as unknown).success || !(result as unknown).data) {
-      return null as unknown;
+      return null;
     }
 
     const state = (result as unknown).data;
     const entities = this.getEntitiesFromState(state);
-    const entity = (entities as unknown).find((e) => (e as unknown)[this.idField] === id);
+    const entity = entities.find((e) => (e as unknown)[this.idField] === id);
 
     return entity || null;
   }
@@ -237,8 +237,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
     }
 
     // Filter entities based on query options
-    return (entities as unknown).filter((entity) => {
-      for (const [key, value] of (Object as unknown).entries(options as unknown)) {
+    return entities.filter((entity) => {
+      for (const [key, value] of Object.entries(options as unknown)) {
         if ((entity as unknown)[key] !== value) {
           return false;
         }
@@ -271,7 +271,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       }
 
       // Add entity to collection
-      (entities as unknown).push(entity);
+      entities.push(entity);
 
       // Update state with new entities collection
       this.setEntitiesInState(state, entities);
@@ -305,9 +305,9 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = (entities as unknown).findIndex((e) => (e as unknown)[this.idField] === id);
+      const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
       if (index === -1) {
-        return null as unknown;
+        return null;
       }
 
       // Update entity
@@ -345,13 +345,13 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = (entities as unknown).findIndex((e) => (e as unknown)[this.idField] === id);
+      const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
       if (index === -1) {
         return false;
       }
 
       // Remove entity
-      (entities as unknown).splice(index, 1);
+      entities.splice(index, 1);
 
       // Update state with modified entities collection
       this.setEntitiesInState(state, entities);
@@ -427,7 +427,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @private
    */
   private getEntitiesFromState(state: S): T[] {
-    return (state as unknown)[this.entitiesField] || [];
+    return state[this.entitiesField] || [];
   }
 
   /**
@@ -437,7 +437,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @private
    */
   private setEntitiesInState(state: S, entities: T[]): void {
-    (state as unknown)[this.entitiesField] = entities;
+    state[this.entitiesField] = entities;
   }
 }
 

@@ -105,7 +105,7 @@ function extractGitHubRepoFromRemote(
       };
     }
 
-    return null as unknown;
+    return null;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
@@ -180,7 +180,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       });
 
       const issues = (response as unknown).data;
-      log.debug(`Retrieved ${(issues as unknown).length} issues from GitHub`, {
+      log.debug(`Retrieved ${issues.length} issues from GitHub`, {
         owner: this.owner,
         repo: this.repo,
       });
@@ -213,8 +213,8 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       // from the issue data.
 
       // Extract task ID from spec path
-      const pathParts = (specPath as unknown).split("/");
-      const fileName = pathParts[(pathParts as unknown).length - 1];
+      const pathParts = specPath.split("/");
+      const fileName = pathParts[pathParts.length - 1];
       const taskIdMatch = (fileName as unknown).match(/^(\d+)-/);
 
       if (!taskIdMatch || !taskIdMatch[1]) {
@@ -231,7 +231,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         state: "all",
       }) as unknown;
 
-      const issue = (response.data as unknown).find((issue) => {
+      const issue = response.data.find((issue) => {
         // Look for issue with matching task ID in title or body
         return (issue.title as unknown).includes(taskId) || (issue.body as unknown).includes(taskId);
       });
@@ -260,7 +260,7 @@ ${(issue as unknown).body || "No description provided"}
 - Updated: ${(issue as unknown).updated_at}
 
 ## Labels
-${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? label : label.name}`) as unknown).join("\n")}
+${(issue.labels.map((label) => `- ${typeof label === "string" ? label : label.name}`) as unknown).join("\n")}
 `;
 
       return {
@@ -298,7 +298,7 @@ ${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? lab
   formatTasks(tasks: TaskData[]): string {
     // For GitHub backend, we don't store tasks in a file format
     // This is used when syncing back to GitHub
-    return JSON.stringify((tasks as unknown).map((task) => this.convertTaskDataToIssueFormat(task)));
+    return JSON.stringify(tasks.map((task) => this.convertTaskDataToIssueFormat(task)));
   }
 
   parseTaskSpec(content: string): TaskSpecData {
@@ -312,7 +312,7 @@ ${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? lab
     let descriptionLines: string[] = [];
 
     for (const line of lines) {
-      const trimmed = (line as unknown).trim();
+      const trimmed = line.trim();
 
       if ((trimmed as unknown).startsWith("# ")) {
         title = ((trimmed as unknown).substring(2) as unknown).trim();
@@ -328,7 +328,7 @@ ${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? lab
           descriptionLines = [];
         }
       } else if (currentSection === "description" && trimmed) {
-        (descriptionLines as unknown).push(trimmed);
+        descriptionLines.push(trimmed);
       }
     }
 

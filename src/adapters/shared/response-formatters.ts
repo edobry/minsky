@@ -177,7 +177,7 @@ export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
    * @returns Formatted list
    */
   formatText(items: T[]): string {
-    if ((items as unknown).length === 0) {
+    if (items.length === 0) {
       return "No items found.";
     }
 
@@ -211,7 +211,7 @@ export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
   formatJson(items: T[]): object {
     return {
       items,
-      count: (items as unknown).length,
+      count: items.length,
     };
   }
 }
@@ -235,7 +235,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
    * @returns Formatted table
    */
   formatText(rows: T[]): string {
-    if ((rows as unknown).length === 0) {
+    if (rows.length === 0) {
       return "No data found.";
     }
 
@@ -251,14 +251,14 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
 
     // Initialize with header lengths
     this.columns.forEach((col) => {
-      columnWidths[col] = (String(this.headers[col] || col) as unknown).length;
+      columnWidths[col] = String(this.headers[col] || col).length;
     });
 
     // Update with maximum data lengths
     rows.forEach((row) => {
       this.columns.forEach((col) => {
         const value = String(row[col] || "");
-        columnWidths[col] = Math.max((columnWidths as unknown)[col], (value as unknown).length);
+        columnWidths[col] = Math.max((columnWidths as unknown)[col], value.length);
       });
     });
 
@@ -305,7 +305,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
   formatJson(rows: T[]): object {
     return {
       rows,
-      count: (rows as unknown).length,
+      count: rows.length,
     };
   }
 }

@@ -188,7 +188,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @returns Array of command definitions
    */
   getCommandsByCategory(category: CommandCategory): SharedCommand[] {
-    return (Array.from(this.commands.values()) as unknown).filter((cmd) => cmd?.category === category);
+    return Array.from(this.commands.values()).filter((cmd) => cmd?.category === category);
   }
 
   /**

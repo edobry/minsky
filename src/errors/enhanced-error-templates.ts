@@ -105,7 +105,7 @@ export function createTaskIdParsingErrorMessage(
       {
         title: "Supported formats:",
         emoji: ErrorEmojis.INFO,
-        content: ((validExamples as unknown).map(example => `• ${example}`) as unknown).join("\n")
+        content: (validExamples.map(example => `• ${example}`) as unknown).join("\n")
       },
       {
         title: "Try these commands:",
@@ -270,7 +270,7 @@ export function createMergeConflictErrorMessage(
   workdir?: string,
   context?: ContextInfo[]
 ): string {
-  const fileList = ((conflictingFiles as unknown).map(file => {
+  const fileList = (conflictingFiles.map(file => {
     const type = conflictTypes[file] || "other";
     const typeEmoji = {
       "modify/modify": "✏️",
@@ -294,7 +294,7 @@ export function createMergeConflictErrorMessage(
     },
     {
       description: "Edit conflicts in first file",
-      command: (conflictingFiles as unknown).length > 0 ? `code ${conflictingFiles[0]}` : "code <conflicted-file>",
+      command: conflictingFiles.length > 0 ? `code ${conflictingFiles[0]}` : "code <conflicted-file>",
       emoji: ErrorEmojis.FILE
     },
     {
@@ -333,7 +333,7 @@ export function createMergeConflictErrorMessage(
 
   const template: ErrorTemplate = {
     title: `${ErrorEmojis.CONFLICT} Merge Conflicts Detected`,
-    description: `The ${operation} operation failed due to conflicts in ${(conflictingFiles as unknown).length} file(s).`,
+    description: `The ${operation} operation failed due to conflicts in ${conflictingFiles.length} file(s).`,
     sections: [
       {
         title: "Conflicted files:",
@@ -362,7 +362,7 @@ export function createBackendDetectionErrorMessage(
   workspacePath?: string,
   context?: ContextInfo[]
 ): string {
-  const backendsList = (availableBackends as unknown).length > 0 
+  const backendsList = availableBackends.length > 0 
     ? (availableBackends.map(backend => {
       const requirements = (configurationRequirements as unknown)[backend] || [];
       const reqText = requirements.length > 0 ? ` (requires: ${requirements.join(", ")})` : "";

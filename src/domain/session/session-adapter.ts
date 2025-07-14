@@ -163,11 +163,11 @@ export class SessionAdapter implements LocalSessionProviderInterface {
    */
   async deleteSession(session: string): Promise<boolean> {
     await this.readDb();
-    const originalLength = (this.state.sessions as unknown).length;
+    const originalLength = this.state.sessions.length;
     const newState = deleteSessionFn(this.state, session);
 
     // If no change occurred (session not found)
-    if ((newState.sessions as unknown).length === originalLength) {
+    if (newState.sessions.length === originalLength) {
       return false;
     }
 

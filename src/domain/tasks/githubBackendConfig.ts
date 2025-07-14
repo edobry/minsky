@@ -45,7 +45,7 @@ function extractGitHubRepoFromRemote(
       };
     }
 
-    return null as unknown;
+    return null;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
@@ -65,13 +65,13 @@ export function getGitHubBackendConfig(
   const { logErrors = false } = options || {};
 
   // Check for GitHub token in environment
-  const githubToken = (process.env as unknown).GITHUBTOKEN || (process.env as unknown).GH_TOKEN;
+  const githubToken = process.env.GITHUBTOKEN || process.env.GH_TOKEN;
 
   if (!githubToken) {
     if (logErrors) {
       log.error("GitHub token not found in environment. Set GITHUB_TOKEN or GH_TOKEN in .env file");
     }
-    return null as unknown;
+    return null;
   }
 
   // Try to auto-detect repository from git remote
@@ -81,7 +81,7 @@ export function getGitHubBackendConfig(
     if (logErrors) {
       log.error("Could not detect GitHub repository from git remote");
     }
-    return null as unknown;
+    return null;
   }
 
   return {
@@ -102,7 +102,7 @@ export async function createGitHubLabels(
   repo: string,
   labels: Record<string, string>
 ): Promise<void> {
-  for (const [status, labelName] of (Object as unknown).entries(labels)) {
+  for (const [status, labelName] of Object.entries(labels)) {
     try {
       // Check if label already exists
       try {

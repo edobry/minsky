@@ -99,7 +99,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         // Format output
         return {
           taskId: (args as unknown)!.taskId,
-          status: (output as unknown).split(": ")[1], // Extract the status value
+          status: output.split(": ")[1], // Extract the status value
         };
       } catch (error) {
         log.error(`MCP: Error getting task status for ${(args as unknown)!.taskId} via execSync`, {

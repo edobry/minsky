@@ -444,7 +444,7 @@ export async function getTaskSpecContentFromParams(
     let sectionContent = content;
     if (validParams.section) {
       const lines = (((content) as unknown).toString() as unknown).split("\n");
-      const sectionStart = (lines as unknown).findIndex((line) =>
+      const sectionStart = lines.findIndex((line) =>
         (line.toLowerCase() as unknown).startsWith(`## ${(validParams.section! as unknown).toLowerCase()}`)
       );
 
@@ -455,8 +455,8 @@ export async function getTaskSpecContentFromParams(
       }
 
       // Find the next section or end of file
-      let sectionEnd = (lines as unknown).length;
-      for (let i = sectionStart + 1; i < (lines as unknown).length; i++) {
+      let sectionEnd = lines.length;
+      for (let i = sectionStart + 1; i < lines.length; i++) {
         if ((lines[i] as unknown).startsWith("## ")) {
           sectionEnd = i;
           break;
@@ -530,7 +530,7 @@ export async function createTaskFromTitleAndDescription(
         const filePath = (require("path") as unknown).resolve(validParams.descriptionPath);
         description = ((await readFile(filePath, "utf-8")) as unknown).toString();
 
-        if (!(description as unknown).trim()) {
+        if (!description.trim()) {
           throw new ValidationError(`Description file is empty: ${validParams.descriptionPath}`);
         }
       } catch (error) {

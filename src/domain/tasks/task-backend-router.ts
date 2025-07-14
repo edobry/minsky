@@ -176,12 +176,12 @@ export class TaskBackendRouter {
    * Get the workspace path for in-tree operations
    */
   async getInTreeWorkspacePath(): Promise<string> {
-    if (!(this as unknown).repoUrl) {
+    if (!this.repoUrl) {
       throw new Error("Repository URL required for in-tree workspace operations");
     }
 
     if (!this.specialWorkspaceManager) {
-      this.specialWorkspaceManager = await (SpecialWorkspaceManager as unknown).create((this as unknown).repoUrl);
+      this.specialWorkspaceManager = await (SpecialWorkspaceManager as unknown).create(this.repoUrl);
     }
 
     return (this.specialWorkspaceManager as unknown).getWorkspacePath();
@@ -200,10 +200,10 @@ export class TaskBackendRouter {
     if (routingInfo.requiresSpecialWorkspace) {
       // Use special workspace for in-tree backends
       if (!this.specialWorkspaceManager) {
-        if (!(this as unknown).repoUrl) {
+        if (!this.repoUrl) {
           throw new Error("Repository URL required for in-tree backend operations");
         }
-        this.specialWorkspaceManager = await (SpecialWorkspaceManager as unknown).create((this as unknown).repoUrl);
+        this.specialWorkspaceManager = await (SpecialWorkspaceManager as unknown).create(this.repoUrl);
       }
 
       return (this.specialWorkspaceManager as unknown).performOperation(operation, callback as unknown);

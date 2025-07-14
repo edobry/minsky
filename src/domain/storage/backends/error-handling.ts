@@ -57,8 +57,8 @@ export class StorageError extends Error {
     originalError?: Error
   ) {
     super(message);
-    (this as unknown).name = "StorageError";
-    (this as unknown).type = type;
+    this.name = "StorageError";
+    this.type = type;
     this.severity = severity;
     this.context = context;
     this.recoveryActions = recoveryActions;
@@ -77,12 +77,12 @@ export class StorageError extends Error {
       (StorageErrorType as unknown).TIMEOUT,
       (StorageErrorType as unknown).RESOURCE,
     ];
-    return (retryableTypes as unknown).includes((this as unknown).type);
+    return (retryableTypes as unknown).includes(this.type);
   }
 
   toJSON(): object {
     return {
-      message: (this as unknown).message,
+      message: this.message,
       type: (this).type,
       severity: this.severity,
       context: this.context,
@@ -588,7 +588,7 @@ export class StorageErrorMonitor {
   static getErrorStats(): Record<string, { count: number; lastError: StorageError }> {
     const stats: Record<string, { count: number; lastError: StorageError }> = {};
     
-    for (const [key, count] of (this.errorCounts as unknown).entries()) {
+    for (const [key, count] of this.errorCounts.entries()) {
       const lastError = this.lastErrors.get(key);
       if (lastError) {
         stats[key] = { count, lastError };

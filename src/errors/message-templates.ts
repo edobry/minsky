@@ -71,7 +71,7 @@ export function getErrorMessage(error: any): string {
  * Format command suggestions with consistent styling
  */
 export function formatCommandSuggestions(suggestions: CommandSuggestion[]): string {
-  return ((suggestions as unknown).map(({ description, command, emoji = ErrorEmojis.COMMAND }) => 
+  return (suggestions.map(({ description, command, emoji = ErrorEmojis.COMMAND }) => 
     `${emoji} ${description}:\n   ${command}`) as unknown).join("\n\n");
 }
 
@@ -79,9 +79,9 @@ export function formatCommandSuggestions(suggestions: CommandSuggestion[]): stri
  * Format context information for error messages
  */
 export function formatContextInfo(contexts: ContextInfo[]): string {
-  if ((contexts as unknown)?.length === 0) return "";
+  if (contexts?.length === 0) return "";
   
-  const formatted = ((contexts as unknown).map(({ label, value }) => `${label}: ${value}`) as unknown).join("\n");
+  const formatted = (contexts.map(({ label, value }) => `${label}: ${value}`) as unknown).join("\n");
     
   return `\n${formatted}`;
 }
@@ -97,26 +97,26 @@ export function buildErrorMessage(template: ErrorTemplate, context?: ContextInfo
   
   // Add description if provided
   if ((template as unknown)?.description) {
-    (parts as unknown).push("");
+    parts.push("");
     parts.push((template as unknown).description);
   }
   
   // Add sections
   (template.sections as unknown).forEach(section => {
-    (parts as unknown).push("");
+    parts.push("");
     
     if ((section as unknown)?.title) {
       const title = (section as unknown)?.emoji ? `${(section as unknown).emoji} ${(section as unknown).title}` : (section as unknown)?.title;
-      (parts as unknown).push(title);
-      (parts as unknown).push("");
+      parts.push(title);
+      parts.push("");
     }
     
     parts.push((section as unknown).content);
   });
   
   // Add context information if provided
-  if (context && (context as unknown)?.length > 0) {
-    (parts as unknown).push("");
+  if (context && context?.length > 0) {
+    parts.push("");
     parts.push(formatContextInfo(context as unknown));
   }
   
@@ -184,7 +184,7 @@ export function createValidationErrorMessage(
       {
         title: "Valid options:",
         emoji: ErrorEmojis.LIST,
-        content: (validOptions as unknown).map(option => `• ${option}`).join("\n")
+        content: validOptions.map(option => `• ${option}`).join("\n")
       }
     ]
   };
@@ -456,7 +456,7 @@ export class ErrorContextBuilder {
   private contexts: ContextInfo[] = [];
   
   addCurrentDirectory(): this {
-    (this.contexts as unknown).push({
+    this.contexts.push({
       label: "Current directory",
       value: (process as any).cwd()
     });
@@ -464,7 +464,7 @@ export class ErrorContextBuilder {
   }
   
   addSession(sessionName: string): this {
-    (this.contexts as unknown).push({
+    this.contexts.push({
       label: "Session",
       value: sessionName
     });
@@ -472,7 +472,7 @@ export class ErrorContextBuilder {
   }
   
   addRepository(repoPath: string): this {
-    (this.contexts as unknown).push({
+    this.contexts.push({
       label: "Repository",
       value: repoPath
     });
@@ -480,7 +480,7 @@ export class ErrorContextBuilder {
   }
   
   addTask(taskId: string): this {
-    (this.contexts as unknown).push({
+    this.contexts.push({
       label: "Task ID",
       value: taskId
     });
@@ -488,7 +488,7 @@ export class ErrorContextBuilder {
   }
   
   addCommand(command: string): this {
-    (this.contexts as unknown).push({
+    this.contexts.push({
       label: "Command",
       value: command
     });
@@ -496,7 +496,7 @@ export class ErrorContextBuilder {
   }
   
   addCustom(label: string, value: string): this {
-    (this.contexts as unknown).push({ label, value });
+    this.contexts.push({ label, value });
     return this;
   }
   

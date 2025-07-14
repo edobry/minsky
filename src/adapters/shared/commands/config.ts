@@ -93,7 +93,7 @@ const configListRegistration = {
       return {
         success: true,
         json: (params as unknown).json || false,
-        sources: (sources as unknown).map((source) => ({
+        sources: sources.map((source) => ({
           name: (source as unknown).name,
           original: (source as unknown).original,
           parsed: (source as unknown).parsed,
@@ -141,7 +141,7 @@ const configShowRegistration = {
         configuration: resolved,
         showSources: (params as unknown).sources || false,
         ...((params as unknown).sources && {
-          sources: (config.util.getConfigSources() as unknown).map((source) => ({
+          sources: config.util.getConfigSources().map((source) => ({
             name: (source as unknown).name,
             original: (source as unknown).original,
             parsed: (source as unknown).parsed,

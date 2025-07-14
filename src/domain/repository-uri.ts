@@ -183,7 +183,7 @@ export function convertRepositoryURI(uri: string, targetType: RepositoryURIType)
     const targetFormat = targetType as unknown as UriFormat;
     return convertRepositoryUri(uri, targetFormat);
   } catch (error) {
-    return null as unknown;
+    return null;
   }
 }
 
@@ -234,7 +234,7 @@ export function expandGitHubShorthand(
     const targetFormat = format === "https" ? UriFormat?.HTTPS : UriFormat?.SSH;
     return convertRepositoryUri(shorthand, targetFormat);
   } catch (error) {
-    return null as unknown;
+    return null;
   }
 }
 

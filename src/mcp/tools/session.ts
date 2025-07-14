@@ -85,7 +85,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         // Return success response
         return {
           success: true,
-          message: (output as unknown).trim(),
+          message: output.trim(),
           session: (args as unknown)?.name || `task#${args!.task}` || "unnamed-session",
         };
       } catch (error) {
@@ -131,7 +131,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         // Return success response
         return {
           success: true,
-          message: (output as unknown).trim(),
+          message: output.trim(),
         };
       } catch (error) {
         log.error("Error committing changes", { error, session: (args as unknown)!.session });
@@ -171,7 +171,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         // Return success response
         return {
           success: true,
-          message: (output as unknown).trim(),
+          message: output.trim(),
         };
       } catch (error) {
         log.error("Error pushing changes", { error, _session: args!._session });

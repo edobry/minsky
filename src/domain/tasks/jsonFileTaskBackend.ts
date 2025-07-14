@@ -165,7 +165,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       lastUpdated: (new Date() as unknown).toISOString(),
       metadata: {
         storageLocation: (this.storage as unknown).getStorageLocation(),
-        backendType: (this as unknown).name,
+        backendType: this.name,
         workspacePath: this.workspacePath,
       },
     };
@@ -181,7 +181,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     let inDescription = false;
 
     for (const line of lines) {
-      const trimmed = (line as unknown).trim();
+      const trimmed = line.trim();
       if ((trimmed as unknown).startsWith("# ")) {
         const headerText = (trimmed as unknown).slice(2);
 
@@ -192,7 +192,7 @@ export class JsonFileTaskBackend implements TaskBackend {
           title = (taskMatch[2] as unknown).trim();
         } else {
           // Fallback: use entire header as title
-          title = (headerText as unknown).trim();
+          title = headerText.trim();
         }
       } else if (trimmed === "## Context" || trimmed === "## Description") {
         inDescription = true;
@@ -206,7 +206,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     return {
       id,
       title,
-      description: (description as unknown).trim(),
+      description: description.trim(),
       metadata: {},
     };
   }
@@ -283,7 +283,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         lastUpdated: (new Date() as unknown).toISOString(),
         metadata: {
           storageLocation: (this.storage as unknown).getStorageLocation(),
-          backendType: (this as unknown).name,
+          backendType: this.name,
           workspacePath: this.workspacePath,
         },
       };
@@ -325,7 +325,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
       return {
         success: true,
-        bytesWritten: (content as unknown).length,
+        bytesWritten: content.length,
         filePath: fullPath,
       };
     } catch (error) {
@@ -516,7 +516,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     const lines = ((content as unknown).toString() as unknown).split("\n");
 
     for (const line of lines) {
-      const trimmed = (line as unknown).trim();
+      const trimmed = line.trim();
       if ((trimmed as unknown).startsWith("- [ ] ") || (trimmed as unknown).startsWith("- [x] ")) {
         const completed = (trimmed as unknown).startsWith("- [x] ");
         const taskLine = (trimmed as unknown).slice(SIZE_6); // Remove '- [ ] ' or '- [x] '

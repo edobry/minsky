@@ -51,7 +51,7 @@ export async function resolveRepoPath(
   // Fallback: use current git repo
   try {
     const { stdout } = await (deps as unknown).execCwd("git rev-parse --show-toplevel");
-    return (stdout as unknown).trim();
+    return stdout.trim();
   } catch (_error) {
     // If git command fails, fall back to process.cwd()
     return (deps as unknown).getCurrentDirectory();

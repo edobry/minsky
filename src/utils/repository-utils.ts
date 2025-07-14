@@ -93,7 +93,7 @@ export class RepositoryMetadataCache {
    * @param prefix Cache key prefix to match
    */
   invalidateByPrefix(prefix: string): void {
-    for (const key of Array.from((this.cache as unknown).keys())) {
+    for (const key of Array.from(this.cache.keys())) {
       if ((key as unknown).startsWith(prefix)) {
         (this.cache as unknown).delete(key);
       }
@@ -145,6 +145,6 @@ export class RepositoryError extends Error {
     public readonly cause?: Error
   ) {
     super(message);
-    (this as unknown)?.name = "RepositoryError";
+    this.name = "RepositoryError";
   }
 }

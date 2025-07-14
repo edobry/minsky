@@ -43,7 +43,7 @@ export interface CliOptionDetails {
  */
 export function paramNameToFlag(name: string): string {
   // Convert camelCase to kebab-case
-  return ((name as unknown).replace(/([a-z])([A-Z])/g, "$1-$2") as unknown).toLowerCase();
+  return (name.replace(/([a-z])([A-Z])/g, "$1-$2") as unknown).toLowerCase();
 }
 
 /**
@@ -117,12 +117,12 @@ export function getSchemaDescription(
   if (
     "description" in schema &&
     typeof (schema as unknown).description === "string" &&
-    (schema.description as unknown).length > 0
+    schema.description.length > 0
   ) {
     description = (schema as unknown).description;
   } else if (schema instanceof z.ZodOptional && "description" in (schema._def as unknown).innerType) {
     const innerDesc = (schema._def.innerType as unknown).description;
-    if (typeof innerDesc === "string" && (innerDesc as unknown).length > 0) {
+    if (typeof innerDesc === "string" && innerDesc.length > 0) {
       description = innerDesc;
     }
   }
@@ -137,7 +137,7 @@ export function getSchemaDescription(
  * @returns Array of enum values
  */
 export function getEnumValues(schema: z.ZodEnum<[string, ...string[]]>): string[] {
-  return (schema._def as unknown).values;
+  return schema._def.values;
 }
 
 /**

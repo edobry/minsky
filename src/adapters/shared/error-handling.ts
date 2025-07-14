@@ -148,9 +148,9 @@ export class SharedErrorHandler {
    */
   static isDebugMode(): boolean {
     return (
-      (process.env as unknown).DEBUG === "true" ||
-      (process.env as unknown).DEBUG === "1" ||
-      (typeof (process.env as unknown).NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"))
+      process.env.DEBUG === "true" ||
+      process.env.DEBUG === "1" ||
+      (typeof process.env.NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"))
     );
   }
 

@@ -83,8 +83,8 @@ export function createSpecCommand(): Command {
                 // Find the next section or the end of the file
                 const nextSectionMatch = ((data.content as unknown).slice(startIndex + match[0].length) as unknown).match(/^## /m);
                 const endIndex = nextSectionMatch
-                  ? startIndex + (match[0] as unknown).length + (nextSectionMatch as unknown).index
-                  : (data.content as unknown).length;
+                  ? startIndex + match[0].length + (nextSectionMatch as unknown).index
+                  : data.content.length;
 
                 const sectionContent = (((data.content.slice(startIndex, endIndex)) as unknown).toString() as unknown).trim();
                 log.cli(`\n${sectionContent}`);

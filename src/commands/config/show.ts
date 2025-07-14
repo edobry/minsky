@@ -24,7 +24,7 @@ export function createConfigShowCommand(): Command {
         backendConfig: (config as unknown).get("backendConfig"),
         credentials: (config as unknown).get("credentials"),
         sessiondb: (config as unknown).get("sessiondb"),
-        ai: (config as unknown).has("ai") ? (config as unknown).get("ai") : undefined as unknown,
+        ai: (config as unknown).has("ai") ? (config as unknown).get("ai") : undefined,
       };
 
       if ((options as unknown).json) {
@@ -45,21 +45,21 @@ async function displayResolvedConfiguration(resolved: any) {
 
   await Bun.write(Bun.stdout, `Backend: ${(resolved as unknown).backend}\n`);
 
-  if ((Object.keys(resolved.backendConfig) as unknown).length > 0) {
+  if (Object.keys(resolved.backendConfig).length > 0) {
     await Bun.write(Bun.stdout, "\nBackend Configuration:\n");
-    for (const [backend, config] of (Object as unknown).entries((resolved as unknown).backendConfig)) {
-      if (config && typeof config === "object" && (Object as unknown).keys(config as object).length > 0) {
+    for (const [backend, config] of Object.entries((resolved as unknown).backendConfig)) {
+      if (config && typeof config === "object" && Object.keys(config as object).length > 0) {
         await Bun.write(Bun.stdout, `  ${backend}:\n`);
-        for (const [key, value] of (Object as unknown).entries(config as object)) {
+        for (const [key, value] of Object.entries(config as object)) {
           await Bun.write(Bun.stdout, `    ${key}: ${value}\n`);
         }
       }
     }
   }
 
-  if ((Object.keys(resolved.credentials) as unknown).length > 0) {
+  if (Object.keys(resolved.credentials).length > 0) {
     await Bun.write(Bun.stdout, "\nCredentials:\n");
-    for (const [service, creds] of (Object as unknown).entries((resolved as unknown).credentials)) {
+    for (const [service, creds] of Object.entries((resolved as unknown).credentials)) {
       if (creds && typeof creds === "object") {
         await Bun.write(Bun.stdout, `  ${service}:\n`);
         const credsObj = creds as unknown;

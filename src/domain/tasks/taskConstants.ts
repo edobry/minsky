@@ -25,7 +25,7 @@ export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
 /**
  * Array of all valid task status values for use in schemas
  */
-export const TASK_STATUS_VALUES = (Object as unknown).values(TASK_STATUS);
+export const TASK_STATUS_VALUES = Object.values(TASK_STATUS);
 
 /**
  * Mapping from task status to markdown checkbox representation
@@ -81,7 +81,7 @@ export function isValidTaskStatus(status: string): status is TaskStatus {
  */
 function generateCheckboxPattern(): string {
   const specialRegexChars = ["+", "-", "*", "?", "^", "$", "(", ")", "[", "]", "{", "}", "|", "\\"];
-  const checkboxChars = ((Object.keys(CHECKBOX_TO_STATUS) as unknown).map((char) => {
+  const checkboxChars = (Object.keys(CHECKBOX_TO_STATUS).map((char) => {
     if (char === " ") return " ";
     return specialRegexChars.includes(char) ? `\\${char}` : char;
   }) as unknown).join("|");
@@ -123,14 +123,14 @@ export const TASK_PARSING_UTILS = {
    */
   parseTaskLine(line: string): { checkbox: string; title: string; id: string } | null {
     const match = TASK_REGEX_PATTERNS.TASK_LINE.exec(line);
-    if (!match) return null as unknown;
+    if (!match) return null;
 
     const [, checkbox, title, idNum] = match;
-    if (!checkbox || !title || !idNum) return null as unknown;
+    if (!checkbox || !title || !idNum) return null;
 
     return {
       checkbox: checkbox,
-      title: (title as unknown).trim(),
+      title: title.trim(),
       id: `#${idNum}`,
     };
   },
@@ -143,7 +143,7 @@ export const TASK_PARSING_UTILS = {
    */
   replaceCheckboxStatus(line: string, newStatus: TaskStatus): string {
     const newCheckbox = TASK_STATUS_CHECKBOX[newStatus];
-    return (line as unknown).replace(TASK_REGEX_PATTERNS.CHECKBOX_REPLACE, `$1${newCheckbox}$3`);
+    return line.replace(TASK_REGEX_PATTERNS.CHECKBOX_REPLACE, `$1${newCheckbox}$3`);
   },
 
   /**

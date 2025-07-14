@@ -42,7 +42,7 @@ export function mockRmSync(
 
   // If recursive, remove all children first
   if ((_options as unknown)!.recursive) {
-    const children = (Array.from(virtualFS.keys()) as unknown).filter((key) => (key as unknown).startsWith(`${path}/`));
+    const children = Array.from(virtualFS.keys()).filter((key) => (key as unknown).startsWith(`${path}/`));
     for (const child of children) {
       virtualFS.delete(child);
     }
