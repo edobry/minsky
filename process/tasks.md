@@ -495,3 +495,5 @@
 - [ ] Implement Stacked PR Workflow for Session Dependencies [#277](process/tasks/277-implement-stacked-pr-workflow-for-session-dependencies.md)
 
 - [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system-for-persistent-learning-and-knowledge-accumulation.md)
+
+- [ ] Cleanup excessive 'as unknown' assertions to improve TypeScript effectiveness [#280](process/tasks/280-cleanup-excessive-as-unknown-assertions-to-improve-typescript-effectiveness.md)
