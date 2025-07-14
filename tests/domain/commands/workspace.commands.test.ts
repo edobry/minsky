@@ -337,17 +337,17 @@ describe("Workspace Domain Methods", () => {
   describe("resolveWorkspacePath", () => {
     test("returns explicitly provided workspace path", async () => {
       // Arrange
-      const _workspacePath = "/Users/test/workspace";
-      const _options = { workspace: _workspacePath };
+      const workspacePath = "/Users/test/workspace";
+      const options = { workspace: workspacePath };
 
       // Mock fs.access to succeed
       const accessMock = async () => {};
 
       // Act
-      const result = await resolveWorkspacePath(_options, { access: accessMock });
+      const result = await resolveWorkspacePath(options, { access: accessMock });
 
       // Assert
-      expect(result).toBe(_workspacePath);
+      expect(result).toBe(workspacePath);
     });
 
     test("throws error for invalid workspace path", async () => {
