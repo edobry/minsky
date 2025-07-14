@@ -14,9 +14,9 @@ import { join } from "path";
 import { existsSync, mkdirSync, rmSync } from "fs";
 import { randomUUID } from "crypto";
 import { createJsonFileStorage } from "./json-file-storage";
-import type { DatabaseStorage } from "../database-storage";
-import { expectToHaveLength } from "../../../utils/test-utils/assertions";
-import { log } from "../../../utils/logger";
+import type { DatabaseStorage } from "./database-storage";
+import { expectToHaveLength } from "../../utils/test-utils/assertions";
+import { log } from "../../utils/logger";
 
 // Test data types following TaskData pattern
 interface TestEntity {

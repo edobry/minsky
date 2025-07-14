@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, spyOn } from "bun:test";
 import * as fs from "fs";
 import { startSessionFromParams } from "./session";
 import { createMock } from "../utils/test-utils/mocking";
-import { MinskyError, ResourceNotFoundError } from "../../errors";
+import { MinskyError, ResourceNotFoundError } from "../errors";
 
 describe("Session Start Consistency Tests", () => {
   let mockSessionDB: any;

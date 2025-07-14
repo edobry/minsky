@@ -13,9 +13,9 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { approveSessionFromParams } from "./session";
-import type { SessionProviderInterface } from "./session";
-import type { GitServiceInterface } from "./git";
+import { approveSessionFromParams } from "../session";
+import type { SessionProviderInterface } from "../session";
+import type { GitServiceInterface } from "../git";
 
 describe("Session Approve Task Status Commit", () => {
   test("should commit task status update after successful merge", async () => {
