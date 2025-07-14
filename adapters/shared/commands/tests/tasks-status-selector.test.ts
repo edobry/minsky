@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { TASK_STATUS } from "../../../../domain/tasks/taskConstants";
+import { TASK_STATUS } from "../../../../domain/tasks/taskConstants.js";
 
 const BLOCKED_STATUS_INDEX = 4;
 

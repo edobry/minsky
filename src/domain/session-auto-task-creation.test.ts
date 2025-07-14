@@ -5,9 +5,9 @@
  * with the --description parameter.
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { startSessionFromParams, type SessionProviderInterface } from "../session.js";
-import type { TaskServiceInterface } from "../tasks.js";
-import type { GitServiceInterface } from "../git.js";
+import { startSessionFromParams, type SessionProviderInterface } from "./session.js";
+import type { TaskServiceInterface } from "./tasks.js";
+import type { GitServiceInterface } from "./git.js";
 import type { WorkspaceUtilsInterface } from "../workspace.js";
 import { createPartialMock, createMock } from "../../utils/test-utils/mocking.js";
 

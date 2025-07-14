@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { preparePrFromParams } from "../git.js";
+import { preparePrFromParams } from "./git.js";
 import { createMock } from "../../utils/test-utils/mocking.js";
 
 describe("Session PR Command Branch Behavior", () => {

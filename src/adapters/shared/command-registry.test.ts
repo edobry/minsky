@@ -12,7 +12,7 @@ import {
   createSharedCommandRegistry,
   CommandCategory,
 } from "./command-registry.js";
-import { MinskyError } from "../../errors/index.js";
+import { MinskyError } from "../errors/index.js";
 
 describe("SharedCommandRegistry", () => {
   let registry: SharedCommandRegistry;
