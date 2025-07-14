@@ -1,8 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { approveSessionFromParams } from "../session";
-import { ResourceNotFoundError, ValidationError } from "../../errors";
-import { createMock } from "../../utils/test-utils/mocking";
-import * as WorkspaceUtils from "../workspace";
+import { approveSessionFromParams } from "./session.js";
+import { ResourceNotFoundError, ValidationError } from "../errors/index.js";
+import { createMock } from "../utils/test-utils/mocking.js";
+import * as WorkspaceUtils from "./workspace.js";
 
 const TEST_VALUE = 123;
 

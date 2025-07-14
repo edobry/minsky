@@ -21,9 +21,9 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import { join } from "path";
 import { mkdir, rmdir, access } from "fs/promises";
 import { existsSync } from "fs";
-import { startSessionFromParams, listSessionsFromParams } from "../session";
-import { createMock } from "../../utils/test-utils/mocking";
-import type { SessionProviderInterface } from "../session";
+import { startSessionFromParams, listSessionsFromParams } from "./session.js";
+import { createMock } from "../utils/test-utils/mocking.js";
+import type { SessionProviderInterface } from "./session.js";
 
 describe("Session Lookup Bug Reproduction (Task #168)", () => {
   let tempDir: string;

@@ -3,9 +3,9 @@
  * @migrated Migrated to native Bun patterns
  */
 import { describe, test, expect } from "bun:test";
-import { GitService } from "../git.js";
-import { TASK_STATUS } from "../tasks.js";
-import { setupTestMocks } from "../../utils/test-utils/mocking.js";
+import { GitService } from "./git.js";
+import { TASK_STATUS } from "./tasks.js";
+import { setupTestMocks } from "../utils/test-utils/mocking.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();

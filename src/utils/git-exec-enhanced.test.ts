@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { createMock, mockModule } from "../test-utils/mocking.js";
+import { createMock, mockModule } from "./test-utils/mocking.js";
 import {
   execGitWithTimeout,
   gitCloneWithTimeout,
@@ -16,8 +16,8 @@ import {
   gitMergeWithTimeout,
   type GitExecOptions,
   type GitExecResult,
-} from "../git-exec-enhanced.js";
-import { MinskyError } from "../../errors/index.js";
+} from "./git-exec-enhanced.js";
+import { MinskyError } from "../errors/index.js";
 
 // Mock the exec function from child_process
 const mockExec = createMock();

@@ -2,8 +2,8 @@
  * Tests for default branch detection in GitService
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { GitService } from "../git";
-import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
+import { GitService } from "./git.js";
+import { createMock, setupTestMocks } from "../utils/test-utils/mocking.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();
