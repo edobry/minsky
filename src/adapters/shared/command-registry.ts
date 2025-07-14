@@ -8,6 +8,10 @@
 
 import { z } from "zod";
 import { MinskyError } from "../../errors/index.js";
+import {
+  validateCommandDefinition,
+  validateCommandRegistrationOptions,
+} from "../../schemas/command-registry.js";
 
 /**
  * Command category enum
@@ -27,8 +31,6 @@ export enum CommandCategory {
 
 /**
  * Command execution context
- *
- * Provides context about how a command was invoked
  */
 export interface CommandExecutionContext {
   /** The interface that's invoking the command (cli, mcp, etc.) */
@@ -95,16 +97,18 @@ export interface CommandDefinition<
 }
 
 /**
- * Shared command interface that doesn't rely on generic types
- * for easier use in bridge implementations
+ * Shared command interface that preserves type information
  */
-export interface SharedCommand {
+export interface SharedCommand<
+  T extends CommandParameterMap = CommandParameterMap,
+  R = any,
+> {
   id: string;
   category: CommandCategory;
   name: string;
   description: string;
-  parameters: CommandParameterMap;
-  execute: (_params: any) => Promise<any>;
+  parameters: T;
+  execute: CommandExecutionHandler<T, R>;
 }
 
 /**
@@ -164,11 +168,16 @@ export class SharedCommandRegistry implements CommandRegistry {
     T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
     R = any,
   >(commandDef: CommandDefinition<T, R>, options: { allowOverwrite?: boolean } = {}): void {
-    if (this.commands.has((commandDef as unknown).id) && !(options as unknown)!.allowOverwrite) {
-      throw new MinskyError(`Command with ID '${(commandDef as unknown).id}' is already registered`);
+    // Validate the command definition using schema validation
+    const validatedDef = validateCommandDefinition(commandDef);
+    const validatedOptions = validateCommandRegistrationOptions(options);
+
+    if (this.commands.has(validatedDef.id) && !validatedOptions.allowOverwrite) {
+      throw new MinskyError(`Command with ID '${validatedDef.id}' is already registered`);
     }
 
-    this.commands.set((commandDef as unknown).id!, commandDef as unknown as SharedCommand);
+    // Store with preserved type information (no casting required)
+    this.commands.set(validatedDef.id, commandDef as SharedCommand);
   }
 
   /**
@@ -188,7 +197,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @returns Array of command definitions
    */
   getCommandsByCategory(category: CommandCategory): SharedCommand[] {
-    return (Array.from(this.commands.values()) as unknown).filter((cmd) => cmd?.category === category);
+    return Array.from(this.commands.values()).filter(cmd => cmd.category === category);
   }
 
   /**
@@ -201,13 +210,22 @@ export class SharedCommandRegistry implements CommandRegistry {
   }
 
   /**
-   * Check if a command is already registered
+   * Check if a command is registered
    *
    * @param id Command identifier
-   * @returns True if command is registered, false otherwise
+   * @returns True if command exists
    */
   hasCommand(id: string): boolean {
     return this.commands.has(id);
+  }
+
+  /**
+   * Get the number of registered commands
+   *
+   * @returns Command count
+   */
+  getCommandCount(): number {
+    return this.commands.size;
   }
 
   /**
@@ -221,18 +239,17 @@ export class SharedCommandRegistry implements CommandRegistry {
 }
 
 /**
- * Create a new instance of the shared command registry
+ * Factory function to create a new command registry
  *
- * This function should be used instead of a global singleton to ensure
- * proper isolation in tests and better dependency management.
+ * @returns New command registry instance
  */
 export function createSharedCommandRegistry(): SharedCommandRegistry {
   return new SharedCommandRegistry();
 }
 
 /**
- * Default instance for backwards compatibility
+ * Default command registry instance
  *
  * @deprecated Use createSharedCommandRegistry() and dependency injection instead
  */
-export const sharedCommandRegistry = createSharedCommandRegistry();
+export const sharedCommandRegistry = createSharedCommandRegistry(); 
