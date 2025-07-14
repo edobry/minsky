@@ -5,11 +5,11 @@
  * with the --description parameter.
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { startSessionFromParams, type SessionProviderInterface } from "../session.js";
-import type { TaskServiceInterface } from "../tasks.js";
-import type { GitServiceInterface } from "../git.js";
-import type { WorkspaceUtilsInterface } from "../workspace.js";
-import { createPartialMock, createMock } from "../../utils/test-utils/mocking.js";
+import { startSessionFromParams, type SessionProviderInterface } from "../session";
+import type { TaskServiceInterface } from "../tasks";
+import type { GitServiceInterface } from "../git";
+import type { WorkspaceUtilsInterface } from "../workspace";
+import { createPartialMock, createMock } from "../../utils/test-utils/mocking";
 
 describe("Session Auto-Task Creation", () => {
   let mockSessionDB: SessionProviderInterface;

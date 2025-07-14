@@ -14,11 +14,11 @@ import {
   CommandCategory,
   type CommandParameterMap,
   type CommandExecutionContext,
-} from "../../shared/command-registry.js";
-import { createStorageBackend } from "../../../domain/storage/storage-backend-factory.js";
-import { log } from "../../../utils/logger.js";
-import type { SessionRecord } from "../../../domain/session/session-db.js";
-import type { StorageBackendType } from "../../../domain/storage/storage-backend-factory.js";
+} from "../../shared/command-registry";
+import { createStorageBackend } from "../../../domain/storage/storage-backend-factory";
+import { log } from "../../../utils/logger";
+import type { SessionRecord } from "../../../domain/session/session-db";
+import type { StorageBackendType } from "../../../domain/storage/storage-backend-factory";
 import {
   getXdgStateHome,
   getMinskyStateDir,

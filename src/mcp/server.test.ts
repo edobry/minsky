@@ -4,7 +4,7 @@
  * @refactored Uses project utilities and proper TypeScript imports
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { setupTestMocks } from "../utils/test-utils/mocking.ts";
+import { setupTestMocks } from "../utils/test-utils/mocking";
 
 describe("MCP Server", () => {
   beforeEach(() => {

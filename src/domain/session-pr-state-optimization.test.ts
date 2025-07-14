@@ -10,8 +10,8 @@ import {
   updatePrStateOnCreation, 
   updatePrStateOnMerge,
   type SessionProviderInterface
-} from "./session.js";
-import { type GitServiceInterface } from "./git.js";
+} from "./session";
+import { type GitServiceInterface } from "./git";
 
 // Mock implementations
 const createMockSessionDB = () => {

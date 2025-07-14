@@ -9,16 +9,16 @@ const processEnv = validateProcess(process);
 processEnv.env.NODE_CONFIG_DIR = userConfigDir;
 
 import { Command } from "commander";
-import { log } from "./utils/logger.js";
-import { exit } from "./utils/process.js";
-import { registerAllSharedCommands } from "./adapters/shared/commands/index.js";
-import { createMCPCommand } from "./commands/mcp/index.js";
+import { log } from "./utils/logger";
+import { exit } from "./utils/process";
+import { registerAllSharedCommands } from "./adapters/shared/commands/index";
+import { createMCPCommand } from "./commands/mcp/index";
 import {
   setupCommonCommandCustomizations,
   registerAllCommands,
-} from "./adapters/cli/cli-command-factory.js";
-import { validateProcess } from "./schemas/runtime.js";
-import { validateError, getErrorMessage, getErrorStack } from "./schemas/error.js";
+} from "./adapters/cli/cli-command-factory";
+import { validateProcess } from "./schemas/runtime";
+import { validateError, getErrorMessage, getErrorStack } from "./schemas/error";
 
 /**
  * Root CLI command

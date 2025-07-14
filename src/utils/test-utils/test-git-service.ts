@@ -2,7 +2,7 @@
  * Test utilities for GitService testing
  * @module test-git-service
  */
-import { GitService } from "../../domain/git.js";
+import { GitService } from "../../domain/git";
 
 /**
  * A test version of GitService that uses mock execAsync implementation

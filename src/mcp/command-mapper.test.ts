@@ -6,8 +6,8 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { CommandMapper } from "./command-mapper";
 import { z } from "zod";
-import type { ProjectContext } from "../types/project.ts";
-import { createMock, setupTestMocks } from "../utils/test-utils/mocking.ts";
+import type { ProjectContext } from "../types/project";
+import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 
 // Mock FastMCP
 const mockServer = {

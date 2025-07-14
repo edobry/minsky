@@ -14,7 +14,7 @@ import {
   TASK_ID_DESCRIPTION,
   RULE_FORMAT_DESCRIPTION,
   RULE_TAGS_DESCRIPTION,
-} from "../../utils/option-descriptions.js";
+} from "../../utils/option-descriptions";
 
 // Define local type for CommandSchema since @minsky/core isn't available in this context
 interface CommandSchema<_Params, Result> {
@@ -31,12 +31,12 @@ interface CommandSchema<_Params, Result> {
   handler: (params: any) => Promise<Result>;
 }
 
-import { registerGitCommands } from "../shared/commands/git.js";
-import { registerTasksCommands } from "../shared/commands/tasks.js";
-import { registerSessionCommands } from "../shared/commands/session.js";
-import { registerRulesCommands } from "../shared/commands/rules.js";
-import { CommandCategory } from "../shared/command-registry.js";
-import { log } from "../../utils/logger.js";
+import { registerGitCommands } from "../shared/commands/git";
+import { registerTasksCommands } from "../shared/commands/tasks";
+import { registerSessionCommands } from "../shared/commands/session";
+import { registerRulesCommands } from "../shared/commands/rules";
+import { CommandCategory } from "../shared/command-registry";
+import { log } from "../../utils/logger";
 
 // Mock import for demonstration purposes
 // In a real implementation, this would be imported from the MCP adapter bridge

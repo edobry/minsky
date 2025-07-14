@@ -1,7 +1,7 @@
 import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { join } from "path";
-import { getMinskyStateDir, getSessionDir } from "../utils/paths.js";
+import { getMinskyStateDir, getSessionDir } from "../utils/paths";
 import {
   MinskyError,
   ResourceNotFoundError,
@@ -9,8 +9,8 @@ import {
   getErrorMessage,
   createCommandFailureMessage,
   createErrorContext
-} from "../errors/index.js";
-import { taskIdSchema } from "../schemas/common.js";
+} from "../errors/index";
+import { taskIdSchema } from "../schemas/common";
 import type {
   SessionListParams,
   SessionGetParams,
@@ -19,24 +19,24 @@ import type {
   SessionDirParams,
   SessionUpdateParams,
   SessionPrParams,
-} from "../schemas/session.js";
-import { log } from "../utils/logger.js";
-import { installDependencies } from "../utils/package-manager.js";
-import { type GitServiceInterface, preparePrFromParams } from "./git.js";
-import { createGitService } from "./git.js";
-import { ConflictDetectionService } from "./git/conflict-detection.js";
-import { normalizeRepoName, resolveRepoPath } from "./repo-utils.js";
-import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
-import { execAsync } from "../utils/exec.js";
+} from "../schemas/session";
+import { log } from "../utils/logger";
+import { installDependencies } from "../utils/package-manager";
+import { type GitServiceInterface, preparePrFromParams } from "./git";
+import { createGitService } from "./git";
+import { ConflictDetectionService } from "./git/conflict-detection";
+import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
+import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
+import { execAsync } from "../utils/exec";
 import {
   type WorkspaceUtilsInterface,
   getCurrentSession,
   getCurrentSessionContext,
-} from "./workspace.js";
-import * as WorkspaceUtils from "./workspace.js";
-import { SessionDbAdapter } from "./session/session-db-adapter.js";
-import { createTaskFromDescription } from "./templates/session-templates.js";
-import { resolveSessionContextWithFeedback } from "./session/session-context-resolver.js";
+} from "./workspace";
+import * as WorkspaceUtils from "./workspace";
+import { SessionDbAdapter } from "./session/session-db-adapter";
+import { createTaskFromDescription } from "./templates/session-templates";
+import { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
 
 export interface SessionRecord {
   session: string;

@@ -5,7 +5,7 @@ import {
   convertRepositoryUri,
   extractRepositoryInfo,
   UriFormat,
-} from "../uri-utils.js";
+} from "../uri-utils";
 
 // We'll skip validation tests since mocking is tricky in Bun
 

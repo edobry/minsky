@@ -14,9 +14,9 @@ import {
   ConfigurationError,
   GitOperationError,
   ensureError,
-} from "../../errors/index.js";
-import { log, isStructuredMode } from "../../utils/logger.js";
-import { exit } from "../../utils/process.js";
+} from "../../errors/index";
+import { log, isStructuredMode } from "../../utils/logger";
+import { exit } from "../../utils/process";
 /**
  * Interface for adapter-specific error handlers
  */

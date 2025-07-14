@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CommandMapper } from "../command-mapper.js";
+import { CommandMapper } from "../command-mapper";
 import { execSync } from "child_process";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";

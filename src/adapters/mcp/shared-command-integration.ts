@@ -5,9 +5,9 @@
  * with the MCP command mapper, eliminating the need for manual command duplication.
  */
 
-import type { CommandMapper } from "../../mcp/command-mapper.js";
-import { sharedCommandRegistry, CommandCategory } from "../shared/command-registry.js";
-import { log } from "../../utils/logger.js";
+import type { CommandMapper } from "../../mcp/command-mapper";
+import { sharedCommandRegistry, CommandCategory } from "../shared/command-registry";
+import { log } from "../../utils/logger";
 
 /**
  * Configuration for MCP shared command registration
