@@ -10,7 +10,7 @@ import { join } from "path";
 import { log } from "../utils/logger";
 import { normalizeTaskId } from "./tasks/utils";
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
-export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
+export { normalizeTaskId } from "./tasks/utils"; // Re-export normalizeTaskId from new location
 import { ResourceNotFoundError, getErrorMessage } from "../errors/index";
 const matter = require("gray-matter");
 // Import constants and utilities for use within this file
@@ -28,7 +28,7 @@ import {
   createTaskFromTitleAndDescription,
   getTaskSpecContentFromParams,
   deleteTaskFromParams,
-} from "./tasks/taskCommands.js";
+} from "./tasks/taskCommands";
 
 export {
   listTasksFromParams,
@@ -42,8 +42,8 @@ export {
 };
 
 // Re-export task status constants from centralized location
-export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants.js";
-export type { TaskStatus } from "./tasks/taskConstants.js";
+export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants";
+export type { TaskStatus } from "./tasks/taskConstants";
 
 /**
  * Interface for task service operations

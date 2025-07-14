@@ -11,7 +11,7 @@ import {
   addOutputOptions,
   addBackendOptions,
   normalizeTaskParams,
-} from "../utils/index.js";
+} from "../utils/index";
 import { handleCliError, outputResult } from "../utils/error-handler";
 
 /**

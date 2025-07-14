@@ -11,7 +11,7 @@ import {
   isNetworkError,
   createNetworkError,
   formatNetworkErrorMessage,
-} from "../network-errors.js";
+} from "../network-errors";
 
 // Test constants
 const TEST_PORT = DEFAULT_HTTP_PORT;

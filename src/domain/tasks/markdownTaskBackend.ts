@@ -15,14 +15,14 @@ import type {
   TaskListOptions,
   CreateTaskOptions,
   DeleteTaskOptions,
-} from "../tasks.js";
+} from "../tasks";
 import type {
   TaskData,
   TaskSpecData,
   TaskBackendConfig,
   TaskReadOperationResult,
   TaskWriteOperationResult,
-} from "../../types/tasks/taskData.js";
+} from "../../types/tasks/taskData";
 import { TaskStatus } from "./taskConstants";
 
 import {
@@ -30,7 +30,7 @@ import {
   formatTasksToMarkdown,
   parseTaskSpecFromMarkdown,
   formatTaskSpecToMarkdown,
-} from "./taskFunctions.js";
+} from "./taskFunctions";
 
 import {
   readTasksFile,
@@ -41,7 +41,7 @@ import {
   getTasksFilePath,
   getTaskSpecFilePath,
   getTaskSpecRelativePath,
-} from "./taskIO.js";
+} from "./taskIO";
 
 // Helper import to avoid promise conversion issues
 import { readdir } from "fs/promises";

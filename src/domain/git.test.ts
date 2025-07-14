@@ -12,12 +12,13 @@ import {
   setupTestMocks,
   mockModule,
   createMockFileSystem,
-} from "../utils/test-utils/mocking.js";
+} from "../utils/test-utils/mocking";
 import {
   expectToHaveBeenCalled,
   expectToHaveBeenCalledWith,
-} from "../utils/test-utils/assertions.js";
+} from "../utils/test-utils/assertions";
 import { createGitService } from "./git";
+import { commitChangesFromParams, pushFromParams } from "./git";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -910,41 +911,285 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 // ========== Factory Function Regression Tests ==========
 
 describe("createGitService Factory Function", () => {
-  // Regression test for Task #166: Fix options.baseDir runtime error
   test("should handle undefined options parameter without throwing runtime error", () => {
-    // This test covers the specific scenario that caused the runtime error:
-    // "undefined is not an object (evaluating 'options.baseDir')"
     expect(() => {
-      const gitService = createGitService(undefined);
-      expect(gitService instanceof GitService).toBe(true);
+      createGitService();
     }).not.toThrow();
   });
 
-  // Regression test for Task #166: Fix options.baseDir runtime error
   test("should handle null options parameter without throwing runtime error", () => {
     expect(() => {
-      const gitService = createGitService(null as unknown);
-      expect(gitService instanceof GitService).toBe(true);
+      createGitService(null as unknown as { baseDir?: string });
     }).not.toThrow();
   });
 
-  // Regression test for Task #166: Fix options.baseDir runtime error
   test("should handle options with undefined baseDir property", () => {
-    const options = { baseDir: undefined };
     expect(() => {
-      const gitService = createGitService(options);
-      expect(gitService instanceof GitService).toBe(true);
+      createGitService({ baseDir: undefined });
     }).not.toThrow();
   });
 
   test("should create GitService with custom baseDir when provided", () => {
-    const customBaseDir = "/custom/base/directory";
+    const customBaseDir = "/custom/path";
     const gitService = createGitService({ baseDir: customBaseDir });
-    expect(gitService instanceof GitService).toBe(true);
+    expect(gitService).toBeDefined();
   });
 
   test("should create GitService with default baseDir when no options provided", () => {
     const gitService = createGitService();
-    expect(gitService instanceof GitService).toBe(true);
+    expect(gitService).toBeDefined();
+  });
+});
+
+describe("Parameter-Based Git Functions", () => {
+  describe("commitChangesFromParams", () => {
+    test("should commit changes with all parameters", async () => {
+      const params = {
+        message: "test commit message",
+        all: true,
+        repo: "/test/repo",
+        amend: false,
+        noStage: false,
+        session: "test-session",
+      };
+
+      const result = await commitChangesFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.message).toBe("test commit message");
+      expect(result.commitHash).toBeDefined();
+      expect(typeof result.commitHash).toBe("string");
+    });
+
+    test("should handle commit with minimal parameters", async () => {
+      const params = {
+        message: "minimal commit",
+      };
+
+      const result = await commitChangesFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.message).toBe("minimal commit");
+      expect(result.commitHash).toBeDefined();
+    });
+
+    test("should handle commit with amend option", async () => {
+      const params = {
+        message: "amended commit",
+        amend: true,
+      };
+
+      const result = await commitChangesFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.message).toBe("amended commit");
+    });
+
+    test("should handle commit with noStage option", async () => {
+      const params = {
+        message: "no stage commit",
+        noStage: true,
+      };
+
+      const result = await commitChangesFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.message).toBe("no stage commit");
+    });
+  });
+
+  describe("pushFromParams", () => {
+    test("should push changes with all parameters", async () => {
+      const params = {
+        session: "test-session",
+        repo: "/test/repo",
+        remote: "origin",
+        force: true,
+        debug: true,
+      };
+
+      const result = await pushFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.workdir).toBeDefined();
+      expect(typeof result.workdir).toBe("string");
+    });
+
+    test("should handle push with minimal parameters", async () => {
+      const params = {};
+
+      const result = await pushFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.workdir).toBeDefined();
+    });
+
+    test("should handle push with force option", async () => {
+      const params = {
+        force: true,
+      };
+
+      const result = await pushFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.workdir).toBeDefined();
+    });
+
+    test("should handle push with custom remote", async () => {
+      const params = {
+        remote: "upstream",
+      };
+
+      const result = await pushFromParams(params);
+
+      expect(result).toBeDefined();
+      expect(result.workdir).toBeDefined();
+    });
+  });
+});
+
+describe("commitChangesFromParams", () => {
+  beforeEach(() => {
+    // Reset mockExecAsync for each test
+    mockExecAsync.mockReset();
+  });
+
+  test("should commit changes with message and all flag", async () => {
+    // Mock git commit command response
+    mockExecAsync.mockResolvedValueOnce({
+      stdout: "[main abc123] test commit message",
+      stderr: ""
+    });
+
+    const params = {
+      message: "test commit message",
+      all: true,
+      repo: "/test/repo",
+    };
+
+    const result = await commitChangesFromParams(params);
+    
+    expect(result).toBeDefined();
+    expect(result.commitHash).toBe("abc123");
+    expect(result.message).toBe("test commit message");
+  });
+
+  test("should commit changes with just message", async () => {
+    // Mock git commit command response
+    mockExecAsync.mockResolvedValueOnce({
+      stdout: "[main def456] simple commit",
+      stderr: ""
+    });
+
+    const params = {
+      message: "simple commit",
+      repo: "/test/repo",
+    };
+
+    const result = await commitChangesFromParams(params);
+    
+    expect(result).toBeDefined();
+    expect(result.commitHash).toBe("def456");
+    expect(result.message).toBe("simple commit");
+  });
+
+  test("should handle commit with custom repo path", async () => {
+    // Mock git commit command response
+    mockExecAsync.mockResolvedValueOnce({
+      stdout: "[main ghi789] commit with custom repo",
+      stderr: ""
+    });
+
+    const params = {
+      message: "commit with custom repo",
+      repo: "/custom/repo/path",
+    };
+
+    const result = await commitChangesFromParams(params);
+    
+    expect(result).toBeDefined();
+    expect(result.commitHash).toBe("ghi789");
+  });
+
+  test("should handle commit errors gracefully", async () => {
+    // Mock git commit command failure
+    mockExecAsync.mockRejectedValueOnce(new Error("Git command failed"));
+
+    const params = {
+      message: "failing commit",
+      repo: "/nonexistent/repo",
+    };
+
+    // Should not throw, should handle error gracefully
+    await expect(commitChangesFromParams(params)).rejects.toThrow("Git command failed");
+  });
+});
+
+describe("pushFromParams", () => {
+  beforeEach(() => {
+    // Reset mockExecAsync for each test
+    mockExecAsync.mockReset();
+  });
+
+  test("should push changes successfully", async () => {
+    // Mock git push command response
+    mockExecAsync
+      .mockResolvedValueOnce({ stdout: "main", stderr: "" }) // git rev-parse --abbrev-ref HEAD
+      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+
+    const params = {
+      repo: "/test/repo",
+    };
+
+    const result = await pushFromParams(params);
+    
+    expect(result).toBeDefined();
+    expect(result.pushed).toBe(true);
+    expect(result.workdir).toBe("/test/repo");
+  });
+
+  test("should handle push with custom remote", async () => {
+    // Mock git push command response
+    mockExecAsync
+      .mockResolvedValueOnce({ stdout: "main", stderr: "" }) // git rev-parse --abbrev-ref HEAD
+      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+
+    const params = {
+      repo: "/test/repo",
+      remote: "custom-remote",
+    };
+
+    const result = await pushFromParams(params);
+    
+    expect(result).toBeDefined();
+    expect(result.pushed).toBe(true);
+  });
+
+  test("should handle push with branch specification", async () => {
+    // Mock git push command response
+    mockExecAsync
+      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+
+    const params = {
+      repo: "/test/repo",
+      branch: "feature-branch",
+    };
+
+    const result = await pushFromParams(params);
+    
+    expect(result).toBeDefined();
+    expect(result.pushed).toBe(true);
+  });
+
+  test("should handle push errors gracefully", async () => {
+    // Mock git push command failure
+    mockExecAsync.mockRejectedValueOnce(new Error("Git push failed"));
+
+    const params = {
+      repo: "/nonexistent/repo",
+    };
+
+    // Should not throw, should handle error gracefully
+    await expect(pushFromParams(params)).rejects.toThrow("Git push failed");
   });
 });

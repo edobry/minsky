@@ -14,7 +14,7 @@ import {
   ConfigurationError,
   GitOperationError,
   ensureError,
-} from "../../errors/index.js";
+} from "../../errors/index";
 import { log, isStructuredMode } from "../../utils/logger";
 import { exit } from "../../utils/process";
 /**

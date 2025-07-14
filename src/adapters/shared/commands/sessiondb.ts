@@ -14,7 +14,7 @@ import {
   CommandCategory,
   type CommandParameterMap,
   type CommandExecutionContext,
-} from "../../shared/command-registry.js";
+} from "../../shared/command-registry";
 import { createStorageBackend } from "../../../domain/storage/storage-backend-factory";
 import { log } from "../../../utils/logger";
 import type { SessionRecord } from "../../../domain/session/session-db";

@@ -6,7 +6,7 @@ import {
   TASK_REGEX_PATTERNS,
   TASK_PARSING_UTILS,
   isValidTaskStatus,
-} from "../taskConstants.js";
+} from "../taskConstants";
 
 const TEST_VALUE = 123;
 const TEST_ARRAY_SIZE = 6;

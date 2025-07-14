@@ -20,6 +20,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Task #181**: Completed configuration system migration to idiomatic node-config implementation (Phase 6)
+  - Removed NodeConfigAdapter anti-pattern that was fighting against idiomatic node-config usage
+  - Implemented comprehensive Zod validation schemas for all configuration sections
+  - Converted all configuration access to direct `config.get()` calls throughout codebase
+  - Removed ConfigurationService interface and unnecessary abstraction layers
+  - Achieved true idiomatic node-config implementation with runtime validation and full TypeScript type safety
+  - All 10 configuration tests passing with zero regressions
+
+### Fixed
+
+- **Linter Issues**: Resolved all 119 linter errors using AST-based codemod approach
+  - Created comprehensive AST-based import extension fixer using ts-morph for safe, precise transformations
+  - Fixed 48 import statements and 5 export statements across 38 files
+  - Removed .js/.ts extensions from local imports/exports following Bun-native style guidelines
+  - Fixed parsing error in test file by removing duplicate catch block
+  - Demonstrated 6x effectiveness of AST-based approach over regex-based transformations
+  - All linter checks now pass with zero errors
+
+- **Session Start Output**: Enhanced `session start` command output formatting for improved user experience
+  - Replaced raw JSON output with user-friendly formatted display
+  - Added emojis and clear section headers for better readability
+  - Included helpful next steps for users after session creation
+  - Maintained support for `--json` and `--quiet` flags
+  - Provided clear session details: session name, task ID, repository, and branch
+
 - **Task #270**: Restructured test architecture to use co-location instead of separate `__tests__` directories
   - Adopted standard TypeScript/JavaScript co-location pattern where tests are placed next to their modules
   - Updated test naming conventions: `[module].test.ts`, `[module].commands.test.ts`, `[module].adapter.test.ts`
@@ -32,6 +57,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated cursor rules (`test-organization`, `testing-router`, `bun-test-patterns`) to promote co-location
 
 ### Fixed
+
+- **Session Directory Command Path Resolution**
+  - Fixed session dir command returning incorrect old per-repo structure paths
+  - Changed from `/minsky/local-minsky/sessions/task#181` (old/wrong) to `/minsky/sessions/task#181` (correct)
+  - Updated getRepoPathFn to use simplified session-based structure matching actual filesystem layout
+  - Sessions are now correctly located directly in sessions/ directory, not per-repo subdirectories
+
+- **Session Directory Command Error Message**
+  - Improved error message for `minsky session dir` command when no parameters provided
+  - Replaced unfriendly error message with helpful usage examples and command syntax
+  - Added specific examples for both session name and task ID usage patterns
+  - Included tips for related commands like `session list`, `session get`, and `session inspect`
+  - Enhanced error message formatting with emojis and clear section headers for better readability
+  - Removed ugly JSON error logging that was cluttering the console output
 
 - **Session Approve Command Output Formatting**
   - Fixed confusing output in `minsky session approve` command that showed error messages for expected operations

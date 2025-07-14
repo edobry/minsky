@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { writeFile, mkdir, rm, readFile } from "fs/promises";
 import { join } from "path";
-import { ValidationError } from "../errors/index";
+import { ValidationError } from "../../errors/index";
 
 describe("sessionPrFromParams bodyPath file reading functionality", () => {
   const testDir = "/tmp/minsky-test-body-path";
@@ -55,7 +55,7 @@ describe("sessionPrFromParams bodyPath file reading functionality", () => {
 
   test("should work with relative paths correctly", async () => {
     // Create file in session workspace using absolute path
-    const sessionDir = "/Users/edobry/.local/state/minsky/sessions/task#150";
+    const sessionDir = "/Users/edobry/.local/state/minsky/sessions/task#272";
     const relativeFilePath = "test-relative-body.txt";
     const absoluteTestFilePath = join(sessionDir, relativeFilePath);
     await writeFile(absoluteTestFilePath, testContent);

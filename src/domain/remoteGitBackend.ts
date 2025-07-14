@@ -16,12 +16,12 @@ import type {
   ValidationResult,
   CloneResult,
   BranchResult,
-} from "./repository.js";
+} from "./repository";
 import {
   RepositoryMetadataCache,
   generateRepoKey,
   RepositoryError,
-} from "../utils/repository-utils.js";
+} from "../utils/repository-utils";
 import { normalizeRepoName } from "./repo-utils";
 import { createSessionProvider } from "./session";
 import { log } from "../utils/logger";

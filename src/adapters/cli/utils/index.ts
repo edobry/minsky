@@ -19,7 +19,7 @@ export {
   addTaskOptions,
   addBackendOptions,
   addForceOptions,
-} from "./shared-options.js";
+} from "./shared-options";
 
 // Re-export types from shared options
 export type {
@@ -28,7 +28,7 @@ export type {
   TaskOptions,
   BackendOptions,
   ForceOptions,
-} from "./shared-options.js";
+} from "./shared-options";
 
 /**
  * Options for formatting output

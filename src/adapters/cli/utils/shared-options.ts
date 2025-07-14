@@ -18,7 +18,7 @@ import {
   TASK_ID_DESCRIPTION,
   BACKEND_DESCRIPTION,
   FORCE_DESCRIPTION,
-} from "../../../utils/option-descriptions.js";
+} from "../../../utils/option-descriptions";
 
 // ------------------------------------------------------------------
 // Option Interfaces

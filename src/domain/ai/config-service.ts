@@ -21,32 +21,41 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {
     try {
-      // First, try to resolve API key from all sources (env vars + config files)
-      const apiKey = await this.resolveAPIKey(provider);
-
-      // If no API key is available, we can't use this provider
-      if (!apiKey) {
-        return null as unknown;
-      }
-
+      // Use the unified configuration system (no more bespoke credential resolution)
       const result = await (this.configService as any).loadConfiguration((process as any).cwd());
       const config = (result as any).resolved;
 
-      // Get provider-specific config from both repo and user levels
-      const repoConfig = (config.ai as unknown).providers?.[provider as keyof typeof config.ai.providers];
-      const userConfig = (config.ai as unknown).providers?.[provider as keyof typeof config.ai.providers];
+      // Get provider-specific config from the unified configuration
+      const providerConfig = config.ai?.providers?.[provider];
+      
+      // If no provider config exists, return null
+      if (!providerConfig) {
+        return null;
+      }
 
-      // Create provider config with API key and any available settings
+      // Extract API key from unified config (automatically populated by environment variable mapping)
+      const apiKey = providerConfig.api_key;
+      
+      // If no API key is available, we can't use this provider
+      if (!apiKey) {
+        return null;
+      }
+
+      // Create provider config from unified configuration
       return {
         provider: provider as unknown,
         apiKey,
-        baseURL: (userConfig as unknown).base_url || (repoConfig as unknown).base_url,
-        defaultModel: (userConfig as unknown).default_model || (repoConfig as unknown).default_model,
+        baseURL: providerConfig.base_url,
+        defaultModel: providerConfig.default_model,
         supportedCapabilities: await this.getProviderCapabilities(provider),
-      };
+        enabled: providerConfig.enabled ?? true,
+        models: providerConfig.models || [],
+        maxTokens: providerConfig.max_tokens,
+        temperature: providerConfig.temperature,
+      } as AIProviderConfig;
     } catch (error) {
-      log.error(`Failed to get provider config for ${provider}`, { error });
-      return null as unknown;
+      log.debug(`Failed to get provider config for ${provider}`, { error });
+      return null;
     }
   }
 
@@ -73,63 +82,13 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
   async validateProviderKey(provider: string, apiKey: string): Promise<boolean> {
     try {
-      // Make a minimal API call to validate the key
-      const testConfig: AIProviderConfig = {
-        provider: provider as unknown,
-        apiKey,
-        supportedCapabilities: [],
-      };
-
-      // Use a simple completion to test the API key
-      // This would typically call the actual AI service
-      // For now, just validate the key format
-
+      // For now, just validate the API key format
+      // In a real implementation, this would make a test API call
       return this.validateAPIKeyFormat(provider, apiKey);
     } catch (error) {
-      log.debug(`API key validation failed for ${provider}`, { error });
+      log.debug(`Failed to validate API key for ${provider}`, { error });
       return false;
     }
-  }
-
-  private async resolveAPIKey(provider: string): Promise<string | undefined> {
-    // Try environment variables first
-    const envKey = this.getEnvironmentAPIKey(provider);
-    if (envKey) {
-      return envKey;
-    }
-
-    // Try config files
-    try {
-      const result = await (this.configService as any).loadConfiguration((process as any).cwd());
-      const providerConfig = (result.resolved.ai as unknown).providers?.[provider as keyof typeof result.resolved.ai.providers];
-      const credentialConfig = (providerConfig as unknown).credentials;
-
-      if ((credentialConfig as unknown).source === "file" && (credentialConfig as unknown).api_key_file) {
-        // Would read from file in real implementation
-        return undefined as unknown;
-      }
-
-      if ((credentialConfig as unknown).api_key) {
-        return (credentialConfig as unknown).api_key;
-      }
-    } catch (error) {
-      log.debug(`Failed to resolve API key for ${provider}`, { error });
-    }
-
-    return undefined as unknown;
-  }
-
-  private getEnvironmentAPIKey(provider: string): string | undefined {
-    const envVarMap: Record<string, string> = {
-      openai: "OPENAI_API_KEY",
-      anthropic: "ANTHROPIC_API_KEY",
-      google: "GOOGLE_AI_API_KEY",
-      cohere: "COHERE_API_KEY",
-      mistral: "MISTRAL_API_KEY",
-    };
-
-    const envVar = (envVarMap as any)[provider];
-    return envVar ? (process as any).env[envVar] : undefined as any;
   }
 
   private validateAPIKeyFormat(provider: string, apiKey: string): boolean {
@@ -138,17 +97,12 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
       openai: /^sk-[a-zA-Z0-9]{20,}$/,
       anthropic: /^sk-ant-api03-[a-zA-Z0-9_-]{95}$/,
       google: /^AIza[0-9A-Za-z_-]{35}$/,
-      cohere: /^[a-zA-Z0-9]{40}$/,
-      mistral: /^[a-zA-Z0-9]{32}$/,
+      cohere: /^[a-zA-Z0-9_-]+$/,
+      mistral: /^[a-zA-Z0-9_-]+$/,
     };
 
     const pattern = formatMap[provider];
-    if (!pattern) {
-      // Unknown provider, assume valid
-      return (apiKey as unknown).length > 10;
-    }
-
-    return (pattern as unknown).test(apiKey);
+    return pattern ? pattern.test(apiKey) : true; // Allow unknown providers
   }
 
   private async getProviderCapabilities(provider: string) {

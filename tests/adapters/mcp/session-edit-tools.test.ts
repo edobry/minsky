@@ -3,10 +3,10 @@
  */
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { registerSessionEditTools } from "../../../src/adapters/mcp/session-edit-tools";
-import type { CommandMapper } from "../../../src/mcp/command-mapper";
+import type { CommandMapper } from "../../../mcp/command-mapper";
 import { z } from "zod";
 import { mkdir, writeFile, readFile, stat } from "fs/promises";
-import { SessionPathResolver } from "../../../src/adapters/mcp/session-files";
+import { SessionPathResolver } from "../session-files";
 import { Buffer } from "buffer";
 
 // Mock fs/promises

@@ -9,7 +9,7 @@ import {
   getErrorMessage,
   createCommandFailureMessage,
   createErrorContext
-} from "../errors/index.js";
+} from "../errors/index";
 import { taskIdSchema } from "../schemas/common";
 import type {
   SessionListParams,
@@ -19,7 +19,7 @@ import type {
   SessionDirParams,
   SessionUpdateParams,
   SessionPrParams,
-} from "../schemas/session.js";
+} from "../schemas/session";
 import { log } from "../utils/logger";
 import { installDependencies } from "../utils/package-manager";
 import { type GitServiceInterface, preparePrFromParams } from "./git";
@@ -32,7 +32,7 @@ import {
   type WorkspaceUtilsInterface,
   getCurrentSession,
   getCurrentSessionContext,
-} from "./workspace.js";
+} from "./workspace";
 import * as WorkspaceUtils from "./workspace";
 import { SessionDbAdapter } from "./session/session-db-adapter";
 import { createTaskFromDescription } from "./templates/session-templates";
@@ -55,6 +55,13 @@ export interface SessionRecord {
     depth?: number;
   };
   branch?: string; // Branch property is already part of the interface
+  prState?: {
+    branchName: string;
+    exists: boolean;
+    lastChecked: string; // ISO timestamp
+    createdAt?: string;   // When PR branch was created
+    mergedAt?: string;    // When merged (for cleanup)
+  };
 }
 
 export interface Session {
@@ -553,7 +560,23 @@ export async function getSessionDirFromParams(
   } else if (params.name) {
     sessionName = params.name;
   } else {
-    throw new ResourceNotFoundError("You must provide either a session name or task ID");
+    throw new ResourceNotFoundError(`🚫 Session Directory: Missing Required Parameter
+
+You must provide either a session name or task ID to get the session directory.
+
+📖 Usage Examples:
+
+  # Get directory by session name
+  minsky session dir <session-name>
+
+  # Get directory by task ID
+  minsky session dir --task <task-id>
+  minsky session dir -t <task-id>
+
+💡 Tips:
+  • List available sessions: minsky session list
+  • Get session by task ID: minsky session get --task <task-id>
+  • Check current session: minsky session inspect`);
   }
 
   const session = await deps.sessionDB.getSession(sessionName);
@@ -919,6 +942,130 @@ export async function checkPrBranchExists(
 }
 
 /**
+ * Check if PR state cache is stale (older than 5 minutes)
+ */
+function isPrStateStale(prState: { lastChecked: string }): boolean {
+  const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+  const lastChecked = new Date(prState.lastChecked).getTime();
+  const now = Date.now();
+  return (now - lastChecked) > STALE_THRESHOLD_MS;
+}
+
+/**
+ * Optimized PR branch existence check using cached state
+ */
+export async function checkPrBranchExistsOptimized(
+  sessionName: string,
+  gitService: GitServiceInterface,
+  currentDir: string,
+  sessionDB: SessionProviderInterface
+): Promise<boolean> {
+  const sessionRecord = await sessionDB.getSession(sessionName);
+
+  // If no session record, fall back to git operations
+  if (!sessionRecord) {
+    log.debug("No session record found, falling back to git operations", { sessionName });
+    return checkPrBranchExists(sessionName, gitService, currentDir);
+  }
+
+  // Check if we have cached PR state and it's not stale
+  if (sessionRecord.prState && !isPrStateStale(sessionRecord.prState)) {
+    log.debug("Using cached PR state", {
+      sessionName,
+      exists: sessionRecord.prState.exists,
+      lastChecked: sessionRecord.prState.lastChecked
+    });
+    return sessionRecord.prState.exists;
+  }
+
+  // Cache is stale or missing, perform git operations and update cache
+  log.debug("PR state cache is stale or missing, refreshing", {
+    sessionName,
+    hasState: !!sessionRecord.prState,
+    isStale: sessionRecord.prState ? isPrStateStale(sessionRecord.prState) : false
+  });
+
+  const exists = await checkPrBranchExists(sessionName, gitService, currentDir);
+
+  // Update the session record with fresh PR state
+  const prBranch = `pr/${sessionName}`;
+  const updatedPrState = {
+    branchName: prBranch,
+    exists,
+    lastChecked: new Date().toISOString(),
+    createdAt: sessionRecord.prState?.createdAt || (exists ? new Date().toISOString() : undefined),
+    mergedAt: sessionRecord.prState?.mergedAt
+  };
+
+  await sessionDB.updateSession(sessionName, { prState: updatedPrState });
+
+  log.debug("Updated PR state cache", {
+    sessionName,
+    exists,
+    lastChecked: updatedPrState.lastChecked
+  });
+
+  return exists;
+}
+
+/**
+ * Update PR state when a PR branch is created
+ */
+export async function updatePrStateOnCreation(
+  sessionName: string,
+  sessionDB: SessionProviderInterface
+): Promise<void> {
+  const prBranch = `pr/${sessionName}`;
+  const now = new Date().toISOString();
+
+  const prState = {
+    branchName: prBranch,
+    exists: true,
+    lastChecked: now,
+    createdAt: now,
+    mergedAt: undefined
+  };
+
+  await sessionDB.updateSession(sessionName, { prState });
+
+  log.debug("Updated PR state on creation", {
+    sessionName,
+    prBranch,
+    createdAt: now
+  });
+}
+
+/**
+ * Update PR state when a PR branch is merged
+ */
+export async function updatePrStateOnMerge(
+  sessionName: string,
+  sessionDB: SessionProviderInterface
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  const sessionRecord = await sessionDB.getSession(sessionName);
+  if (!sessionRecord?.prState) {
+    log.debug("No PR state found for session, cannot update merge state", { sessionName });
+    return;
+  }
+
+  const updatedPrState = {
+    ...sessionRecord.prState,
+    exists: false,
+    lastChecked: now,
+    mergedAt: now
+  };
+
+  await sessionDB.updateSession(sessionName, { prState: updatedPrState });
+
+  log.debug("Updated PR state on merge", {
+    sessionName,
+    mergedAt: now
+  });
+}
+
+/**
  * Helper function to extract title and body from existing PR branch
  */
 async function extractPrDescription(
@@ -1173,7 +1320,7 @@ Need help? Run 'git status' to see what files have changed.
 
   // STEP 4.5: PR Branch Detection and Title/Body Handling
   // This implements the new refresh functionality
-  const prBranchExists = await checkPrBranchExists(sessionName, gitService, currentDir);
+  const prBranchExists = await checkPrBranchExistsOptimized(sessionName, gitService, currentDir, sessionDb);
 
   let titleToUse = params.title;
   let bodyToUse = bodyContent;
@@ -1264,6 +1411,9 @@ Need help? Run 'git status' to see what files have changed.
     baseBranch: params.baseBranch,
     debug: params.debug,
   });
+
+  // Update PR state cache after successful creation
+  await updatePrStateOnCreation(sessionName, sessionDb);
 
   // Update task status to IN-REVIEW if associated with a task
   if (!params.noStatusUpdate) {
@@ -1505,6 +1655,9 @@ export async function approveSessionFromParams(
         // Clean up local branches after successful merge
         await cleanupLocalBranches(deps.gitService, workingDirectory, prBranch, sessionNameToUse, taskId);
 
+        // Update PR state to reflect merge
+        await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
+
       } catch (mergeError) {
         // Merge failed - check if it's because already merged
         const errorMessage = getErrorMessage(mergeError as Error);
@@ -1513,6 +1666,9 @@ export async function approveSessionFromParams(
           // PR branch has already been merged
           isNewlyApproved = false;
           log.debug(`PR branch ${prBranch} has already been merged`);
+
+          // Update PR state to reflect it's already merged
+          await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
 
           // Get current HEAD info for already merged case
           commitHash = (

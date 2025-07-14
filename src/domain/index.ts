@@ -18,7 +18,7 @@ export {
   mergeFromParams,
   checkoutFromParams,
   rebaseFromParams,
-} from "./git.js";
+} from "./git";
 
 // Export legacy SessionDB and related functions
 export {
@@ -38,11 +38,11 @@ export {
   sessionReviewFromParams,
   type SessionReviewParams,
   type SessionReviewResult,
-} from "./session.js";
+} from "./session";
 
 // Export the functional session module
 export {
   createSessionProvider as createFunctionalSessionProvider,
   type SessionDbState,
   type SessionDbFileOptions,
-} from "./session/index.js";
+} from "./session/index";

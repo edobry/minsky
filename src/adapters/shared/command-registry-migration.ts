@@ -13,13 +13,13 @@ import {
   CommandParameterMap,
   CommandCategory,
   CommandExecutionContext,
-} from "./legacy-command-registry.js";
+} from "./legacy-command-registry";
 import {
   SharedCommandRegistry as NewSharedCommandRegistry,
   CommandDefinition as NewCommandDefinition,
   SharedCommand as NewSharedCommand,
   createSharedCommandRegistry,
-} from "./command-registry.js";
+} from "./command-registry";
 import { MinskyError } from "../../errors/index";
 
 /**

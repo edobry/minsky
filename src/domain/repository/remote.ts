@@ -11,7 +11,7 @@ import type {
   BranchResult,
   Result,
   RepoStatus,
-} from "./index.js";
+} from "./index";
 
 // Define a global for process to avoid linting errors
 declare const process: {
