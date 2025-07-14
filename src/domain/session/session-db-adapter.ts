@@ -17,7 +17,15 @@ import { configurationService } from "../configuration";
 import config from "config";
 import { homedir } from "os";
 import { join } from "path";
+import {
+  validateNodeConfig,
+  validateSessionDbConfig,
+  type SessionDbConfig
+} from "../../schemas/session-db-config";
 
+/**
+ * Session database adapter that uses configuration-based storage backends
+ */
 export class SessionDbAdapter implements SessionProviderInterface {
   private storage: DatabaseStorage<SessionRecord, SessionDbState> | null = null;
 
@@ -28,54 +36,44 @@ export class SessionDbAdapter implements SessionProviderInterface {
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
       // Use node-config to get sessiondb configuration, with fallback to defaults
-      let sessionDbConfig: any;
+      let sessionDbConfig: SessionDbConfig;
       
       try {
         // Check if sessiondb config exists before trying to get it
-        if ((config as unknown).has("sessiondb")) {
-          sessionDbConfig = (config as unknown).get("sessiondb") as unknown;
+        if (config.has("sessiondb")) {
+          const rawConfig = config.get("sessiondb");
+          sessionDbConfig = validateNodeConfig(rawConfig);
         } else {
           log.debug("Session database configuration not found in config, using defaults");
-          sessionDbConfig = null;
+          sessionDbConfig = validateNodeConfig(null);
         }
       } catch (error) {
         // Fallback to defaults when config is not available (e.g., running from outside project directory)
         log.debug("Configuration not available, using default session storage settings", {
           error: getErrorMessage(error as any),
         });
-        sessionDbConfig = null;
-      }
-
-      // Additional check: if sessionDbConfig is null/undefined, use defaults
-      if (!sessionDbConfig || typeof sessionDbConfig !== "object") {
-        log.debug("Session database configuration is missing or invalid, using defaults");
-        sessionDbConfig = {
-          backend: "json",
-          baseDir: null as unknown,
-          dbPath: null as unknown,
-          connectionString: null as unknown,
-        };
+        sessionDbConfig = validateNodeConfig(null);
       }
 
       // Convert SessionDbConfig to StorageConfig
       const storageConfig: Partial<StorageConfig> = {
-        backend: (sessionDbConfig as unknown).backend as "json" | "sqlite" | "postgres",
+        backend: sessionDbConfig.backend,
       };
 
-      if ((sessionDbConfig as unknown).backend === "sqlite") {
-        (storageConfig as unknown).sqlite = {
-          dbPath: (sessionDbConfig as unknown).dbPath ? this.expandPath((sessionDbConfig as unknown).dbPath) : undefined
+      if (sessionDbConfig.backend === "sqlite") {
+        storageConfig.sqlite = {
+          dbPath: sessionDbConfig.dbPath ? this.expandPath(sessionDbConfig.dbPath) : undefined
         };
-      } else if ((sessionDbConfig as unknown).backend === "postgres" && (sessionDbConfig as unknown).connectionString) {
-        (storageConfig as unknown).postgres = { connectionUrl: (sessionDbConfig as unknown).connectionString };
-      } else if ((sessionDbConfig as unknown).backend === "json") {
-        (storageConfig as unknown).json = {
-          filePath: (sessionDbConfig as unknown).dbPath ? this.expandPath((sessionDbConfig as unknown).dbPath) : undefined
+      } else if (sessionDbConfig.backend === "postgres" && sessionDbConfig.connectionString) {
+        storageConfig.postgres = { connectionUrl: sessionDbConfig.connectionString };
+      } else if (sessionDbConfig.backend === "json") {
+        storageConfig.json = {
+          filePath: sessionDbConfig.dbPath ? this.expandPath(sessionDbConfig.dbPath) : undefined
         };
       }
 
       this.storage = createStorageBackend(storageConfig);
-      await (this.storage as unknown).initialize();
+      await this.storage.initialize();
     }
     return this.storage;
   }
