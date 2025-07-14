@@ -6,17 +6,17 @@ const TEST_VALUE = 123;
  * @migrated Migrated to native Bun patterns
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
-import { registerTasksCommands } from "../../../../adapters/shared/commands/tasks.js";
+import { registerTasksCommands } from "../../../../src/adapters/shared/commands/tasks.js";
 import {
   sharedCommandRegistry,
   CommandCategory,
-} from "../../../../adapters/shared/command-registry.js";
-import * as tasksDomain from "../../../../domain/tasks.js";
+} from "../../../../src/adapters/shared/command-registry.js";
+import * as tasksDomain from "../../../../src/domain/tasks.js";
 import {
   expectToHaveLength,
   expectToHaveBeenCalled,
   getMockCallArg,
-} from "../../../../utils/test-utils/assertions.js";
+} from "../../../../src/utils/test-utils/assertions.js";
 
 const EXPECTED_TASKS_COMMANDS_COUNT = 7;
 

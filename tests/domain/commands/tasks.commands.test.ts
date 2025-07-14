@@ -1,12 +1,12 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { type Task, TASK_STATUS } from "../../../domain/tasks.js";
-import { createMock, mockModule, setupTestMocks } from "../../../utils/test-utils/mocking.js";
+import { type Task, TASK_STATUS } from "../../../src/domain/tasks.js";
+import { createMock, mockModule, setupTestMocks } from "../../../src/utils/test-utils/mocking.js";
 import {
   type TaskGetParams,
   type TaskListParams,
   type TaskStatusGetParams,
   type TaskStatusSetParams,
-} from "../../../schemas/tasks.js";
+} from "../../../src/schemas/tasks.js";
 
 const TEST_VALUE = 123;
 
@@ -20,7 +20,7 @@ const mockGetTaskStatusFromParams = createMock();
 const mockSetTaskStatusFromParams = createMock();
 
 // Mock the domain tasks module
-mockModule("../../../domain/tasks.js", () => {
+mockModule("../../../src/domain/tasks.js", () => {
   // Mock implementation
   return {
     getTaskFromParams: mockGetTaskFromParams,
