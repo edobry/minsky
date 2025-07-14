@@ -3,7 +3,7 @@
  * @migrated Migrated to native Bun patterns
  */
 import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from "bun:test";
-import { GitService } from "./git.js";
+import { GitService } from "./git";
 
 describe("GitService PR Functionality", () => {
   let gitService: GitService;

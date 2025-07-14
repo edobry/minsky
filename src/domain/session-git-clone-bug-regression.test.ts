@@ -8,8 +8,8 @@
  */
 
 import { describe, it, expect, beforeEach } from "bun:test";
-import { startSessionFromParams } from "./session.js";
-import { createMock } from "../utils/test-utils/mocking.js";
+import { startSessionFromParams } from "./session";
+import { createMock } from "../utils/test-utils/mocking";
 
 describe("Session Git Clone Bug Regression Test", () => {
   it("should not leave orphaned session records when git clone fails", async () => {

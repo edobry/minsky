@@ -13,9 +13,9 @@ import {
   type Task,
   TASK_STATUS,
 } from "../tasks.js";
-import { ValidationError, ResourceNotFoundError } from "../errors/index.js";
-import { expectToBeInstanceOf } from "../../utils/test-utils/assertions.js";
-import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.js";
+import { ValidationError, ResourceNotFoundError } from "../errors/index";
+import { expectToBeInstanceOf } from "../../utils/test-utils/assertions";
+import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
 
 const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
 

@@ -3,12 +3,12 @@
  * @migrated Migrated to native Bun patterns
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
-import { registerRulesCommands } from "../../../../adapters/shared/commands/rules.js";
+import { registerRulesCommands } from "../../../../adapters/shared/commands/rules";
 import {
   sharedCommandRegistry,
   CommandCategory,
 } from "../../../../adapters/shared/command-registry.js";
-import * as workspace from "../../../../domain/workspace.js";
+import * as workspace from "../../../../domain/workspace";
 import {
   expectToHaveLength,
   expectToBeInstanceOf,

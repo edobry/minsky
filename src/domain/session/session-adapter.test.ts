@@ -6,7 +6,7 @@ const TEST_VALUE = 123;
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import { SessionAdapter } from "./session-adapter";
-import { createMockFileSystem, setupTestMocks, mockModule } from "../utils/test-utils/mocking.js";
+import { createMockFileSystem, setupTestMocks, mockModule } from "../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();

@@ -8,7 +8,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mkdirSync } from "fs";
-import { setupTestMocks } from "../utils/test-utils/mocking.js";
+import { setupTestMocks } from "../utils/test-utils/mocking";
 import {
   parseRepositoryURI,
   normalizeRepositoryURI,

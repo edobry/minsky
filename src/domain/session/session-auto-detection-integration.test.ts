@@ -16,7 +16,7 @@ import {
   type SessionProviderInterface,
   type SessionRecord,
 } from "../session.js";
-import { ValidationError, ResourceNotFoundError } from "../errors/index.js";
+import { ValidationError, ResourceNotFoundError } from "../errors/index";
 
 // Mock session provider
 const createMockSessionProvider = (sessions: SessionRecord[] = []): SessionProviderInterface => {

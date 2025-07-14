@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { rm } from "fs/promises";
 import { existsSync } from "fs";
-import { startSessionFromParams } from "./session.js";
+import { startSessionFromParams } from "./session";
 
 describe("Session Creation Bug Fix (TDD)", () => {
   let tempDir: string;

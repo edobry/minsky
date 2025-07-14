@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { approveSessionFromParams } from "./session.js";
-import { createMock, setupTestMocks } from "../utils/test-utils/mocking.js";
+import { approveSessionFromParams } from "./session";
+import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();

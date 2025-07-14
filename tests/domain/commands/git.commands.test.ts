@@ -9,7 +9,7 @@
  * This test suite will be reimplemented with better isolation and test utility support.
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { GitService } from "../../../src/domain/git.js";
+import { GitService } from "../../../src/domain/git";
 import { join } from "path";
 import { mkdtemp, writeFile, mkdir } from "fs/promises";
 import { tmpdir } from "os";

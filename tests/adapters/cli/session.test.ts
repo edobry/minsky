@@ -9,12 +9,12 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { mkdir, rmdir } from "fs/promises";
 import { existsSync } from "fs";
-import { getSessionDirFromParams, updateSessionFromParams } from "../../../domain/session.js";
-import { getCurrentSession, getSessionFromWorkspace } from "../../../domain/workspace.js";
-import { createMock, setupTestMocks } from "../../../utils/test-utils/mocking.js";
-import { withDirectoryIsolation } from "../../../utils/test-utils/cleanup-patterns.js";
-import type { SessionRecord, SessionProviderInterface } from "../../../domain/session.js";
-import type { GitServiceInterface } from "../../../domain/git.js";
+import { getSessionDirFromParams, updateSessionFromParams } from "../../../domain/session";
+import { getCurrentSession, getSessionFromWorkspace } from "../../../domain/workspace";
+import { createMock, setupTestMocks } from "../../../utils/test-utils/mocking";
+import { withDirectoryIsolation } from "../../../utils/test-utils/cleanup-patterns";
+import type { SessionRecord, SessionProviderInterface } from "../../../domain/session";
+import type { GitServiceInterface } from "../../../domain/git";
 
 // Set up automatic mock cleanup
 setupTestMocks();
