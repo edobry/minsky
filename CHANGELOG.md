@@ -11,6 +11,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task #277**: Created comprehensive task specification for stacked PR workflow implementation
+  - Enables sessions to start from existing session branches instead of always starting from main
+  - Adds dependency tracking and visualization for session relationships
+  - Supports PR stacks and cascading approvals
+  - Includes phased implementation plan with testing strategy
+  - Maintains backward compatibility with existing workflows
+
+### Changed
+
+- **Task #270**: Restructured test architecture to use co-location instead of separate `__tests__` directories
+  - Adopted standard TypeScript/JavaScript co-location pattern where tests are placed next to their modules
+  - Updated test naming conventions: `[module].test.ts`, `[module].commands.test.ts`, `[module].adapter.test.ts`
+  - Reserve `tests/` directories only for complex integration tests that don't fit co-location
+  - Updated all import paths to use shorter relative paths from co-located tests
+  - Updated configuration files (ESLint, codemod filters) to support both old and new patterns
+  - Created comprehensive test architecture documentation promoting co-location
+  - Established clear separation between domain logic and adapter tests
+  - Fixed architectural confusion between integration tests and adapter tests
+  - Updated cursor rules (`test-organization`, `testing-router`, `bun-test-patterns`) to promote co-location
+
+### Fixed
+
+- **Session Approve Command Output Formatting**
+  - Fixed confusing output in `minsky session approve` command that showed error messages for expected operations
+  - Replaced raw JSON output with user-friendly formatted messages showing session details, task status, and merge information
+  - Removed misleading "Command execution failed" error messages that appeared even when operations succeeded
+  - Added proper CLI formatting with clear success indicators and structured information display
+
+### Improved
+
+- **Session Approve Command Idempotency**
+  - Made `minsky session approve` command fully idempotent - can be run multiple times safely
+  - Added detection of already-approved sessions by checking git merge ancestry
+  - Shows different status messages for newly approved vs already approved sessions:
+    - New approval: "✅ Session approved and merged successfully!"
+    - Already approved: "ℹ️ Session was already approved and merged"
+  - Added `isNewlyApproved` flag to JSON output for programmatic usage
+  - Preserves existing merge information when session is already approved
+
+### Added
+
 - **Task Relationship Establishment (#251 and #252)**
 
   - Established relationship between Mobile/Voice Interface task (#251) and Task Management UI System task (#252)

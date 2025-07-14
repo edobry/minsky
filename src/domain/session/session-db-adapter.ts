@@ -1,13 +1,13 @@
 /**
  * SessionDbAdapter
  *
- * This adapter implements the SessionProviderInterface using the new
- * configuration-based storage backend system. It provides seamless
- * integration with JSON, SQLite, and PostgreSQL storage backends.
+ * This adapter implements the SessionProviderInterface using the
+ * configuration-based storage backend system with integrity checking.
+ * It provides seamless integration with JSON, SQLite, and PostgreSQL storage backends.
  */
 
 import type { SessionProviderInterface, SessionRecord } from "../session";
-import { createStorageBackend, type StorageConfig } from "../storage/storage-backend-factory";
+import { createStorageBackendWithIntegrity, type StorageConfig, type StorageResult } from "../storage/storage-backend-factory";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import { initializeSessionDbState, getRepoPathFn } from "./session-db";
@@ -17,17 +17,10 @@ import { configurationService } from "../configuration";
 import config from "config";
 import { homedir } from "os";
 import { join } from "path";
-import {
-  validateNodeConfig,
-  validateSessionDbConfig,
-  type SessionDbConfig
-} from "../../schemas/session-db-config";
 
-/**
- * Session database adapter that uses configuration-based storage backends
- */
 export class SessionDbAdapter implements SessionProviderInterface {
   private storage: DatabaseStorage<SessionRecord, SessionDbState> | null = null;
+  private storageWarnings: string[] = [];
 
   constructor() {
     // No longer taking workingDir parameter - use global configuration instead
@@ -36,152 +29,153 @@ export class SessionDbAdapter implements SessionProviderInterface {
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
       // Use node-config to get sessiondb configuration, with fallback to defaults
-      let sessionDbConfig: SessionDbConfig;
+      let sessionDbConfig: any;
       
       try {
         // Check if sessiondb config exists before trying to get it
-        if (config.has("sessiondb")) {
-          const rawConfig = config.get("sessiondb");
-          sessionDbConfig = validateNodeConfig(rawConfig);
+        if ((config as any).has("sessiondb")) {
+          sessionDbConfig = (config as any).get("sessiondb") as any;
         } else {
           log.debug("Session database configuration not found in config, using defaults");
-          sessionDbConfig = validateNodeConfig(null);
+          sessionDbConfig = null;
         }
       } catch (error) {
         // Fallback to defaults when config is not available (e.g., running from outside project directory)
         log.debug("Configuration not available, using default session storage settings", {
           error: getErrorMessage(error as any),
         });
-        sessionDbConfig = validateNodeConfig(null);
+        sessionDbConfig = null;
       }
 
-      // Convert SessionDbConfig to StorageConfig
+      // Additional check: if sessionDbConfig is null/undefined, use defaults
+      if (!sessionDbConfig || typeof sessionDbConfig !== "object") {
+        sessionDbConfig = {};
+      }
+
+      // Build storage configuration
       const storageConfig: Partial<StorageConfig> = {
-        backend: sessionDbConfig.backend,
+        backend: sessionDbConfig.backend || "json",
+        enableIntegrityCheck: sessionDbConfig.enableIntegrityCheck ?? true,
+        autoMigrate: sessionDbConfig.autoMigrate ?? false,
+        promptOnIntegrityIssues: sessionDbConfig.promptOnIntegrityIssues ?? false,
       };
 
-      if (sessionDbConfig.backend === "sqlite") {
+      // Add backend-specific configuration
+      if (storageConfig.backend === "sqlite") {
         storageConfig.sqlite = {
-          dbPath: sessionDbConfig.dbPath ? this.expandPath(sessionDbConfig.dbPath) : undefined
+          dbPath: sessionDbConfig.dbPath ? this.expandPath(sessionDbConfig.dbPath) : undefined,
         };
-      } else if (sessionDbConfig.backend === "postgres" && sessionDbConfig.connectionString) {
-        storageConfig.postgres = { connectionUrl: sessionDbConfig.connectionString };
-      } else if (sessionDbConfig.backend === "json") {
+      } else if (storageConfig.backend === "postgres") {
+        storageConfig.postgres = {
+          connectionUrl: sessionDbConfig.connectionString,
+        };
+      } else if (storageConfig.backend === "json") {
         storageConfig.json = {
-          filePath: sessionDbConfig.dbPath ? this.expandPath(sessionDbConfig.dbPath) : undefined
+          filePath: sessionDbConfig.filePath ? this.expandPath(sessionDbConfig.filePath) : undefined,
         };
       }
 
-      this.storage = createStorageBackend(storageConfig);
-      await this.storage.initialize();
+      // Create storage backend with integrity checking
+      try {
+        const result: StorageResult = await createStorageBackendWithIntegrity(storageConfig);
+        this.storage = result.storage;
+        this.storageWarnings = result.warnings || [];
+
+        // Log integrity check results
+        if (result.integrityResult) {
+          if (result.integrityResult.isValid) {
+            log.debug("Database integrity check passed", {
+              backend: storageConfig.backend,
+              issues: result.integrityResult.issues.length,
+              warnings: result.integrityResult.warnings.length,
+            });
+          } else {
+            log.warn("Database integrity issues detected but continuing", {
+              backend: storageConfig.backend,
+              issues: result.integrityResult.issues.length,
+              warnings: result.integrityResult.warnings.length,
+            });
+          }
+        }
+
+        // Log warnings
+        if (this.storageWarnings.length > 0) {
+          log.warn("Storage backend created with warnings", {
+            warnings: this.storageWarnings,
+          });
+        }
+
+        // Log auto-migration
+        if (result.autoMigrationPerformed) {
+          log.info("Database auto-migration was performed during initialization");
+        }
+
+      } catch (error) {
+        log.error("Failed to create storage backend with integrity checking", {
+          error: getErrorMessage(error as any),
+          backend: storageConfig.backend,
+        });
+        throw error;
+      }
     }
+
     return this.storage;
   }
 
-  /**
-   * Expand tilde and environment variables in file paths
-   */
   private expandPath(filePath: string): string {
-    if ((filePath as unknown).startsWith("~/")) {
-      return join(homedir(), (filePath as unknown).slice(2));
-    }
-    if ((filePath as unknown).startsWith("$HOME/")) {
-      return join(homedir(), (filePath as unknown).slice(6));
+    // Handle tilde expansion for home directory
+    if (filePath.startsWith("~")) {
+      return join(homedir(), filePath.slice(1));
     }
     return filePath;
   }
 
   async listSessions(): Promise<SessionRecord[]> {
-    try {
-      const storage = await this.getStorage();
-      return await (storage as unknown).getEntities();
-    } catch (error) {
-      log.error(`Error listing sessions: ${getErrorMessage(error as any)}`);
-      return [];
-    }
+    const storage = await this.getStorage();
+    return await storage.getEntities();
   }
 
   async getSession(session: string): Promise<SessionRecord | null> {
-    try {
-      const storage = await this.getStorage();
-      return await (storage as unknown).getEntity(session);
-    } catch (error) {
-      log.error(`Error getting session: ${getErrorMessage(error as any)}`);
-      return null as any;
-    }
+    const storage = await this.getStorage();
+    return await storage.getEntity(session);
   }
 
   async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
-    try {
-      const storage = await this.getStorage();
-      // Normalize taskId for consistent searching
-      const normalizedTaskId = (taskId as unknown).replace(/^#/, "");
-      const sessions = await (storage as unknown).getEntities({ taskId: normalizedTaskId });
-      const session = (sessions as unknown).length > 0 ? sessions[0] : null as unknown;
-      return session || null;
-    } catch (error) {
-      log.error(`Error getting session by task ID: ${getErrorMessage(error as any)}`);
-      return null as any;
-    }
+    const storage = await this.getStorage();
+    const sessions = await storage.getEntities();
+
+    // Support both "#123" and "123" formats
+    const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
+    const alternateTaskId = taskId.startsWith("#") ? taskId.slice(1) : taskId;
+
+    return sessions.find((s) => s.taskId === normalizedTaskId || s.taskId === alternateTaskId) || null;
   }
 
   async addSession(record: SessionRecord): Promise<void> {
-    try {
-      const storage = await this.getStorage();
-      await (storage as unknown).createEntity(record as unknown);
-    } catch (error) {
-      log.error(`Error adding session: ${getErrorMessage(error as any)}`);
-      throw error;
-    }
+    const storage = await this.getStorage();
+    await storage.createEntity(record);
   }
 
   async updateSession(
     session: string,
     updates: Partial<Omit<SessionRecord, "session">>
   ): Promise<void> {
-    try {
-      const storage = await this.getStorage();
-      const result = await (storage as unknown).updateEntity(session, updates);
-      if (!result) {
-        throw new Error(`Session '${session}' not found`);
-      }
-    } catch (error) {
-      log.error(`Error updating session: ${getErrorMessage(error as any)}`);
-      throw error;
+    const storage = await this.getStorage();
+    const result = await storage.updateEntity(session, updates);
+    if (!result) {
+      throw new Error(`Session '${session}' not found`);
     }
   }
 
   async deleteSession(session: string): Promise<boolean> {
-    try {
-      const storage = await this.getStorage();
-      return await (storage as unknown).deleteEntity(session);
-    } catch (error) {
-      log.error(`Error deleting session: ${getErrorMessage(error as any)}`);
-      return false;
-    }
+    const storage = await this.getStorage();
+    return await storage.deleteEntity(session);
   }
 
   async getRepoPath(record: SessionRecord | any): Promise<string> {
-    if (!record) {
-      throw new Error("Session record is required");
-    }
-
-    // Handle different record types (SessionRecord, SessionResult, etc.)
-    if ((record as unknown).sessionRecord) {
-      return this.getRepoPath((record as unknown).sessionRecord);
-    }
-
-    if ((record as unknown).cloneResult && (record.cloneResult as unknown).workdir) {
-      return (record.cloneResult as unknown).workdir;
-    }
-
-    if ((record as unknown).workdir) {
-      return (record as unknown).workdir;
-    }
-
-    // Use the functional implementation to compute the path
+    // This method maintains backward compatibility while using the updated storage
     const state = await this.getState();
-    return getRepoPathFn(state, record as unknown);
+    return getRepoPathFn(state, record);
   }
 
   async getSessionWorkdir(sessionName: string): Promise<string> {
@@ -189,37 +183,30 @@ export class SessionDbAdapter implements SessionProviderInterface {
     if (!session) {
       throw new Error(`Session '${sessionName}' not found`);
     }
-    return this.getRepoPath(session);
+
+    const state = await this.getState();
+    return getRepoPathFn(state, session as any);
   }
 
-  /**
-   * Get the current storage state for functional operations
-   */
   private async getState(): Promise<SessionDbState> {
-    try {
-      const storage = await this.getStorage();
-      const result = await (storage as unknown).readState();
-
-      if ((result as unknown).success && (result as unknown).data) {
-        return (result as unknown).data as unknown;
-      }
-
-      // Return initialized state if read fails
-      return initializeSessionDbState();
-    } catch (error) {
-      log.warn(`Error reading storage state, using defaults: ${getErrorMessage(error as any)}`);
-      return initializeSessionDbState();
-    }
+    // Initialize default state when needed
+    return initializeSessionDbState();
   }
 
-  /**
-   * Get storage backend information for debugging
-   */
-  async getStorageInfo(): Promise<{ backend: string; location: string }> {
+  async getStorageInfo(): Promise<{ 
+    backend: string; 
+    location: string; 
+    integrityEnabled: boolean;
+    warnings: string[];
+  }> {
     const storage = await this.getStorage();
+    const location = storage.getStorageLocation();
+    
     return {
-      backend: (storage.constructor as unknown).name,
-      location: (storage as unknown).getStorageLocation(),
+      backend: storage.constructor.name,
+      location: location,
+      integrityEnabled: true, // Always enabled in merged factory
+      warnings: this.storageWarnings,
     };
   }
 }

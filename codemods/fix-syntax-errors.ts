@@ -34,7 +34,7 @@ function getAllTsFiles(dir: string): string[] {
 const sourceFiles = getAllTsFiles("./src").filter(file => 
   !file.includes('/scripts/') && 
   !file.includes('test-utils') &&
-  !file.includes('__tests__')
+      !file.includes('__tests__') && !file.includes('/tests/')
 );
 
 sourceFiles.forEach(file => project.addSourceFileAtPath(file));

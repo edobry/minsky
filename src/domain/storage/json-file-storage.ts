@@ -18,6 +18,11 @@ import { getErrorMessage } from "../../errors/index";
 /**
  * Configuration options for JsonFileStorage
  */
+/**
+ * Type for schema validation function
+ */
+type SchemaValidator<S> = (data: unknown) => S;
+
 export interface JsonFileStorageOptions<S> {
   /**
    * Path to the JSON file
@@ -43,6 +48,11 @@ export interface JsonFileStorageOptions<S> {
    * Pretty print JSON (default: true)
    */
   prettyPrint?: boolean;
+
+  /**
+   * Optional schema validator function for type-safe JSON parsing
+   */
+  validateState?: SchemaValidator<S>;
 }
 
 // Simple file lock implementation to prevent concurrent access
