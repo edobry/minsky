@@ -84,7 +84,7 @@ const mockFn = jest.fn();
 mock.module("../path/to/module", () => ({}));
 
 // ✅ CORRECT - Using centralized utilities
-import { createMock, mockModule, setupTestMocks } from "../../utils/test-utils/mocking";
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
 setupTestMocks();
 const mockFn = createMock();
 mockModule("../path/to/module", () => ({}));
