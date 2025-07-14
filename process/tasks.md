@@ -500,7 +500,7 @@
 
 - [x] Find and Fix All Unsafe Type Casts (as any) in Codebase [#271](process/tasks/271-find-and-fix-all-unsafe-type-casts-as-any-in-codebase.md)
 
-- [+] Fix Command Registry Type Erasure Architecture [#274](process/tasks/274-fix-command-registry-type-erasure-architecture.md)
+- [x] Fix Command Registry Type Erasure Architecture [#274](process/tasks/274-fix-command-registry-type-erasure-architecture.md)
 
 - [ ] Store PR Existence in Session Records for Optimized Session Approval [#275](process/tasks/275-store-pr-existence-in-session-records-for-optimized-session-approval.md)
 
