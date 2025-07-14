@@ -106,294 +106,140 @@ describe("My Test Suite", () => {
 - **Zero infinite loops** - timeout protection worked, tests completed in 4.34s
 - **No variable naming issues** - comprehensive check passed ✅
 
-## 🔍 **Remaining Issues to Address**
+## 🔍 **Remaining Work - Final Phase**
 
-### **✅ Storage Backend Conflicts - RESOLVED**
-**Status:** ✅ **COMPLETED** - Task 266 changes applied successfully
+### **Current Status: 5 of 6 Major Issues COMPLETED ✅**
 
-**Resolution Applied:**
-- **Enhanced Storage Backend Factory eliminated** - Task 266 merged all functionality into main `StorageBackendFactory`
-- **Session workspace updated** with merged storage backend factory (473 lines, includes integrity checking)
-- **SessionDbAdapter updated** to use `createStorageBackendWithIntegrity()` with integrity checking enabled by default
-- **All valuable functionality preserved** - Database integrity checking, auto-migration, enhanced error reporting
-- **Meta-cognitive boundary violation eliminated** - No more "Enhanced" naming in program interfaces
+### **Isolation Issues Status:**
+1. ✅ **SessionDB Singleton** - FIXED with dependency injection
+2. ✅ **Process.env Pollution** - FIXED with configuration overrides 
+3. ✅ **Storage Backend Conflicts** - COMPLETED (Task 266 merged storage backend factory)
+4. ✅ **Variable Naming Mismatches** - COMPLETED (Task #224 eliminated infinite loops)
+5. ✅ **File System State** - COMPLETED (Comprehensive cleanup patterns implemented)
+6. ⏳ **Directory Dependencies** - **REMAINING WORK** (Tests changing process.cwd() affect others)
 
-**Benefits Achieved:**
-- **Single, clean factory** with configurable integrity checking
-- **Improved data safety** through integrated integrity validation
-- **Enhanced error reporting** for debugging storage issues
-- **Production-ready reliability** with safety defaults
-- **Eliminated 848 lines of duplicated code**
+## 🎯 **FINAL REMAINING ISSUE: Working Directory Dependencies**
 
-### **2. Variable Naming Mismatches (CRITICAL)**
-```typescript
-// Problem: Variable definition/usage mismatches cause infinite loops
-const _workspacePath = getWorkspacePath();  // Defined with underscore
-return workspacePath.resolve();             // Used without underscore - UNDEFINED!
-```
-
-**Impact:** Tests running for 4+ billion milliseconds (infinite execution)
-**Evidence:** Task #224 revealed infinite loops causing 99.999% execution time waste
-
-### **3. Configuration System Pollution (PARTIALLY FIXED)**
-**Status:** ConfigurationLoader fixed, but other config components may still have issues.
-
-### **4. File System State Leakage**
-```typescript
-// Tests create files/directories without cleanup
-test("creates session", () => {
-  await fs.mkdir("/tmp/test-session");  // ❌ Not cleaned up
-  // Files persist, affecting subsequent tests
-});
-```
-
-### **5. Working Directory Dependencies**
+### **❌ Problem Pattern:**
 ```typescript
 // Tests that change process.cwd() without restoration
 test("workspace operations", () => {
+  const originalCwd = process.cwd();
   process.chdir("/some/test/path");  // ❌ Changes global state
-  // No restoration - affects subsequent tests
+  
+  // Test logic using relative paths...
+  
+  // ❌ NO RESTORATION - affects subsequent tests!
+  // Subsequent tests now run in wrong directory
 });
 ```
 
-## 🔧 **Systematic Fix Strategy**
+### **🔍 Detection Evidence:**
+- **Test failures only in full suite** but pass individually
+- **File path resolution errors** in later tests
+- **"Cannot find file" errors** when tests expect original working directory
+- **Configuration loading failures** when tests look for config files in wrong directory
 
-### **✅ Phase 1: SessionDB Singleton Elimination - COMPLETED**
-1. ✅ **Identified all SessionDB usage** in tests
-2. ✅ **Replaced singleton with dependency injection** pattern
-3. ✅ **Each test gets fresh SessionDB instance** via `createSessionDB()`
-4. ✅ **Added proper dependency injection** to domain functions
+### **✅ Required Implementation:**
 
-**Result:** Zero SessionDB state pollution between tests.
-
-### **✅ Phase 2: Process.env Cleanup - COMPLETED**
-1. ✅ **Audited all process.env usage** in configuration tests
-2. ✅ **Replaced environment variable injection** with configuration overrides
-3. ✅ **Converted to dependency injection** using `ConfigurationLoader.loadConfiguration(workingDir, configOverrides)`
-4. ✅ **Eliminated all beforeEach/afterEach cleanup** (no longer needed)
-
-**Result:** Zero environment variable pollution. Tests are parallel-ready.
-
-### **🔄 Phase 3: Storage Backend Isolation - IN PROGRESS**
-1. 🔄 **Audit EnhancedStorageBackendFactory usage** in tests
-2. ⏳ **Replace singleton with dependency injection** pattern
-3. ⏳ **Ensure each test gets fresh backend instance**
-4. ⏳ **Add proper cleanup/reset between tests**
-
-### **🔄 Phase 4: Variable Naming Fix - IN PROGRESS** 
-1. 🔄 **Fix variable definition/usage mismatches** causing infinite loops
-2. ⏳ **Apply variable-naming-protocol rule** systematically
-3. ⏳ **Verify no more infinite execution deadlocks**
-4. ⏳ **Add proper variable naming validation**
-
-### **⏳ Phase 5: File System Cleanup - PENDING**
-1. ⏳ **Audit file creation/modification** in tests
-2. ⏳ **Add proper cleanup** for temporary files/directories
-3. ⏳ **Use isolated test directories** for each test
-4. ⏳ **Implement teardown patterns**
-
-### **⏳ Phase 6: Working Directory Isolation - PENDING**
-1. ⏳ **Identify process.cwd() changes** in tests
-2. ⏳ **Save and restore working directory** in test setup/teardown
-3. ⏳ **Use absolute paths** instead of relative paths where possible
-4. ⏳ **Add working directory reset** between tests
-
-## 🎯 **Success Criteria**
-
-### **Primary Goal:**
-- [ ] **Tests pass individually = Tests pass in full suite** (100% consistency)
-- [x] **Zero SessionDB state leakage** between tests ✅
-- [x] **Zero process.env pollution** between tests ✅
-- [ ] **Zero storage backend conflicts** between tests
-- [ ] **Complete test isolation** - each test starts with clean state
-
-### **Measurable Outcomes:**
-- [ ] **Same pass rate** when running tests individually vs. full suite
-- [x] **Zero process.env pollution** (ConfigurationLoader refactored) ✅
-- [x] **Zero SessionDB leakage** (dependency injection implemented) ✅
-- [ ] **Zero storage backend conflicts** between tests
-- [ ] **Zero file system state leakage** between tests
-- [ ] **Zero working directory interference** between tests
-
-### **Test Suite Health:**
-- [ ] **>95% pass rate** maintained with proper isolation
-- [ ] **Consistent test results** across multiple runs
-- [ ] **Fast test execution** without isolation overhead
-
-## 🔍 **Proven Implementation Patterns**
-
-### **✅ 1. Dependency Injection for Singletons (ESTABLISHED)**
+#### **1. Working Directory Isolation Pattern**
 ```typescript
-// ❌ Before: Global singleton
-const sessionDB = SessionDB.getInstance();
+// ✅ Proper working directory isolation
+describe("workspace operations", () => {
+  let originalCwd: string;
 
-// ✅ After: Dependency injection
-export function createSessionDB(): SessionProviderInternal {
-  return createSessionProviderInternal();
-}
-
-// Usage in functions:
-export async function sessionPrFromParams(
-  params: SessionPrParams,
-  depsInput?: { SessionDB?: SessionProviderInternal; GitService?: GitService }
-): Promise<SessionPrResult> {
-  const deps = depsInput || {
-    SessionDB: createSessionDB(),
-    GitService: new GitService()
-  };
-  // Function uses injected dependencies
-}
-```
-
-### **✅ 2. Configuration Override Pattern (ESTABLISHED)**
-```typescript
-// ❌ Before: Environment variable pollution
-beforeEach(() => {
-  process.env.MINSKY_SESSIONDB_BACKEND = "sqlite";
-});
-afterEach(() => {
-  delete process.env.MINSKY_SESSIONDB_BACKEND; // Cleanup
-});
-
-// ✅ After: Configuration overrides
-test("should use SQLite backend", async () => {
-  const configOverrides = {
-    sessiondb: { backend: "sqlite", dbPath: "/test/path" }
-  };
-  const config = await loader.loadConfiguration(testDir, configOverrides);
-  // No global state modification needed
-});
-```
-
-### **⏳ 3. Storage Backend Injection (TO IMPLEMENT)**
-```typescript
-// ❌ Current: Storage backend singleton
-const backend = EnhancedStorageBackendFactory.getInstance();
-
-// ✅ Target: Storage backend dependency injection
-function createStorageBackend(): EnhancedStorageBackend {
-  return new EnhancedStorageBackend();
-}
-```
-
-### **⏳ 4. File System Cleanup (TO IMPLEMENT)**
-```typescript
-// ✅ Temporary directory pattern
-describe("file system tests", () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await fs.mkdtemp("/tmp/test-");  // Isolated temp dir
+  beforeEach(() => {
+    originalCwd = process.cwd();  // Save current directory
   });
 
-  afterEach(async () => {
-    await fs.rm(tempDir, { recursive: true });  // Clean up
+  afterEach(() => {
+    process.chdir(originalCwd);   // Always restore original directory
+  });
+
+  test("operations in custom directory", () => {
+    process.chdir("/some/test/path");
+    // Test logic...
+    // Directory automatically restored in afterEach
   });
 });
 ```
 
-## 📋 **Updated Action Plan**
+#### **2. Absolute Path Preference**
+```typescript
+// ❌ Relative paths affected by cwd changes
+const configPath = "./config/test.yaml";
 
-### **✅ Step 1: SessionDB & Configuration - COMPLETED**
-1. ✅ **Implemented SessionDB dependency injection** with `createSessionDB()` factory
-2. ✅ **Refactored ConfigurationLoader** to use configuration overrides
-3. ✅ **Eliminated process.env modifications** in 7 configuration tests
-4. ✅ **Verified zero global state pollution** in these domains
+// ✅ Absolute paths immune to cwd changes  
+const configPath = join(__dirname, "config", "test.yaml");
+```
 
-### **🔄 Step 2: Storage Backend & Variable Naming - IN PROGRESS**
-1. 🔄 **Audit EnhancedStorageBackendFactory singleton** usage
-2. 🔄 **Fix variable naming mismatches** causing infinite loops
-3. ⏳ **Implement storage backend dependency injection**
-4. ⏳ **Verify elimination of infinite execution deadlocks**
+#### **3. Directory Change Detection**
+```typescript
+// ✅ Add cwd change detection to TestIsolationManager
+export class TestIsolationManager {
+  private originalCwd: string = process.cwd();
 
-### **⏳ Step 3: File System & Directory Isolation - PENDING**
-1. ⏳ **Implement file system cleanup** patterns
-2. ⏳ **Add working directory save/restore** patterns
-3. ⏳ **Convert to absolute paths** where needed
-4. ⏳ **Add isolation helpers** for common patterns
+  setupTest(): void {
+    this.originalCwd = process.cwd();
+  }
 
-### **⏳ Step 4: Comprehensive Verification - PENDING**
-1. ⏳ **Run individual tests** to establish baseline
-2. ⏳ **Run full suite** and compare results
-3. ⏳ **Achieve 100% consistency** between individual and suite runs
-4. ⏳ **Document proven patterns** for future development
+  cleanupTest(): void {
+    // Restore original working directory
+    process.chdir(this.originalCwd);
+  }
+}
+```
 
-## 🛠️ **Tools and Techniques**
+## 📋 **Specific Action Items to Complete Task**
 
-### **Detection Tools:**
-- **ESLint rules** for process.env usage ✅
-- **Variable naming protocol** for underscore mismatches 🔄
-- **Test result comparison** (individual vs. suite)
-- **State monitoring** between tests
+### **⏳ Step 1: Audit Working Directory Changes**
+1. **Search all test files** for `process.chdir()` usage
+2. **Identify tests using relative paths** that could be affected by cwd changes
+3. **Document current working directory dependencies** in failing tests
 
-### **✅ Proven Cleanup Patterns:**
-- **Dependency injection** instead of singletons ✅
-- **Configuration overrides** instead of environment variable modification ✅
-- **Factory functions** for creating fresh instances ✅
-- **beforeEach/afterEach** hooks eliminated where possible ✅
+### **⏳ Step 2: Implement Directory Isolation**
+1. **Add beforeEach/afterEach hooks** to save/restore working directory
+2. **Update TestIsolationManager** to include directory restoration
+3. **Convert relative paths to absolute paths** where appropriate
 
-### **🔄 Isolation Techniques In Progress:**
-- **Fresh storage backends** for each test 🔄
-- **Variable naming validation** to prevent infinite loops 🔄
-- **State snapshots** and restoration ⏳
-- **Isolated test environments** ⏳
+### **⏳ Step 3: Verify Complete Test Isolation**
+1. **Run individual tests** vs full suite comparison
+2. **Achieve 100% consistency** between individual and suite test results
+3. **Document test isolation verification** process
+4. **Update test pass rate** from current 79.8% to >95%
 
-## 📈 **Expected Impact**
+## 🎯 **Success Criteria for Task Completion**
 
-### **✅ Achieved Benefits:**
-- **Eliminated SessionDB flakiness** caused by singleton state ✅
-- **Eliminated process.env pollution** in configuration domain ✅
-- **Established dependency injection patterns** for global state elimination ✅
-- **Created foundation for parallel test execution** ✅
+### **✅ Primary Goal: Test Isolation Achievement**
+- **Tests pass individually = Tests pass in full suite** (100% consistency)
+- **Zero global state interference** between tests
+- **Working directory changes isolated** and properly restored
 
-### **🔄 In-Progress Benefits:**
-- **Eliminating storage backend conflicts** 🔄
-- **Fixing infinite loop deadlocks** from variable naming issues 🔄
-- **Reducing debugging time** spent on test interference issues 🔄
+### **✅ Technical Verification:**
+- **bun test src/specific/test.ts** ✅ PASS
+- **bun test** (full suite) ✅ PASS (same tests pass)
+- **No cwd-related failures** in test suite
+- **>95% test pass rate** with stable results
 
-### **⏳ Remaining Benefits:**
-- **Achieve >95% pass rate** with stable, isolated tests ⏳
-- **Reliable CI/CD pipeline** with consistent test results ⏳
-- **Complete foundation for parallel test execution** ⏳
+### **✅ Architectural Achievement:**
+- **Complete dependency injection pattern** established
+- **Global state elimination** across all major domains
+- **Reusable test isolation utilities** for future development
+- **Foundation for parallel test execution** fully prepared
 
-## 📝 **Implementation Checklist**
+## 📊 **Implementation Progress Tracking**
 
-### **✅ Phase 1: SessionDB Singleton - COMPLETED**
-- [x] Audit all SessionDB.getInstance() usage
-- [x] Replace with dependency injection pattern (`createSessionDB()`)
-- [x] Add SessionDB injection to domain functions
-- [x] Verify isolation with targeted tests
+```
+Global State Issues Resolution:
+✅ SessionDB Singleton      - Dependency injection (createSessionDB)
+✅ Process.env Pollution    - Configuration overrides  
+✅ Storage Backend Conflicts- Task 266 merger
+✅ Variable Naming Issues   - Task #224 infinite loop fix
+✅ File System State        - Comprehensive cleanup patterns
+⏳ Directory Dependencies   - Working directory isolation NEEDED
 
-### **✅ Phase 2: Process.env Cleanup - COMPLETED**
-- [x] Run ESLint to identify all process.env usage in config tests
-- [x] Replace with configuration override patterns
-- [x] Remove all environment variable modification and cleanup
-- [x] Verify no leakage between tests (7/7 config tests pass)
+Current: 768 pass / 195 fail = 79.8% pass rate
+Target:  >95% pass rate with complete test isolation
+```
 
-### **🔄 Phase 3: Storage Backend System - IN PROGRESS**
-- [x] Audit EnhancedStorageBackendFactory singleton usage
-- [ ] Implement storage backend dependency injection
-- [ ] Add storage backend isolation helpers
-- [ ] Verify storage backend independence
-
-### **🔄 Phase 4: Variable Naming Fixes - IN PROGRESS**
-- [x] Identify variable naming mismatches causing infinite loops
-- [ ] Apply variable-naming-protocol rule systematically
-- [ ] Fix definition/usage mismatches (e.g., `_workspacePath` vs `workspacePath`)
-- [ ] Verify elimination of infinite execution deadlocks
-
-### **⏳ Phase 5: File System Cleanup - PENDING**
-- [ ] Audit all file system operations in tests
-- [ ] Implement temporary directory patterns
-- [ ] Add proper cleanup in teardown
-- [ ] Verify no file system leakage
-
-### **⏳ Phase 6: Working Directory - PENDING**
-- [ ] Audit all process.cwd() changes
-- [ ] Implement directory save/restore patterns
-- [ ] Convert to absolute paths where possible
-- [ ] Verify directory isolation
-
-**Priority:** HIGH - Test isolation is critical for reliable CI/CD
-**Complexity:** HIGH - Requires systematic global state refactoring (**MAJOR PROGRESS MADE**)
-**Impact:** HIGH - Eliminates major source of test flakiness (**PARTIALLY ACHIEVED**)
+**This is the final piece needed to achieve complete test isolation and reliable CI/CD pipeline.**
