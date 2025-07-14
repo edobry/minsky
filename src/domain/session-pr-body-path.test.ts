@@ -55,7 +55,7 @@ describe("sessionPrFromParams bodyPath file reading functionality", () => {
 
   test("should work with relative paths correctly", async () => {
     // Create file in session workspace using absolute path
-    const sessionDir = "/Users/edobry/.local/state/minsky/sessions/task#150";
+    const sessionDir = "/Users/edobry/.local/state/minsky/sessions/task#272";
     const relativeFilePath = "test-relative-body.txt";
     const absoluteTestFilePath = join(sessionDir, relativeFilePath);
     await writeFile(absoluteTestFilePath, testContent);
