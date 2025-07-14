@@ -1,5 +1,5 @@
 import { spawn, ChildProcess } from "child_process";
-import { log } from "../utils/logger.js";
+import { log } from "../utils/logger";
 import { getErrorMessage } from "../errors/index";
 
 /**

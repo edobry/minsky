@@ -15,8 +15,8 @@ import {
   updateSessionFromParams,
   type SessionProviderInterface,
   type SessionRecord,
-} from "../../session.js";
-import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
+} from "../../session";
+import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 
 // Mock session provider
 const createMockSessionProvider = (sessions: SessionRecord[] = []): SessionProviderInterface => {

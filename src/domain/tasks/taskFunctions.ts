@@ -2,11 +2,11 @@
  * Pure functions for task operations
  * These functions don't have side effects and work with the task data types
  */
-import type { TaskData, TaskFilter, TaskSpecData } from "../../types/tasks/taskData.js";
+import type { TaskData, TaskFilter, TaskSpecData } from "../../types/tasks/taskData";
 
 // Import constants and utilities from centralized location
-import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants.js";
-import type { TaskStatus } from "./taskConstants.js";
+import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants";
+import type { TaskStatus } from "./taskConstants";
 
 /**
  * Parse tasks from markdown content (pure function)

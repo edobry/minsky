@@ -7,12 +7,12 @@ const COMMIT_HASH_SHORT_LENGTH = 7;
 
 import { promises as fs } from "fs";
 import { join, dirname } from "path";
-import { log } from "../../utils/logger.js";
+import { log } from "../../utils/logger";
 import type {
   TaskWriteOperationResult,
   TaskReadOperationResult,
   TaskFileOperationResult,
-} from "../../types/tasks/taskData.js";
+} from "../../types/tasks/taskData";
 
 /**
  * Read the tasks file

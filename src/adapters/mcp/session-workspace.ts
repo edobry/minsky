@@ -2,12 +2,12 @@
  * MCP adapter for session workspace operations
  * Provides session-scoped workspace tools that enforce workspace isolation
  */
-import type { CommandMapper } from "../../mcp/command-mapper.js";
+import type { CommandMapper } from "../../mcp/command-mapper";
 import { z } from "zod";
 import { readFile, writeFile, mkdir, access, readdir, unlink, stat } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
-import { createSessionProvider, type SessionProviderInterface } from "../../domain/session.js";
-import { log } from "../../utils/logger.js";
+import { createSessionProvider, type SessionProviderInterface } from "../../domain/session";
+import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
 /**

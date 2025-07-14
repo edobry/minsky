@@ -1,9 +1,9 @@
 /**
  * MCP adapter for init commands
  */
-import type { CommandMapper } from "../../mcp/command-mapper.js";
-import { registerInitCommandsWithMcp } from "./shared-command-integration.js";
-import { log } from "../../utils/logger.js";
+import type { CommandMapper } from "../../mcp/command-mapper";
+import { registerInitCommandsWithMcp } from "./shared-command-integration";
+import { log } from "../../utils/logger";
 
 /**
  * Registers initialization tools with the MCP command mapper

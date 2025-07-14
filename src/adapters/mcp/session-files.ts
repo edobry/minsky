@@ -5,9 +5,9 @@
 import { readFile, writeFile, mkdir, access, readdir, unlink, stat } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
 import { z } from "zod";
-import { createSessionProvider, type SessionProviderInterface } from "../../domain/session.js";
-import type { CommandMapper } from "../../mcp/command-mapper.js";
-import { log } from "../../utils/logger.js";
+import { createSessionProvider, type SessionProviderInterface } from "../../domain/session";
+import type { CommandMapper } from "../../mcp/command-mapper";
+import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
 /**

@@ -3,7 +3,7 @@
  */
 import { z } from "zod";
 import { commonCommandOptionsSchema, taskIdSchema, flagSchema } from "./common";
-import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants.js";
+import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants";
 
 /**
  * Valid task statuses

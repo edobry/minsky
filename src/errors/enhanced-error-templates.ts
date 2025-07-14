@@ -13,7 +13,7 @@ import {
   formatContextInfo,
   type CommandSuggestion,
   type ContextInfo
-} from "./message-templates.js";
+} from "./message-templates";
 
 /**
  * Enhanced error message for session PR branch restriction

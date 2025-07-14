@@ -4,8 +4,8 @@
  * Common utilities for the CLI interface
  */
 
-import { ensureError } from "../../../errors/index.js";
-import { log } from "../../../utils/logger.js";
+import { ensureError } from "../../../errors/index";
+import { log } from "../../../utils/logger";
 
 // Re-export shared options functions needed by other modules
 export {
@@ -19,7 +19,7 @@ export {
   addTaskOptions,
   addBackendOptions,
   addForceOptions,
-} from "./shared-options.js";
+} from "./shared-options";
 
 // Re-export types from shared options
 export type {
@@ -28,7 +28,7 @@ export type {
   TaskOptions,
   BackendOptions,
   ForceOptions,
-} from "./shared-options.js";
+} from "./shared-options";
 
 /**
  * Options for formatting output

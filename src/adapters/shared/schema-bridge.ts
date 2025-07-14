@@ -6,7 +6,7 @@
  */
 import { Command } from "commander";
 import { z } from "zod";
-import type { CommandParameterDefinition, CommandParameterMap } from "./command-registry.js";
+import type { CommandParameterDefinition, CommandParameterMap } from "./command-registry";
 /**
  * Type for CLI option flag definition
  */

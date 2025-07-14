@@ -10,7 +10,7 @@
 /// <reference lib="es2015" />
 /// <reference lib="webworker" />
 import { beforeEach, describe, expect, test } from "bun:test";
-import { LogMode, getLogMode, createConfigurableLogger } from "./logger.js";
+import { LogMode, getLogMode, createConfigurableLogger } from "./logger";
 
 describe("Logger", () => {
   describe("getLogMode", () => {

@@ -1,9 +1,9 @@
 /**
  * MCP adapter for debug commands
  */
-import type { CommandMapper } from "../../mcp/command-mapper.js";
-import { registerDebugCommandsWithMcp } from "./shared-command-integration.js";
-import { log } from "../../utils/logger.js";
+import type { CommandMapper } from "../../mcp/command-mapper";
+import { registerDebugCommandsWithMcp } from "./shared-command-integration";
+import { log } from "../../utils/logger";
 
 /**
  * Registers debug tools with the MCP command mapper

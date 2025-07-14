@@ -1,7 +1,7 @@
 import { FastMCP } from "fastmcp";
-import { log } from "../utils/logger.js";
-import type { ProjectContext } from "../types/project.js";
-import { createProjectContextFromCwd } from "../types/project.js";
+import { log } from "../utils/logger";
+import type { ProjectContext } from "../types/project";
+import { createProjectContextFromCwd } from "../types/project";
 import { getErrorMessage } from "../errors/index";
 
 /**
