@@ -61,7 +61,7 @@ export const taskIdSchema = (z
 
     // Add the '#' prefix to ensure canonical format
     return `#${normalized}`;
-  }) as unknown).refine((val) => /^#[a-zA-Z0-9]+$/.test(val), {
+  }) as unknown).refine((val) => /^#[a-zA-Z0-9_]+$/.test(val), {
   message: "Task ID must be in format #TEST_VALUE or TEST_VALUE",
 });
 
