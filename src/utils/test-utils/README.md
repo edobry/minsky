@@ -290,4 +290,4 @@ const user = {
 
 ## Examples
 
-See `/src/utils/test-utils/__tests__/enhanced-utils.test.ts` for comprehensive examples of how to use these utilities effectively.
+See `/src/utils/test-utils/enhanced-utils.test.ts` for comprehensive examples of how to use these utilities effectively.

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Task #270**: Restructured test architecture to use co-location instead of separate `__tests__` directories
+  - Adopted standard TypeScript/JavaScript co-location pattern where tests are placed next to their modules
+  - Updated test naming conventions: `[module].test.ts`, `[module].commands.test.ts`, `[module].adapter.test.ts`
+  - Reserve `tests/` directories only for complex integration tests that don't fit co-location
+  - Updated all import paths to use shorter relative paths from co-located tests
+  - Updated configuration files (ESLint, codemod filters) to support both old and new patterns
+  - Created comprehensive test architecture documentation promoting co-location
+  - Established clear separation between domain logic and adapter tests
+  - Fixed architectural confusion between integration tests and adapter tests
+  - Updated cursor rules (`test-organization`, `testing-router`, `bun-test-patterns`) to promote co-location
+
 ### Fixed
 
 - **Session Approve Command Output Formatting**

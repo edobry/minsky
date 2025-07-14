@@ -642,9 +642,57 @@ Examples:
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
-      // Validate that either body or bodyPath is provided
+      // Import gitService for validation
+      const { createGitService } = await import("../../../domain/git.js");
+
+      // Conditional validation: require body/bodyPath only for new PRs (not refreshing existing ones)
       if (!params!.body && !params!.bodyPath) {
-        throw new Error(`PR description is required for meaningful pull requests.
+        // Check if there's an existing PR branch to determine if we can refresh
+        const currentDir = process.cwd();
+        const isSessionWorkspace = currentDir.includes("/sessions/");
+        
+        let sessionName = params!.name;
+        if (!sessionName && isSessionWorkspace) {
+          // Try to detect session name from current directory
+          const pathParts = currentDir.split("/");
+          const sessionsIndex = pathParts.indexOf("sessions");
+          if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
+            sessionName = pathParts[sessionsIndex + 1];
+          }
+        }
+
+        if (sessionName) {
+          const gitService = createGitService();
+          const prBranch = `pr/${sessionName}`;
+          
+          // Check if PR branch exists locally or remotely
+          let prBranchExists = false;
+          try {
+            // Check if branch exists locally
+            const localBranchOutput = await gitService.execInRepository(
+              currentDir,
+              `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
+            );
+            const localBranchExists = localBranchOutput.trim() !== "not-exists";
+
+            if (localBranchExists) {
+              prBranchExists = true;
+            } else {
+              // Check if branch exists remotely
+              const remoteBranchOutput = await gitService.execInRepository(
+                currentDir,
+                `git ls-remote --heads origin ${prBranch}`
+              );
+              prBranchExists = remoteBranchOutput.trim().length > 0;
+            }
+          } catch (error) {
+            // If we can't check branch existence, assume it doesn't exist
+            prBranchExists = false;
+          }
+          
+          if (!prBranchExists) {
+            // No existing PR branch, so body/bodyPath is required
+            throw new Error(`PR description is required for meaningful pull requests.
 Please provide one of:
   --body <text>       Direct PR body text
   --body-path <path>  Path to file containing PR body
@@ -652,6 +700,10 @@ Please provide one of:
 Example:
   minsky session pr --title "feat: Add new feature" --body "This PR adds..."
   minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
+          }
+          // If prBranchExists is true, we can proceed with refresh (no body/bodyPath needed)
+        }
+        // If we can't determine sessionName, let sessionPrFromParams handle the error
       }
 
       try {

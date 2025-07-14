@@ -881,7 +881,7 @@ export async function updateSessionFromParams(
 /**
  * Helper function to check if a PR branch exists for a session
  */
-async function checkPrBranchExists(
+export async function checkPrBranchExists(
   sessionName: string,
   gitService: GitServiceInterface,
   currentDir: string

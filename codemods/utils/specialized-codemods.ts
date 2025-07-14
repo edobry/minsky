@@ -475,7 +475,7 @@ export abstract class TypeScriptErrorCodemod extends BaseCodemod {
     const sourceFiles = this.getAllTsFiles('./src').filter(file => 
       !file.includes('/scripts/') && 
       !file.includes('test-utils') &&
-      !file.includes('__tests__') &&
+      !file.includes('__tests__') && !file.includes('/tests/') &&
       !file.includes('.test.ts') &&
       !file.includes('.spec.ts')
     );

@@ -6,7 +6,7 @@ import {
   getSessionFromRepo,
   getCurrentSession,
   resolveWorkspacePath,
-} from "../../../domain/workspace.js";
+} from "../../../src/domain/workspace.js";
 
 const TEST_VALUE = 123;
 
