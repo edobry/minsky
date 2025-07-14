@@ -496,7 +496,7 @@
 
 - [+] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
 
-- [-] Restructure and improve test architecture for clarity and maintainability [#270](process/tasks/270-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
+- [x] Restructure and improve test architecture for clarity and maintainability [#270](process/tasks/270-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
 
 - [x] Find and Fix All Unsafe Type Casts (as any) in Codebase [#271](process/tasks/271-find-and-fix-all-unsafe-type-casts-as-any-in-codebase.md)
 
