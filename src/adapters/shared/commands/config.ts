@@ -32,12 +32,12 @@ const configListParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as any).default(false),
+    schema: (z.boolean() as unknown).default(false),
     description: "Output in JSON format",
     required: false,
   },
   sources: {
-    schema: (z.boolean() as any).default(false),
+    schema: (z.boolean() as unknown).default(false),
     description: "Show configuration sources and precedence",
     required: false,
   },
@@ -58,12 +58,12 @@ const configShowParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as any).default(false),
+    schema: (z.boolean() as unknown).default(false),
     description: "Output in JSON format",
     required: false,
   },
   sources: {
-    schema: (z.boolean() as any).default(false),
+    schema: (z.boolean() as unknown).default(false),
     description: "Show configuration sources and precedence",
     required: false,
   },
@@ -74,32 +74,32 @@ const configShowParams: CommandParameterMap = {
  */
 const configListRegistration = {
   id: "config.list",
-  category: (CommandCategory as any).CONFIG,
+  category: (CommandCategory as unknown).CONFIG,
   name: "list",
   description: "Show all configuration from all sources",
   parameters: configListParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
     try {
       // Use node-config directly to get configuration
-      const sources = (config.util as any).getConfigSources();
+      const sources = (config.util as unknown).getConfigSources();
       const resolved = {
-        backend: (config as any).get("backend"),
-        backendConfig: (config as any).get("backendConfig"),
-        credentials: (config as any).get("credentials"),
-        sessiondb: (config as any).get("sessiondb"),
-        ai: (config as any).has("ai") ? (config as any).get("ai") : undefined as any,
+        backend: config.get("backend"),
+        backendConfig: config.get("backendConfig"),
+        credentials: config.has("credentials") ? config.get("credentials") : {},
+        sessiondb: config.get("sessiondb"),
+        ai: config.has("ai") ? config.get("ai") : undefined,
       };
 
       return {
         success: true,
-        json: (params as any).json || false,
-        sources: (sources as any).map((source) => ({
-          name: (source as any).name,
-          original: (source as any).original,
-          parsed: (source as any).parsed,
+        json: (params as unknown).json || false,
+        sources: (sources as unknown).map((source) => ({
+          name: (source as unknown).name,
+          original: (source as unknown).original,
+          parsed: (source as unknown).parsed,
         })),
         resolved,
-        showSources: (params as any).sources || false,
+        showSources: (params as unknown).sources || false,
       };
     } catch (error) {
       log.error("Failed to load configuration", {
@@ -107,7 +107,7 @@ const configListRegistration = {
       });
       return {
         success: false,
-        json: (params as any).json || false,
+        json: (params as unknown).json || false,
         error: getErrorMessage(error as any),
         showSources: (params as any).sources || false,
       };
@@ -120,7 +120,7 @@ const configListRegistration = {
  */
 const configShowRegistration = {
   id: "config.show",
-  category: (CommandCategory as any).CONFIG,
+  category: (CommandCategory as unknown).CONFIG,
   name: "show",
   description: "Show the final resolved configuration",
   parameters: configShowParams,
@@ -128,23 +128,23 @@ const configShowRegistration = {
     try {
       // Use node-config directly to get resolved configuration
       const resolved = {
-        backend: (config as any).get("backend"),
-        backendConfig: (config as any).get("backendConfig"),
-        credentials: (config as any).get("credentials"),
-        sessiondb: (config as any).get("sessiondb"),
-        ai: (config as any).has("ai") ? (config as any).get("ai") : undefined as any,
+        backend: config.get("backend"),
+        backendConfig: config.get("backendConfig"),
+        credentials: config.has("credentials") ? config.get("credentials") : {},
+        sessiondb: config.get("sessiondb"),
+        ai: config.has("ai") ? config.get("ai") : undefined,
       };
 
       return {
         success: true,
-        json: (params as any).json || false,
+        json: (params as unknown).json || false,
         configuration: resolved,
-        showSources: (params as any).sources || false,
-        ...((params as any).sources && {
-          sources: (config.util.getConfigSources() as any).map((source) => ({
-            name: (source as any).name,
-            original: (source as any).original,
-            parsed: (source as any).parsed,
+        showSources: (params as unknown).sources || false,
+        ...((params as unknown).sources && {
+          sources: (config.util.getConfigSources() as unknown).map((source) => ({
+            name: (source as unknown).name,
+            original: (source as unknown).original,
+            parsed: (source as unknown).parsed,
           })),
         }),
       };
@@ -154,7 +154,7 @@ const configShowRegistration = {
       });
       return {
         success: false,
-        json: (params as any).json || false,
+        json: (params as unknown).json || false,
         error: getErrorMessage(error as any),
         showSources: (params as any).sources || false,
       };
@@ -166,6 +166,6 @@ const configShowRegistration = {
  * Register all config commands
  */
 export function registerConfigCommands() {
-  (sharedCommandRegistry as any).registerCommand(configListRegistration);
-  (sharedCommandRegistry as any).registerCommand(configShowRegistration);
+  (sharedCommandRegistry as unknown).registerCommand(configListRegistration);
+  (sharedCommandRegistry as unknown).registerCommand(configShowRegistration);
 }

@@ -12,7 +12,7 @@ export class SessionNotFoundError extends Error {
     message?: string
   ) {
     super(message || `Session not found: ${sessionId}`);
-    (this as any).name = "SessionNotFoundError";
+    (this as unknown)?.name = "SessionNotFoundError";
   }
 }
 
@@ -35,7 +35,7 @@ export class SessionPathResolver {
     // Handle different path formats
     let targetPath: string;
     
-    if ((userPath as any).startsWith("/")) {
+    if (userPath.startsWith("/")) {
       // Absolute path - could be dangerous, check if it's within session
       targetPath = resolve(userPath);
     } else {
@@ -50,7 +50,7 @@ export class SessionPathResolver {
     const relativeToBoundary = relative(normalizedSessionDir, targetPath);
     
     // If the relative path starts with "..", it's outside the session
-    if ((relativeToBoundary as any).startsWith("..") || relativeToBoundary === "..") {
+    if (relativeToBoundary.startsWith("..") || relativeToBoundary === "..") {
       throw new InvalidPathError(
         `Path '${userPath}' resolves outside session workspace boundaries. Resolved to: ${targetPath}`,
         normalizedSessionDir,
@@ -81,7 +81,7 @@ export class SessionPathResolver {
       const relativePath = relative(normalizedSessionDir, normalizedResolvedPath);
       
       // Path is within session if it doesn't start with ".."
-      return !(relativePath as any).startsWith("..") && relativePath !== "..";
+      return !relativePath.startsWith("..") && relativePath !== "..";
     } catch (error) {
       log.warn("Error checking path boundaries", {
         sessionDir,
@@ -98,15 +98,15 @@ export class SessionPathResolver {
    * @param absolutePath Absolute path to convert
    * @returns Relative path within session, or null if outside boundaries
    */
-  absoluteToRelative(sessionDir: string, absolutePath: string): string | undefined {
+  absoluteToRelative(sessionDir: string, absolutePath: string): string | null {
     try {
       const normalizedSessionDir = resolve(sessionDir);
       const normalizedAbsolutePath = resolve(absolutePath);
       const relativePath = relative(normalizedSessionDir, normalizedAbsolutePath);
       
       // Return null if path is outside session boundaries
-      if ((relativePath as any).startsWith("..") || relativePath === "..") {
-        return null as any;
+      if (relativePath.startsWith("..") || relativePath === "..") {
+        return null;
       }
       
       // Return "." for the session root
@@ -117,7 +117,7 @@ export class SessionPathResolver {
         absolutePath,
         error: getErrorMessage(error as any),
       });
-      return null as any;
+      return null;
     }
   }
 
@@ -132,7 +132,7 @@ export class SessionPathResolver {
     const normalizedRelative = relative(basePath, resolved);
     
     // Ensure we don't allow paths that go outside the base
-    if ((normalizedRelative as any).startsWith("..")) {
+    if (normalizedRelative.startsWith("..")) {
       throw new InvalidPathError(
         `Relative path '${relativePath}' attempts to traverse outside base directory`,
         basePath,
@@ -157,19 +157,19 @@ export class SessionPathResolver {
     for (const userPath of userPaths) {
       try {
         const validatedPath = this.validateAndResolvePath(sessionDir, userPath);
-        (validatedPaths as any).push(validatedPath);
+        validatedPaths.push(validatedPath);
       } catch (error) {
         if (error instanceof InvalidPathError) {
-          (errors as any).push(`${userPath}: ${(error as any).message}`);
+          errors.push(`${userPath}: ${(error as any).message}`);
         } else {
-          (errors as any).push(`${userPath}: Unexpected error during validation`);
+          errors.push(`${userPath}: Unexpected error during validation`);
         }
       }
     }
     
-    if ((errors as any).length > 0) {
+    if (errors?.length > 0) {
       throw new InvalidPathError(
-        `Multiple path validation errors:\n${(errors as any).join("\n")}`,
+        `Multiple path validation errors:\n${errors.join("\n")}`,
         sessionDir
       );
     }

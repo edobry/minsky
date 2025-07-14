@@ -1,9 +1,9 @@
 /**
  * MCP adapter for task commands
  */
-import type { CommandMapper } from "../../mcp/command-mapper.js";
-import { registerTaskCommandsWithMcp } from "./shared-command-integration.js";
-import { log } from "../../utils/logger.js";
+import type { CommandMapper } from "../../mcp/command-mapper";
+import { registerTaskCommandsWithMcp } from "./shared-command-integration";
+import { log } from "../../utils/logger";
 
 /**
  * Registers task tools with the MCP command mapper

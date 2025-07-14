@@ -4,8 +4,8 @@
  * Common utilities for the CLI interface
  */
 
-import { ensureError } from "../../../errors/index.js";
-import { log } from "../../../utils/logger.js";
+import { ensureError } from "../../../errors/index";
+import { log } from "../../../utils/logger";
 
 // Re-export shared options functions needed by other modules
 export {
@@ -19,7 +19,7 @@ export {
   addTaskOptions,
   addBackendOptions,
   addForceOptions,
-} from "./shared-options.js";
+} from "./shared-options";
 
 // Re-export types from shared options
 export type {
@@ -28,7 +28,7 @@ export type {
   TaskOptions,
   BackendOptions,
   ForceOptions,
-} from "./shared-options.js";
+} from "./shared-options";
 
 /**
  * Options for formatting output
@@ -47,30 +47,30 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
   }
 
   try {
-    if ((options as any).json) {
+    if ((options as unknown)!.json) {
       // JSON output
-      log.cli(JSON.stringify(result as any, undefined, 2));
-    } else if ((options as any).formatter) {
+      log.cli(JSON.stringify(result as unknown, undefined, 2));
+    } else if ((options as unknown)!.formatter) {
       // Custom formatter
-      (options as any).formatter(result as any);
+      (options as unknown)!.formatter(result as unknown);
     } else {
       // Default output based on result type
       if (typeof result === "string") {
-        log.cli(result as any);
+        log.cli(result as unknown);
       } else if (typeof result === "object" && result !== null) {
-        if (Array.isArray(result as any)) {
-          (result as any).forEach((item) => {
+        if (Array.isArray(result as unknown)) {
+          (result as unknown)!.forEach((item) => {
             if (typeof item === "string") {
-              log.cli(item as any);
+              log.cli(item as unknown);
             } else {
-              log.cli(JSON.stringify(item as any, undefined, 2));
+              log.cli(JSON.stringify(item as unknown, undefined, 2));
             }
           });
         } else {
-          log.cli(JSON.stringify(result as any, undefined, 2));
+          log.cli(JSON.stringify(result as unknown, undefined, 2));
         }
       } else {
-        log.cli(String(result as any));
+        log.cli(String(result as unknown));
       }
     }
   } catch (error) {
@@ -86,11 +86,11 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
 export function handleCliError(error: any, options: { debug?: boolean } = {}): void {
   const err = ensureError(error as any);
 
-  if ((options as any).debug) {
+  if ((options as any)!.debug) {
     // Detailed error in debug mode
     log.cliError("Command execution failed");
     log.cliError(String(err as any));
-    if ((err as any).stack) {
+    if ((err as any)?.stack) {
       log.cliError((err as any).stack);
     }
   } else {
@@ -99,11 +99,14 @@ export function handleCliError(error: any, options: { debug?: boolean } = {}): v
   }
 
   // Set appropriate exit code based on error type
-  if ((err as any).name === "ValidationError") {
-    (process as any).exitCode = 2;
-  } else if ((err as any).name === "NotFoundError") {
-    (process as any).exitCode = 4;
+  if ((err as any)?.name === "ValidationError") {
+    // @ts-expect-error - Bun environment compatibility
+    process.exitCode = 2;
+  } else if ((err as any)?.name === "NotFoundError") {
+    // @ts-expect-error - Bun environment compatibility
+    process.exitCode = 4;
   } else {
-    (process as any).exitCode = 1;
+    // @ts-expect-error - Bun environment compatibility
+    process.exitCode = 1;
   }
 }

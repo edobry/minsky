@@ -13,11 +13,11 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
-} from "../../shared/command-registry.js";
-import { RuleService, type RuleFormat } from "../../../domain/rules.js";
-import { resolveWorkspacePath } from "../../../domain/workspace.js";
-import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers.js";
-import { log } from "../../../utils/logger.js";
+} from "../../shared/command-registry";
+import { RuleService, type RuleFormat } from "../../../domain/rules";
+import { resolveWorkspacePath } from "../../../domain/workspace";
+import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers";
+import { log } from "../../../utils/logger";
 import {
   RULE_FORMAT_DESCRIPTION,
   RULE_TAGS_DESCRIPTION,
@@ -25,7 +25,7 @@ import {
   RULE_DESCRIPTION_DESCRIPTION,
   RULE_NAME_DESCRIPTION,
   OVERWRITE_DESCRIPTION,
-} from "../../../utils/option-descriptions.js";
+} from "../../../utils/option-descriptions";
 
 /**
  * Parameters for the rules list command
@@ -489,13 +489,13 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Convert parameters
-        const format = (params as any).format as RuleFormat | undefined;
+        const format = (params as unknown).format as RuleFormat | undefined;
 
         // Call domain function
         const rules = await ruleService.searchRules({
           format,
-          tag: (params as any).tag,
-          query: (params as any).query,
+          tag: (params as unknown).tag,
+          query: (params as unknown).query,
         });
 
         return {

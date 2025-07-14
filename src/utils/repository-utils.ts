@@ -38,10 +38,10 @@ export class RepositoryMetadataCache {
    * @returns The singleton instance
    */
   static getInstance(): RepositoryMetadataCache {
-    if (!(RepositoryMetadataCache as any).instance) {
-      (RepositoryMetadataCache as any).instance = new RepositoryMetadataCache();
+    if (!(RepositoryMetadataCache as unknown)!.instance) {
+      (RepositoryMetadataCache as unknown)!.instance = new RepositoryMetadataCache();
     }
-    return (RepositoryMetadataCache as any).instance;
+    return (RepositoryMetadataCache as unknown)!.instance;
   }
 
   /**
@@ -53,17 +53,17 @@ export class RepositoryMetadataCache {
    * @returns The cached or fetched value
    */
   async get<T>(key: string, fetcher: () => Promise<T>, ttl: number = this.DEFAULT_TTL): Promise<T> {
-    const cacheEntry = (this.cache as any).get(key) as CacheEntry<T> | undefined;
-    const now = (Date as any).now();
+    const cacheEntry = (this.cache as unknown).get(key) as CacheEntry<T> | undefined;
+    const now = (Date as unknown).now();
 
     // If the entry exists and is not expired, return it
-    if (cacheEntry && now - (cacheEntry as any).timestamp < ttl) {
-      return (cacheEntry as any).data;
+    if (cacheEntry && now - (cacheEntry as unknown)?.timestamp < ttl) {
+      return (cacheEntry as unknown)!.data;
     }
 
     // Otherwise fetch the data and update the cache
     const data = await fetcher();
-    (this.cache as any).set(key, { data, timestamp: now });
+    (this.cache as unknown).set(key, { data, timestamp: now });
     return data;
   }
 
@@ -74,7 +74,7 @@ export class RepositoryMetadataCache {
    * @param data Data to cache
    */
   set<T>(key: string, data: T): void {
-    (this.cache as any).set(key, { data, timestamp: (Date as any).now() });
+    (this.cache as unknown).set(key, { data, timestamp: (Date as unknown).now() });
   }
 
   /**
@@ -83,7 +83,7 @@ export class RepositoryMetadataCache {
    * @param key Cache key to invalidate
    */
   invalidate(key: string): void {
-    (this.cache as any).delete(key);
+    (this.cache as unknown).delete(key);
   }
 
   /**
@@ -93,9 +93,9 @@ export class RepositoryMetadataCache {
    * @param prefix Cache key prefix to match
    */
   invalidateByPrefix(prefix: string): void {
-    for (const key of Array.from((this.cache as any).keys())) {
-      if ((key as any).startsWith(prefix)) {
-        (this.cache as any).delete(key);
+    for (const key of Array.from((this.cache as unknown).keys())) {
+      if ((key as unknown).startsWith(prefix)) {
+        (this.cache as unknown).delete(key);
       }
     }
   }
@@ -104,7 +104,7 @@ export class RepositoryMetadataCache {
    * Invalidate all cache entries.
    */
   invalidateAll(): void {
-    (this.cache as any).clear();
+    (this.cache as unknown).clear();
   }
 }
 
@@ -124,7 +124,7 @@ export function generateRepoKey(
   let key = `repo:${repoPath}:${operation}`;
 
   if (params) {
-    key += `:${JSON.stringify(params as any)}`;
+    key += `:${JSON.stringify(params as unknown)}`;
   }
 
   return key;
@@ -145,6 +145,6 @@ export class RepositoryError extends Error {
     public readonly cause?: Error
   ) {
     super(message);
-    (this as any).name = "RepositoryError";
+    (this as unknown)?.name = "RepositoryError";
   }
 }

@@ -7,7 +7,7 @@
  * Descriptions are organized by functional area for easier maintenance.
  */
 
-import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants.js";
+import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants";
 
 // ------------------------------------------------------------------
 // Repository Resolution

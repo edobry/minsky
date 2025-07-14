@@ -5,7 +5,7 @@
 
 import fs from "fs";
 import path from "path";
-import { log } from "../utils/logger.js";
+import { log } from "../utils/logger";
 
 /**
  * ProjectContext represents the context information for a Minsky project.
@@ -52,7 +52,7 @@ export function createProjectContext(repositoryPath: string): ProjectContext {
   if (!validateRepositoryPath(normalizedPath)) {
     const errorMessage = `Invalid repository path: ${normalizedPath}`;
     log.error(errorMessage);
-    throw new Error(errorMessage as any);
+    throw new Error(errorMessage as unknown);
   }
 
   return {

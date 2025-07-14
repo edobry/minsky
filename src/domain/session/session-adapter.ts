@@ -17,7 +17,8 @@ import {
   getRepoPathFn,
   getSessionWorkdirFn,
 } from "./session-db"; // Value imports
-import { readSessionDbFile, writeSessionDbFile } from "./session-db-io";
+import { readSessionDbFile, writeSessionsToFile } from "./session-db-io";
+import { getMinskyStateDir, getDefaultJsonDbPath } from "../../utils/paths";
 
 /**
  * Interface for session provider
@@ -75,15 +76,13 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   private state: SessionDbState;
 
   constructor(dbPath?: string) {
-    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
-
     if (dbPath) {
       this.dbPath = dbPath;
       // For custom dbPath, set baseDir based on a parallel directory structure
       this.baseDir = join(dbPath, "..", "..");
     } else {
-      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
-      this.baseDir = join(xdgStateHome, "minsky");
+      this.dbPath = getDefaultJsonDbPath();
+      this.baseDir = getMinskyStateDir();
     }
 
     // Initialize state (will be populated on first read)
@@ -94,8 +93,12 @@ export class SessionAdapter implements LocalSessionProviderInterface {
    * Read database from disk
    */
   private async readDb(): Promise<SessionRecord[]> {
-    this.state = readSessionDbFile({ dbPath: this.dbPath, baseDir: this.baseDir });
-    return (this.state as any).sessions;
+    const sessions = readSessionDbFile({ dbPath: this.dbPath, baseDir: this.baseDir });
+    this.state = {
+      sessions,
+      baseDir: this.baseDir,
+    };
+    return sessions;
   }
 
   /**
@@ -108,7 +111,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
       sessions,
     };
     // Then write to disk
-    writeSessionDbFile(this.state, { dbPath: this.dbPath });
+    await writeSessionsToFile(sessions, { dbPath: this.dbPath });
   }
 
   /**
@@ -140,16 +143,19 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   async addSession(_record: SessionRecord): Promise<void> {
     await this.readDb();
     const newState = addSessionFn(this.state, _record);
-    await this.writeDb((newState as any).sessions);
+    await this.writeDb((newState as unknown).sessions);
   }
 
   /**
    * Update an existing session
    */
-  async updateSession(session: string, _updates: Partial<Omit<SessionRecord, "session">>): Promise<void> {
+  async updateSession(
+    session: string,
+    _updates: Partial<Omit<SessionRecord, "session">>
+  ): Promise<void> {
     await this.readDb();
     const newState = updateSessionFn(this.state, session, _updates);
-    await this.writeDb((newState as any).sessions);
+    await this.writeDb((newState as unknown).sessions);
   }
 
   /**
@@ -157,15 +163,15 @@ export class SessionAdapter implements LocalSessionProviderInterface {
    */
   async deleteSession(session: string): Promise<boolean> {
     await this.readDb();
-    const originalLength = (this.state.sessions as any).length;
+    const originalLength = (this.state.sessions as unknown).length;
     const newState = deleteSessionFn(this.state, session);
 
     // If no change occurred (session not found)
-    if ((newState.sessions as any).length === originalLength) {
+    if ((newState.sessions as unknown).length === originalLength) {
       return false;
     }
 
-    await this.writeDb((newState as any).sessions);
+    await this.writeDb((newState as unknown).sessions);
     return true;
   }
 

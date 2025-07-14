@@ -7,7 +7,7 @@
  */
 
 import { Command } from "commander";
-import { normalizeTaskId } from "../../../domain/tasks.js";
+import { normalizeTaskId } from "../../../domain/tasks";
 // Removed unused schema type imports
 import {
   SESSION_DESCRIPTION,
@@ -18,7 +18,7 @@ import {
   TASK_ID_DESCRIPTION,
   BACKEND_DESCRIPTION,
   FORCE_DESCRIPTION,
-} from "../../../utils/option-descriptions.js";
+} from "../../../utils/option-descriptions";
 
 // ------------------------------------------------------------------
 // Option Interfaces
@@ -90,7 +90,7 @@ export interface ForceOptions {
 export function addRepoOptions(command: Command): Command {
   return (command
     .option("--session <session>", SESSION_DESCRIPTION)
-    .option("--repo <repositoryUri>", REPO_DESCRIPTION) as any).option("--upstream-repo <upstreamRepoUri>", UPSTREAM_REPO_DESCRIPTION);
+    .option("--repo <repositoryUri>", REPO_DESCRIPTION) as unknown).option("--upstream-repo <upstreamRepoUri>", UPSTREAM_REPO_DESCRIPTION);
 }
 
 /**
@@ -145,9 +145,9 @@ export function normalizeRepoOptions(options: RepoOptions): {
   workspace?: string;
 } {
   return {
-    session: (options as any).session,
-    repo: (options as any).repo,
-    workspace: (options as any)["upstream-repo"],
+    session: (options as unknown).session,
+    repo: (options as unknown).repo,
+    workspace: (options as unknown)["upstream-repo"],
   };
 }
 
@@ -162,8 +162,8 @@ export function normalizeOutputOptions(options: OutputOptions): {
   debug?: boolean;
 } {
   return {
-    json: (options as any).json,
-    debug: (options as any).debug,
+    json: (options as unknown).json,
+    debug: (options as unknown).debug,
   };
 }
 
@@ -178,7 +178,7 @@ export function normalizeTaskOptions(options: TaskOptions): {
 } {
   // If task ID is provided, normalize it
   // normalizeTaskId can return null, so handle that case
-  const taskId = (options as any).task ? normalizeTaskId((options as any).task) : undefined as any;
+  const taskId = (options as unknown).task ? normalizeTaskId((options as unknown).task) : undefined as unknown;
 
   return {
     task: taskId || undefined,
@@ -201,9 +201,9 @@ export function normalizeTaskParams<T extends RepoOptions & OutputOptions & Back
   json?: boolean;
 } {
   return {
-    ...normalizeRepoOptions(options as any),
-    ...normalizeOutputOptions(options as any),
-    backend: (options as any).backend,
+    ...normalizeRepoOptions(options as unknown),
+    ...normalizeOutputOptions(options as unknown),
+    backend: (options as unknown).backend,
   };
 }
 
@@ -223,8 +223,8 @@ export function normalizeSessionParams<T extends RepoOptions & OutputOptions & T
   json?: boolean;
 } {
   return {
-    ...normalizeRepoOptions(options as any),
-    ...normalizeOutputOptions(options as any),
-    ...normalizeTaskOptions(options as any),
+    ...normalizeRepoOptions(options as unknown),
+    ...normalizeOutputOptions(options as unknown),
+    ...normalizeTaskOptions(options as unknown),
   };
 }

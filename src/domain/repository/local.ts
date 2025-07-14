@@ -2,8 +2,8 @@ import { join } from "path";
 import { mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { createSessionProvider, type SessionProviderInterface } from "../session.js";
-import { normalizeRepositoryURI } from "../repository-uri.js";
+import { createSessionProvider, type SessionProviderInterface } from "../session";
+import { normalizeRepositoryURI } from "../repository-uri";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -11,7 +11,7 @@ import type {
   BranchResult,
   Result,
   RepoStatus,
-} from "./index.js";
+} from "./index";
 
 // Define a global for process to avoid linting errors
 declare const process: {
@@ -40,10 +40,10 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param config Backend configuration
    */
   constructor(config: RepositoryBackendConfig) {
-    const xdgStateHome = (process.env as any).XDG_STATE_HOME || join((process.env as any).HOME || "", ".local/state");
+    const xdgStateHome = (process.env as unknown).XDG_STATE_HOME || join((process.env as unknown).HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
-    (this as any).repoUrl = (config as any).repoUrl;
-    (this as any).repoName = normalizeRepositoryURI((this as any).repoUrl);
+    (this as unknown).repoUrl = (config as unknown).repoUrl;
+    (this as unknown).repoName = normalizeRepositoryURI((this as unknown).repoUrl);
     this.sessionDb = createSessionProvider();
     this.config = config;
   }
@@ -70,7 +70,7 @@ export class LocalGitBackend implements RepositoryBackend {
    */
   private getSessionWorkdir(session: string): string {
     // Use the new path structure with sessions subdirectory
-    return join(this.baseDir, (this as any).repoName, "sessions", session);
+    return join(this.baseDir, (this as unknown).repoName, "sessions", session);
   }
 
   /**
@@ -82,14 +82,14 @@ export class LocalGitBackend implements RepositoryBackend {
     await this.ensureBaseDir();
 
     // Create the repo/sessions directory structure
-    const sessionsDir = join(this.baseDir, (this as any).repoName, "sessions");
+    const sessionsDir = join(this.baseDir, (this as unknown).repoName, "sessions");
     await mkdir(sessionsDir, { recursive: true });
 
     // Get the workdir with sessions subdirectory
     const workdir = this.getSessionWorkdir(session);
 
     // Clone the repository
-    await execAsync(`git clone ${(this as any).repoUrl} ${workdir}`);
+    await execAsync(`git clone ${(this as unknown).repoUrl} ${workdir}`);
 
     return {
       workdir,
@@ -126,7 +126,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const { stdout: branchOutput } = await execAsync(
       `git -C ${workdir} rev-parse --abbrev-ref HEAD`
     );
-    const branch = (branchOutput as any).trim();
+    const branch = (branchOutput as unknown).trim();
 
     // Get ahead/behind counts
     let ahead = 0;
@@ -135,8 +135,8 @@ export class LocalGitBackend implements RepositoryBackend {
       const { stdout: revListOutput } = await execAsync(
         `git -C ${workdir} rev-list --left-right --count @{upstream}...HEAD`
       );
-      const counts = ((revListOutput as any).trim() as any).split(/\s+/);
-      if (counts && (counts as any).length === 2) {
+      const counts = ((revListOutput as unknown).trim() as unknown).split(/\s+/);
+      if (counts && (counts as unknown).length === 2) {
         behind = parseInt(counts[0] || "0", 10);
         ahead = parseInt(counts[1] || "0", 10);
       }
@@ -145,17 +145,17 @@ export class LocalGitBackend implements RepositoryBackend {
     }
 
     const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
-    const dirty = ((statusOutput as any).trim() as any).length > 0;
+    const dirty = ((statusOutput as unknown).trim() as unknown).length > 0;
     const modifiedFiles = ((statusOutput
       .trim()
-      .split("\n") as any).filter(Boolean) as any).map((line: string) => ({
-      status: ((line as any).substring(0, 2) as any).trim(),
-      file: (line as any).substring(3),
+      .split("\n") as unknown).filter(Boolean) as unknown).map((line: string) => ({
+      status: ((line as unknown).substring(0, 2) as unknown).trim(),
+      file: (line as unknown).substring(3),
     }));
 
     // Get remote information
     const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote`);
-    const remotes = ((remoteOutput.trim() as any).split("\n") as any).filter(Boolean);
+    const remotes = ((remoteOutput.trim() as unknown).split("\n") as unknown).filter(Boolean);
 
     return {
       branch,
@@ -165,8 +165,8 @@ export class LocalGitBackend implements RepositoryBackend {
       remotes,
       workdir,
       modifiedFiles,
-      clean: (modifiedFiles as any).length === 0,
-      changes: (modifiedFiles as any).map((file) => `M ${(file as any).file}`),
+      clean: (modifiedFiles as unknown).length === 0,
+      changes: (modifiedFiles as unknown).map((file) => `M ${(file as unknown).file}`),
     };
   }
 
@@ -186,12 +186,12 @@ export class LocalGitBackend implements RepositoryBackend {
   async validate(): Promise<Result> {
     try {
       // If the repo is a local path, check if it has a .git directory
-      if (!(this.repoUrl as any).includes("://") && !(this.repoUrl as any).includes("@")) {
+      if (!(this.repoUrl as unknown).includes("://") && !(this.repoUrl as unknown).includes("@")) {
         const { stdout } = await execAsync(
-          `test -d "${(this as any).repoUrl}/.git" && echo "true" || echo "false"`
+          `test -d "${(this as unknown).repoUrl}/.git" && echo "true" || echo "false"`
         );
-        if ((stdout as any).trim() !== "true") {
-          throw new Error(`Not a git repository: ${(this as any).repoUrl}`);
+        if ((stdout as unknown).trim() !== "true") {
+          throw new Error(`Not a git repository: ${(this as unknown).repoUrl}`);
         }
       }
 
@@ -199,7 +199,7 @@ export class LocalGitBackend implements RepositoryBackend {
       // For now, we'll just assume they're valid
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-      return { success: false, message: `Invalid git repository: ${(normalizedError as any).message}` };
+      return { success: false, message: `Invalid git repository: ${(normalizedError as unknown).message}` };
     }
     return { success: true, message: "Repository is valid" };
   }

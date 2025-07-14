@@ -13,7 +13,7 @@ import {
   formatContextInfo,
   type CommandSuggestion,
   type ContextInfo
-} from "./message-templates.js";
+} from "./message-templates";
 
 /**
  * Enhanced error message for session PR branch restriction
@@ -54,7 +54,7 @@ export function createSessionPrBranchErrorMessage(
     ]
   };
 
-  return buildErrorMessage(template, context as any);
+  return buildErrorMessage(template, context as unknown);
 }
 
 /**
@@ -105,7 +105,7 @@ export function createTaskIdParsingErrorMessage(
       {
         title: "Supported formats:",
         emoji: ErrorEmojis.INFO,
-        content: ((validExamples as any).map(example => `• ${example}`) as any).join("\n")
+        content: ((validExamples as unknown).map(example => `• ${example}`) as unknown).join("\n")
       },
       {
         title: "Try these commands:",
@@ -115,7 +115,7 @@ export function createTaskIdParsingErrorMessage(
     ]
   };
 
-  return buildErrorMessage(template, context as any);
+  return buildErrorMessage(template, context as unknown);
 }
 
 /**
@@ -178,8 +178,8 @@ export function createVariableNamingErrorMessage(
   const contextInfo: ContextInfo[] = [
     ...(context || []),
     ...(filePath ? [{ label: "File", value: filePath }] : []),
-    ...(declarationLine ? [{ label: "Declaration line", value: (declarationLine as any).toString() }] : []),
-    ...(usageLine ? [{ label: "Usage line", value: (usageLine as any).toString() }] : [])
+    ...(declarationLine ? [{ label: "Declaration line", value: (declarationLine as unknown).toString() }] : []),
+    ...(usageLine ? [{ label: "Usage line", value: (usageLine as unknown).toString() }] : [])
   ];
 
   const template: ErrorTemplate = {
@@ -270,7 +270,7 @@ export function createMergeConflictErrorMessage(
   workdir?: string,
   context?: ContextInfo[]
 ): string {
-  const fileList = ((conflictingFiles as any).map(file => {
+  const fileList = ((conflictingFiles as unknown).map(file => {
     const type = conflictTypes[file] || "other";
     const typeEmoji = {
       "modify/modify": "✏️",
@@ -279,7 +279,7 @@ export function createMergeConflictErrorMessage(
       "other": "⚠️"
     }[type];
     return `${typeEmoji} ${file} (${type} conflict)`;
-  }) as any).join("\n");
+  }) as unknown).join("\n");
 
   const suggestions: CommandSuggestion[] = [
     {
@@ -294,7 +294,7 @@ export function createMergeConflictErrorMessage(
     },
     {
       description: "Edit conflicts in first file",
-      command: (conflictingFiles as any).length > 0 ? `code ${conflictingFiles[0]}` : "code <conflicted-file>",
+      command: (conflictingFiles as unknown).length > 0 ? `code ${conflictingFiles[0]}` : "code <conflicted-file>",
       emoji: ErrorEmojis.FILE
     },
     {
@@ -327,13 +327,13 @@ export function createMergeConflictErrorMessage(
   const contextInfo: ContextInfo[] = [
     ...(context || []),
     { label: "Operation", value: operation },
-    { label: "Conflicted files", value: (conflictingFiles.length as any).toString() },
+    { label: "Conflicted files", value: (conflictingFiles.length as unknown).toString() },
     ...(workdir ? [{ label: "Working directory", value: workdir }] : [])
   ];
 
   const template: ErrorTemplate = {
     title: `${ErrorEmojis.CONFLICT} Merge Conflicts Detected`,
-    description: `The ${operation} operation failed due to conflicts in ${(conflictingFiles as any).length} file(s).`,
+    description: `The ${operation} operation failed due to conflicts in ${(conflictingFiles as unknown).length} file(s).`,
     sections: [
       {
         title: "Conflicted files:",
@@ -362,12 +362,12 @@ export function createBackendDetectionErrorMessage(
   workspacePath?: string,
   context?: ContextInfo[]
 ): string {
-  const backendsList = (availableBackends as any).length > 0 
+  const backendsList = (availableBackends as unknown).length > 0 
     ? (availableBackends.map(backend => {
-      const requirements = (configurationRequirements as any)[backend] || [];
+      const requirements = (configurationRequirements as unknown)[backend] || [];
       const reqText = requirements.length > 0 ? ` (requires: ${requirements.join(", ")})` : "";
       return `• ${backend}${reqText}`;
-    }) as any).join("\n")
+    }) as unknown).join("\n")
     : "• markdown (default)\n• json-file\n• github-issues (requires GitHub config)";
 
   const suggestions: CommandSuggestion[] = [
@@ -401,7 +401,7 @@ export function createBackendDetectionErrorMessage(
   const contextInfo: ContextInfo[] = [
     ...(context || []),
     ...(attemptedBackend ? [{ label: "Attempted backend", value: attemptedBackend }] : []),
-    { label: "Available backends", value: (availableBackends.length as any).toString() },
+    { label: "Available backends", value: (availableBackends.length as unknown).toString() },
     ...(workspacePath ? [{ label: "Workspace path", value: workspacePath }] : [])
   ];
 

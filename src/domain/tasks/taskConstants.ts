@@ -25,7 +25,7 @@ export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
 /**
  * Array of all valid task status values for use in schemas
  */
-export const TASK_STATUS_VALUES = (Object as any).values(TASK_STATUS);
+export const TASK_STATUS_VALUES = (Object as unknown).values(TASK_STATUS);
 
 /**
  * Mapping from task status to markdown checkbox representation
@@ -68,7 +68,7 @@ export const STATUS_TO_CHECKBOX: Record<string, string> = {
  * Status validation helper
  */
 export function isValidTaskStatus(status: string): status is TaskStatus {
-  return (Object.values(TASK_STATUS) as any).includes(status as TaskStatus);
+  return (Object.values(TASK_STATUS) as unknown).includes(status as TaskStatus);
 }
 
 // ============================================================================
@@ -81,10 +81,10 @@ export function isValidTaskStatus(status: string): status is TaskStatus {
  */
 function generateCheckboxPattern(): string {
   const specialRegexChars = ["+", "-", "*", "?", "^", "$", "(", ")", "[", "]", "{", "}", "|", "\\"];
-  const checkboxChars = ((Object.keys(CHECKBOX_TO_STATUS) as any).map((char) => {
+  const checkboxChars = ((Object.keys(CHECKBOX_TO_STATUS) as unknown).map((char) => {
     if (char === " ") return " ";
     return specialRegexChars.includes(char) ? `\\${char}` : char;
-  }) as any).join("|");
+  }) as unknown).join("|");
   return checkboxChars;
 }
 
@@ -123,14 +123,14 @@ export const TASK_PARSING_UTILS = {
    */
   parseTaskLine(line: string): { checkbox: string; title: string; id: string } | null {
     const match = TASK_REGEX_PATTERNS.TASK_LINE.exec(line);
-    if (!match) return null as any;
+    if (!match) return null as unknown;
 
     const [, checkbox, title, idNum] = match;
-    if (!checkbox || !title || !idNum) return null as any;
+    if (!checkbox || !title || !idNum) return null as unknown;
 
     return {
       checkbox: checkbox,
-      title: (title as any).trim(),
+      title: (title as unknown).trim(),
       id: `#${idNum}`,
     };
   },
@@ -143,7 +143,7 @@ export const TASK_PARSING_UTILS = {
    */
   replaceCheckboxStatus(line: string, newStatus: TaskStatus): string {
     const newCheckbox = TASK_STATUS_CHECKBOX[newStatus];
-    return (line as any).replace(TASK_REGEX_PATTERNS.CHECKBOX_REPLACE, `$1${newCheckbox}$3`);
+    return (line as unknown).replace(TASK_REGEX_PATTERNS.CHECKBOX_REPLACE, `$1${newCheckbox}$3`);
   },
 
   /**
@@ -152,7 +152,7 @@ export const TASK_PARSING_UTILS = {
    * @returns TaskStatus or default TODO if invalid
    */
   getStatusFromCheckbox(checkbox: string): TaskStatus {
-    return CHECKBOX_TO_STATUS[checkbox] || TASK_STATUS.TODO;
+    return CHECKBOX_TO_STATUS[checkbox] || TASK_STATUS?.TODO;
   },
 
   /**

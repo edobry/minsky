@@ -114,7 +114,7 @@
 
 - [ ] Implement Automatic Test Linting [#060](process/tasks/060-implement-automatic-test-linting.md)
 
-- [ ] Implement Test Fixture Factory Pattern [#061](process/tasks/061-implement-test-fixture-factory-pattern.md)
+- [+] Implement Test Fixture Factory Pattern [#061](process/tasks/061-implement-test-fixture-factory-pattern.md)
 
 - [x] Improve bun:test TypeScript Declarations [#062](process/tasks/062-improve-bun-test-typescript-declarations.md)
 
@@ -338,17 +338,15 @@
 
 - [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
 
-- [ ] Bug Analysis: Conflicting Session PR Error Messages [#178](process/tasks/178-bug-analysis-conflicting-session-pr-error-messages.md)
+- [x] Establish Codemod Best Practices and Standards [#178](process/tasks/178-establish-codemod-best-practices-and-standards.md)
 
 - [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
 
-- [ ] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
+- [x] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
 
 - [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
 
 - [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
-
-- [x] Improve Error Handling for MCP Server Port Conflicts [#184](process/tasks/184-improve-error-handling-for-mcp-server-port-conflicts.md)
 
 - [ ] Restore Full Test Suite for `init` Command [#185](process/tasks/185-restore-full-test-suite-for-init-command.md)
 
@@ -364,9 +362,7 @@
 
 - [x] Replace Direct process.exit() Calls with Custom exit() Utility [#194](process/tasks/194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
 
-- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#195](process/tasks/195-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
-
-- [+] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
+- [x] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
 
 - [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
 
@@ -396,11 +392,9 @@
 
 - [x] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
 
-- [ ] Enhanced Session PR Workflow [#222](process/tasks/222-enhanced-session-pr-workflow.md)
+- [x] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
 
-- [ ] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
-
-- [x] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
+- [+] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
 
 - [x] Remove temporary SessionDB compatibility layer and update all imports [#225](process/tasks/225-remove-temporary-sessiondb-compatibility-layer-and-update-all-imports.md)
 
@@ -424,4 +418,80 @@
 
 - [ ] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
 
-- [+] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
+- [x] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
+
+- [ ] Implement Hierarchical Task System with Subtasks and Dependencies [#237](process/tasks/237-implement-hierarchical-task-system-with-subtasks-and-dependencies.md)
+
+- [ ] Phase 1: Implement Basic Subtask Support with Parent-Child Relationships [#238](process/tasks/238-phase-1-implement-basic-subtask-support-with-parent-child-relationships.md)
+
+- [ ] Phase 2: Implement Task Dependencies and Basic Task Graphs [#239](process/tasks/239-phase-2-implement-task-dependencies-and-basic-task-graphs.md)
+
+- [ ] Phase 3: Enhanced Planning/Execution Separation with Checkpointing [#240](process/tasks/240-phase-3-enhanced-planning-execution-separation-with-checkpointing.md)
+
+- [ ] Advanced Visualization and Database Migration [#243](process/tasks/243-advanced-visualization-and-database-migration.md)
+
+- [x] Implement comprehensive test isolation framework to eliminate suite interference [#244](process/tasks/244-implement-comprehensive-test-isolation-framework-to-eliminate-suite-interference.md)
+
+- [x] Complete configuration system standardization and cleanup [#245](process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
+
+- [ ] Investigate and Improve Session-Aware Edit/Reapply MCP Tools with Fast-Apply APIs [#249](process/tasks/249-investigate-and-improve-session-aware-edit-reapply-mcp-tools-with-fast-apply-apis.md)
+
+- [ ] Investigate and Implement Session-Aware Code Search MCP Tools with Fast Retrieval APIs [#250](process/tasks/250-investigate-and-implement-session-aware-code-search-mcp-tools-with-fast-retrieval-apis.md)
+
+- [ ] Add Mobile/Voice Interface for Minsky Operations [#251](process/tasks/251-add-mobile-voice-interface-for-minsky-operations.md)
+
+- [ ] Design and implement task management UI system [#252](process/tasks/252-design-and-implement-task-management-ui-system.md)
+
+- [ ] Implement Task Similarity Search Using Embeddings [#253](process/tasks/253-implement-task-similarity-search-using-embeddings.md)
+
+- [ ] Implement Commit History Similarity Search Using Embeddings [#254](process/tasks/254-implement-commit-history-similarity-search-using-embeddings.md)
+
+- [x] Fix session dependency installation error [#255](process/tasks/255-fix-session-dependency-installation-error.md)
+
+- [ ] Implement Context-Aware Tool Management System [#256](process/tasks/256-implement-context-aware-tool-management-system.md)
+
+- [ ] Design multi-agent cybernetic supervision system for AI-to-AI task oversight [#258](process/tasks/258-design-multi-agent-cybernetic-supervision-system-for-ai-to-ai-task-oversight.md)
+
+- [x] Add `minsky tasks delete` Command [#205](process/tasks/205-add-minsky-tasks-delete-command.md)
+
+- [ ] Implement AI-Powered PR Content Generation for Session and Git Commands [#273](process/tasks/273-implement-ai-powered-pr-content-generation-for-session-and-git-commands.md)
+
+- [x] Improve CLI error messages for user-friendly output [#259](process/tasks/259-improve-cli-error-messages-for-user-friendly-output.md)
+
+- [ ] Implement prompt templates for AI interaction [#260](process/tasks/260-implement-prompt-templates-for-ai-interaction.md)
+
+- [+] Add AI Agent Command Structure Export [#261](process/tasks/261-add-ai-agent-command-structure-export.md)
+
+- [ ] Explore consolidating ESLint rules with codemods [#262](process/tasks/262-explore-consolidating-eslint-rules-with-codemods.md)
+
+- [ ] Investigate PaaS Deployment Options for Minsky Sessions [#263](process/tasks/263-investigate-paas-deployment-options-for-minsky-sessions.md)
+
+- [ ] Explore Adding Standard API Interface Alongside MCP Using Shared Command Registry [#264](process/tasks/264-explore-adding-standard-api-interface-alongside-mcp-using-shared-command-registry.md)
+
+- [x] Refactor configuration system parameter naming and improve developer ergonomics [#265](process/tasks/265-refactor-configuration-system-parameter-naming-and-improve-developer-ergonomics.md)
+
+- [x] Investigate Enhanced Storage Backend Factory Redundancy [#266](process/tasks/266-investigate-enhanced-storage-backend-factory-redundancy.md)
+
+- [x] Integrate logger with configuration system to eliminate process.env access [#267](process/tasks/267-integrate-logger-with-configuration-system-to-eliminate-process-env-access.md)
+
+- [ ] Complete AST-Only Codemod Framework Development [#268](process/tasks/268-complete-ast-only-codemod-framework-development.md)
+
+- [x] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
+
+- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/273-resolve-workspace-architecture-inconsistencies-and-utilize-special-workspace-system.md)
+
+- [x] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
+
+- [x] Restructure and improve test architecture for clarity and maintainability [#270](process/tasks/270-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
+
+- [x] Find and Fix All Unsafe Type Casts (as any) in Codebase [#271](process/tasks/271-find-and-fix-all-unsafe-type-casts-as-any-in-codebase.md)
+
+- [x] Fix Command Registry Type Erasure Architecture [#274](process/tasks/274-fix-command-registry-type-erasure-architecture.md)
+
+- [x] Store PR Existence in Session Records for Optimized Session Approval [#275](process/tasks/275-store-pr-existence-in-session-records-for-optimized-session-approval.md)
+
+- [+] Optimize test suite quality and pass rate post-isolation [#276](process/tasks/276-optimize-test-suite-quality-and-pass-rate-post-isolation.md)
+
+- [ ] Implement Stacked PR Workflow for Session Dependencies [#277](process/tasks/277-implement-stacked-pr-workflow-for-session-dependencies.md)
+
+- [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system-for-persistent-learning-and-knowledge-accumulation.md)

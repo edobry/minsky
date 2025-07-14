@@ -1,10 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { RuleService } from "./rules.js";
-import type { RuleFormat } from "./rules.js";
+import { RuleService } from "./rules";
+import type { RuleFormat } from "./rules";
 import { promises as fs } from "fs";
 import path from "path";
 import matter from "gray-matter";
-import { log } from "../utils/logger.js";
+import { log } from "../utils/logger";
 import { getErrorMessage } from "../errors";
 // Removed unused constant COMMIT_HASH_SHORT_LENGTH
 

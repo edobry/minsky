@@ -4,7 +4,7 @@
  */
 
 import { join } from "path";
-import { getMinskyStateDir } from "../../utils/paths.js";
+import { getMinskyStateDir } from "../../utils/paths";
 
 /**
  * Session record structure
@@ -16,6 +16,13 @@ export interface SessionRecord {
   createdAt: string;
   taskId: string;
   branch: string;
+  prState?: {
+    branchName: string;
+    exists: boolean;
+    lastChecked: string; // ISO timestamp
+    createdAt?: string;   // When PR branch was created
+    mergedAt?: string;    // When merged (for cleanup)
+  };
 }
 
 /**
@@ -42,14 +49,14 @@ export function initializeSessionDbState(options: { baseDir?: string } = {}): Se
  * List all sessions
  */
 export function listSessionsFn(state: SessionDbState): SessionRecord[] {
-  return [...(state as any).sessions];
+  return [...(state as unknown).sessions];
 }
 
 /**
  * Get a specific session by name
  */
 export function getSessionFn(state: SessionDbState, sessionName: string): SessionRecord | null {
-  return (state.sessions as any).find((s) => (s as any).session === sessionName) || null;
+  return (state.sessions as unknown).find((s) => (s as unknown).session === sessionName) || null;
 }
 
 /**
@@ -57,9 +64,9 @@ export function getSessionFn(state: SessionDbState, sessionName: string): Sessio
  */
 export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): SessionRecord | null {
   // Normalize taskId by removing # prefix if present
-  const normalizedTaskId = (taskId as any).replace(/^#/, "");
+  const normalizedTaskId = (taskId as unknown).replace(/^#/, "");
   return (
-    (state.sessions as any).find((s) => (s.taskId as any).replace(/^#/, "") === normalizedTaskId) ||
+    (state.sessions as unknown).find((s) => (s.taskId as unknown).replace(/^#/, "") === normalizedTaskId) ||
     null
   );
 }
@@ -70,7 +77,7 @@ export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): Ses
 export function addSessionFn(state: SessionDbState, record: SessionRecord): SessionDbState {
   return {
     ...state,
-    sessions: [...(state as any).sessions, record],
+    sessions: [...(state as unknown).sessions, record],
   };
 }
 
@@ -82,13 +89,13 @@ export function updateSessionFn(
   sessionName: string,
   updates: Partial<Omit<SessionRecord, "session">>
 ): SessionDbState {
-  const index = (state.sessions as any).findIndex((s) => (s as any).session === sessionName);
+  const index = (state.sessions as unknown).findIndex((s) => (s as unknown).session === sessionName);
   if (index === -1) {
     return state;
   }
 
-  const { session: _, ...safeUpdates } = updates as any;
-  const updatedSessions = [...(state as any).sessions];
+  const { session: _, ...safeUpdates } = updates as unknown;
+  const updatedSessions = [...(state as unknown).sessions];
   updatedSessions[index] = { ...updatedSessions[index], ...safeUpdates };
 
   return {
@@ -101,13 +108,13 @@ export function updateSessionFn(
  * Delete a session by name
  */
 export function deleteSessionFn(state: SessionDbState, sessionName: string): SessionDbState {
-  const index = (state.sessions as any).findIndex((s) => (s as any).session === sessionName);
+  const index = (state.sessions as unknown).findIndex((s) => (s as unknown).session === sessionName);
   if (index === -1) {
     return state;
   }
 
-  const updatedSessions = [...(state as any).sessions];
-  (updatedSessions as any).splice(index, 1);
+  const updatedSessions = [...(state as unknown).sessions];
+  (updatedSessions as unknown).splice(index, 1);
 
   return {
     ...state,
@@ -123,8 +130,8 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
     throw new Error("Session record is required");
   }
 
-  // Use simplified session-ID-based path structure: /sessions/{sessionId}/
-  return join((state as any).baseDir, "sessions", (record as any).session);
+  // Use simplified session-based path structure: /sessions/{sessionId}/
+  return join(state.baseDir, "sessions", record.session);
 }
 
 /**
@@ -136,7 +143,7 @@ export function getSessionWorkdirFn(
 ): string | undefined {
   const session = getSessionFn(state, sessionName);
   if (!session) {
-    return null as any;
+    return null as unknown;
   }
 
   return getRepoPathFn(state, session);

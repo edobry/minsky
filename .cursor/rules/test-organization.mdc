@@ -1,8 +1,3 @@
----
-description:
-globs:
-alwaysApply: false
----
 # Test File Organization
 
 ## When to Use This Rule
@@ -33,57 +28,78 @@ task-status-update-only.test.ts
 
 ## Required Organization Pattern
 
-### ✅ ALWAYS Organize by Functional CLI Command Groupings
+### ✅ ALWAYS Co-locate Tests with Their Modules
 ```
-// ✅ GOOD - Organized by CLI command functionality
-src/adapters/__tests__/cli/session.test.ts    // All session commands
-src/adapters/__tests__/cli/tasks.test.ts      // All task commands
-src/adapters/__tests__/cli/git.test.ts        // All git commands
-src/adapters/__tests__/cli/config.test.ts     // All config commands
+// ✅ GOOD - Co-located with the code they test
+src/domain/session.ts
+src/domain/session.test.ts              // Domain service tests
+src/domain/session.commands.test.ts     // Domain command tests
+
+src/adapters/cli/session.ts
+src/adapters/cli/session.adapter.test.ts // CLI adapter tests
+
+src/adapters/mcp/session.ts
+src/adapters/mcp/session.adapter.test.ts // MCP adapter tests
 ```
+
+### ✅ Use `tests/` Directory Only for Complex Integration Tests
+```
+// ✅ GOOD - For integration tests that don't fit simple co-location
+src/domain/tests/session-lifecycle-integration.test.ts
+src/adapters/tests/cli-mcp-integration.test.ts
+```
+
+## Test Naming Conventions
+
+### Domain Tests
+- **Domain Service Tests**: `[module].test.ts` (e.g., `session.test.ts`)
+- **Domain Command Tests**: `[module].commands.test.ts` (e.g., `session.commands.test.ts`)
+
+### Adapter Tests
+- **CLI Adapter Tests**: `[module].adapter.test.ts` (e.g., `session.adapter.test.ts`)
+- **MCP Adapter Tests**: `[module].adapter.test.ts` (e.g., `session.adapter.test.ts`)
+
+### Integration Tests
+- **Complex Integration**: `[feature]-integration.test.ts` (in `tests/` directory)
 
 ## Implementation Workflow
 
 ### When Adding Bug Reproduction Tests:
-1. **Identify the CLI command** that exhibits the bug
-2. **Find the existing test file** for that command group
+1. **Identify the module** that exhibits the bug
+2. **Find the existing test file** for that module
 3. **Add comprehensive test coverage** within that file
 4. **NEVER create a separate bug-specific file**
 
 ### When Creating New Test Coverage:
-1. **Group by CLI command functionality** (session, tasks, git, config)
+1. **Co-locate with the source module** being tested
 2. **Use descriptive `describe` blocks** within files to organize sub-features
 3. **Include all related edge cases** in the same file
 
 ## Benefits of This Organization
 
-- **Single source of truth** for each CLI command's test coverage
+- **Easy to find**: Tests are right next to the code they test
+- **Clear ownership**: Immediately obvious which tests belong to which modules
+- **Follows conventions**: Standard TypeScript/JavaScript project pattern
+- **Single source of truth** for each module's test coverage
 - **Easy maintenance** - all related tests in one place
-- **Comprehensive coverage** - encourages testing all aspects of a command
-- **Consistent patterns** across the codebase
 - **Prevents test fragmentation** that makes coverage gaps hard to spot
 
 ## Example Structure Within Files
 
 ```typescript
-// src/adapters/__tests__/cli/session.test.ts
-describe("Session CLI Commands", () => {
-  describe("session dir command", () => {
-    test("returns correct directory for task ID");
-    test("handles task ID normalization");
-    test("reproduces task lookup bug scenario"); // Bug tests here
-  });
-
-  describe("session create command", () => {
+// src/domain/session.test.ts
+describe("Session Domain Service", () => {
+  describe("createSession", () => {
     test("creates session with task ID");
     test("handles duplicate session creation");
+    test("reproduces session creation bug scenario"); // Bug tests here
   });
 
-  describe("session list command", () => {
-    test("lists all sessions");
-    test("filters by status");
+  describe("getSession", () => {
+    test("retrieves session by ID");
+    test("handles missing session");
   });
 });
 ```
 
-This rule prevents the creation of fragmented test files that make it difficult to understand complete test coverage for CLI functionality.
+This rule prevents the creation of fragmented test files that make it difficult to understand complete test coverage for module functionality.

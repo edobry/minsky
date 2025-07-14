@@ -8,20 +8,14 @@
 // Component-specific configuration with colocated credentials
 
 export interface GitHubConfig {
-  credentials?: {
-    source: "environment" | "file" | "prompt";
-    token?: string;
-    token_file?: string;
-  };
+  token?: string;
+  token_file?: string;
   // Future: other GitHub settings can go here
 }
 
 export interface AIProviderConfig {
-  credentials?: {
-    source: "environment" | "file" | "prompt";
-    api_key?: string;
-    api_key_file?: string;
-  };
+  api_key?: string;
+  api_key_file?: string;
   enabled?: boolean;
   default_model?: string;
   base_url?: string;
@@ -43,6 +37,12 @@ export interface AIConfig {
 
 export interface PostgresConfig {
   connection_string?: string;
+}
+
+export interface LoggerConfig {
+  mode?: "HUMAN" | "STRUCTURED" | "auto";
+  level?: "debug" | "info" | "warn" | "error";
+  enableAgentLogs?: boolean;
 }
 
 // Repository and Global User Configuration
@@ -74,6 +74,7 @@ export interface RepositoryConfig {
   };
   ai?: AIConfig;
   github?: GitHubConfig;
+  logger?: LoggerConfig;
 }
 
 export interface GlobalUserConfig {
@@ -87,6 +88,7 @@ export interface GlobalUserConfig {
   };
   ai?: AIConfig;
   postgres?: PostgresConfig;
+  logger?: LoggerConfig;
 }
 
 // Core Configuration Types
@@ -104,6 +106,7 @@ export interface ResolvedConfig {
   github?: GitHubConfig;
   ai?: AIConfig;
   postgres?: PostgresConfig;
+  logger?: LoggerConfig;
 }
 
 export interface BackendConfig {
@@ -129,11 +132,19 @@ export interface ConfigurationLoadResult {
   sources: ConfigurationSources;
 }
 
+/**
+ * Configuration sources in order of precedence (highest to lowest)
+ */
 export interface ConfigurationSources {
-  cliFlags: Partial<ResolvedConfig>;
+  /** High-priority configuration overrides (e.g., for testing or runtime injection) */
+  configOverrides: Partial<ResolvedConfig>;
+  /** Configuration loaded from environment variables */
   environment: Partial<ResolvedConfig>;
+  /** Global user configuration from ~/.config/minsky/config.yaml */
   globalUser: GlobalUserConfig | null;
+  /** Repository-specific configuration from .minsky/config.yaml */
   repository: RepositoryConfig | null;
+  /** Built-in default configuration values */
   defaults: Partial<ResolvedConfig>;
 }
 
@@ -161,11 +172,8 @@ export interface ValidationWarning {
 
 export type CredentialSource = "environment" | "file" | "prompt";
 
-export interface ConfigurationService {
-  loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult>;
-  validateRepositoryConfig(_config: RepositoryConfig): ValidationResult;
-  validateGlobalUserConfig(_config: GlobalUserConfig): ValidationResult;
-}
+// ConfigurationService interface removed - use direct config.get() instead
+// For validation, use the functions from config-schemas.ts
 
 export interface CredentialManager {
   getCredential(_service: "github"): Promise<string | undefined>;
@@ -194,9 +202,14 @@ export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
   ],
   sessiondb: {
     backend: "json",
-    baseDir: undefined as any,
-    dbPath: undefined as any,
-    connectionString: undefined as any,
+    baseDir: undefined,
+    dbPath: undefined,
+    connectionString: undefined,
+  },
+  logger: {
+    mode: "auto",
+    level: "info",
+    enableAgentLogs: false,
   },
 };
 
@@ -210,8 +223,15 @@ export const CONFIG_PATHS = {
 export const ENV_VARS = {
   BACKEND: "MINSKY_BACKEND",
   GITHUB_TOKEN: "GITHUB_TOKEN",
+  // AI provider credentials are now handled automatically by node-config
+  // through custom-environment-variables.yaml
+  // SessionDB configuration
   SESSIONDB_BACKEND: "MINSKY_SESSIONDB_BACKEND",
   SESSIONDB_SQLITE_PATH: "MINSKY_SESSIONDB_SQLITE_PATH",
   SESSIONDB_POSTGRES_URL: "MINSKY_SESSIONDB_POSTGRES_URL",
   SESSIONDB_BASE_DIR: "MINSKY_SESSIONDB_BASE_DIR",
+  // Logger configuration
+  LOGGER_MODE: "MINSKY_LOG_MODE",
+  LOGGER_LEVEL: "LOGLEVEL",
+  LOGGER_ENABLE_AGENT_LOGS: "ENABLE_AGENT_LOGS",
 } as const;

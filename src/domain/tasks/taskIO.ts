@@ -7,12 +7,12 @@ const COMMIT_HASH_SHORT_LENGTH = 7;
 
 import { promises as fs } from "fs";
 import { join, dirname } from "path";
-import { log } from "../../utils/logger.js";
+import { log } from "../../utils/logger";
 import type {
   TaskWriteOperationResult,
   TaskReadOperationResult,
   TaskFileOperationResult,
-} from "../../types/tasks/taskData.js";
+} from "../../types/tasks/taskData";
 
 /**
  * Read the tasks file
@@ -225,11 +225,31 @@ export function getTaskSpecsDirectoryPath(workspacePath: string): string {
  * @returns Path to the task spec file
  */
 export function getTaskSpecFilePath(
-  __taskId: string,
+  taskId: string,
   title: string,
   workspacePath: string
 ): string {
-  const taskIdNum = __taskId.startsWith("#") ? (__taskId as any).slice(1) : __taskId;
-  const normalizedTitle = (title.toLowerCase() as any).replace(/[^a-z0-9]+/g, "-");
+  const taskIdNum = taskId!.startsWith("#") ? (taskId as unknown)!.slice(1) : taskId;
+  const normalizedTitle = (title.toLowerCase() as unknown).replace(/[^a-z0-9]+/g, "-");
   return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
+}
+
+/**
+ * Get task spec path relative to workspace root
+ * Always returns paths relative to the workspace root, regardless of current directory
+ * @param taskId Task ID (with or without # prefix)
+ * @param title Task title
+ * @param workspacePath Workspace path (not used in path construction, kept for compatibility)
+ * @returns Relative path to the task spec file
+ */
+export function getTaskSpecRelativePath(
+  taskId: string,
+  title: string,
+  workspacePath: string
+): string {
+  const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
+  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+  // Always return paths relative to workspace root
+  return join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
 }

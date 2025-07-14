@@ -9,7 +9,7 @@
 export * from "./RepositoryBackend";
 
 // Import RepositoryStatus but define our own ValidationResult
-import type { RepositoryStatus } from "../repository.js";
+import type { RepositoryStatus } from "../repository";
 
 import { DEFAULT_TIMEOUT_MS } from "../../utils/constants";
 import { getErrorMessage } from "../../errors/index";
@@ -154,8 +154,8 @@ export interface BranchResult {
 // Completely rewritten repository backend interface with flexible types
 export interface RepositoryBackend {
   getType(): string;
-  clone(__session: string): Promise<CloneResult>;
-  branch(__session: string, branch: string): Promise<BranchResult>;
+  clone(session: string): Promise<CloneResult>;
+  branch(session: string, branch: string): Promise<BranchResult>;
   getStatus(session?: string): Promise<any>;
   getPath(session?: string): string | Promise<string>;
   validate(): Promise<any>;
@@ -203,28 +203,28 @@ export async function createRepositoryBackend(
   config: RepositoryBackendConfig
 ): Promise<RepositoryBackend> {
   // Validate common configuration
-  if (!(config as any).type) {
+  if (!(config as unknown).type) {
     throw new Error("Repository backend type is required");
   }
 
-  if (!(config as any).repoUrl) {
+  if (!(config as unknown).repoUrl) {
     throw new Error("Repository URL is required");
   }
 
   // Backend-specific validation
-  switch ((config as any).type) {
-  case (RepositoryBackendType as any).LOCAL: {
+  switch ((config as unknown).type) {
+  case (RepositoryBackendType as unknown).LOCAL: {
     // For local repositories, validate the path exists (if it's a local path)
-    if (!(config.repoUrl as any).includes("://") && !(config.repoUrl as any).includes("@")) {
+    if (!(config.repoUrl as unknown).includes("://") && !(config.repoUrl as unknown).includes("@")) {
       try {
         const { exec } = await import("child_process");
         const { promisify } = await import("util");
         const execAsync = promisify(exec);
         const { stdout } = await execAsync(
-          `test -d "${(config as any).repoUrl}" && echo "exists" || echo "not exists"`
+          `test -d "${(config as unknown).repoUrl}" && echo "exists" || echo "not exists"`
         );
-        if ((stdout as any).trim() === "not exists") {
-          throw new Error(`Repository path does not exist: ${(config as any).repoUrl}`);
+        if ((stdout as unknown).trim() === "not exists") {
+          throw new Error(`Repository path does not exist: ${(config as unknown).repoUrl}`);
         }
       } catch (error) {
         throw new Error(`Failed to validate local repository _path: ${getErrorMessage(error as any)}`);
@@ -232,65 +232,65 @@ export async function createRepositoryBackend(
     }
 
     const { LocalGitBackend } = await import("./local");
-    return new LocalGitBackend(config as any);
+    return new LocalGitBackend(config as unknown);
   }
 
-  case (RepositoryBackendType as any).REMOTE: {
+  case (RepositoryBackendType as unknown).REMOTE: {
     // For remote repositories, validate URL format and required options
     if (
-      !(config.repoUrl as any).startsWith("http://") &&
-        !(config.repoUrl as any).startsWith("https://") &&
-        !(config.repoUrl as any).startsWith("git@") &&
-        !(config.repoUrl as any).startsWith("ssh://")
+      !(config.repoUrl as unknown).startsWith("http://") &&
+        !(config.repoUrl as unknown).startsWith("https://") &&
+        !(config.repoUrl as unknown).startsWith("git@") &&
+        !(config.repoUrl as unknown).startsWith("ssh://")
     ) {
-      throw new Error(`Invalid remote repository URL format: ${(config as any).repoUrl}`);
+      throw new Error(`Invalid remote repository URL format: ${(config as unknown).repoUrl}`);
     }
 
     // Validate remote options if provided
-    if ((config as any).remote) {
+    if ((config as unknown).remote) {
       if (
-        (config.remote as any).authMethod &&
-          !(["ssh", "https", "token"] as any).includes((config.remote as any).authMethod)
+        (config.remote as unknown).authMethod &&
+          !(["ssh", "https", "token"] as unknown).includes((config.remote as unknown).authMethod)
       ) {
         throw new Error(
-          `Invalid auth method: ${(config.remote as any).authMethod}. Must be one of: ssh, https, token`
+          `Invalid auth method: ${(config.remote as unknown).authMethod}. Must be one of: ssh, https, token`
         );
       }
 
       if (
-        (config.remote as any).depth &&
-          (typeof (config.remote as any).depth !== "number" || (config.remote as any).depth < 1)
+        (config.remote as unknown).depth &&
+          (typeof (config.remote as unknown).depth !== "number" || (config.remote as unknown).depth < 1)
       ) {
         throw new Error("Clone depth must be a positive number");
       }
     }
 
     const { RemoteGitBackend } = await import("./remote");
-    return new RemoteGitBackend(config as any);
+    return new RemoteGitBackend(config as unknown);
   }
 
-  case (RepositoryBackendType as any).GITHUB: {
+  case (RepositoryBackendType as unknown).GITHUB: {
     // For GitHub repositories, validate GitHub-specific options
-    if ((config as any).github) {
+    if ((config as unknown).github) {
       // If owner and repo are provided, validate them
       if (
-        ((config.github as any).owner && !(config.github as any).repo) ||
-          (!(config.github as any).owner && (config.github as any).repo)
+        ((config.github as unknown).owner && !(config.github as unknown).repo) ||
+          (!(config.github as unknown).owner && (config.github as unknown).repo)
       ) {
         throw new Error("Both owner and repo must be provided for GitHub repositories");
       }
 
       // Validate GitHub Enterprise settings if provided
-      if ((config.github as any).enterpriseDomain && !(config.github as any).apiUrl) {
+      if ((config.github as unknown).enterpriseDomain && !(config.github as unknown).apiUrl) {
         throw new Error("API URL must be provided when using GitHub Enterprise");
       }
     }
 
     const { GitHubBackend } = await import("./github");
-    return new GitHubBackend(config as any);
+    return new GitHubBackend(config as unknown);
   }
 
   default:
-    throw new Error(`Unsupported repository backend type: ${(config as any).type}`);
+    throw new Error(`Unsupported repository backend type: ${(config as unknown).type}`);
   }
 }

@@ -7,7 +7,7 @@ import { DEFAULT_TIMEOUT_MS } from "../utils/constants";
 import { promisify } from "util";
 import { join, dirname } from "path";
 import { mkdir } from "fs/promises";
-import { RepositoryBackendType } from "./repository.js";
+import { RepositoryBackendType } from "./repository";
 import type {
   RepositoryBackend,
   RepositoryConfig,
@@ -16,16 +16,16 @@ import type {
   ValidationResult,
   CloneResult,
   BranchResult,
-} from "./repository.js";
+} from "./repository";
 import {
   RepositoryMetadataCache,
   generateRepoKey,
   RepositoryError,
-} from "../utils/repository-utils.js";
-import { normalizeRepoName } from "./repo-utils.js";
-import { createSessionProvider } from "./session.js";
+} from "../utils/repository-utils";
+import { normalizeRepoName } from "./repo-utils";
+import { createSessionProvider } from "./session";
 import { log } from "../utils/logger";
-import { getMinskyStateDir } from "../utils/paths.js";
+import { getMinskyStateDir } from "../utils/paths";
 const execAsync = promisify(exec);
 
 /**
@@ -57,7 +57,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
     this.baseDir = getMinskyStateDir();
     this.sessionDb = createSessionProvider();
-    this.cache = (RepositoryMetadataCache as any).getInstance();
+    this.cache = (RepositoryMetadataCache as unknown).getInstance();
   }
 
   /**
@@ -78,11 +78,11 @@ export class RemoteGitBackend implements RepositoryBackend {
           cwd: cwd || this.localPath,
         });
       }
-      return (stdout as any).trim();
+      return (stdout as unknown).trim();
     } catch (error) {
       throw new RepositoryError(
         `Git _command failed: ${cmd}`,
-        error instanceof Error ? error : undefined as any
+        error instanceof Error ? error : undefined as unknown
       );
     }
   }
@@ -135,7 +135,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to clone remote repository from ${this.config.url}`,
-        error instanceof Error ? error : undefined as any
+        error instanceof Error ? error : undefined as unknown
       );
     }
   }
@@ -152,7 +152,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
     const cacheKey = generateRepoKey(this.localPath, "status");
 
-    return (this.cache as any).get(
+    return (this.cache as unknown).get(
       cacheKey,
       async () => {
         try {
@@ -170,14 +170,14 @@ export class RemoteGitBackend implements RepositoryBackend {
           return {
             workdir: this.localPath!,
             clean: statusOutput === "",
-            changes: (statusOutput as any).split("\n").filter((line) => line !== ""),
+            changes: (statusOutput as unknown).split("\n").filter((line) => line !== ""),
             branch: branchOutput,
-            tracking: trackingOutput !== "" ? trackingOutput : undefined as any,
+            tracking: trackingOutput !== "" ? trackingOutput : undefined as unknown,
           };
         } catch (error) {
           throw new RepositoryError(
             "Failed to get repository status",
-            error instanceof Error ? error : undefined as any
+            error instanceof Error ? error : undefined as unknown
           );
         }
       },
@@ -234,7 +234,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     }
 
     // If there are any issues, validation fails
-    return { valid: (issues as any).length === 0, issues: (issues as any).length > 0 ? issues : undefined as any };
+    return { valid: (issues as unknown).length === 0, issues: (issues as unknown).length > 0 ? issues : undefined as unknown };
   }
 
   /**
@@ -253,11 +253,11 @@ export class RemoteGitBackend implements RepositoryBackend {
       await this.execGit(["push", "origin", branchToPush] as any[]);
 
       // Invalidate status cache after pushing
-      (this.cache as any).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
+      (this.cache as unknown).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
     } catch (error) {
       throw new RepositoryError(
         `Failed to push branch ${branchToPush}`,
-        error instanceof Error ? error : undefined as any
+        error instanceof Error ? error : undefined as unknown
       );
     }
   }
@@ -278,11 +278,11 @@ export class RemoteGitBackend implements RepositoryBackend {
       await this.execGit(["pull", "origin", branchToPull] as any[]);
 
       // Invalidate status cache after pulling
-      (this.cache as any).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
+      (this.cache as unknown).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
     } catch (error) {
       throw new RepositoryError(
         `Failed to pull branch ${branchToPull}`,
-        error instanceof Error ? error : undefined as any
+        error instanceof Error ? error : undefined as unknown
       );
     }
   }
@@ -294,7 +294,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param name Branch name to create
    * @returns Branch result
    */
-  async branch(__session: string, name: string): Promise<BranchResult> {
+  async branch(session: string, name: string): Promise<BranchResult> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -303,7 +303,7 @@ export class RemoteGitBackend implements RepositoryBackend {
       await this.execGit(["checkout", "-b", name] as any[]);
 
       // Invalidate status cache after branch creation
-      (this.cache as any).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
+      (this.cache as unknown).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
 
       return {
         workdir: this.localPath!,
@@ -312,7 +312,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to create branch ${name}`,
-        error instanceof Error ? error : undefined as any
+        error instanceof Error ? error : undefined as unknown
       );
     }
   }
@@ -331,11 +331,11 @@ export class RemoteGitBackend implements RepositoryBackend {
       await this.execGit(["checkout", branch] as any[]);
 
       // Invalidate status cache after checkout
-      (this.cache as any).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
+      (this.cache as unknown).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
     } catch (error) {
       throw new RepositoryError(
         `Failed to checkout branch ${branch}`,
-        error instanceof Error ? error : undefined as any
+        error instanceof Error ? error : undefined as unknown
       );
     }
   }
