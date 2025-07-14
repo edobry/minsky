@@ -116,9 +116,9 @@ test("saves config to file", () => {
 ### Domain Command Test Structure
 
 ```typescript
-// __tests__/domain/commands/tasks.commands.test.ts
+// src/domain/tasks.commands.test.ts
 import { describe, test, expect, beforeEach } from "bun:test";
-import { createMock, mockModule, setupTestMocks } from "../../../src/utils/test-utils/mocking";
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -155,9 +155,9 @@ describe("Task Domain Commands", () => {
 ### Adapter Test Structure
 
 ```typescript
-// __tests__/adapters/shared/tasks.adapter.test.ts
+// src/adapters/shared/tasks.adapter.test.ts
 import { describe, test, expect, beforeEach } from "bun:test";
-import { createMock, setupTestMocks } from "../../../../src/utils/test-utils/mocking";
+import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
 import { registerTasksCommands } from "../../../../src/adapters/shared/commands/tasks";
 
 // Set up automatic mock cleanup
@@ -279,21 +279,21 @@ test("function throws for invalid input", () => {
 ### Import Paths by Test Location
 
 ```typescript
-// From __tests__/domain/commands/*.test.ts
-import { createMock } from "../../../src/utils/test-utils/mocking";
-mockModule("../../../src/domain/tasks", () => ({ ... }));
+// From src/domain/*.commands.test.ts (co-located)
+import { createMock } from "../utils/test-utils/mocking";
+mockModule("./tasks", () => ({ ... }));
 
-// From __tests__/adapters/cli/*.test.ts  
-import { createMock } from "../../../../src/utils/test-utils/mocking";
-mockModule("../../../../src/adapters/cli/commands", () => ({ ... }));
-
-// From __tests__/adapters/shared/*.test.ts
-import { createMock } from "../../../src/utils/test-utils/mocking";
-mockModule("../../../src/adapters/shared/commands", () => ({ ... }));
-
-// From src/domain/__tests__/*.test.ts (existing location)
+// From src/adapters/cli/*.adapter.test.ts (co-located)
 import { createMock } from "../../utils/test-utils/mocking";
-mockModule("../taskService", () => ({ ... }));
+mockModule("./commands", () => ({ ... }));
+
+// From src/adapters/shared/*.adapter.test.ts (co-located)
+import { createMock } from "../../utils/test-utils/mocking";
+mockModule("./commands", () => ({ ... }));
+
+// From src/domain/*.test.ts (co-located domain service tests)
+import { createMock } from "../utils/test-utils/mocking";
+mockModule("./taskService", () => ({ ... }));
 ```
 
 ## Common Troubleshooting
@@ -327,13 +327,13 @@ If seeing "Mock not found" errors:
 // 1. Make sure you're calling mockModule BEFORE importing the module under test
 // 2. Use proper relative paths with src/ prefix from the test file location
 
-// CORRECT from __tests__/domain/commands/:
-mockModule("../../../src/domain/tasks", () => ({
+// CORRECT from src/domain/ (co-located):
+mockModule("./tasks", () => ({
   // mocked exports
 }));
 
-// CORRECT from __tests__/adapters/cli/:
-mockModule("../../../../src/domain/tasks", () => ({
+// CORRECT from src/adapters/cli/ (co-located):
+mockModule("../../domain/tasks", () => ({
   // mocked exports  
 }));
 ```
