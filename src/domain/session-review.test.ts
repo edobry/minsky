@@ -1,9 +1,9 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
-import { sessionReviewFromParams } from "../session";
-import { ResourceNotFoundError, ValidationError } from "../../errors/index";
-import type { SessionProviderInterface, GitServiceInterface } from "../session";
-import type { TaskServiceInterface } from "../tasks";
-import type { WorkspaceUtilsInterface } from "../workspace";
+import { sessionReviewFromParams } from "./session";
+import { ResourceNotFoundError, ValidationError } from "../errors/index";
+import type { SessionProviderInterface, GitServiceInterface } from "./session";
+import type { TaskServiceInterface } from "./tasks";
+import type { WorkspaceUtilsInterface } from "./workspace";
 
 const TEST_VALUE = 123;
 const TEST_ARRAY_SIZE = 3;
