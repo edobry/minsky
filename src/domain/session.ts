@@ -1296,6 +1296,7 @@ export async function approveSessionFromParams(
     gitService?: GitServiceInterface;
     taskService?: {
       setTaskStatus?: (taskId: string, status: string) => Promise<any>;
+      getTaskStatus?: (taskId: string) => Promise<string | undefined>;
       getBackendForTask?: (taskId: string) => Promise<any>;
     };
     workspaceUtils?: any;
@@ -1389,6 +1390,49 @@ export async function approveSessionFromParams(
   const featureBranch = sessionNameToUse;
   const prBranch = `pr/${featureBranch}`;
   const baseBranch = "main"; // Default base branch, could be made configurable
+
+  // Early exit check: If task is already DONE and PR branch doesn't exist, session is already complete
+  if (taskId && deps.taskService.getTaskStatus) {
+    try {
+      const currentStatus = await deps.taskService.getTaskStatus(taskId);
+      if (currentStatus === TASK_STATUS.DONE) {
+        // Check if PR branch exists
+        try {
+          await deps.gitService.execInRepository(workingDirectory, `git show-ref --verify --quiet refs/heads/${prBranch}`);
+          // PR branch exists, continue with normal flow
+          log.debug(`PR branch ${prBranch} exists, continuing with normal flow`);
+        } catch (branchError) {
+          // PR branch doesn't exist and task is already DONE - session is complete
+          log.debug(`Session ${sessionNameToUse} is already complete: task ${taskId} is DONE and PR branch ${prBranch} doesn't exist`);
+
+          // Get current HEAD info for the response
+          const commitHash = (
+            await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
+          ).trim();
+          const mergedBy = (
+            await deps.gitService.execInRepository(workingDirectory, "git config user.name")
+          ).trim();
+          const mergeDate = new Date().toISOString();
+
+          return {
+            session: sessionNameToUse,
+            commitHash,
+            mergeDate,
+            mergedBy,
+            baseBranch,
+            prBranch,
+            taskId,
+            isNewlyApproved: false,
+          };
+        }
+      } else {
+        log.debug(`Task ${taskId} is not DONE (status: ${currentStatus}), continuing with normal flow`);
+      }
+    } catch (statusError) {
+      // If we can't check the status, continue with normal flow
+      log.debug(`Could not check task status for ${taskId}, continuing with normal approval flow`);
+    }
+  }
 
   try {
     // Execute git commands to merge the PR branch in the main repository
@@ -1537,38 +1581,45 @@ export async function approveSessionFromParams(
       isNewlyApproved,
     };
 
-    // Update task status to DONE if we have a task ID (but only if it's not already DONE)
-    if (taskId && deps.taskService.setTaskStatus) {
+    // Update task status to DONE if we have a task ID and it's not already DONE
+    if (taskId && deps.taskService.setTaskStatus && deps.taskService.getTaskStatus) {
       try {
-        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
-        log.debug(`Updated task ${taskId} status to DONE`);
+        // Check current status first to avoid unnecessary updates
+        const currentStatus = await deps.taskService.getTaskStatus(taskId);
 
-        // After updating task status, check if there are uncommitted changes that need to be committed
-        try {
-          const statusOutput = await deps.gitService.execInRepository(workingDirectory, "git status --porcelain");
-          const hasUncommittedChanges = statusOutput.trim().length > 0;
+        if (currentStatus !== TASK_STATUS.DONE) {
+          log.debug(`Updating task ${taskId} status from ${currentStatus} to DONE`);
+          await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
 
-          if (hasUncommittedChanges) {
-            log.debug("Task status update created uncommitted changes, committing them");
+          // After updating task status, check if there are uncommitted changes that need to be committed
+          try {
+            const statusOutput = await deps.gitService.execInRepository(workingDirectory, "git status --porcelain");
+            const hasUncommittedChanges = statusOutput.trim().length > 0;
 
-            // Stage the tasks.md file (or any other changed files from task status update)
-            await deps.gitService.execInRepository(workingDirectory, "git add process/tasks.md");
+            if (hasUncommittedChanges) {
+              log.debug("Task status update created uncommitted changes, committing them");
 
-            // Commit the task status update
-            await deps.gitService.execInRepository(workingDirectory, `git commit -m "Update task ${taskId} status to DONE"`);
+              // Stage the tasks.md file (or any other changed files from task status update)
+              await deps.gitService.execInRepository(workingDirectory, "git add process/tasks.md");
 
-            // Push the commit
-            await deps.gitService.execInRepository(workingDirectory, "git push");
+              // Commit the task status update
+              await deps.gitService.execInRepository(workingDirectory, `git commit -m "Update task ${taskId} status to DONE"`);
 
-            log.debug(`Committed and pushed task ${taskId} status update`);
-          } else {
-            log.debug("No uncommitted changes from task status update");
+              // Push the commit
+              await deps.gitService.execInRepository(workingDirectory, "git push");
+
+              log.debug(`Committed and pushed task ${taskId} status update`);
+            } else {
+              log.debug("No uncommitted changes from task status update");
+            }
+          } catch (commitError) {
+            // Log the error but don't fail the whole operation
+            const errorMsg = `Failed to commit task status update: ${getErrorMessage(commitError as Error)}`;
+            log.error(errorMsg, { taskId, error: commitError });
+            log.cli(`Warning: ${errorMsg}`);
           }
-        } catch (commitError) {
-          // Log the error but don't fail the whole operation
-          const errorMsg = `Failed to commit task status update: ${getErrorMessage(commitError as Error)}`;
-          log.error(errorMsg, { taskId, error: commitError });
-          log.cli(`Warning: ${errorMsg}`);
+        } else {
+          log.debug(`Task ${taskId} is already DONE, skipping status update`);
         }
       } catch (error) {
         // BUG FIX: Use proper logging instead of console.error and make error visible
