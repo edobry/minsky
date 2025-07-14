@@ -642,9 +642,33 @@ Examples:
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
-      // Validate that either body or bodyPath is provided
+      // Import gitService and checkPrBranchExists for validation
+      const { createGitService } = await import("../../../domain/git.js");
+      const { checkPrBranchExists } = await import("../../../domain/session.js");
+
+      // Conditional validation: require body/bodyPath only for new PRs (not refreshing existing ones)
       if (!params!.body && !params!.bodyPath) {
-        throw new Error(`PR description is required for meaningful pull requests.
+        // Check if there's an existing PR branch to determine if we can refresh
+        const currentDir = process.cwd();
+        const isSessionWorkspace = currentDir.includes("/sessions/");
+        
+        let sessionName = params!.name;
+        if (!sessionName && isSessionWorkspace) {
+          // Try to detect session name from current directory
+          const pathParts = currentDir.split("/");
+          const sessionsIndex = pathParts.indexOf("sessions");
+          if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
+            sessionName = pathParts[sessionsIndex + 1];
+          }
+        }
+
+        if (sessionName) {
+          const gitService = createGitService();
+          const prBranchExists = await checkPrBranchExists(sessionName, gitService, currentDir);
+          
+          if (!prBranchExists) {
+            // No existing PR branch, so body/bodyPath is required
+            throw new Error(`PR description is required for meaningful pull requests.
 Please provide one of:
   --body <text>       Direct PR body text
   --body-path <path>  Path to file containing PR body
@@ -652,6 +676,10 @@ Please provide one of:
 Example:
   minsky session pr --title "feat: Add new feature" --body "This PR adds..."
   minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
+          }
+          // If prBranchExists is true, we can proceed with refresh (no body/bodyPath needed)
+        }
+        // If we can't determine sessionName, let sessionPrFromParams handle the error
       }
 
       try {
