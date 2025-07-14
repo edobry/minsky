@@ -25,8 +25,8 @@ import {
   EnhancedMergeResult,
   SmartUpdateResult,
 } from "./git/conflict-detection";
-import { validateError, validateGitError } from "../schemas/error.js";
-import { validateDirectoryContents, validateExecResult, validateProcess } from "../schemas/runtime.js";
+import { validateError, validateGitError } from "../schemas/error";
+import { validateDirectoryContents, validateExecResult, validateProcess } from "../schemas/runtime";
 import {
   execGitWithTimeout,
   gitFetchWithTimeout,

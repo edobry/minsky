@@ -9,9 +9,9 @@
  * in the migration notes for future infrastructure improvements.
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { CommandMapper } from "../../../src/mcp/command-mapper.ts";
-import { registerRulesTools } from "../../../src/adapters/mcp/rules.ts";
-import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking.ts";
+import { CommandMapper } from "../../../src/mcp/command-mapper";
+import { registerRulesTools } from "../../../src/adapters/mcp/rules";
+import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();

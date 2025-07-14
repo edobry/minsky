@@ -7,7 +7,7 @@ import { DEFAULT_TIMEOUT_MS } from "../utils/constants";
 import { promisify } from "util";
 import { join, dirname } from "path";
 import { mkdir } from "fs/promises";
-import { RepositoryBackendType } from "./repository.js";
+import { RepositoryBackendType } from "./repository";
 import type {
   RepositoryBackend,
   RepositoryConfig,
@@ -22,10 +22,10 @@ import {
   generateRepoKey,
   RepositoryError,
 } from "../utils/repository-utils.js";
-import { normalizeRepoName } from "./repo-utils.js";
-import { createSessionProvider } from "./session.js";
+import { normalizeRepoName } from "./repo-utils";
+import { createSessionProvider } from "./session";
 import { log } from "../utils/logger";
-import { getMinskyStateDir } from "../utils/paths.js";
+import { getMinskyStateDir } from "../utils/paths";
 const execAsync = promisify(exec);
 
 /**

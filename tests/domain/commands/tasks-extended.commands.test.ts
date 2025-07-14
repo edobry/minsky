@@ -4,8 +4,8 @@
  * @refactored Uses project utilities and proper TypeScript imports
  */
 import { describe, beforeEach } from "bun:test";
-import { TASK_STATUS } from "../../../src/domain/tasks.ts";
-import { createMock, mockModule, setupTestMocks } from "../../../src/utils/test-utils/mocking.ts";
+import { TASK_STATUS } from "../../../src/domain/tasks";
+import { createMock, mockModule, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();

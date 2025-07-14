@@ -13,8 +13,8 @@ import {
   CommandCategory,
   CommandExecutionContext,
 } from "../command-registry.js";
-import { handleCliError, outputResult } from "../../cli/utils/index.js";
-import { log } from "../../../utils/logger.js";
+import { handleCliError, outputResult } from "../../cli/utils/index";
+import { log } from "../../../utils/logger";
 import {
   type ParameterMapping,
   type ParameterMappingOptions,

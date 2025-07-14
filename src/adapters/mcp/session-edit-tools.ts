@@ -2,12 +2,12 @@
  * MCP adapter for session-aware file editing operations
  * Provides session-scoped edit_file and search_replace tools that match Cursor's interface
  */
-import type { CommandMapper } from "../../mcp/command-mapper.js";
+import type { CommandMapper } from "../../mcp/command-mapper";
 import { z } from "zod";
 import { readFile, writeFile, stat } from "fs/promises";
 import { dirname } from "path";
-import { SessionPathResolver } from "./session-files.js";
-import { log } from "../../utils/logger.js";
+import { SessionPathResolver } from "./session-files";
+import { log } from "../../utils/logger";
 import { mkdir } from "fs/promises";
 import { Buffer } from "buffer";
 import { getErrorMessage } from "../../errors/index";

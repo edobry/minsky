@@ -9,7 +9,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { updateSessionFromParams } from "./session";
 import { MinskyError, ValidationError, ResourceNotFoundError } from "../errors/index";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
-import { expectToBeInstanceOf, expectToHaveBeenCalled } from "../../utils/test-utils/assertions.ts";
+import { expectToBeInstanceOf, expectToHaveBeenCalled } from "../../utils/test-utils/assertions";
 
 // Set up automatic mock cleanup
 setupTestMocks();

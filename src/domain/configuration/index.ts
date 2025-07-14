@@ -36,7 +36,7 @@ export type {
 export { DEFAULT_CONFIG, CONFIG_PATHS, ENV_VARS } from "./types";
 
 // Import the class to create singleton instance
-import { DefaultConfigurationService } from "./configuration-service.js";
+import { DefaultConfigurationService } from "./configuration-service";
 
 // Create a singleton instance for easy usage
 // Using DefaultConfigurationService for proper workingDir handling

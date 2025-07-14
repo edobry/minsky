@@ -21,7 +21,7 @@ import {
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
 import { DEFAULT_DEV_PORT } from "../../utils/constants";
-import { exit } from "../../utils/process.js";
+import { exit } from "../../utils/process";
 
 const INSPECTOR_PORT = 3001;
 

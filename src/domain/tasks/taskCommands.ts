@@ -3,8 +3,8 @@
  * These functions are used by the CLI and MCP adapters
  */
 import { z } from "zod";
-import { resolveRepoPath } from "../repo-utils.js";
-import { resolveMainWorkspacePath } from "../workspace.js";
+import { resolveRepoPath } from "../repo-utils";
+import { resolveMainWorkspacePath } from "../workspace";
 import { getErrorMessage } from "../../errors/index";
 import {
   createTaskService as createTaskServiceImpl,
@@ -12,18 +12,18 @@ import {
   TaskService,
   TaskServiceOptions,
 } from "./taskService.js";
-import { normalizeTaskId } from "./taskFunctions.js";
-import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
+import { normalizeTaskId } from "./taskFunctions";
+import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
 import {
   createTaskIdParsingErrorMessage
 } from "../../errors/enhanced-error-templates.js";
-import { createFormattedValidationError } from "../../utils/zod-error-formatter.js";
+import { createFormattedValidationError } from "../../utils/zod-error-formatter";
 // Re-export task data types
 export type {} from "../../types/tasks/taskData.js";
 
 // Import task status constants from centralized location
-import { TASK_STATUS } from "./taskConstants.js";
+import { TASK_STATUS } from "./taskConstants";
 export { TASK_STATUS } from "./taskConstants.js";
 export type { TaskStatus } from "./taskConstants.js";
 

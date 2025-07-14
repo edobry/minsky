@@ -20,7 +20,7 @@ import {
   SharedCommand as NewSharedCommand,
   createSharedCommandRegistry,
 } from "./command-registry.js";
-import { MinskyError } from "../../errors/index.js";
+import { MinskyError } from "../../errors/index";
 
 /**
  * Migration adapter that wraps both registries and provides compatibility

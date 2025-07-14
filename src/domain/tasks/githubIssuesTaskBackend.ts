@@ -20,7 +20,7 @@ import type {
 } from "../../types/tasks/taskData.js";
 import type { TaskBackend } from "./taskBackend";
 import { log } from "../../utils/logger";
-import { TASK_STATUS, TaskStatus } from "./taskConstants.js";
+import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { validateGitHubIssues, validateGitHubIssue, type GitHubIssue } from "../../schemas/storage";
 
 // Import additional types needed for interface implementation

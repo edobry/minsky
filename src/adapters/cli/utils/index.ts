@@ -4,8 +4,8 @@
  * Common utilities for the CLI interface
  */
 
-import { ensureError } from "../../../errors/index.js";
-import { log } from "../../../utils/logger.js";
+import { ensureError } from "../../../errors/index";
+import { log } from "../../../utils/logger";
 
 // Re-export shared options functions needed by other modules
 export {

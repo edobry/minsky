@@ -7,9 +7,9 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry.js";
-import { initializeProjectFromParams } from "../../../domain/init.js";
-import { log } from "../../../utils/logger.js";
-import { ValidationError } from "../../../errors/index.js";
+import { initializeProjectFromParams } from "../../../domain/init";
+import { log } from "../../../utils/logger";
+import { ValidationError } from "../../../errors/index";
 // Removed unused initParamsSchema import
 
 const initParams: CommandParameterMap = {

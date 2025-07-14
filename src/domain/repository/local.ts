@@ -2,8 +2,8 @@ import { join } from "path";
 import { mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { createSessionProvider, type SessionProviderInterface } from "../session.js";
-import { normalizeRepositoryURI } from "../repository-uri.js";
+import { createSessionProvider, type SessionProviderInterface } from "../session";
+import { normalizeRepositoryURI } from "../repository-uri";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,

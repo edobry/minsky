@@ -3,10 +3,10 @@ import { HTTP_OK } from "../../utils/constants";
 import { mkdir } from "fs/promises";
 import { promisify } from "util";
 import { exec } from "child_process";
-import { createSessionProvider, type SessionProviderInterface } from "../session.js";
-import { normalizeRepositoryURI } from "../repository-uri.js";
-import { GitService } from "../git.js";
-import type { RepositoryStatus, ValidationResult } from "../repository.js";
+import { createSessionProvider, type SessionProviderInterface } from "../session";
+import { normalizeRepositoryURI } from "../repository-uri";
+import { GitService } from "../git";
+import type { RepositoryStatus, ValidationResult } from "../repository";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,

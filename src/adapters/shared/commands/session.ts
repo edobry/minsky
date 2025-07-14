@@ -25,8 +25,8 @@ import {
   sessionPrFromParams,
   inspectSessionFromParams,
 } from "../../../domain/session.js";
-import { log } from "../../../utils/logger.js";
-import { MinskyError } from "../../../errors/index.js";
+import { log } from "../../../utils/logger";
+import { MinskyError } from "../../../errors/index";
 
 /**
  * Parameters for the session list command

@@ -4,14 +4,14 @@
  * @refactored Uses project utilities instead of raw Bun APIs
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { approveSessionFromParams } from "./session.ts";
+import { approveSessionFromParams } from "./session";
 
-import { createMock, setupTestMocks } from "../utils/test-utils/mocking.ts";
+import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 import {
   expectToHaveBeenCalled,
   expectToHaveBeenCalledWith,
 } from "../utils/test-utils/assertions.ts";
-import * as WorkspaceUtils from "./workspace.ts";
+import * as WorkspaceUtils from "./workspace";
 // Set up automatic mock cleanup
 setupTestMocks();
 

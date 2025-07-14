@@ -3,8 +3,8 @@
  * Tests for session database file operations, including regression tests for Task #166
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { readSessionDbFile, writeSessionsToFile } from "./session-db-io.ts";
-import { initializeSessionDbState, type SessionDbState } from "./session-db.ts";
+import { readSessionDbFile, writeSessionsToFile } from "./session-db-io";
+import { initializeSessionDbState, type SessionDbState } from "./session-db";
 import { join } from "path";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { setupTestMocks } from "../utils/test-utils/mocking";

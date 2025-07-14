@@ -3,7 +3,7 @@
  * These types represent the pure data structures used in task operations
  */
 
-import type { TaskStatus } from "../../domain/tasks/taskConstants.js";
+import type { TaskStatus } from "../../domain/tasks/taskConstants";
 
 // Re-export task status types from centralized location
 export type { TaskStatus } from "../../domain/tasks/taskConstants.js";

@@ -2,17 +2,17 @@
  * CLI adapter for task spec command
  */
 import { Command } from "commander";
-import { log } from "../../../utils/logger.js";
-import { getTaskSpecContentFromParams, normalizeTaskId } from "../../../domain/tasks.js";
-import type { TaskSpecContentParams } from "../../../schemas/tasks.js";
-import { ValidationError } from "../../../errors/index.js";
+import { log } from "../../../utils/logger";
+import { getTaskSpecContentFromParams, normalizeTaskId } from "../../../domain/tasks";
+import type { TaskSpecContentParams } from "../../../schemas/tasks";
+import { ValidationError } from "../../../errors/index";
 import {
   addRepoOptions,
   addOutputOptions,
   addBackendOptions,
   normalizeTaskParams,
 } from "../utils/index.js";
-import { handleCliError, outputResult } from "../utils/error-handler.js";
+import { handleCliError, outputResult } from "../utils/error-handler";
 
 /**
  * Creates the task spec command

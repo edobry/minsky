@@ -5,7 +5,7 @@
  * @migrated Uses native Bun test patterns
  */
 
-import type { TaskStatus } from "../domain/tasks/taskConstants.js";
+import type { TaskStatus } from "../domain/tasks/taskConstants";
 
 /**
  * Generates a message indicating which status filter is being applied

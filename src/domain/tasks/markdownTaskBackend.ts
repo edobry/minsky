@@ -4,8 +4,8 @@
  */
 
 import { join } from "path";
-import { log } from "../../utils/logger.js";
-import { getErrorMessage } from "../../errors/index.js";
+import { log } from "../../utils/logger";
+import { getErrorMessage } from "../../errors/index";
 // @ts-ignore - matter is a third-party library
 import matter from "gray-matter";
 
@@ -23,7 +23,7 @@ import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../types/tasks/taskData.js";
-import { TaskStatus } from "./taskConstants.js";
+import { TaskStatus } from "./taskConstants";
 
 import {
   parseTasksFromMarkdown,

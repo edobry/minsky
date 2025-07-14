@@ -11,11 +11,11 @@ import { log } from "../utils/logger";
 import { normalizeTaskId } from "./tasks/utils";
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
-import { ResourceNotFoundError, getErrorMessage } from "../errors/index.js";
+import { ResourceNotFoundError, getErrorMessage } from "../errors/index";
 const matter = require("gray-matter");
 // Import constants and utilities for use within this file
-import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./tasks/taskConstants.js";
-import type { TaskStatus } from "./tasks/taskConstants.js";
+import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./tasks/taskConstants";
+import type { TaskStatus } from "./tasks/taskConstants";
 import { getTaskSpecRelativePath } from "./tasks/taskIO";
 
 // Import and re-export functions from taskCommands.ts

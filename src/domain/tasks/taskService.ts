@@ -2,13 +2,13 @@
  * Refactored TaskService using functional patterns
  * Orchestrates task operations while separating pure functions from side effects
  */
-import type { TaskBackend } from "../tasks.js";
+import type { TaskBackend } from "../tasks";
 import type { TaskData } from "../../types/tasks/taskData";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
-import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants.js";
+import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { ConfigurationService } from "../configuration/types";
 import { configurationService } from "../configuration";

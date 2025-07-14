@@ -15,8 +15,8 @@ import {
   GitOperationError,
   ensureError,
 } from "../../../errors/index.js";
-import { log, isStructuredMode } from "../../../utils/logger.js";
-import { exit } from "../../../utils/process.js";
+import { log, isStructuredMode } from "../../../utils/logger";
+import { exit } from "../../../utils/process";
 /**
  * Determines if debug mode is enabled based on environment variables
  */

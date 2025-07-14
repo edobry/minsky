@@ -8,7 +8,7 @@ import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import type { SpawnSyncReturns, SpawnSyncOptionsWithStringEncoding } from "child_process";
 import type { WriteFileOptions } from "fs";
-import { log } from "./logger.js";
+import { log } from "./logger";
 
 // Create a virtual filesystem for testing
 const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
