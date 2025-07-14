@@ -492,7 +492,7 @@
 
 - [ ] Complete AST-Only Codemod Framework Development [#268](process/tasks/268-complete-ast-only-codemod-framework-development.md)
 
-- [ ] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
+- [+] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
 
 - [x] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
 
@@ -504,6 +504,8 @@
 
 - [x] Store PR Existence in Session Records for Optimized Session Approval [#275](process/tasks/275-store-pr-existence-in-session-records-for-optimized-session-approval.md)
 
-- [ ] Optimize test suite quality and pass rate post-isolation [#276](process/tasks/276-optimize-test-suite-quality-and-pass-rate-post-isolation.md)
+- [+] Optimize test suite quality and pass rate post-isolation [#276](process/tasks/276-optimize-test-suite-quality-and-pass-rate-post-isolation.md)
 
 - [ ] Implement Stacked PR Workflow for Session Dependencies [#277](process/tasks/277-implement-stacked-pr-workflow-for-session-dependencies.md)
+
+- [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system.md)
