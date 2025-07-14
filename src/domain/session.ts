@@ -39,6 +39,13 @@ import { createTaskFromDescription } from "./templates/session-templates";
 import { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
 import { startSessionImpl } from "./session/session-start-operations";
 import { 
+  getSessionImpl, 
+  listSessionsImpl, 
+  deleteSessionImpl, 
+  getSessionDirImpl, 
+  inspectSessionImpl 
+} from "./session/session-lifecycle-operations";
+import { 
   updateSessionImpl, 
   checkPrBranchExistsOptimized, 
   updatePrStateOnCreation, 
@@ -155,34 +162,12 @@ export async function getSessionFromParams(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<Session | null> {
-  const { name, task, repo } = params;
-
   // Set up dependencies with defaults
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
   };
 
-  try {
-    // Use unified session context resolver with auto-detection support
-    const resolvedContext = await resolveSessionContextWithFeedback({
-      session: name,
-      task: task,
-      repo: repo,
-      sessionProvider: deps.sessionDB,
-      allowAutoDetection: true,
-    });
-
-    // Get the session details using the resolved session name
-    return deps.sessionDB.getSession(resolvedContext.sessionName);
-  } catch (error) {
-    // If error is about missing session requirements, provide better user guidance
-    if (error instanceof ValidationError) {
-      throw new ResourceNotFoundError(
-        "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
-      );
-    }
-    throw error;
-  }
+  return getSessionImpl(params, deps);
 }
 
 /**
@@ -200,7 +185,7 @@ export async function listSessionsFromParams(
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
   };
 
-  return deps.sessionDB.listSessions();
+  return listSessionsImpl(params, deps);
 }
 
 /**
