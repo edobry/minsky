@@ -10,6 +10,15 @@ import type { GitServiceInterface } from "../../domain/git";
 import type { TaskServiceInterface } from "../../domain/tasks";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
 import type { RepositoryBackend } from "../../domain/repository";
+import type { 
+  ConflictPrediction, 
+  BranchDivergenceAnalysis, 
+  SmartUpdateResult,
+} from "../../domain/git/conflict-detection";
+import { 
+  ConflictType,
+  ConflictSeverity,
+} from "../../domain/git/conflict-detection";
 
 /**
  * Basic domain dependencies structure for common domain functions
@@ -287,6 +296,126 @@ export function createMockRepositoryBackend(
       Promise.resolve({
         success: true,
       }),
+    ...overrides,
+  });
+}
+
+/**
+ * Creates a centralized mock SessionProvider with comprehensive interface coverage
+ * This eliminates duplication of createMockSessionProvider across test files
+ * @param overrides Partial implementation to override the defaults
+ * @returns A complete mock SessionProviderInterface implementation
+ */
+export function createMockSessionProvider(
+  overrides: Partial<SessionProviderInterface> = {}
+): SessionProviderInterface {
+  return createPartialMock<SessionProviderInterface>({
+    listSessions: () => Promise.resolve([]),
+    getSession: () => Promise.resolve(null),
+    getSessionByTaskId: () => Promise.resolve(null),
+    addSession: () => Promise.resolve(),
+    updateSession: () => Promise.resolve(),
+    deleteSession: () => Promise.resolve(true),
+    getRepoPath: () => Promise.resolve("/mock/repo/path"),
+    getSessionWorkdir: () => Promise.resolve("/mock/session/workdir"),
+    ...overrides,
+  });
+}
+
+/**
+ * Creates a centralized mock GitService with comprehensive interface coverage
+ * This eliminates duplication of createMockGitService across test files
+ * @param overrides Partial implementation to override the defaults
+ * @returns A complete mock GitServiceInterface implementation
+ */
+export function createMockGitService(
+  overrides: Partial<GitServiceInterface> = {}
+): GitServiceInterface {
+  return createPartialMock<GitServiceInterface>({
+    clone: () => Promise.resolve({ workdir: "/mock/workdir", session: "test-session" }),
+    branch: () => Promise.resolve({ workdir: "/mock/workdir", branch: "test-branch" }),
+    branchWithoutSession: () => Promise.resolve({ workdir: "/mock/workdir", branch: "test-branch" }),
+    execInRepository: () => Promise.resolve("mock git output"),
+    getSessionWorkdir: () => "/mock/session/workdir",
+    stashChanges: () => Promise.resolve({ workdir: "/mock/workdir", stashed: true }),
+    pullLatest: () => Promise.resolve({ workdir: "/mock/workdir", updated: true }),
+    mergeBranch: () => Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false }),
+    push: () => Promise.resolve({ workdir: "/mock/workdir", pushed: true }),
+    popStash: () => Promise.resolve({ workdir: "/mock/workdir", stashed: false }),
+    getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
+    getCurrentBranch: () => Promise.resolve("main"),
+    hasUncommittedChanges: () => Promise.resolve(false),
+    fetchDefaultBranch: () => Promise.resolve("main"),
+    predictMergeConflicts: () => Promise.resolve({
+      hasConflicts: false,
+      conflictType: ConflictType.NONE,
+      severity: ConflictSeverity.NONE,
+      affectedFiles: [],
+      resolutionStrategies: [],
+      userGuidance: "No conflicts detected",
+      recoveryCommands: [],
+    } as ConflictPrediction),
+    analyzeBranchDivergence: () => Promise.resolve({
+      sessionBranch: "test-branch",
+      baseBranch: "main",
+      aheadCommits: 0,
+      behindCommits: 0,
+      lastCommonCommit: "abc123",
+      sessionChangesInBase: false,
+      divergenceType: "none",
+      recommendedAction: "none",
+    } as BranchDivergenceAnalysis),
+    smartSessionUpdate: () => Promise.resolve({
+      workdir: "/mock/workdir",
+      updated: false,
+      skipped: true,
+      reason: "No update needed",
+    } as SmartUpdateResult),
+    ...overrides,
+  });
+}
+
+/**
+ * Creates a centralized mock TaskService with comprehensive interface coverage
+ * This eliminates duplication of createMockTaskService across test files
+ * @param overrides Partial implementation to override the defaults
+ * @returns A complete mock TaskServiceInterface implementation
+ */
+export function createMockTaskService(
+  overrides: Partial<TaskServiceInterface> = {}
+): TaskServiceInterface {
+  return createPartialMock<TaskServiceInterface>({
+    listTasks: () => Promise.resolve([]),
+    getTask: () => Promise.resolve(null),
+    getTaskStatus: () => Promise.resolve(undefined),
+    setTaskStatus: () => Promise.resolve(),
+    getWorkspacePath: () => "/mock/workspace/path",
+    createTask: () => Promise.resolve({
+      id: "#test",
+      title: "Test Task",
+      status: "TODO",
+      description: "Mock test task",
+      worklog: [
+        {
+          timestamp: new Date().toISOString(),
+          message: "Mock task creation",
+        },
+      ],
+    }),
+    createTaskFromTitleAndDescription: () => Promise.resolve({
+      id: "#test",
+      title: "Test Task",
+      status: "TODO",
+      description: "Mock test task",
+      worklog: [
+        {
+          timestamp: new Date().toISOString(),
+          message: "Mock task creation",
+        },
+      ],
+    }),
+    deleteTask: () => Promise.resolve(true),
+    getBackendForTask: () => Promise.resolve("markdown"),
     ...overrides,
   });
 }
