@@ -75,6 +75,43 @@ export const execResultSchema = z.object({
 });
 
 /**
+ * Command definition schema for CLI bridge
+ */
+export const commandDefinitionSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  parameters: z.record(z.string(), z.object({
+    schema: z.any(), // Zod schema
+    required: z.boolean().optional(),
+    defaultValue: z.any().optional(),
+    description: z.string().optional(),
+  })),
+  category: z.string().optional(),
+  handler: z.function().optional(),
+});
+
+/**
+ * Command registry schema
+ */
+export const commandRegistrySchema = z.object({
+  getCommand: z.function().args(z.string()).returns(commandDefinitionSchema.optional()),
+  getAllCommands: z.function().returns(z.array(commandDefinitionSchema)).optional(),
+});
+
+/**
+ * CLI options schema
+ */
+export const cliOptionsSchema = z.object({
+  aliases: z.array(z.string()).optional(),
+  hidden: z.boolean().optional(),
+  useFirstRequiredParamAsArgument: z.boolean().optional(),
+  parameters: z.record(z.string(), z.any()).optional(),
+  helpText: z.string().optional(),
+  examples: z.array(z.string()).optional(),
+  outputFormatter: z.function().optional(),
+});
+
+/**
  * Type definitions for runtime schemas
  */
 export type BunRuntime = z.infer<typeof bunRuntimeSchema>;
@@ -82,6 +119,9 @@ export type ProcessEnv = z.infer<typeof processSchema>;
 export type FileStats = z.infer<typeof fileStatsSchema>;
 export type DirectoryContents = z.infer<typeof directoryContentsSchema>;
 export type ExecResult = z.infer<typeof execResultSchema>;
+export type CommandDefinition = z.infer<typeof commandDefinitionSchema>;
+export type CommandRegistry = z.infer<typeof commandRegistrySchema>;
+export type CliOptions = z.infer<typeof cliOptionsSchema>;
 
 /**
  * Utility function to safely validate Bun runtime
@@ -198,4 +238,52 @@ export function validateExecResult(result: unknown): ExecResult {
       ? String(result.stderr)
       : "",
   };
+} 
+
+/**
+ * Validate command definition from unknown source
+ */
+export function validateCommandDefinition(def: unknown): CommandDefinition {
+  const result = commandDefinitionSchema.safeParse(def);
+  if (result.success) {
+    return result.data;
+  }
+  
+  // Create a fallback object with required fields if validation fails
+  if (typeof def === "object" && def !== null) {
+    const obj = def as Record<string, unknown>;
+    return {
+      name: typeof obj.name === "string" ? obj.name : "unknown",
+      description: typeof obj.description === "string" ? obj.description : "No description",
+      parameters: typeof obj.parameters === "object" && obj.parameters !== null ? 
+        obj.parameters as Record<string, any> : {},
+    };
+  }
+  
+  throw new Error(`Invalid command definition: ${result.error?.message}`);
+}
+
+/**
+ * Validate command registry from unknown source
+ */
+export function validateCommandRegistry(registry: unknown): CommandRegistry {
+  const result = commandRegistrySchema.safeParse(registry);
+  if (result.success) {
+    return result.data;
+  }
+  
+  throw new Error(`Invalid command registry: ${result.error?.message}`);
+}
+
+/**
+ * Validate CLI options from unknown source
+ */
+export function validateCliOptions(options: unknown): CliOptions {
+  const result = cliOptionsSchema.safeParse(options);
+  if (result.success) {
+    return result.data;
+  }
+  
+  // Return empty object if validation fails
+  return {};
 } 
