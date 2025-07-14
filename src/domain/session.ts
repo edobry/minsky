@@ -862,7 +862,12 @@ export async function updateSessionFromParams(
         }
       }
 
-      log.cli(`Session '${sessionName}' updated successfully`);
+      // Only call log.cli if it exists (may not be available in test environments)
+      if (typeof log.cli === "function") {
+        log.cli(`Session '${sessionName}' updated successfully`);
+      } else {
+        log.debug(`Session '${sessionName}' updated successfully`);
+      }
 
       return {
         session: sessionName,
