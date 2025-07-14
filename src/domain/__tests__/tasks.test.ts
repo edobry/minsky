@@ -47,13 +47,13 @@ const mockTaskService = {
 };
 
 const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
-const mockResolveWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
+const mockResolveMainWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
 const mockCreateTaskService = createMock(() => mockTaskService as unknown);
 
 // Type assertion for mock dependencies
 const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
-  resolveWorkspacePath: mockResolveWorkspacePath,
+  resolveMainWorkspacePath: mockResolveMainWorkspacePath,
   createTaskService: mockCreateTaskService,
 } as unknown; // Cast to any to avoid TypeScript errors with the deps parameter
 
@@ -72,7 +72,7 @@ describe("interface-agnostic task functions", () => {
 
       expect(result).toEqual([mockTask]);
       expect(mockResolveRepoPath.mock.calls.length > 0).toBe(true);
-      expect(mockResolveWorkspacePath.mock.calls.length > 0).toBe(true);
+      expect(mockResolveMainWorkspacePath.mock.calls.length > 0).toBe(true);
       expect(mockCreateTaskService).toHaveBeenCalledWith({
         _workspacePath: "/mock/workspace/path",
         backend: "markdown",
@@ -121,8 +121,8 @@ describe("interface-agnostic task functions", () => {
       try {
         await getTaskFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
-      } catch {
-        expectToBeInstanceOf(e, ResourceNotFoundError);
+      } catch (error) {
+        expectToBeInstanceOf(error, ResourceNotFoundError);
       }
     });
 
@@ -143,7 +143,7 @@ describe("interface-agnostic task functions", () => {
       // This simulates the updated MarkdownTaskBackend.getTask behavior
       mockTaskService.getTask.mockImplementation((id) =>
         Promise.resolve(
-          parseInt(id.replace(/^#/, ""), 10) === TASKID_WITHOUT_LEADING_ZEROS
+          parseInt(id.replace(/^#/, ""), 10) === TASK_ID_WITHOUT_LEADING_ZEROS
             ? { ...mockTask, id: "#023" }
             : null
         )
@@ -183,8 +183,8 @@ describe("interface-agnostic task functions", () => {
       try {
         await getTaskStatusFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
-      } catch {
-        expectToBeInstanceOf(e, ResourceNotFoundError);
+      } catch (error) {
+        expectToBeInstanceOf(error, ResourceNotFoundError);
       }
     });
   });
@@ -218,8 +218,8 @@ describe("interface-agnostic task functions", () => {
       try {
         await setTaskStatusFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
-      } catch {
-        expectToBeInstanceOf(e, ValidationError);
+      } catch (error) {
+        expectToBeInstanceOf(error, ValidationError);
       }
     });
   });
