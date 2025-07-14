@@ -624,6 +624,7 @@ export async function updateSessionFromParams(
       repo: params.repo,
       sessionProvider: deps.sessionDB,
       allowAutoDetection: !name, // Only allow auto-detection if no name provided
+      getCurrentSessionFn: deps.getCurrentSession, // Pass through getCurrentSession dependency
     });
     sessionName = resolvedContext.sessionName;
     log.debug("Session resolved", { sessionName, resolvedBy: resolvedContext.resolvedBy });
