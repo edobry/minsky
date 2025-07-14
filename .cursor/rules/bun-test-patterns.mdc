@@ -11,7 +11,7 @@ const mockFn = jest.fn();
 mock.module("../path/to/module", () => ({ ... }));
 
 // ✅ ALWAYS USE CENTRALIZED UTILITIES
-import { createMock, mockModule, setupTestMocks } from "../../../src/utils/test-utils/mocking"; // Updated for new structure
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
 setupTestMocks();
 const mockFn = createMock();
 mockModule("../../../src/path/to/module", () => ({ ... }));
@@ -36,14 +36,14 @@ import {
   mockModule,
   setupTestMocks,
   createMockFileSystem
-} from "../../../src/utils/test-utils/mocking"; // From __tests__/domain/commands/
+} from "../utils/test-utils/mocking";
 // OR
 import {
   createMock,
   mockModule,
   setupTestMocks,
   createMockFileSystem  
-} from "../../../../src/utils/test-utils/mocking"; // From __tests__/adapters/cli/
+} from "../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -306,7 +306,7 @@ If encountering issues with Jest compatibility:
 // Issue with bun:test not fully supporting all Jest features
 // For complex mocking scenarios, use our utility wrappers:
 
-import { createSpy } from "../../../src/utils/test-utils/mocking";
+import { createSpy } from "../utils/test-utils/mocking";
 
 // Instead of direct spyOn
 // const spy = jest.spyOn(object, 'method');

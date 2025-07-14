@@ -118,7 +118,7 @@ import {
   mockModule,
   setupTestMocks,
   createMockFileSystem
-} from "../../../src/utils/test-utils/mocking"; // Note: src/ prefix for new structure
+} from "../utils/test-utils/mocking";
 
 // 2. Set up automatic mock cleanup
 setupTestMocks();
