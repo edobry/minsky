@@ -183,7 +183,7 @@ describe("interface-agnostic task functions", () => {
       try {
         await getTaskStatusFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
-      } catch {
+      } catch (e) {
         expectToBeInstanceOf(e, ResourceNotFoundError);
       }
     });
@@ -218,7 +218,7 @@ describe("interface-agnostic task functions", () => {
       try {
         await setTaskStatusFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
-      } catch {
+      } catch (e) {
         expectToBeInstanceOf(e, ValidationError);
       }
     });
