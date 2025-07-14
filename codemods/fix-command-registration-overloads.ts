@@ -33,7 +33,7 @@ function getAllTsFiles(dir: string): string[] {
 // Add source files to project (excluding scripts as per tsconfig)
 const sourceFiles = getAllTsFiles("./src").filter(
   (file) =>
-    !file.includes("/scripts/") && !file.includes("test-utils") && !file.includes("__tests__")
+    !file.includes("/scripts/") && !file.includes("test-utils") && !file.includes("__tests__") && !file.includes("/tests/")
 );
 
 sourceFiles.forEach((file) => project.addSourceFileAtPath(file));

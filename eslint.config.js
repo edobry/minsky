@@ -137,7 +137,7 @@ export default [
     },
   },
   {
-    files: ["**/test/**", "**/*.test.ts", "**/__tests__/**"],
+    files: ["**/test/**", "**/*.test.ts", "**/tests/**"],
     rules: {
       // Tests can use console and any type freely
       "no-console": "off",

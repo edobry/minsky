@@ -480,6 +480,9 @@ export class CliCommandBridge {
         } else if ((commandDef as any).id === "session.pr" && "prBranch" in result) {
           // Handle session pr results - format them nicely
           this.formatSessionPrDetails(result as any);
+        } else if ((commandDef as any).id === "session.approve" && ((result as any).result && "session" in (result as any).result)) {
+          // Handle session approve results - format them nicely
+          this.formatSessionApprovalDetails((result as any).result);
         } else if ((commandDef as any).id === "rules.list" && "rules" in result) {
           // Handle rules list results
           if (Array.isArray((result as any).rules)) {
@@ -687,6 +690,62 @@ export class CliCommandBridge {
   }
 
   /**
+   * Format session approval details for human-readable output
+   */
+  private formatSessionApprovalDetails(result: Record<string, any>): void {
+    if (!result) return;
+
+    const sessionName = (result as any).session || "unknown";
+    const taskId = (result as any).taskId || "";
+    const commitHash = (result as any).commitHash || "";
+    const mergeDate = (result as any).mergeDate || "";
+    const mergedBy = (result as any).mergedBy || "";
+    const baseBranch = (result as any).baseBranch || "main";
+    const prBranch = (result as any).prBranch || "";
+    const isNewlyApproved = (result as any).isNewlyApproved !== false; // default to true for backward compatibility
+
+    // Header - different based on whether newly approved or already approved
+    if (isNewlyApproved) {
+      log.cli("✅ Session approved and merged successfully!");
+    } else {
+      log.cli("ℹ️  Session was already approved and merged");
+    }
+    log.cli("");
+
+    // Session Details
+    log.cli("📝 Session Details:");
+    log.cli(`   Session: ${sessionName}`);
+    if (taskId) {
+      const taskStatusMessage = isNewlyApproved ? "(status updated to DONE)" : "(already marked as DONE)";
+      log.cli(`   Task: ${taskId} ${taskStatusMessage}`);
+    }
+    log.cli(`   Merged by: ${mergedBy}`);
+    if (mergeDate) {
+      const date = new Date(mergeDate);
+      log.cli(`   Merge date: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
+    }
+    log.cli("");
+
+    // Technical Details
+    log.cli("🔧 Technical Details:");
+    log.cli(`   Base branch: ${baseBranch}`);
+    if (prBranch) {
+      log.cli(`   PR branch: ${prBranch}`);
+    }
+    if (commitHash) {
+      log.cli(`   Commit hash: ${commitHash.substring(0, 8)}`);
+    }
+    log.cli("");
+
+    // Success message - different based on whether newly approved or already approved
+    if (isNewlyApproved) {
+      log.cli("🎉 Your work has been successfully merged and the session is complete!");
+    } else {
+      log.cli("✅ Session is already complete - no action needed!");
+    }
+  }
+
+  /**
    * Format debug echo details for human-readable output
    */
   private formatDebugEchoDetails(result: Record<string, any>): void {
@@ -707,7 +766,7 @@ export class CliCommandBridge {
     if (result.echo && typeof result.echo === "object") {
       log.cli("📝 Echo Parameters:");
       const echoParams = result.echo as Record<string, any>;
-      
+
       if (Object.keys(echoParams).length === 0) {
         log.cli("   (no parameters provided)");
       } else {
