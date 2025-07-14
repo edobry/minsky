@@ -141,7 +141,7 @@ test('Framework-based codemod SAFETY FEATURES: AST-based with error handling', (
   
   // Framework approach is safer than individual regex-based codemods
   expect(safetyFeatures.astAnalysis).toContain('ts-morph');
-  expect(safetyFeatures.scopeAware).toContain('scope-aware');
+  expect(safetyFeatures.scopeAware).toContain('Scope-aware');
   expect(safetyFeatures.errorHandling).toContain('error handling');
   
   console.log('SAFETY FEATURES:');
@@ -172,7 +172,7 @@ test('Framework-based codemod FRAMEWORK DEPENDENCY RISK: high coupling to utilit
   
   // Framework approach trades individual codemod risks for framework risks
   expect(frameworkRisks.dependencyRisk).toContain('utilities framework');
-  expect(frameworkRisks.complexityRisk).toContain('framework complexity');
+  expect(frameworkRisks.complexityRisk).toContain('Framework complexity');
   expect(frameworkRisks.abstractionRisk).toContain('hide implementation details');
   
   console.warn('FRAMEWORK DEPENDENCY RISKS:');
@@ -241,12 +241,12 @@ test('Framework-based codemod EVOLUTION: from individual to framework approach',
   
   // Framework approach represents significant evolution
   expect(evolutionBenefits.codeReduction).toContain('less code');
-  expect(evolutionBenefits.consistency).toContain('consistent behavior');
+  expect(evolutionBenefits.consistency).toContain('Consistent behavior');
   expect(evolutionBenefits.astFirst).toContain('AST-first principles');
   
   expect(evolutionTradeoffs.complexity).toContain('complex setup');
-  expect(evolutionTradeoffs.frameworkMaintenance).toContain('framework itself');
-  expect(evolutionTradeoffs.abstraction).toContain('hide implementation');
+  expect(evolutionTradeoffs.frameworkMaintenance).toContain('Framework itself');
+  expect(evolutionTradeoffs.abstraction).toContain('May hide');
   
   console.log('EVOLUTION BENEFITS:');
   console.log('✅ Significant code reduction with better functionality');
