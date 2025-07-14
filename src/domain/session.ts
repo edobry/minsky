@@ -1542,6 +1542,34 @@ export async function approveSessionFromParams(
       try {
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
         log.debug(`Updated task ${taskId} status to DONE`);
+
+        // After updating task status, check if there are uncommitted changes that need to be committed
+        try {
+          const statusOutput = await deps.gitService.execInRepository(workingDirectory, "git status --porcelain");
+          const hasUncommittedChanges = statusOutput.trim().length > 0;
+
+          if (hasUncommittedChanges) {
+            log.debug("Task status update created uncommitted changes, committing them");
+
+            // Stage the tasks.md file (or any other changed files from task status update)
+            await deps.gitService.execInRepository(workingDirectory, "git add process/tasks.md");
+
+            // Commit the task status update
+            await deps.gitService.execInRepository(workingDirectory, `git commit -m "Update task ${taskId} status to DONE"`);
+
+            // Push the commit
+            await deps.gitService.execInRepository(workingDirectory, "git push");
+
+            log.debug(`Committed and pushed task ${taskId} status update`);
+          } else {
+            log.debug("No uncommitted changes from task status update");
+          }
+        } catch (commitError) {
+          // Log the error but don't fail the whole operation
+          const errorMsg = `Failed to commit task status update: ${getErrorMessage(commitError as Error)}`;
+          log.error(errorMsg, { taskId, error: commitError });
+          log.cli(`Warning: ${errorMsg}`);
+        }
       } catch (error) {
         // BUG FIX: Use proper logging instead of console.error and make error visible
         const errorMsg = `Failed to update task status: ${getErrorMessage(error)}`;
