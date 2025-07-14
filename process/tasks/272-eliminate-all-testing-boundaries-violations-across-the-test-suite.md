@@ -1,4 +1,4 @@
-# Task #268: Eliminate all testing-boundaries violations across the test suite
+# Eliminate all testing-boundaries violations across the test suite
 
 ## 🎯 **Objective**
 
