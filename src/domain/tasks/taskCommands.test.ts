@@ -29,7 +29,7 @@ describe("getTaskStatusFromParams", () => {
     getTaskSpecContent: async () => ({ task: {}, specPath: "", content: "" }),
     exportTasks: async () => ({}),
     importTasks: async () => ({})
-  } as any);
+  } as unknown);
 
   beforeEach(async () => {
     // Create test workspace structure

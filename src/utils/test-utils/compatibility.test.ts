@@ -17,7 +17,7 @@ compat.setupTestCompat();
 
 // Use a typed expect to make TypeScript happy with the enhanced matchers
  
-const expect = bunExpect as any;
+const expect = bunExpect as unknown;
 
 describe("Mock Function Compatibility", () => {
   test("creates working mock functions", () => {

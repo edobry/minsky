@@ -24,11 +24,11 @@ export class NodeConfigAdapter implements ConfigurationService {
   async loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult> {
     // Use node-config to get the resolved configuration
     const resolved: ResolvedConfig = {
-      backend: (config as any).get("backend"),
-      backendConfig: (config as any).get("backendConfig"),
-      detectionRules: (config as any).get("detectionRules"),
-      sessiondb: (config as any).get("sessiondb"),
-      ai: (config as any).has("ai") ? (config as any).get("ai") : undefined as any,
+      backend: (config as unknown).get("backend"),
+      backendConfig: (config as unknown).get("backendConfig"),
+      detectionRules: (config as unknown).get("detectionRules"),
+      sessiondb: (config as unknown).get("sessiondb"),
+      ai: (config as unknown).has("ai") ? (config as unknown).get("ai") : undefined as unknown,
     };
 
     // Create mock sources for backward compatibility
@@ -36,8 +36,8 @@ export class NodeConfigAdapter implements ConfigurationService {
     const sources: ConfigurationSources = {
       configOverrides: {},
       environment: this.getEnvironmentOverrides(),
-      globalUser: null as any, // Will be handled by node-config's local.yaml
-      repository: null as any, // TODO: Handle .minsky/config.yaml separately
+      globalUser: null as unknown, // Will be handled by node-config's local.yaml
+      repository: null as unknown, // TODO: Handle .minsky/config.yaml separately
       defaults: this.getDefaultConfig(),
     };
 
@@ -79,8 +79,8 @@ export class NodeConfigAdapter implements ConfigurationService {
 
     // These will be handled by custom-environment-variables.yaml in node-config
     // but we maintain this for compatibility during migration
-    if ((process.env as any).MINSKY_BACKEND) {
-      (overrides as any).backend = (process.env as any).MINSKY_BACKEND as any;
+    if ((process.env as unknown).MINSKY_BACKEND) {
+      (overrides as unknown).backend = (process.env as unknown).MINSKY_BACKEND as unknown;
     }
 
     return overrides;
@@ -100,9 +100,9 @@ export class NodeConfigAdapter implements ConfigurationService {
       ],
       sessiondb: {
         backend: "json",
-        baseDir: undefined as any,
-        dbPath: undefined as any,
-        connectionString: undefined as any,
+        baseDir: undefined as unknown,
+        dbPath: undefined as unknown,
+        connectionString: undefined as unknown,
       },
     };
   }

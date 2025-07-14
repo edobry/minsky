@@ -57,7 +57,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   private readonly tasksDirectory: string;
 
   constructor(config: TaskBackendConfig) {
-    this.workspacePath = (config as any).workspacePath;
+    this.workspacePath = (config as unknown).workspacePath;
     this.tasksFilePath = getTasksFilePath(this.workspacePath);
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
   }
@@ -175,17 +175,17 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       // Get all tasks first
       const tasksResult = await this.getTasksData();
-      if (!(tasksResult as any).success || !(tasksResult as any).content) {
+      if (!(tasksResult as unknown).success || !(tasksResult as unknown).content) {
         return false;
       }
 
       // Parse tasks and find the one to delete
-      const tasks = this.parseTasks((tasksResult as any).content);
+      const tasks = this.parseTasks((tasksResult as unknown).content);
       const taskToDelete = tasks.find(
         (task) =>
-          (task as any).id === id ||
-          (task as any).id === `#${id}` ||
-          (task as any).id.slice(1) === id
+          (task as unknown).id === id ||
+          (task as unknown).id === `#${id}` ||
+          (task as unknown).id.slice(1) === id
       );
 
       if (!taskToDelete) {
@@ -194,25 +194,25 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
 
       // Remove the task from the array
-      const updatedTasks = tasks.filter((task) => (task as any).id !== (taskToDelete as any).id);
+      const updatedTasks = tasks.filter((task) => (task as unknown).id !== (taskToDelete as unknown).id);
 
       // Save the updated tasks
       const updatedContent = this.formatTasks(updatedTasks);
       const saveResult = await this.saveTasksData(updatedContent);
 
-      if (!(saveResult as any).success) {
+      if (!(saveResult as unknown).success) {
         log.error(`Failed to save tasks after deleting ${id}:`, {
-          error: (saveResult.error as any).message,
+          error: (saveResult.error as unknown).message,
         });
         return false;
       }
 
       // Try to delete the spec file if it exists
-      if ((taskToDelete as any).specPath) {
+      if ((taskToDelete as unknown).specPath) {
         try {
-          const fullSpecPath = (taskToDelete.specPath as any).startsWith("/")
-            ? (taskToDelete as any).specPath
-            : join(this.workspacePath, (taskToDelete as any).specPath);
+          const fullSpecPath = (taskToDelete.specPath as unknown).startsWith("/")
+            ? (taskToDelete as unknown).specPath
+            : join(this.workspacePath, (taskToDelete as unknown).specPath);
 
           if (await this.fileExists(fullSpecPath)) {
             const { unlink } = await import("fs/promises");
@@ -241,7 +241,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = (specPath as any).startsWith("/")
+    const fullPath = (specPath as unknown).startsWith("/")
       ? specPath
       : join(this.workspacePath, specPath);
     return readTaskSpecFile(fullPath);
@@ -288,7 +288,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     // Then add any metadata as frontmatter
     if (spec.metadata && Object.keys(spec.metadata).length > 0) {
-      return (matter as any).stringify(markdownContent, (spec as any).metadata);
+      return (matter as unknown).stringify(markdownContent, (spec as unknown).metadata);
     }
 
     return markdownContent;
@@ -301,7 +301,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
-    const fullPath = (specPath as any).startsWith("/")
+    const fullPath = (specPath as unknown).startsWith("/")
       ? specPath
       : join(this.workspacePath, specPath);
     return writeTaskSpecFile(fullPath, content);
@@ -331,7 +331,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   async findTaskSpecFiles(taskId: string): Promise<string[]> {
     try {
       const files = await readdir(this.tasksDirectory);
-      return (files as any).filter((file) => (file as any).startsWith(`${taskId}-`));
+      return (files as unknown).filter((file) => (file as unknown).startsWith(`${taskId}-`));
     } catch (error) {
       log.error(`Failed to find task spec file for task #${taskId}`, {
         error: getErrorMessage(error as any),

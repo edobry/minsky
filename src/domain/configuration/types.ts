@@ -211,9 +211,9 @@ export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
   ],
   sessiondb: {
     backend: "json",
-    baseDir: undefined as any,
-    dbPath: undefined as any,
-    connectionString: undefined as any,
+    baseDir: undefined as unknown,
+    dbPath: undefined as unknown,
+    connectionString: undefined as unknown,
   },
   logger: {
     mode: "auto",

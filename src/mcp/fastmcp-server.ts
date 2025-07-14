@@ -35,27 +35,27 @@ export class MinskyMCPServer {
 
   constructor(options: MinskyMCPServerOptions = {}) {
     this.options = {
-      name: (options as any).name ?? "Minsky MCP Server",
-      version: (options as any).version ?? "1.0.0",
-      /* TODO: Verify if transportType is valid property */ transportType: (options as any).transportType ?? "stdio",
-      projectContext: (options as any).projectContext ?? createProjectContextFromCwd(),
+      name: (options as unknown).name ?? "Minsky MCP Server",
+      version: (options as unknown).version ?? "1.0.0",
+      /* TODO: Verify if transportType is valid property */ transportType: (options as unknown).transportType ?? "stdio",
+      projectContext: (options as unknown).projectContext ?? createProjectContextFromCwd(),
       sse: {
-        host: (options.sse as any).host ?? "localhost",
-        path: (options.sse as any).path ?? "/sse",
-        port: (options.sse as any).port ?? 3000
+        host: (options.sse as unknown).host ?? "localhost",
+        path: (options.sse as unknown).path ?? "/sse",
+        port: (options.sse as unknown).port ?? 3000
       },
       /* TODO: Verify if httpStream is valid property */ httpStream: {
-        endpoint: (options.httpStream as any).endpoint ?? "/mcp",
-        port: (options.httpStream as any).port ?? 8080
+        endpoint: (options.httpStream as unknown).endpoint ?? "/mcp",
+        port: (options.httpStream as unknown).port ?? 8080
       },
     };
 
-    this.projectContext = (this.options as any).projectContext;
+    this.projectContext = (this.options as unknown).projectContext;
 
     // Create the FastMCP server
     this.fastmcp = new FastMCP({
-      name: (this.options as any).name,
-      version: (this.options as any).version,
+      name: (this.options as unknown).name,
+      version: (this.options as unknown).version,
     });
   }
 
@@ -77,34 +77,34 @@ export class MinskyMCPServer {
    * Start the MCP server with the configured transport
    */
   async start(): Promise<void> {
-    log.agent(`Starting ${(this.options as any).name} with ${(this.options as any).transportType} transport`);
+    log.agent(`Starting ${(this.options as unknown).name} with ${(this.options as unknown).transportType} transport`);
 
-    if ((this.options as any).transportType === "stdio") {
+    if ((this.options as unknown).transportType === "stdio") {
       await this.fastmcp.start();
       log.agent("MCP Server started with stdio transport");
-    } else if ((this.options as any).transportType === "sse") {
+    } else if ((this.options as unknown).transportType === "sse") {
       // SSE is not supported by FastMCP, fall back to httpStream
       await this.fastmcp.start({
         transportType: "httpStream",
         httpStream: {
-          port: (this.options.sse as any).port
+          port: (this.options.sse as unknown).port
         }
       });
       log.agent(
-        `MCP Server started with HTTP Stream transport (SSE fallback) on port ${(this.options.sse as any).port}`
+        `MCP Server started with HTTP Stream transport (SSE fallback) on port ${(this.options.sse as unknown).port}`
       );
-    } else if ((this.options as any).transportType === "httpStream") {
+    } else if ((this.options as unknown).transportType === "httpStream") {
       await this.fastmcp.start({
         transportType: "httpStream",
         httpStream: {
-          port: (this.options.httpStream as any).port
+          port: (this.options.httpStream as unknown).port
         }
       });
       log.agent(
-        `MCP Server started with HTTP Stream transport on port ${(this.options.httpStream as any).port}`
+        `MCP Server started with HTTP Stream transport on port ${(this.options.httpStream as unknown).port}`
       );
     } else {
-      throw new Error(`Unsupported transport type: ${(this.options as any).transportType}`);
+      throw new Error(`Unsupported transport type: ${(this.options as unknown).transportType}`);
     }
   }
 

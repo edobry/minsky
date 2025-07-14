@@ -55,7 +55,7 @@ describe("updateSessionFromParams", () => {
         noStash: false,
         noPush: false,
         force: false,
-      } as any);
+      } as unknown);
       throw new Error("Should have thrown an error");
     } catch (error: unknown) {
       expectToBeInstanceOf(error, ValidationError);

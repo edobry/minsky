@@ -98,16 +98,16 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     const env: Record<string, string | undefined> = {
       ...(process as any).env,
       CLIENT_PORT: (port as any).toString(),
-      SERVER_PORT: ((port + 3) as any).toString(), // Use a different port for the inspector server
+      SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server
     };
 
     // Configure auto-open based on openBrowser option
     if (!openBrowser) {
-      (env as any).MCP_AUTO_OPEN_ENABLED = "false";
+      (env as unknown).MCP_AUTO_OPEN_ENABLED = "false";
     }
 
     // For security, we'll need to set this for auto-open to work
-    (env as any).DANGEROUSLY_OMIT_AUTH = "true";
+    (env as unknown).DANGEROUSLY_OMIT_AUTH = "true";
 
     log.debug("Launching MCP Inspector", {
       clientPort: port,
@@ -130,7 +130,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     );
 
     // Check for immediate launch errors
-    if (!(inspectorProcess as any).pid) {
+    if (!(inspectorProcess as unknown).pid) {
       return {
         success: false,
         error: "Failed to start MCP Inspector process",
@@ -138,18 +138,18 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     }
 
     // Handle process events
-    (inspectorProcess as any).on("error", (error) => {
+    (inspectorProcess as unknown).on("error", (error) => {
       log.error("MCP Inspector process error", {
         error: (error as any).message as any,
         stack: (error as any).stack as any,
       });
     });
 
-    (inspectorProcess.stderr as any).on("data", (data) => {
-      log.error(`MCP Inspector stderr: ${(data as any)!.toString()}`);
+    (inspectorProcess.stderr as unknown).on("data", (data) => {
+      log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);
     });
 
-    (inspectorProcess as any).on("exit", (code, signal) => {
+    (inspectorProcess as unknown).on("exit", (code, signal) => {
       log.debug("MCP Inspector process exited", { code, signal });
     });
 

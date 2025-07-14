@@ -35,36 +35,36 @@ const INSPECTOR_PORT = 3001;
  */
 export function createMCPCommand(): Command {
   const mcpCommand = new Command("mcp");
-  (mcpCommand as any).description("Model Context Protocol (MCP) server commands");
+  (mcpCommand as unknown).description("Model Context Protocol (MCP) server commands");
 
   // Start command
   const startCommand = new Command("start");
-  (startCommand as any).description("Start the MCP server");
+  (startCommand as unknown).description("Start the MCP server");
   (startCommand
     .option("--stdio", "Use stdio transport (default)")
     .option("--http-stream", "Use HTTP Stream transport")
-    .option("-p, --port <port>", "Port for HTTP Stream server", (DEFAULT_DEV_PORT as any).toString())
+    .option("-p, --port <port>", "Port for HTTP Stream server", (DEFAULT_DEV_PORT as unknown).toString())
     .option("-h, --host <host>", "Host for HTTP Stream server", "localhost")
     .option(
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
     )
     .option("--with-inspector", "Launch MCP inspector alongside the server")
-    .option("--inspector-port <port>", "Port for the MCP inspector", (INSPECTOR_PORT as any).toString()) as any).action(async (options) => {
+    .option("--inspector-port <port>", "Port for the MCP inspector", (INSPECTOR_PORT as unknown).toString()) as unknown).action(async (options) => {
     try {
       // Determine transport type based on options
       let transportType: "stdio" | "sse" | "httpStream" = "stdio";
-      if ((options as any).httpStream) {
+      if ((options as unknown).httpStream) {
         transportType = "httpStream";
       }
 
       // Set port (used for HTTP Stream)
-      const port = parseInt((options as any).port, 10);
+      const port = parseInt((options as unknown).port, 10);
 
       // Validate and prepare repository path if provided
       let projectContext;
-      if ((options as any).repo) {
-        const repositoryPath = path.resolve((options as any).repo);
+      if ((options as unknown).repo) {
+        const repositoryPath = path.resolve((options as unknown).repo);
         // Validate that the path exists and is a directory
         if (!fs.existsSync(repositoryPath)) {
           log.cliError(`Repository path does not exist: ${repositoryPath}`);
@@ -82,7 +82,7 @@ export function createMCPCommand(): Command {
           });
         } catch (error) {
           log.cliError(`Invalid repository path: ${repositoryPath}`);
-          if ((SharedErrorHandler as any).isDebugMode() && error instanceof Error) {
+          if ((SharedErrorHandler as unknown).isDebugMode() && error instanceof Error) {
             log.cliError((error as any).message);
           }
           exit(1);
@@ -92,10 +92,10 @@ export function createMCPCommand(): Command {
       log.debug("Starting MCP server", {
         transportType,
         port,
-        host: (options as any).host,
+        host: (options as unknown).host,
         repositoryPath: (projectContext as any).repositoryPath || (process as any).cwd(),
         withInspector: (options as any).withInspector || false,
-        inspectorPort: (options as any).inspectorPort,
+        inspectorPort: (options as unknown).inspectorPort,
       });
 
       // Create server with appropriate options
@@ -106,7 +106,7 @@ export function createMCPCommand(): Command {
         projectContext,
         sse: {
           port: 8080, // Default SSE port (not currently used via CLI)
-          host: (options as any).host,
+          host: (options as unknown).host,
           path: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
         },
         /* TODO: Verify if httpStream is valid property */ httpStream: {
@@ -117,8 +117,8 @@ export function createMCPCommand(): Command {
 
       // Register tools via adapter-based approach
       const commandMapper = new CommandMapper(
-        (server as any).getFastMCPServer(),
-        (server as any).getProjectContext()
+        (server as unknown).getFastMCPServer(),
+        (server as unknown).getProjectContext()
       );
         // Register debug tools first to ensure they're available for debugging
       registerDebugTools(commandMapper);
@@ -134,40 +134,40 @@ export function createMCPCommand(): Command {
       registerRulesTools(commandMapper);
 
       // Start the server
-      await (server as any).start();
+      await (server as unknown).start();
 
       log.cli(`Minsky MCP Server started with ${transportType} transport`);
       if (projectContext) {
-        log.cli(`Repository path: ${(projectContext as any).repositoryPath}`);
+        log.cli(`Repository path: ${(projectContext as unknown).repositoryPath}`);
       }
       if (transportType !== "stdio") {
-        log.cli(`Listening on ${(options as any).host}:${port}`);
+        log.cli(`Listening on ${(options as unknown).host}:${port}`);
       }
 
       // Launch inspector if requested
-      if ((options as any).withInspector) {
+      if ((options as unknown).withInspector) {
         // Check if inspector is available
         if (!isInspectorAvailable()) {
           log.cliError(
             "MCP Inspector not found. Please install it with: bun add -d @modelcontextprotocol/inspector"
           );
         } else {
-          const inspectorPort = parseInt((options as any).inspectorPort, 10);
+          const inspectorPort = parseInt((options as unknown).inspectorPort, 10);
 
           // Launch the inspector
           const inspectorResult = launchInspector({
             port: inspectorPort,
             openBrowser: true,
             mcpTransportType: transportType,
-            mcpPort: transportType !== "stdio" ? port : undefined as any,
-            mcpHost: transportType !== "stdio" ? (options as any).host : undefined as any,
-          }) as any;
+            mcpPort: transportType !== "stdio" ? port : undefined as unknown,
+            mcpHost: transportType !== "stdio" ? (options as unknown).host : undefined as unknown,
+          }) as unknown;
 
-          if ((inspectorResult as any).success) {
+          if ((inspectorResult as unknown).success) {
             log.cli(`MCP Inspector started on port ${inspectorPort}`);
-            log.cli(`Open your browser at ${(inspectorResult as any).url} to access the inspector`);
+            log.cli(`Open your browser at ${(inspectorResult as unknown).url} to access the inspector`);
           } else {
-            log.cliError(`Failed to start MCP Inspector: ${(inspectorResult as any).error}`);
+            log.cliError(`Failed to start MCP Inspector: ${(inspectorResult as unknown).error}`);
             log.cliError("The MCP server will continue running without the inspector.");
           }
         }
@@ -188,10 +188,10 @@ export function createMCPCommand(): Command {
     } catch (error) {
       // Log detailed error info for debugging
       log.error("Failed to start MCP server", {
-        transportType: (options as any).httpStream ? "httpStream" : "stdio",
-        port: (options as any).port,
-        host: (options as any).host,
-        withInspector: (options as any).withInspector || false,
+        transportType: (options as unknown).httpStream ? "httpStream" : "stdio",
+        port: (options as unknown).port,
+        host: (options as unknown).host,
+        withInspector: (options as unknown).withInspector || false,
         error: getErrorMessage(error as any),
         stack: error instanceof Error ? (error as any).stack as any : undefined as any,
       });
@@ -199,8 +199,8 @@ export function createMCPCommand(): Command {
       // Handle network errors in a user-friendly way
       if (isNetworkError(error as any)) {
         const port = parseInt((options as any).port, 10);
-        const networkError = createNetworkError(error as any, port, (options as any).host);
-        const isDebug = (SharedErrorHandler as any).isDebugMode();
+        const networkError = createNetworkError(error as unknown, port, (options as unknown).host);
+        const isDebug = (SharedErrorHandler as unknown).isDebugMode();
 
         // Output user-friendly message with suggestions
         log.cliError(formatNetworkErrorMessage(networkError, isDebug));
@@ -215,7 +215,7 @@ export function createMCPCommand(): Command {
         log.cliError(`Failed to start MCP server: ${getErrorMessage(error as any)}`);
 
         // Show stack trace only in debug mode
-        if ((SharedErrorHandler as any).isDebugMode() && error instanceof Error && (error as any).stack) {
+        if ((SharedErrorHandler as unknown).isDebugMode() && error instanceof Error && (error as any).stack) {
           log.cliError("\nDebug information:");
           log.cliError((error as any).stack);
         }

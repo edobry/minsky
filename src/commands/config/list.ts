@@ -15,28 +15,28 @@ interface ListOptions {
 export function createConfigListCommand(): Command {
   return (new Command("list")
     .description("List all configuration values and their sources")
-    .option("--json", "Output in JSON format", false) as any).action(async (options: ListOptions) => {
+    .option("--json", "Output in JSON format", false) as unknown).action(async (options: ListOptions) => {
     try {
       // Use node-config directly - it provides source information via config.util.getConfigSources()
-      const sources = (config.util as any).getConfigSources();
+      const sources = (config.util as unknown).getConfigSources();
       const resolved = {
-        backend: (config as any).get("backend"),
-        backendConfig: (config as any).get("backendConfig"),
-        credentials: (config as any).get("credentials"),
-        sessiondb: (config as any).get("sessiondb"),
-        ai: (config as any).has("ai") ? (config as any).get("ai") : undefined as any,
+        backend: (config as unknown).get("backend"),
+        backendConfig: (config as unknown).get("backendConfig"),
+        credentials: (config as unknown).get("credentials"),
+        sessiondb: (config as unknown).get("sessiondb"),
+        ai: (config as unknown).has("ai") ? (config as unknown).get("ai") : undefined as unknown,
       };
 
-      if ((options as any).json) {
+      if ((options as unknown).json) {
         const output = {
           resolved,
-          sources: (sources as any).map(source => ({
-            name: (source as any).name,
-            original: (source as any).original,
-            parsed: (source as any).parsed
+          sources: (sources as unknown).map(source => ({
+            name: (source as unknown).name,
+            original: (source as unknown).original,
+            parsed: (source as unknown).parsed
           }))
         };
-        await Bun.write(Bun.stdout, `${JSON.stringify(output as any, undefined, 2)}\n`);
+        await Bun.write(Bun.stdout, `${JSON.stringify(output as unknown, undefined, 2)}\n`);
       } else {
         await displayConfigurationSources(resolved, sources);
       }
@@ -44,7 +44,7 @@ export function createConfigListCommand(): Command {
       await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
       exit(1);
     }
-  }) as any;
+  }) as unknown;
 }
 
 async function displayConfigurationSources(resolved: any, sources: any[]) {
@@ -54,14 +54,14 @@ async function displayConfigurationSources(resolved: any, sources: any[]) {
   // Show source precedence
   await Bun.write(Bun.stdout, "Source Precedence (highest to lowest):\n");
   for (const source of sources) {
-    await Bun.write(Bun.stdout, `  ${sources.indexOf(source) + 1}. ${(source as any).name}\n`);
+    await Bun.write(Bun.stdout, `  ${sources.indexOf(source) + 1}. ${(source as unknown).name}\n`);
   };
 
   await Bun.write(Bun.stdout, "\nResolved Configuration:\n");
-  await Bun.write(Bun.stdout, `Backend: ${(resolved as any).backend}\n`);
+  await Bun.write(Bun.stdout, `Backend: ${(resolved as unknown).backend}\n`);
   
-  if ((resolved as any).sessiondb) {
-    await Bun.write(Bun.stdout, `SessionDB Backend: ${(resolved.sessiondb as any).backend}\n`);
+  if ((resolved as unknown).sessiondb) {
+    await Bun.write(Bun.stdout, `SessionDB Backend: ${(resolved.sessiondb as unknown).backend}\n`);
   }
 
   // Backend detection is now handled directly in code (no configuration needed)

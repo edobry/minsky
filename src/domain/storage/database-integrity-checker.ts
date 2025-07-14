@@ -245,7 +245,7 @@ export class DatabaseIntegrityChecker {
         const db = new Database(filePath);
         try {
           // Check database integrity
-          const integrityResult = db.prepare("PRAGMA integrity_check").get() as any;
+          const integrityResult = db.prepare("PRAGMA integrity_check").get() as unknown;
           if (integrityResult?.integrity_check !== "ok") {
             result.isValid = false;
             result.issues.push("SQLite integrity check failed");
@@ -261,7 +261,7 @@ export class DatabaseIntegrityChecker {
 
           // Check session count
           try {
-            const sessionCount = db.prepare("SELECT COUNT(*) as count FROM sessions").get() as any;
+            const sessionCount = db.prepare("SELECT COUNT(*) as count FROM sessions").get() as unknown;
             if (sessionCount?.count === 0) {
               result.warnings.push("Database is empty - no sessions found");
             }

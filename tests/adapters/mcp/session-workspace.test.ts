@@ -57,7 +57,7 @@ describe("SessionPathResolver", () => {
 
     // Create resolver and immediately replace sessionDB to avoid real database connection
     resolver = new SessionPathResolver();
-    (resolver as any).sessionDB = mockSessionDB;
+    (resolver as unknown).sessionDB = mockSessionDB;
   });
 
   afterEach(() => {

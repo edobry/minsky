@@ -33,7 +33,7 @@ export function detectPackageManager(repoPath: string): PackageManager {
   if (existsSync(join(repoPath, "package.json"))) {
     return "npm"; // Default to npm if only package.json exists
   }
-  return undefined as any; // Not a Node.js/Bun project
+  return undefined as unknown; // Not a Node.js/Bun project
 }
 
 /**
@@ -52,7 +52,7 @@ export function getInstallCommand(packageManager: PackageManager): string | unde
   case "pnpm":
     return "pnpm install";
   default:
-    return undefined as any;
+    return undefined as unknown;
   }
 }
 
@@ -71,7 +71,7 @@ export async function installDependencies(
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   try {
     // Detect or use provided package manager
-    const detectedPackageManager = (options as any)!.packageManager || detectPackageManager(repoPath);
+    const detectedPackageManager = (options as unknown)!.packageManager || detectPackageManager(repoPath);
 
     if (!detectedPackageManager) {
       return {
@@ -90,18 +90,18 @@ export async function installDependencies(
     }
 
     // Log installation start unless quiet
-    if (!(options as any)!.quiet) {
+    if (!(options as unknown)!.quiet) {
       log.debug(`Installing dependencies using ${detectedPackageManager}...`);
     }
 
     // Execute the install command
     const result = execSync(installCmd, {
       cwd: repoPath,
-      stdio: (options as any)!.quiet ? "ignore" : "inherit",
-    }) as any;
+      stdio: (options as unknown)!.quiet ? "ignore" : "inherit",
+    }) as unknown;
 
     // Handle the case where execSync returns null when stdio is "ignore"
-    const output = result ? (result as any).toString() : "";
+    const output = result ? (result as unknown).toString() : "";
 
     return { success: true, output };
   } catch (error) {

@@ -615,7 +615,7 @@ Examples:
           task: params!.task,
           repo: params!.repo,
           json: params!.json,
-        })) as any;
+        })) as unknown;
 
         return {
           success: true,
@@ -719,7 +719,7 @@ Example:
           skipUpdate: params!.skipUpdate,
           autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
           skipConflictCheck: params!.skipConflictCheck,
-        })) as any;
+        })) as unknown;
 
         return {
           success: true,

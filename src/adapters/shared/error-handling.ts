@@ -55,7 +55,7 @@ export class SharedErrorHandler {
     const normalizedError = ensureError(error as any);
     let errorType = "UNKNOWN_ERROR";
     const result: Record<string, any> = {
-      message: (normalizedError as any).message,
+      message: (normalizedError as unknown).message,
     };
 
     // Add error-specific information
@@ -97,19 +97,19 @@ export class SharedErrorHandler {
     }
 
     // Add error type to the result
-    (result as any).errorType = errorType;
+    (result as unknown).errorType = errorType;
 
     // Add debug information if requested
     if (debug) {
-      if ((normalizedError as any).stack) {
-        (result as any).stack = (normalizedError as any).stack;
+      if ((normalizedError as unknown).stack) {
+        (result as unknown).stack = (normalizedError as unknown).stack;
       }
 
       // Add cause chain if available
-      if (normalizedError instanceof MinskyError && (normalizedError as any).cause) {
-        const cause = (normalizedError as any).cause;
-        (result as any).cause =
-          cause instanceof Error ? { message: (cause as any).message, stack: (cause as any).stack } : String(cause);
+      if (normalizedError instanceof MinskyError && (normalizedError as unknown).cause) {
+        const cause = (normalizedError as unknown).cause;
+        (result as unknown).cause =
+          cause instanceof Error ? { message: (cause as unknown).message, stack: (cause as unknown).stack } : String(cause);
       }
     }
 
@@ -148,9 +148,9 @@ export class SharedErrorHandler {
    */
   static isDebugMode(): boolean {
     return (
-      (process.env as any).DEBUG === "true" ||
-      (process.env as any).DEBUG === "1" ||
-      (typeof (process.env as any).NODE_DEBUG === "string" && (process.env.NODE_DEBUG as any).includes("minsky"))
+      (process.env as unknown).DEBUG === "true" ||
+      (process.env as unknown).DEBUG === "1" ||
+      (typeof (process.env as unknown).NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"))
     );
   }
 
@@ -162,11 +162,11 @@ export class SharedErrorHandler {
    * @returns Never returns, process exits
    */
   static handleError(error: any, options: ErrorHandlingOptions = {}): never {
-    const { debug = (SharedErrorHandler as any).isDebugMode(), exitCode = 1 } = options;
+    const { debug = (SharedErrorHandler as unknown).isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error as any);
 
     // Format error for structured logging
-    const formattedError = (SharedErrorHandler as any).formatError(error as any, debug);
+    const formattedError = (SharedErrorHandler as unknown).formatError(error as unknown, debug);
 
     // Log to appropriate channels based on mode
     if (isStructuredMode()) {
@@ -189,14 +189,14 @@ export class CliErrorHandler implements ErrorHandler {
    * @param options Error handling options
    */
   handleError(error: any, options: ErrorHandlingOptions = {}): never {
-    const { debug = (SharedErrorHandler as any).isDebugMode(), exitCode = 1 } = options;
+    const { debug = (SharedErrorHandler as unknown).isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error as any);
 
     // Get type-specific error prefix
     const prefix = (SharedErrorHandler as any).getErrorPrefix(error as any);
 
     // Output human-readable error message
-    log.cliError(`${prefix}: ${(normalizedError as any).message}`);
+    log.cliError(`${prefix}: ${(normalizedError as unknown).message}`);
 
     // Add type-specific details
     if (error instanceof ValidationError && (error as any).errors && debug) {
@@ -219,16 +219,16 @@ export class CliErrorHandler implements ErrorHandler {
     // Add debug information if in debug mode
     if (debug) {
       log.cliError("\nDebug information:");
-      if ((normalizedError as any).stack) {
-        log.cliError((normalizedError as any).stack);
+      if ((normalizedError as unknown).stack) {
+        log.cliError((normalizedError as unknown).stack);
       }
 
       // Log cause chain if available
-      if (normalizedError instanceof MinskyError && (normalizedError as any).cause) {
+      if (normalizedError instanceof MinskyError && (normalizedError as unknown).cause) {
         log.cliError("\nCaused by:");
-        const cause = (normalizedError as any).cause;
+        const cause = (normalizedError as unknown).cause;
         if (cause instanceof Error) {
-          log.cliError((cause as any).stack || (cause as any).message);
+          log.cliError((cause as unknown).stack || (cause as unknown).message);
         } else {
           log.cliError(String(cause));
         }
@@ -238,7 +238,7 @@ export class CliErrorHandler implements ErrorHandler {
     // Use structured logging in structured mode
     if (isStructuredMode()) {
       // Format error for structured logging
-      const formattedError = (SharedErrorHandler as any).formatError(error as any, debug);
+      const formattedError = (SharedErrorHandler as unknown).formatError(error as unknown, debug);
       log.error("CLI operation failed", formattedError);
     }
 
@@ -258,10 +258,10 @@ export class McpErrorHandler implements ErrorHandler {
    * @param options Error handling options
    */
   handleError(error: any, options: ErrorHandlingOptions = {}): never {
-    const { debug = (SharedErrorHandler as any).isDebugMode(), exitCode = 1 } = options;
+    const { debug = (SharedErrorHandler as unknown).isDebugMode(), exitCode = 1 } = options;
 
     // Format error for MCP response
-    const formattedError = (SharedErrorHandler as any).formatError(error as any, debug);
+    const formattedError = (SharedErrorHandler as unknown).formatError(error as unknown, debug);
 
     // Log error in structured format
     log.error("MCP operation failed", formattedError);
@@ -285,7 +285,7 @@ export const mcpErrorHandler = new McpErrorHandler();
  * @returns The appropriate error handler
  */
 export function getErrorHandler(interfaceName: string): ErrorHandler {
-  switch ((interfaceName as any).toLowerCase()) {
+  switch ((interfaceName as unknown).toLowerCase()) {
   case "cli":
     return cliErrorHandler;
   case "mcp":

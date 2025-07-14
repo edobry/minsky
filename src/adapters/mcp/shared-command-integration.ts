@@ -64,7 +64,7 @@ export function registerSharedCommandsWithMcp(
       // The exact method depends on the CommandMapper interface
       // This is a simplified version - the actual implementation may need
       // to handle parameter schema conversion from Zod to MCP format
-      (commandMapper as any).addCommand({
+      (commandMapper as unknown).addCommand({
         name: command.id,
         description,
         parameters: command.parameters,

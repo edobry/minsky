@@ -93,7 +93,7 @@ export const compat = {
     let originalImplementation = implementation;
     
     // Create a wrapper function that behaves like the mock but has our methods
-    const compatMock = ((...args: any[]) => mockFn(...args)) as any;
+    const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;
     
     // Copy mock properties and bind methods to original mock
     compatMock.mock = mockFn.mock;
