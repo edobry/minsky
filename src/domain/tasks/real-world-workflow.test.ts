@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
+import { tmpdir } from "os";
 import { rmSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
 import { TaskService } from "../taskService";
 import type { TaskData } from "../../../types/tasks/taskData";
 
 describe("Real-World Workflow Testing", () => {
-  const testBaseDir = join(process.cwd(), "test-tmp", "real-world-test");
+  const testBaseDir = join(tmpdir(), "minsky-test", `real-world-test-${Date.now()}-${Math.random().toString(36).substring(7)}`);
   const testProcessDir = join(testBaseDir, "process");
   const testJsonPath = join(testProcessDir, "tasks.json");
   

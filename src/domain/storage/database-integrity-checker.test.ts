@@ -13,6 +13,7 @@ import { Database } from "bun:sqlite";
 import { DatabaseIntegrityChecker } from "../database-integrity-checker";
 import type { StorageBackendType } from "../storage-backend-factory";
 import { log } from "../../../utils/logger";
+import { tmpdir } from "os";
 
 // Test data
 const VALID_JSON_DATA = {
@@ -47,8 +48,8 @@ describe("DatabaseIntegrityChecker", () => {
     const uuid = randomUUID();
     const sequence = ++testSequenceNumber;
     testDirPath = join(
-      process.cwd(),
-      "test-tmp",
+      tmpdir(),
+      "minsky-test", 
       `integrity-checker-test-${timestamp}-${uuid}-${sequence}`
     );
     testDbPath = join(testDirPath, "test-sessions.db");
