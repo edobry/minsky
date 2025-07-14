@@ -21,18 +21,14 @@ import type {
 } from "../tasks";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
+import { validateTaskState, type TaskState } from "../../schemas/storage";
 import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { getTaskSpecRelativePath } from "./taskIO";
 
-// Define TaskState interface
-interface TaskState {
-  tasks: TaskData[];
-  lastUpdated: string;
-  metadata: Record<string, any>;
-}
+// TaskState is now imported from schemas/storage
 
 /**
  * Configuration for JsonFileTaskBackend
@@ -153,16 +149,13 @@ export class JsonFileTaskBackend implements TaskBackend {
   parseTasks(content: string): TaskData[] {
     // Try to parse as JSON first
     try {
-      const data = JSON.parse(content) as unknown;
-      if ((data as unknown).tasks && Array.isArray((data as unknown).tasks)) {
-        return (data as unknown).tasks as unknown;
-      }
+      const rawData = JSON.parse(content);
+      const validatedData = validateTaskState(rawData);
+      return validatedData.tasks;
     } catch (error) {
-      // If JSON parsing fails, fall back to markdown parsing
+      // If JSON parsing or validation fails, fall back to markdown parsing
       return this.parseMarkdownTasks(content);
     }
-
-    return [];
   }
 
   formatTasks(tasks: TaskData[]): string {

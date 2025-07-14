@@ -80,6 +80,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
   private readonly idField: string;
   private readonly entitiesField: string;
   private readonly prettyPrint: boolean;
+  private readonly validateState?: SchemaValidator<S>;
 
   /**
    * Create a new JsonFileStorage instance
