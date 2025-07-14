@@ -503,3 +503,5 @@
 - [ ] Fix Command Registry Type Erasure Architecture [#274](process/tasks/274-fix-command-registry-type-erasure-architecture.md)
 
 - [ ] Store PR Existence in Session Records for Optimized Session Approval [#275](process/tasks/275-store-pr-existence-in-session-records-for-optimized-session-approval.md)
+
+- [ ] Optimize test suite quality and pass rate post-isolation [#276](process/tasks/276-optimize-test-suite-quality-and-pass-rate-post-isolation.md)
