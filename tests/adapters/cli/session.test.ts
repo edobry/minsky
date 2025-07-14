@@ -12,6 +12,7 @@ import { existsSync } from "fs";
 import { getSessionDirFromParams, updateSessionFromParams } from "../../../domain/session.js";
 import { getCurrentSession, getSessionFromWorkspace } from "../../../domain/workspace.js";
 import { createMock, setupTestMocks } from "../../../utils/test-utils/mocking.js";
+import { withDirectoryIsolation } from "../../../utils/test-utils/cleanup-patterns.js";
 import type { SessionRecord, SessionProviderInterface } from "../../../domain/session.js";
 import type { GitServiceInterface } from "../../../domain/git.js";
 
@@ -333,9 +334,10 @@ describe("Session CLI Commands", () => {
         return "";
       };
 
-      // Mock process.cwd to return session path
-      const originalCwd = process.cwd;
-      process.cwd = () => sessionPath;
+      // Use directory isolation to mock process.cwd
+      const dirIsolation = withDirectoryIsolation();
+      dirIsolation.beforeEach();
+      dirIsolation.cwd.mockWorkingDirectory(sessionPath);
 
       try {
         // Act & Assert: Should throw ResourceNotFoundError after failed self-repair
@@ -355,7 +357,7 @@ describe("Session CLI Commands", () => {
           )
         ).rejects.toThrow(`Session '${sessionName}' not found`);
       } finally {
-        process.cwd = originalCwd;
+        dirIsolation.afterEach();
       }
     });
 

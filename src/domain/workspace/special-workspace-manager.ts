@@ -40,20 +40,18 @@ interface LockInfo {
  * - Error recovery and workspace repair
  */
 export class SpecialWorkspaceManager {
-  private readonly repoUrl!: string;
   private readonly workspacePath: string;
   private readonly lockPath: string;
   private readonly lockTimeoutMs: number;
 
-  constructor(options: SpecialWorkspaceOptions) {
-    this!.repoUrl = options!.repoUrl;
-    this?.lockTimeoutMs = options!?.lockTimeoutMs ?? 5 * 60 * 1000; // 5 minutes
+  constructor(private readonly repoUrl: string, options: SpecialWorkspaceOptions) {
+    this.lockTimeoutMs = options!?.lockTimeoutMs ?? 5 * 60 * 1000; // 5 minutes
 
     // Determine workspace paths
     const baseDir = options!?.baseDir ?? join(homedir(), ".local", "state", "minsky");
     const workspaceName = options!?.workspaceName ?? "task-operations";
-    this!.workspacePath = join(baseDir, workspaceName);
-    this?.lockPath = join("/tmp", `minsky-${workspaceName}.lock`);
+    this.workspacePath = join(baseDir, workspaceName);
+    this.lockPath = join("/tmp", `minsky-${workspaceName}.lock`);
   }
 
   /**
@@ -370,5 +368,5 @@ export class SpecialWorkspaceManager {
 export function createSpecialWorkspaceManager(
   options: SpecialWorkspaceOptions
 ): SpecialWorkspaceManager {
-  return new SpecialWorkspaceManager(options);
+  return new SpecialWorkspaceManager(options.repoUrl, options);
 }

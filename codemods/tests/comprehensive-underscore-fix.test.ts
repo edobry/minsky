@@ -1,19 +1,23 @@
 /**
- * Boundary Validation Test for comprehensive-underscore-fix.ts
+ * Boundary Validation Test for fix-underscore-prefix.ts
  * 
  * PURPOSE: Test whether the codemod does ONLY what it claims to do:
  * - Fix underscore mismatches in variable usage vs declaration
- * - NOT break working code that intentionally uses underscores
- * - NOT modify code that doesn't have underscore issues
- * 
- * METHODOLOGY: Runtime transformation testing with positive and negative constraints
+ * - NOT modify any code that doesn't have these specific issues
  */
 
+import { expect, describe, test, beforeAll, afterAll } from 'bun:test';
+import { mkdirSync, rmSync } from 'fs';
 import { execSync } from 'child_process';
 import { writeFileSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { withDirectoryIsolation } from '../../src/utils/test-utils/cleanup-patterns';
 
-describe('Boundary Validation: comprehensive-underscore-fix.ts', () => {
+// Get absolute path to session workspace root
+const SESSION_WORKSPACE = process.cwd();
+const CODEMOD_PATH = join(SESSION_WORKSPACE, 'codemods/fix-underscore-prefix.ts');
+
+describe('Boundary Validation: fix-underscore-prefix.ts', () => {
   const testDir = '/tmp/codemod-test-comprehensive-underscore';
   
   beforeAll(() => {
@@ -52,8 +56,7 @@ function process(_data: string) {
       writeFileSync(testFile, input);
       
       // Run the codemod
-      const codemodPath = join(process.cwd(), 'codemods/comprehensive-underscore-fix.ts');
-      const result = execSync(`cd ${testDir} && bun ${codemodPath}`, { encoding: 'utf8' });
+      const result = execSync(`cd ${testDir} && bun ${CODEMOD_PATH}`, { encoding: 'utf8' });
       
       const output = readFileSync(testFile, 'utf8');
       
@@ -84,8 +87,7 @@ console.log(\`Response: \${_response.status}\`);
       
       writeFileSync(testFile, input);
       
-      const codemodPath = join(process.cwd(), 'codemods/comprehensive-underscore-fix.ts');
-      execSync(`cd ${testDir} && bun ${codemodPath}`, { encoding: 'utf8' });
+      execSync(`cd ${testDir} && bun ${CODEMOD_PATH}`, { encoding: 'utf8' });
       
       const output = readFileSync(testFile, 'utf8');
       
@@ -124,8 +126,7 @@ const anotherVar = normalVariable.toUpperCase();
       writeFileSync(testFile, input);
       const originalContent = readFileSync(testFile, 'utf8');
       
-      const codemodPath = join(process.cwd(), 'codemods/comprehensive-underscore-fix.ts');
-      execSync(`cd ${testDir} && bun ${codemodPath}`, { encoding: 'utf8' });
+      execSync(`cd ${testDir} && bun ${CODEMOD_PATH}`, { encoding: 'utf8' });
       
       const output = readFileSync(testFile, 'utf8');
       
@@ -160,8 +161,7 @@ const _config = {
       writeFileSync(testFile, input);
       const originalContent = readFileSync(testFile, 'utf8');
       
-      const codemodPath = join(process.cwd(), 'codemods/comprehensive-underscore-fix.ts');
-      execSync(`cd ${testDir} && bun ${codemodPath}`, { encoding: 'utf8' });
+      execSync(`cd ${testDir} && bun ${CODEMOD_PATH}`, { encoding: 'utf8' });
       
       const output = readFileSync(testFile, 'utf8');
       
@@ -187,8 +187,7 @@ const message = \`The result is: \${result}\`;
       
       writeFileSync(testFile, input);
       
-      const codemodPath = join(process.cwd(), 'codemods/comprehensive-underscore-fix.ts');
-      execSync(`cd ${testDir} && bun ${codemodPath}`, { encoding: 'utf8' });
+      execSync(`cd ${testDir} && bun ${CODEMOD_PATH}`, { encoding: 'utf8' });
       
       const output = readFileSync(testFile, 'utf8');
       
@@ -235,8 +234,7 @@ const obj = {
       writeFileSync(testFile, input);
       const originalContent = readFileSync(testFile, 'utf8');
       
-      const codemodPath = join(process.cwd(), 'codemods/comprehensive-underscore-fix.ts');
-      execSync(`cd ${testDir} && bun ${codemodPath}`, { encoding: 'utf8' });
+      execSync(`cd ${testDir} && bun ${CODEMOD_PATH}`, { encoding: 'utf8' });
       
       const output = readFileSync(testFile, 'utf8');
       
@@ -264,11 +262,11 @@ const ___test = 'value';
       
       writeFileSync(testFile, input);
       
-      const codemodPath = join(process.cwd(), 'codemods/comprehensive-underscore-fix.ts');
+      execSync(`cd ${testDir} && bun ${CODEMOD_PATH}`, { encoding: 'utf8' });
       
       // Run codemod with timeout to detect infinite loops
       const startTime = Date.now();
-      execSync(`cd ${testDir} && timeout 30s bun ${codemodPath}`, { encoding: 'utf8' });
+      execSync(`cd ${testDir} && timeout 30s bun ${CODEMOD_PATH}`, { encoding: 'utf8' });
       const endTime = Date.now();
       
       // Should complete in reasonable time (< 10 seconds)
@@ -292,10 +290,8 @@ const ___test = 'value';
       
       writeFileSync(testFile, lines.join('\n'));
       
-      const codemodPath = join(process.cwd(), 'codemods/comprehensive-underscore-fix.ts');
-      
       const startTime = Date.now();
-      execSync(`cd ${testDir} && bun ${codemodPath}`, { encoding: 'utf8' });
+      execSync(`cd ${testDir} && bun ${CODEMOD_PATH}`, { encoding: 'utf8' });
       const endTime = Date.now();
       
       // Should complete in reasonable time
@@ -313,8 +309,7 @@ console.log(a + b + c);
       
       writeFileSync(testFile, input);
       
-      const codemodPath = join(process.cwd(), 'codemods/comprehensive-underscore-fix.ts');
-      const result = execSync(`cd ${testDir} && bun ${codemodPath}`, { encoding: 'utf8' });
+      const result = execSync(`cd ${testDir} && bun ${CODEMOD_PATH}`, { encoding: 'utf8' });
       
       const output = readFileSync(testFile, 'utf8');
       
