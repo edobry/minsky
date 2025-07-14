@@ -342,7 +342,7 @@
 
 - [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
 
-- [ ] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
+- [+] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
 
 - [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
 
@@ -396,9 +396,7 @@
 
 - [x] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
 
-- [ ] Enhanced Session PR Workflow [#222](process/tasks/222-enhanced-session-pr-workflow.md)
-
-- [ ] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
+- [x] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
 
 - [+] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
 
@@ -508,4 +506,4 @@
 
 - [ ] Implement Stacked PR Workflow for Session Dependencies [#277](process/tasks/277-implement-stacked-pr-workflow-for-session-dependencies.md)
 
-- [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system.md)
+- [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system-for-persistent-learning-and-knowledge-accumulation.md)
