@@ -13,7 +13,7 @@ import {
   createGitTimeoutErrorMessage,
   createMergeConflictErrorMessage,
   createBackendDetectionErrorMessage,
-} from "../enhanced-error-templates.js";
+} from "./enhanced-error-templates.js";
 
 describe("Task 223 Enhanced Error Messages", () => {
   describe("createSessionPrBranchErrorMessage", () => {
