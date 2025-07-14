@@ -12,7 +12,7 @@ export class SessionNotFoundError extends Error {
     message?: string
   ) {
     super(message || `Session not found: ${sessionId}`);
-    (this as unknown)?.name = "SessionNotFoundError";
+    (this as unknown).name = "SessionNotFoundError";
   }
 }
 
