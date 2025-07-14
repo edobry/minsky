@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Task #276**: Created comprehensive task specification for stacked PR workflow implementation
+- **Task #277**: Created comprehensive task specification for stacked PR workflow implementation
   - Enables sessions to start from existing session branches instead of always starting from main
   - Adds dependency tracking and visualization for session relationships
   - Supports PR stacks and cascading approvals

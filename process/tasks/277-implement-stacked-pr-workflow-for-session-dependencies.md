@@ -1,4 +1,4 @@
-# Task #276: Implement Stacked PR Workflow for Session Dependencies
+# Task #277: Implement Stacked PR Workflow for Session Dependencies
 
 **Status:** TODO
 **Type:** Enhancement
