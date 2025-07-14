@@ -34,29 +34,23 @@ logger:
   enableAgentLogs: false # Enable JSON logs in HUMAN mode
 
 # GitHub configuration
-github:
-  credentials: {}
+github: {}
 
 # AI configuration
 ai:
   providers:
     openai:
-      credentials: {}
       enabled: true
       models: []
     anthropic:
-      credentials: {}
       enabled: true
       models: []
     google:
-      credentials: {}
       enabled: true
       models: []
     cohere:
-      credentials: {}
       enabled: true
       models: []
     mistral:
-      credentials: {}
       enabled: true
       models: []

@@ -73,8 +73,9 @@ export class ConfigurationLoader {
   /**
    * Load environment variable overrides
    * 
-   * Automatically maps environment variables to config paths by computing
-   * variable names from the config structure (e.g., ai.providers.openai.credentials.api_key -> AI_PROVIDERS_OPENAI_CREDENTIALS_API_KEY)
+   * Automatically maps environment variables to config paths by converting
+   * underscore-separated names to nested config structure.
+   * E.g., GITHUB_TOKEN -> github.token, AI_PROVIDERS_OPENAI_API_KEY -> ai.providers.openai.api_key
    */
   private loadEnvironmentConfig(): Partial<ResolvedConfig> {
     const config: Partial<ResolvedConfig> = {};
@@ -84,45 +85,75 @@ export class ConfigurationLoader {
       (config as any).backend = (process as any).env[ENV_VARS.BACKEND] as any;
     }
 
-    // GitHub credentials - computed from config path
-    if ((process as any).env.GITHUB_CREDENTIALS_TOKEN) {
-      (config as any).github = {
-        credentials: {
-          token: (process as any).env.GITHUB_CREDENTIALS_TOKEN,
-        },
-      };
-    }
-
-    // AI provider credentials - computed from config paths
-    const aiProviders: Record<string, any> = {};
-    
-    // AI provider environment variables computed from config paths
-    const aiProviders_list = ["openai", "anthropic", "google", "cohere", "mistral"];
-    
-    for (const provider of aiProviders_list) {
-      // Config path: ai.providers.{provider}.credentials.api_key
-      // Environment variable: AI_PROVIDERS_{PROVIDER}_CREDENTIALS_API_KEY
-      const envVarName = `AI_PROVIDERS_${provider.toUpperCase()}_CREDENTIALS_API_KEY`;
-      const apiKey = (process as any).env[envVarName];
-      
-      if (apiKey) {
-        aiProviders[provider] = {
-          credentials: {
-            api_key: apiKey,
-          },
-          enabled: true,
-        };
+    // Generic environment variable mapping
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value && this.isConfigEnvironmentVariable(key)) {
+        this.setConfigFromEnvironmentVariable(config, key, value);
       }
     }
 
-    // Add AI config if any providers were configured
-    if (Object.keys(aiProviders).length > 0) {
-      (config as any).ai = {
-        providers: aiProviders,
-      };
-    }
-
     return config;
+  }
+
+  /**
+   * Check if an environment variable should be mapped to config
+   */
+  private isConfigEnvironmentVariable(key: string): boolean {
+    // Skip system and framework environment variables
+    const systemPrefixes = ["PATH", "HOME", "USER", "SHELL", "NODE_", "npm_", "MINSKY_"];
+    return !systemPrefixes.some(prefix => key.startsWith(prefix));
+  }
+
+  /**
+   * Convert environment variable to config path and set value
+   * E.g., GITHUB_TOKEN -> github.token, AI_PROVIDERS_OPENAI_API_KEY -> ai.providers.openai.api_key
+   */
+  private setConfigFromEnvironmentVariable(config: any, envKey: string, value: string): void {
+    // Convert UPPER_CASE to lowercase.dotted.path with special handling for compound words
+    let configPath = envKey.toLowerCase().split("_").join(".");
+    
+    // Handle specific compound words that should stay together
+    configPath = configPath.replace(/\.api\.key$/, ".api_key");
+    configPath = configPath.replace(/\.api\.key\.file$/, ".api_key_file");
+    configPath = configPath.replace(/\.connection\.string$/, ".connection_string");
+    configPath = configPath.replace(/\.base\.url$/, ".base_url");
+    configPath = configPath.replace(/\.default\.model$/, ".default_model");
+    configPath = configPath.replace(/\.max\.tokens$/, ".max_tokens");
+    
+    // Set nested value in config object
+    this.setNestedValue(config, configPath, value);
+  }
+
+  /**
+   * Set a nested value in an object using dot notation
+   */
+  private setNestedValue(obj: any, path: string, value: any): void {
+    const keys = path.split(".");
+    let current = obj;
+    
+    for (let i = 0; i < keys.length - 1; i++) {
+      const key = keys[i];
+      if (key && !current[key]) {
+        current[key] = {};
+      }
+      if (key) {
+        current = current[key];
+      }
+    }
+    
+    const lastKey = keys[keys.length - 1];
+    if (lastKey && current) {
+      try {
+        current[lastKey] = value;
+      } catch (error) {
+        // Handle readonly properties by creating a new object
+        if (error instanceof TypeError && error.message.includes("readonly")) {
+          // Skip readonly properties
+          return;
+        }
+        throw error;
+      }
+    }
   }
 
   /**
@@ -301,16 +332,10 @@ export class ConfigurationLoader {
     existing: GitHubConfig | undefined,
     newGitHub: GitHubConfig
   ): GitHubConfig {
-    const merged = { ...existing };
-
-    if (newGitHub.credentials) {
-      merged.credentials = {
-        ...merged.credentials,
-        ...newGitHub.credentials,
-      };
-    }
-
-    return merged;
+    return {
+      ...existing,
+      ...newGitHub,
+    };
   }
 
   /**

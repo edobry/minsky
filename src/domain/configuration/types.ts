@@ -8,20 +8,14 @@
 // Component-specific configuration with colocated credentials
 
 export interface GitHubConfig {
-  credentials?: {
-    source?: "environment" | "file" | "prompt";
-    token?: string;
-    token_file?: string;
-  };
+  token?: string;
+  token_file?: string;
   // Future: other GitHub settings can go here
 }
 
 export interface AIProviderConfig {
-  credentials?: {
-    source?: "environment" | "file" | "prompt";
-    api_key?: string;
-    api_key_file?: string;
-  };
+  api_key?: string;
+  api_key_file?: string;
   enabled?: boolean;
   default_model?: string;
   base_url?: string;
