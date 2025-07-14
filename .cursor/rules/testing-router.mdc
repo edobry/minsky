@@ -1,18 +1,16 @@
----
-description: REQUIRED: Entry point for ALL test-related tasks. Always consult first when writing, modifying, or debugging tests.
-globs:
-alwaysApply: false
----
 # Minsky Testing Guidance - Start Here
 
 This rule serves as the **primary entry point** for all testing guidance in the Minsky project. It directs you to the relevant rules for your specific testing needs, recognizing that **multiple rules often apply simultaneously** for any testing scenario.
+
+> **Updated for Task #270**: Test organization now follows architectural layers. See [Test Architecture Guide](docs/testing/test-architecture-guide.md) for complete details.
 
 ## Rule Application Matrix
 
 | Scenario | Primary Rules | Supporting Rules |
 |----------|---------------|------------------|
-| Writing new tests | testing-boundaries, designing-tests | bun-test-patterns, framework-specific-tests |
+| Writing new tests | testing-boundaries, test-organization | bun-test-patterns, framework-specific-tests |
 | Organizing test files | test-organization | testing-boundaries |
+| Understanding test architecture | Test Architecture Guide | test-organization, testing-boundaries |
 | Implementing mocks | bun-test-patterns, testing-boundaries | framework-specific-tests |
 | Debugging failing tests | test-debugging | bun-test-patterns, test-expectations |
 | Updating test expectations | test-expectations | testing-boundaries |
@@ -20,14 +18,42 @@ This rule serves as the **primary entry point** for all testing guidance in the 
 | Fixing bugs with tests | test-driven-bugfix | testing-boundaries, test-debugging, test-organization |
 | Verifying and running tests | tests | test-debugging |
 
+## Test Architecture Overview (Task #270)
+
+**Key Principle: Tests are co-located with their modules following standard TypeScript conventions**
+
+```
+src/
+├── domain/
+│   ├── session.ts
+│   ├── session.test.ts              # Domain service tests
+│   ├── session.commands.test.ts     # Domain command tests
+│   └── tests/                       # Complex integration tests only
+├── adapters/
+│   ├── cli/
+│   │   ├── session.ts
+│   │   └── session.adapter.test.ts  # CLI adapter tests
+│   └── mcp/
+│       ├── session.ts
+│       └── session.adapter.test.ts  # MCP adapter tests
+```
+
+**Quick Decision Guide:**
+- Testing domain services? → Co-locate: `src/domain/[module].test.ts`
+- Testing `*FromParams` functions? → Co-locate: `src/domain/[module].commands.test.ts`
+- Testing CLI adapters? → Co-locate: `src/adapters/cli/[module].adapter.test.ts`
+- Testing MCP adapters? → Co-locate: `src/adapters/mcp/[module].adapter.test.ts`
+- Complex integration tests? → Use `tests/` directories when co-location doesn't fit
+
 ## Rule Relationships
 
 ### Foundation Layer (Always Apply)
 - [**testing-boundaries**](mdc:.cursor/rules/testing-boundaries.mdc): CRITICAL rules for what should and should NOT be tested
+- [**test-organization**](mdc:.cursor/rules/test-organization.mdc): Layer-based test organization (updated Task #270)
 - [**bun-test-patterns**](mdc:.cursor/rules/bun-test-patterns.mdc): Essential patterns for using bun:test correctly
 
 ### Implementation Layer (Apply as Needed)
-- [**test-organization**](mdc:.cursor/rules/test-organization.mdc): How to organize test files and prevent fragmentation
+- [**Test Architecture Guide**](docs/testing/test-architecture-guide.md): Complete architectural documentation
 - [**framework-specific-tests**](mdc:.cursor/rules/framework-specific-tests.mdc): Standards for working with specific testing frameworks
 - [**test-infrastructure-patterns**](mdc:.cursor/rules/test-infrastructure-patterns.mdc): Setting up test environments and fixtures
 - [**designing-tests**](mdc:.cursor/rules/designing-tests.mdc): General principles for effective test design
@@ -84,6 +110,7 @@ When writing any test, verify:
 - [ ] No assertions against console output
 - [ ] No placeholder or skipped tests
 - [ ] Clear test descriptions that explain the expected behavior
+- [ ] Test file placed in correct architectural layer
 
 ## Quick Reference Example
 
@@ -95,31 +122,30 @@ import {
   mockModule,
   setupTestMocks,
   createMockFileSystem
-} from "../../utils/test-utils/mocking";
+} from "../utils/test-utils/mocking";
 
 // 2. Set up automatic mock cleanup
 setupTestMocks();
 
 // 3. Define test suite
-describe("Domain feature", () => {
-  // 4. Set up mocks
+describe("Domain Commands", () => {
+  // 4. Set up mocks for domain functions
   const mockDependency = createMock();
 
-  // 5. Mock modules if needed
-  mockModule("../dependency", () => ({
+  // 5. Mock domain modules if needed
+  mockModule("../../../src/domain/dependency", () => ({
     someFunction: mockDependency
   }));
 
-  // 6. Test specific behaviors
+  // 6. Test specific domain behaviors
   test("should handle specific case", () => {
     // Arrange
     mockDependency.mockReturnValue("expected");
 
     // Act
-    const result = functionUnderTest();
+    const result = functionFromParams();
 
     // Assert
     expect(result).toBe("expected");
-  });
+    });
 });
-```

@@ -1,8 +1,3 @@
----
-description: REQUIRED: Use when implementing test mocks or fixtures. Always use centralized test utilities over direct API calls.
-globs: **/*.test.ts
-alwaysApply: false
----
 # Bun Test Patterns
 
 ## ALWAYS USE CENTRALIZED MOCKING UTILITIES
@@ -16,10 +11,10 @@ const mockFn = jest.fn();
 mock.module("../path/to/module", () => ({ ... }));
 
 // ✅ ALWAYS USE CENTRALIZED UTILITIES
-import { createMock, mockModule, setupTestMocks } from "../../utils/test-utils/mocking";
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
 setupTestMocks();
 const mockFn = createMock();
-mockModule("../path/to/module", () => ({ ... }));
+mockModule("../../../src/path/to/module", () => ({ ... }));
 ```
 
 The centralized utilities provide:
@@ -30,9 +25,9 @@ The centralized utilities provide:
 
 ## Core Mocking Utilities
 
-### Required Setup
+### Required Setup (Updated for Task #270 Architecture)
 
-Always begin your test file with:
+Always begin your test file with proper import paths based on test location:
 
 ```typescript
 import { describe, test, expect } from "bun:test";
@@ -41,7 +36,14 @@ import {
   mockModule,
   setupTestMocks,
   createMockFileSystem
-} from "../../utils/test-utils/mocking";
+} from "../utils/test-utils/mocking";
+// OR
+import {
+  createMock,
+  mockModule,
+  setupTestMocks,
+  createMockFileSystem  
+} from "../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -65,19 +67,25 @@ expect(mockFunction).toHaveBeenCalledWith("arg");
 expect(mockFunction.mock.calls.length).toBe(1);
 ```
 
-### Module Mocking
+### Module Mocking (Updated Paths for New Architecture)
 
-**REQUIRED: Use mockModule() instead of mock.module()**
+**REQUIRED: Use mockModule() with proper src/ prefix**
 
 ```typescript
-// ❌ INCORRECT - Direct mock API usage
+// ❌ INCORRECT - Direct mock API usage or wrong paths
 mock.module("../path/to/module", () => ({
   exportedFunction: jest.fn()
 }));
 
-// ✅ CORRECT - Using centralized utility
-mockModule("../path/to/module", () => ({
-  exportedFunction: createMock()
+// ✅ CORRECT - Using centralized utility with src/ prefix
+mockModule("../../../src/domain/tasks", () => ({
+  getTaskFromParams: createMock(),
+  setTaskStatusFromParams: createMock()
+}));
+
+// ✅ CORRECT - From adapter tests
+mockModule("../../../../src/adapters/shared/commands/tasks", () => ({
+  registerTasksCommands: createMock()
 }));
 ```
 
@@ -103,7 +111,74 @@ test("saves config to file", () => {
 });
 ```
 
-## Test Organization Patterns
+## Test Organization Patterns (Updated for Task #270)
+
+### Domain Command Test Structure
+
+```typescript
+// src/domain/tasks.commands.test.ts
+import { describe, test, expect, beforeEach } from "bun:test";
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
+
+// Set up automatic mock cleanup
+setupTestMocks();
+
+// Mock domain services that the commands use
+const mockTaskService = createMock();
+mockModule("../../../src/domain/tasks/taskService", () => ({
+  getTask: mockTaskService
+}));
+
+describe("Task Domain Commands", () => {
+  beforeEach(() => {
+    mockTaskService.mockReset();
+  });
+
+  describe("getTaskFromParams", () => {
+    test("should validate and retrieve task", async () => {
+      // Arrange
+      const params = { id: "123" };
+      const expectedTask = { id: "123", title: "Test Task" };
+      mockTaskService.mockResolvedValue(expectedTask);
+
+      // Act  
+      const result = await getTaskFromParams(params);
+
+      // Assert
+      expect(result).toEqual(expectedTask);
+      expect(mockTaskService).toHaveBeenCalledWith("123");
+    });
+  });
+});
+```
+
+### Adapter Test Structure
+
+```typescript
+// src/adapters/shared/tasks.adapter.test.ts
+import { describe, test, expect, beforeEach } from "bun:test";
+import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
+import { registerTasksCommands } from "../../../../src/adapters/shared/commands/tasks";
+
+// Set up automatic mock cleanup
+setupTestMocks();
+
+describe("Shared Tasks Adapter", () => {
+  test("registers correct number of commands", () => {
+    // Arrange
+    const mockRegistry = {
+      commands: new Map(),
+      register: createMock()
+    };
+
+    // Act
+    registerTasksCommands(mockRegistry);
+
+    // Assert
+    expect(mockRegistry.register).toHaveBeenCalledTimes(7);
+  });
+});
+```
 
 ### Test Suite Structure
 
@@ -176,7 +251,7 @@ test("async function returns expected result", async () => {
   const mockData = { id: 123 };
   const mockApi = createMock();
   mockApi.mockResolvedValue(mockData);
-  mockModule("../api", () => ({ fetchData: mockApi }));
+  mockModule("../../../src/api", () => ({ fetchData: mockApi }));
 
   // Act
   const result = await fetchAndProcess(123);
@@ -199,6 +274,28 @@ test("function throws for invalid input", () => {
 });
 ```
 
+## Path Examples for New Architecture
+
+### Import Paths by Test Location
+
+```typescript
+// From src/domain/*.commands.test.ts (co-located)
+import { createMock } from "../utils/test-utils/mocking";
+mockModule("./tasks", () => ({ ... }));
+
+// From src/adapters/cli/*.adapter.test.ts (co-located)
+import { createMock } from "../../utils/test-utils/mocking";
+mockModule("./commands", () => ({ ... }));
+
+// From src/adapters/shared/*.adapter.test.ts (co-located)
+import { createMock } from "../../utils/test-utils/mocking";
+mockModule("./commands", () => ({ ... }));
+
+// From src/domain/*.test.ts (co-located domain service tests)
+import { createMock } from "../utils/test-utils/mocking";
+mockModule("./taskService", () => ({ ... }));
+```
+
 ## Common Troubleshooting
 
 ### Jest vs Bun:Test Compatibility
@@ -209,7 +306,7 @@ If encountering issues with Jest compatibility:
 // Issue with bun:test not fully supporting all Jest features
 // For complex mocking scenarios, use our utility wrappers:
 
-import { createSpy } from "../../utils/test-utils/mocking";
+import { createSpy } from "../utils/test-utils/mocking";
 
 // Instead of direct spyOn
 // const spy = jest.spyOn(object, 'method');
@@ -228,11 +325,16 @@ If seeing "Mock not found" errors:
 
 // Solution:
 // 1. Make sure you're calling mockModule BEFORE importing the module under test
-// 2. Use proper relative paths from the test file
+// 2. Use proper relative paths with src/ prefix from the test file location
 
-// CORRECT:
-mockModule("../relative/path/from/test/file", () => ({
+// CORRECT from src/domain/ (co-located):
+mockModule("./tasks", () => ({
   // mocked exports
+}));
+
+// CORRECT from src/adapters/cli/ (co-located):
+mockModule("../../domain/tasks", () => ({
+  // mocked exports  
 }));
 ```
 
@@ -241,5 +343,8 @@ mockModule("../relative/path/from/test/file", () => ({
 1. **Consistency**: All tests use the same patterns across the codebase
 2. **Maintainability**: Tests are easier to understand and modify
 3. **Reliability**: Tests are less prone to false positives or negatives
+4. **Performance**: Tests run faster with properly mocked dependencies
+5. **Isolation**: Each test runs independently without affecting others
+6. **Architecture Clarity**: Test location reflects what layer is being tested
 4. **Performance**: Tests run faster with properly mocked dependencies
 5. **Isolation**: Each test runs independently without affecting others
