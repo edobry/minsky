@@ -6,13 +6,13 @@
  * with proper idiomatic validation.
  */
 
-import { z } from 'zod';
+import { z } from "zod";
 
 // Base schemas for common types
-const SessionDbBackendSchema = z.enum(['json', 'sqlite', 'postgres']);
-const LoggerModeSchema = z.enum(['HUMAN', 'STRUCTURED', 'auto']);
-const LoggerLevelSchema = z.enum(['debug', 'info', 'warn', 'error']);
-const BackendTypeSchema = z.enum(['markdown', 'json-file', 'github-issues']);
+const SessionDbBackendSchema = z.enum(["json", "sqlite", "postgres"]);
+const LoggerModeSchema = z.enum(["HUMAN", "STRUCTURED", "auto"]);
+const LoggerLevelSchema = z.enum(["debug", "info", "warn", "error"]);
+const BackendTypeSchema = z.enum(["markdown", "json-file", "github-issues"]);
 
 // SessionDB configuration schema
 export const SessionDbConfigSchema = z.object({
@@ -54,8 +54,8 @@ export const GitHubConfigSchema = z.object({
 
 // Logger configuration schema
 export const LoggerConfigSchema = z.object({
-  mode: LoggerModeSchema.default('auto'),
-  level: LoggerLevelSchema.default('info'),
+  mode: LoggerModeSchema.default("auto"),
+  level: LoggerLevelSchema.default("info"),
   enableAgentLogs: z.boolean().default(false),
 });
 
@@ -70,15 +70,15 @@ export const BackendConfigSchema = z.record(z.string(), z.any());
 
 // Main configuration schema
 export const ConfigSchema = z.object({
-  backend: BackendTypeSchema.default('markdown'),
+  backend: BackendTypeSchema.default("markdown"),
   backendConfig: BackendConfigSchema.default({}),
   detectionRules: z.array(DetectionRuleSchema).default([]),
   sessiondb: SessionDbConfigSchema,
   ai: AIConfigSchema.optional(),
   github: GitHubConfigSchema.optional(),
   logger: LoggerConfigSchema.default({
-    mode: 'auto',
-    level: 'info',
+    mode: "auto",
+    level: "info",
     enableAgentLogs: false,
   }),
 });
@@ -138,7 +138,7 @@ export function validateConfig(config: any): ValidationResult {
   }
   
   const errors: ValidationError[] = result.error.issues.map(issue => ({
-    path: issue.path.join('.'),
+    path: issue.path.join("."),
     message: issue.message,
     value: issue.code,
   }));
@@ -154,7 +154,7 @@ export function validateRepositoryConfig(config: any): ValidationResult {
   }
   
   const errors: ValidationError[] = result.error.issues.map(issue => ({
-    path: issue.path.join('.'),
+    path: issue.path.join("."),
     message: issue.message,
     value: issue.code,
   }));
@@ -170,7 +170,7 @@ export function validateGlobalUserConfig(config: any): ValidationResult {
   }
   
   const errors: ValidationError[] = result.error.issues.map(issue => ({
-    path: issue.path.join('.'),
+    path: issue.path.join("."),
     message: issue.message,
     value: issue.code,
   }));
