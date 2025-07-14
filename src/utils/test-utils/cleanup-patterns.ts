@@ -11,6 +11,83 @@ import { mkdirSync, rmSync, existsSync, writeFileSync } from "fs";
 import { randomUUID } from "crypto";
 
 /**
+ * Working Directory Cleanup Pattern
+ * 
+ * Manages process.cwd() isolation for tests that depend on or modify the current working directory.
+ * Prevents working directory changes from affecting other tests.
+ */
+export class WorkingDirectoryCleanup {
+  private originalCwd: string;
+  private cwdMockRestore?: () => void;
+
+  constructor() {
+    this.originalCwd = process.cwd();
+  }
+
+  /**
+   * Save the current working directory before test
+   */
+  saveWorkingDirectory(): void {
+    this.originalCwd = process.cwd();
+  }
+
+  /**
+   * Restore the original working directory after test
+   */
+  restoreWorkingDirectory(): void {
+    try {
+      (process as any).chdir(this.originalCwd);
+    } catch (error) {
+      // If the original directory no longer exists, fallback to a safe directory
+      (process as any).chdir(tmpdir());
+    }
+  }
+
+  /**
+   * Mock process.cwd() to return a specific path (for testing)
+   */
+  mockWorkingDirectory(mockPath: string): void {
+    const originalCwd = process.cwd;
+    (process as any).cwd = () => mockPath;
+    this.cwdMockRestore = () => {
+      (process as any).cwd = originalCwd;
+    };
+  }
+
+  /**
+   * Safely change working directory for a test
+   */
+  changeWorkingDirectory(newPath: string): void {
+    if (existsSync(newPath)) {
+      (process as any).chdir(newPath);
+    } else {
+      throw new Error(`Cannot change to directory: ${newPath} (does not exist)`);
+    }
+  }
+
+  /**
+   * Create a temporary directory and change to it
+   */
+  createAndChangeToTempDir(prefix: string = "test-cwd"): string {
+    const tempDir = join(tmpdir(), `${prefix}-${Date.now()}-${randomUUID()}`);
+    mkdirSync(tempDir, { recursive: true });
+    (process as any).chdir(tempDir);
+    return tempDir;
+  }
+
+  /**
+   * Clean up working directory state
+   */
+  cleanup(): void {
+    if (this.cwdMockRestore) {
+      this.cwdMockRestore();
+      this.cwdMockRestore = undefined;
+    }
+    this.restoreWorkingDirectory();
+  }
+}
+
+/**
  * File System Cleanup Pattern
  * 
  * Creates and manages temporary directories for tests with automatic cleanup.
@@ -186,21 +263,25 @@ export class DatabaseTestCleanup {
 export class TestIsolationManager {
   private fileCleanup: FileSystemTestCleanup;
   private dbCleanup: DatabaseTestCleanup;
+  private cwdCleanup: WorkingDirectoryCleanup;
 
   constructor() {
     this.fileCleanup = new FileSystemTestCleanup();
     this.dbCleanup = new DatabaseTestCleanup(this.fileCleanup);
+    this.cwdCleanup = new WorkingDirectoryCleanup();
   }
 
   // Expose individual cleanup utilities
   get fileSystem() { return this.fileCleanup; }
   get database() { return this.dbCleanup; }
   get config() { return ConfigurationTestOverrides; }
+  get cwd() { return this.cwdCleanup; }
 
   /**
    * Complete cleanup - call this in afterEach
    */
   cleanup(): void {
+    this.cwdCleanup.cleanup();
     this.dbCleanup.cleanup();
     this.fileCleanup.cleanup();
   }
@@ -248,18 +329,27 @@ export function withTestIsolation() {
   return {
     manager,
     beforeEach: () => {
-      // All setup is lazy - happens when methods are called
+      // Setup runs automatically when methods are called
     },
     afterEach: () => {
       manager.cleanup();
     },
-    // Convenience methods
-    createTempDir: (prefix?: string) => manager.fileSystem.createTempDir(prefix),
-    createTempFile: (filename: string, content?: string, basePath?: string) => 
-      manager.fileSystem.createTempFile(filename, content, basePath),
-    createSqliteDb: (filename?: string) => manager.database.createSqliteDb(filename),
-    createJsonDb: (filename?: string, data?: any) => manager.database.createJsonDb(filename, data),
-    sessionDbConfig: ConfigurationTestOverrides.createSessionDbOverride,
-    taskBackendConfig: ConfigurationTestOverrides.createTaskBackendOverride,
+  };
+}
+
+/**
+ * Working directory isolation test pattern
+ */
+export function withDirectoryIsolation() {
+  const cwdCleanup = new WorkingDirectoryCleanup();
+  
+  return {
+    cwd: cwdCleanup,
+    beforeEach: () => {
+      cwdCleanup.saveWorkingDirectory();
+    },
+    afterEach: () => {
+      cwdCleanup.cleanup();
+    },
   };
 } 
