@@ -15,7 +15,7 @@ const EXPECTED_GIT_COMMANDS_COUNT = TEST_ARRAY_SIZE;
 describe("Shared Command CLI Integration", () => {
   beforeEach(() => {
     // Clear the registry
-    (sharedCommandRegistry as any)?.commands = new Map();
+    (sharedCommandRegistry as any).commands = new Map();
   });
 
   test("sharedCommandRegistry should contain git commands after registration", () => {
