@@ -21,6 +21,7 @@ import type {
 import type { TaskBackend } from "./taskBackend";
 import { log } from "../../utils/logger";
 import { TASK_STATUS, TaskStatus } from "./taskConstants.js";
+import { validateGitHubIssues, validateGitHubIssue, type GitHubIssue } from "../../schemas/storage";
 
 // Import additional types needed for interface implementation
 import type {
@@ -283,11 +284,12 @@ ${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? lab
 
   parseTasks(content: string): TaskData[] {
     try {
-      const issues = JSON.parse(content);
-      return (issues as unknown).map((issue: any) => this.convertIssueToTaskData(issue));
+      const rawIssues = JSON.parse(content);
+      const validatedIssues = validateGitHubIssues(rawIssues);
+      return validatedIssues.map((issue) => this.convertIssueToTaskData(issue));
     } catch (error) {
       log.error("Failed to parse GitHub issues data", {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
       return [];
     }
@@ -422,16 +424,16 @@ ${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? lab
 
   // ---- Private Helper Methods ----
 
-  private convertIssueToTaskData(issue: any): TaskData {
+  private convertIssueToTaskData(issue: GitHubIssue): TaskData {
     const taskId = this.extractTaskIdFromIssue(issue);
     const status = this.getTaskStatusFromIssue(issue);
 
     return {
       id: taskId,
-      title: (issue as unknown).title,
-      description: (issue as unknown).body || "",
+      title: issue.title,
+      description: issue.body || "",
       status,
-      specPath: this.getTaskSpecPath(taskId, (issue as unknown).title),
+      specPath: this.getTaskSpecPath(taskId, issue.title),
     };
   }
 
