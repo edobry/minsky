@@ -23,12 +23,22 @@ export class NodeConfigAdapter implements ConfigurationService {
    */
   async loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult> {
     // Use node-config to get the resolved configuration
+    const sessiondbConfig = (config as any).get("sessiondb");
+    
+    // Transform sessiondb configuration to match expected interface
+    const sessiondb = {
+      backend: sessiondbConfig?.backend || "json",
+      baseDir: sessiondbConfig?.baseDir || null,
+      dbPath: sessiondbConfig?.sqlite?.path || sessiondbConfig?.dbPath || null,
+      connectionString: sessiondbConfig?.postgres?.connectionString || sessiondbConfig?.connectionString || null,
+    };
+
     const resolved: ResolvedConfig = {
-      backend: (config as unknown).get("backend"),
-      backendConfig: (config as unknown).get("backendConfig"),
-      detectionRules: (config as unknown).get("detectionRules"),
-      sessiondb: (config as unknown).get("sessiondb"),
-      ai: (config as unknown).has("ai") ? (config as unknown).get("ai") : undefined as unknown,
+      backend: (config as any).get("backend"),
+      backendConfig: (config as any).get("backendConfig"),
+      detectionRules: (config as any).get("detectionRules"),
+      sessiondb,
+      ai: (config as any).has("ai") ? (config as any).get("ai") : undefined,
     };
 
     // Create mock sources for backward compatibility
@@ -36,8 +46,8 @@ export class NodeConfigAdapter implements ConfigurationService {
     const sources: ConfigurationSources = {
       configOverrides: {},
       environment: this.getEnvironmentOverrides(),
-      globalUser: null as unknown, // Will be handled by node-config's local.yaml
-      repository: null as unknown, // TODO: Handle .minsky/config.yaml separately
+      globalUser: null, // Will be handled by node-config's local.yaml
+      repository: null, // TODO: Handle .minsky/config.yaml separately
       defaults: this.getDefaultConfig(),
     };
 
@@ -75,35 +85,25 @@ export class NodeConfigAdapter implements ConfigurationService {
    * Get environment overrides for backward compatibility
    */
   private getEnvironmentOverrides(): Partial<ResolvedConfig> {
-    const overrides: Partial<ResolvedConfig> = {};
-
-    // These will be handled by custom-environment-variables.yaml in node-config
-    // but we maintain this for compatibility during migration
-    if ((process.env as unknown).MINSKY_BACKEND) {
-      (overrides as unknown).backend = (process.env as unknown).MINSKY_BACKEND as unknown;
-    }
-
-    return overrides;
+    // This would normally extract environment variables that override config
+    // For now, return empty object as node-config handles this automatically
+    return {};
   }
 
   /**
    * Get default configuration for backward compatibility
    */
   private getDefaultConfig(): Partial<ResolvedConfig> {
+    // Extract default values from node-config
     return {
-      backend: "json-file",
-      backendConfig: {},
-      detectionRules: [
-        { condition: "tasks_md_exists", backend: "markdown" },
-        { condition: "json_file_exists", backend: "json-file" },
-        { condition: "always", backend: "json-file" },
-      ],
+      backend: (config as any).get("backend") || "json-file",
       sessiondb: {
-        backend: "json",
-        baseDir: undefined as unknown,
-        dbPath: undefined as unknown,
-        connectionString: undefined as unknown,
+        backend: (config as any).get("sessiondb.backend") || "json",
+        baseDir: (config as any).get("sessiondb.baseDir") as string | undefined,
+        dbPath: (config as any).get("sessiondb.dbPath") as string | undefined,
+        connectionString: (config as any).get("sessiondb.connectionString") as string | undefined,
       },
+      ai: (config as any).has("ai") ? (config as any).get("ai") : undefined,
     };
   }
 }
