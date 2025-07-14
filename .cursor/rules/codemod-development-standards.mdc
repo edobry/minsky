@@ -117,13 +117,13 @@ try {
 ```
 codemods/
 ├── my-codemod.ts
-├── __tests__/
-│   ├── my-codemod.test.ts
-│   └── fixtures/
-│       ├── input/
-│       │   └── example.ts
-│       └── expected/
-│           └── example.ts
+├── my-codemod.test.ts
+└── tests/
+    └── fixtures/
+        ├── input/
+        │   └── example.ts
+        └── expected/
+            └── example.ts
 ```
 
 ## Decision Tree: AST vs Regex

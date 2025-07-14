@@ -15,7 +15,7 @@ import { jest, mock } from "bun:test";
 const mockFn = jest.fn();
 
 // ✅ USE PROJECT UTILITIES
-import { createMock, mockModule, setupTestMocks } from "../../utils/test-utils/mocking";
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
 setupTestMocks();
 const mockFn = createMock();
 ```
@@ -33,7 +33,7 @@ import {
   setupTestMocks,
   createMockObject,
   createMockFileSystem
-} from "../../utils/test-utils/mocking";
+} from "../utils/test-utils/mocking";
 ```
 
 ### Setup Pattern

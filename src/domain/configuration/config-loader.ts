@@ -2,7 +2,7 @@
  * Configuration loader for Minsky
  *
  * Implements the 5-level configuration hierarchy:
- * 1. CLI flags (highest priority)
+ * 1. Configuration overrides (highest priority) - for runtime config injection
  * 2. Environment variables
  * 3. Global user config (~/.config/minsky/config.yaml)
  * 4. Repository config (.minsky/config.yaml)
