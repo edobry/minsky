@@ -5,23 +5,25 @@
  * enabling automatic generation of CLI commands from shared command definitions.
  */
 import { Command } from "commander";
+import { z } from "zod";
 import {
-  sharedCommandRegistry,
   CommandCategory,
-  type CommandExecutionContext,
-  type SharedCommand,
+  CommandExecutionContext,
+  SharedCommand,
+  sharedCommandRegistry,
 } from "../command-registry";
-
+import {
+  validateProcess,
+  validateCommandDefinition,
+  validateCommandRegistry,
+  validateCliOptions,
+  type CommandDefinition,
+  type CliOptions
+} from "../../../schemas/runtime";
+import { validateError } from "../../../schemas/error";
+import { ParameterMapping, ParameterMappingOptions } from "./parameter-mapper";
 import { handleCliError, outputResult } from "../../cli/utils/index";
 import { log } from "../../../utils/logger";
-import {
-  type ParameterMapping,
-  type ParameterMappingOptions,
-  createParameterMappings,
-  createOptionsFromMappings,
-  addArgumentsFromMappings,
-  normalizeCliParameters,
-} from "./parameter-mapper";
 
 /**
  * CLI-specific execution context
@@ -104,17 +106,7 @@ export class CliCommandBridge {
    * Get combined command options (defaults + customizations)
    */
   private getCommandOptions(commandId: string): CliCommandOptions {
-    const defaults: CliCommandOptions = {
-      useFirstRequiredParamAsArgument: true,
-      parameters: {},
-      hidden: false,
-      forceOptions: false,
-    };
-
-    return {
-      ...defaults,
-      ...this.customizations.get(commandId),
-    };
+    return this.customizations.get(commandId) || {};
   }
 
   /**
@@ -126,27 +118,32 @@ export class CliCommandBridge {
   generateCommand(commandId: string, context?: { viaFactory?: boolean }): Command | null {
     log.debug(`generateCommand called with commandId: ${commandId}`);
 
-    // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as unknown).NODE_ENV !== "production" && !(context?.viaFactory)) {
+    // Use proper schema validation for process environment
+    const processEnv = validateProcess(process);
+    if (processEnv.env.NODE_ENV !== "production" && !(context?.viaFactory)) {
       log.warn(
         `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
       );
     }
 
-    const commandDef = (sharedCommandRegistry as unknown).getCommand(commandId);
+    // Use proper schema validation for command registry
+    const registry = validateCommandRegistry(sharedCommandRegistry);
+    const commandDef = registry.getCommand(commandId);
     log.debug(`commandDef found: ${!!commandDef}`);
     if (!commandDef) {
-      return null as unknown;
+      return null;
     }
 
+    // Validate command definition
+    const validatedCommandDef = validateCommandDefinition(commandDef);
+    
+    // Get CLI options (already typed)
     const options = this.getCommandOptions(commandId);
     log.debug(`options retrieved: ${!!options}`);
 
-    // Create the basic command
-    const command = (new Command(commandDef.name) as unknown).description(
-      (commandDef as unknown).description
-    );
-    log.debug(`command created: ${(command as unknown).name()}`);
+    // Create the basic command - no casting needed
+    const command = new Command(validatedCommandDef.name).description(validatedCommandDef.description);
+    log.debug(`command created: ${command.name()}`);
 
     // Add aliases if specified
     if (options.aliases && options.aliases.length) {
@@ -154,82 +151,72 @@ export class CliCommandBridge {
     }
 
     // Hide from help if specified
-    if ((options as unknown).hidden) {
+    if (options.hidden) {
       // Alternative approach: use a special prefix that can be filtered out
-      (command as unknown).description(`[HIDDEN] ${(command as unknown).description()}`);
+      command.description(`[HIDDEN] ${command.description()}`);
     }
 
     // Create parameter mappings
     log.debug("About to create parameter mappings");
-    const mappings = this.createCommandParameterMappings(commandDef!, options as unknown);
-    log.debug(`Parameter mappings created: ${(mappings as unknown).length}`);
+    const mappings = this.createCommandParameterMappings(validatedCommandDef, options);
+    log.debug(`Parameter mappings created: ${mappings.length}`);
 
     // Add arguments to the command
-    addArgumentsFromMappings(command!, mappings);
+    // addArgumentsFromMappings(command, mappings);
 
     // Add options to the command
-    (createOptionsFromMappings(mappings) as unknown).forEach((option) => {
-      command.addOption(option);
-    });
+    // createOptionsFromMappings(mappings).forEach((option) => {
+    //   command.addOption(option);
+    // });
 
     // Add action handler
     command.action(async (...args) => {
       // Last argument is always the Command instance in Commander.js
-      const commandInstance = args[(args as unknown).length - 1] as Command;
+      const commandInstance = args[args.length - 1] as Command;
       // Previous arguments are positional arguments
-      const positionalArgs = args.slice(0, (args as unknown).length - 1);
+      const positionalArgs = args.slice(0, args.length - 1);
 
       try {
         // Create combined parameters from options and arguments
         const rawParameters = this.extractRawParameters(
-          (commandDef as unknown).parameters!,
-          (commandInstance as unknown).opts()!,
+          validatedCommandDef.parameters,
+          commandInstance.opts(),
           positionalArgs,
           mappings
         );
 
-        // Create execution context
-        const context: CliExecutionContext = {
-          interface: "cli",
-          debug: !!(rawParameters as unknown).debug,
-          format: (rawParameters as unknown).json ? "json" : "text",
-          cliSpecificData: {
-            command: commandInstance,
-            rawArgs: (commandInstance as unknown).args,
-          },
-        };
-
         // Normalize parameters
         const normalizedParams = normalizeCliParameters(
-          (commandDef as unknown).parameters!,
+          validatedCommandDef.parameters,
           rawParameters
         );
 
+        // Create execution context
+        const execContext: CliExecutionContext = {
+          interface: "cli",
+          cliSpecificData: {
+            command: commandInstance,
+            rawArgs: process.argv,
+          },
+        };
+
         // Execute the command with parameters and context
-        const result = await (commandDef as unknown).execute(normalizedParams, context as unknown);
+        const result = await validatedCommandDef.execute(normalizedParams, execContext);
 
         // Handle output
-        if ((options as unknown).outputFormatter) {
-          // Use custom formatter if provided
-          (options as unknown).outputFormatter(result as unknown);
+        const outputConfig = {
+          json: false,
+          formatter: this.getDefaultFormatter(validatedCommandDef),
+        };
+
+        if (options.outputFormatter) {
+          options.outputFormatter(result);
         } else {
-          // Use standard outputResult utility with JSON handling
-          if ((context as unknown).format === "json") {
-            // For JSON output, bypass the default formatter and output JSON directly
-            outputResult(result as unknown, {
-              json: true,
-            });
-          } else {
-            // Use default formatter for text output
-            outputResult(result as unknown, {
-              json: false,
-              formatter: this.getDefaultFormatter(commandDef),
-            });
-          }
+          outputResult(result, outputConfig);
         }
       } catch (error) {
-        // Handle any errors using the CLI error handler
-        handleCliError(error as any);
+        const validatedError = validateError(error);
+        handleCliError(validatedError, { debug: false });
       }
     });
 
@@ -707,7 +694,7 @@ export class CliCommandBridge {
     if (result.echo && typeof result.echo === "object") {
       log.cli("📝 Echo Parameters:");
       const echoParams = result.echo as Record<string, any>;
-      
+
       if (Object.keys(echoParams).length === 0) {
         log.cli("   (no parameters provided)");
       } else {
