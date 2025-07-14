@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Session Directory Command Path Resolution**
+  - Fixed session dir command returning incorrect old per-repo structure paths
+  - Changed from `/minsky/local-minsky/sessions/task#181` (old/wrong) to `/minsky/sessions/task#181` (correct)
+  - Updated getRepoPathFn to use simplified session-based structure matching actual filesystem layout
+  - Sessions are now correctly located directly in sessions/ directory, not per-repo subdirectories
+
 - **Session Directory Command Error Message**
   - Improved error message for `minsky session dir` command when no parameters provided
   - Replaced unfriendly error message with helpful usage examples and command syntax
