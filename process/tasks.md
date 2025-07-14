@@ -494,6 +494,8 @@
 
 - [ ] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
 
+- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/273-resolve-workspace-architecture-inconsistencies.md)
+
 - [x] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
 
 - [x] Restructure and improve test architecture for clarity and maintainability [#270](process/tasks/270-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
