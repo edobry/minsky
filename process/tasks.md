@@ -348,8 +348,6 @@
 
 - [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
 
-
-
 - [ ] Restore Full Test Suite for `init` Command [#185](process/tasks/185-restore-full-test-suite-for-init-command.md)
 
 - [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#187](process/tasks/187-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
@@ -363,8 +361,6 @@
 - [x] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md)
 
 - [x] Replace Direct process.exit() Calls with Custom exit() Utility [#194](process/tasks/194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
-
-
 
 - [x] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
 
@@ -432,19 +428,11 @@
 
 - [ ] Phase 3: Enhanced Planning/Execution Separation with Checkpointing [#240](process/tasks/240-phase-3-enhanced-planning-execution-separation-with-checkpointing.md)
 
-- [ ] Implement Task Dependencies and Basic Task Graphs [#241](process/tasks/241-implement-task-dependencies-and-basic-task-graphs.md)
-
-- [ ] Enhanced Planning/Execution Separation with Checkpointing [#242](process/tasks/242-enhanced-planning-execution-separation-with-checkpointing.md)
-
 - [ ] Advanced Visualization and Database Migration [#243](process/tasks/243-advanced-visualization-and-database-migration.md)
 
 - [x] Implement comprehensive test isolation framework to eliminate suite interference [#244](process/tasks/244-implement-comprehensive-test-isolation-framework-to-eliminate-suite-interference.md)
 
 - [x] Complete configuration system standardization and cleanup [#245](process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
-
-- [ ] Implement Basic Task Parent-Child Relationships [#246](process/tasks/246-implement-basic-task-parent-child-relationships.md)
-
-- [ ] Implement Task Hierarchy System (Parent-Child Relationships) [#247](process/tasks/247-implement-task-hierarchy-system-parent-child-relationships-.md)
 
 - [ ] Add AI-powered task decomposition and analysis [#248](process/tasks/248-add-ai-powered-task-decomposition-and-analysis.md)
 
