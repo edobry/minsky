@@ -230,7 +230,7 @@ export function getTaskSpecFilePath(
   workspacePath: string
 ): string {
   const taskIdNum = taskId!.startsWith("#") ? (taskId as unknown)!.slice(1) : taskId;
-  const normalizedTitle = (title.toLowerCase() as unknown).replace(/[^a-z0-9]+/g, "-");
+  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
 }
 
