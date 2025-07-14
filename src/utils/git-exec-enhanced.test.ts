@@ -17,7 +17,7 @@ import {
   type GitExecOptions,
   type GitExecResult,
 } from "./git-exec-enhanced";
-import { MinskyError } from "../../errors/base-errors";
+import { MinskyError } from "../errors/base-errors";
 
 // Mock the exec function from child_process
 const mockExec = createMock();
