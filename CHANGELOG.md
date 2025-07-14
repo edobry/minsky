@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added specific examples for both session name and task ID usage patterns
   - Included tips for related commands like `session list`, `session get`, and `session inspect`
   - Enhanced error message formatting with emojis and clear section headers for better readability
+  - Removed ugly JSON error logging that was cluttering the console output
 
 - **Session Approve Command Output Formatting**
   - Fixed confusing output in `minsky session approve` command that showed error messages for expected operations
