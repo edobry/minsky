@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Task #277**: Created comprehensive task specification for stacked PR workflow implementation
+  - Enables sessions to start from existing session branches instead of always starting from main
+  - Adds dependency tracking and visualization for session relationships
+  - Supports PR stacks and cascading approvals
+  - Includes phased implementation plan with testing strategy
+  - Maintains backward compatibility with existing workflows
+
 ### Changed
 
 - **Task #270**: Restructured test architecture to use co-location instead of separate `__tests__` directories
