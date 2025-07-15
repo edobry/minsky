@@ -19,7 +19,7 @@ export function createRobustTempDir(
     "/tmp/minsky-test-tmp",
     process.env.SESSION_WORKSPACE ? path.join(process.env.SESSION_WORKSPACE, "test-tmp") : null,
     path.join(os.tmpdir(), "minsky-test-tmp"),
-  ].filter(Boolean) as string[];
+  ].filter(Boolean);
 
   for (const base of locations) {
     try {

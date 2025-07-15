@@ -421,8 +421,9 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       "session.pr": {
         useFirstRequiredParamAsArgument: false,
         parameters: {
+          // === CORE PARAMETERS (Always visible) ===
           title: {
-            description: "Title for the PR (optional for existing PRs)",
+            description: "Title for the PR (auto-generated if not provided)",
           },
           body: {
             description: "Body text for the PR",
@@ -431,20 +432,33 @@ export function setupCommonCommandCustomizations(program?: Command): void {
             description: "Path to file containing PR body text",
           },
           name: {
-            description: "Session name (optional, alternative to --task)",
+            description: "Session name (auto-detected from workspace if not provided)",
           },
           task: {
             alias: "t",
-            description: "Task ID associated with the session",
+            description: "Task ID associated with the session (auto-detected if not provided)",
           },
+
+          // === PROGRESSIVE DISCLOSURE CONTROL ===
+          advanced: {
+            description: "Show advanced options for conflict resolution and debugging",
+          },
+
+          // === ADVANCED PARAMETERS (Expert-level control) ===
           skipUpdate: {
-            description: "Skip session update before creating PR",
+            description: "Skip session update before creating PR (use with --advanced)",
           },
           noStatusUpdate: {
-            description: "Skip updating task status",
+            description: "Skip updating task status (use with --advanced)",
           },
           debug: {
-            description: "Enable debug output",
+            description: "Enable debug output (use with --advanced)",
+          },
+          autoResolveDeleteConflicts: {
+            description: "Auto-resolve delete/modify conflicts (use with --advanced)",
+          },
+          skipConflictCheck: {
+            description: "Skip proactive conflict detection (use with --advanced)",
           },
         },
       },
@@ -649,7 +663,7 @@ function formatDetectionCondition(condition: string): string {
 }
 
 function formatConfigSection(config: any): string {
-  if (!config || Object.keysconfig.length === 0) {
+  if (!config || Object.keys(config as unknown).length === 0) {
     return "  (empty)";
   }
 

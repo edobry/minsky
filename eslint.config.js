@@ -102,13 +102,12 @@ export default [
       // === TYPE SAFETY RULES ===
       "custom/no-excessive-as-unknown": ["warn", {
         allowInTests: true,
-        allowPatterns: [
+        allowedPatterns: [
           // Allow specific patterns that are legitimate
           "process\\.env\\[.*\\] as unknown",
           "import\\(.*\\) as unknown",
           // Add more patterns as needed
         ],
-        maxAssertionsPerFile: 5,
       }],
 
       // === IMPORT RULES ===

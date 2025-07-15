@@ -1,17 +1,17 @@
 /**
  * Type Guards and Utilities
- * 
- * This module provides type guards and utility functions to help avoid "as unknown" assertions
+ *
+ * This module provides type guards and utility functions to help avoid 'as unknown' assertions
  * by providing safer alternatives for common typing scenarios identified in task #280.
- * 
- * These utilities are designed to replace dangerous "as unknown" patterns with proper type safety.
+ *
+ * These utilities are designed to replace dangerous 'as unknown' patterns with proper type safety.
  */
 
 /**
  * Safely access object properties with type checking
- * 
+ *
  * Instead of: (someObject as unknown).property
- * Use: safeGet(someObject, "property")
+ * Use: safeGet(someObject, 'property')
  */
 export function safeGet<T, K extends keyof T>(obj: T, key: K): T[K] | undefined {
   if (obj && typeof obj === "object" && key in obj) {
@@ -22,13 +22,13 @@ export function safeGet<T, K extends keyof T>(obj: T, key: K): T[K] | undefined 
 
 /**
  * Safely access nested object properties
- * 
- * Instead of: (someObject as unknown).prop.nested
- * Use: safeGetNested(someObject, ["prop", "nested"])
+ *
+ * Instead of: (someObject as unknown).deep.property
+ * Use: safeGetNested(someObject, 'deep', 'property')
  */
-export function safeGetNested<T>(obj: T, path: string[]): any {
+export function safeGetNested<T>(obj: T, ...keys: string[]): unknown {
   let current: any = obj;
-  for (const key of path) {
+  for (const key of keys) {
     if (current && typeof current === "object" && key in current) {
       current = current[key];
     } else {
@@ -39,235 +39,278 @@ export function safeGetNested<T>(obj: T, path: string[]): any {
 }
 
 /**
- * Type guard for checking if a value has a specific property
- * 
- * Instead of: (obj as unknown).property
- * Use: hasProperty(obj, "property") && obj.property
+ * Type guard to check if a value has a specific property
+ *
+ * Instead of: (someObject as unknown).property
+ * Use: hasProperty(someObject, 'property') && someObject.property
  */
-export function hasProperty<T, K extends string>(
-  obj: T,
-  prop: K
-): obj is T & Record<K, unknown> {
-  return typeof obj === "object" && obj !== null && prop in obj;
+export function hasProperty<T extends string>(
+  obj: unknown,
+  property: T
+): obj is Record<T, unknown> {
+  return obj !== null && typeof obj === "object" && property in obj;
 }
 
 /**
- * Type guard for checking if a value is a callable function
- * 
- * Instead of: (obj as unknown).method()
- * Use: isCallable(obj.method) && obj.method()
+ * Type guard to check if a value is a function
+ *
+ * Instead of: (someValue as unknown)()
+ * Use: isFunction(someValue) && someValue()
  */
-export function isCallable<T>(value: T): value is T & ((...args: any[]) => any) {
+export function isFunction(value: unknown): value is Function {
   return typeof value === "function";
 }
 
 /**
- * Safe environment variable access with type checking
- * 
- * Instead of: process.env.VAR as unknown
- * Use: safeEnv("VAR")
+ * Type guard to check if a value is an array
+ *
+ * Instead of: (someValue as unknown).length
+ * Use: isArray(someValue) && someValue.length
  */
-export function safeEnv(key: string): string | undefined {
-  return process.env[key];
-}
-
-/**
- * Safe environment variable access with default value
- * 
- * Instead of: (process.env.VAR || 'default') as unknown
- * Use: safeEnvWithDefault("VAR", "default")
- */
-export function safeEnvWithDefault(key: string, defaultValue: string): string {
-  return process.env[key] || defaultValue;
-}
-
-/**
- * Safe JSON parsing with error handling
- * 
- * Instead of: JSON.parse(str) as unknown
- * Use: safeJsonParse(str)
- */
-export function safeJsonParse<T = any>(str: string): T | null {
-  try {
-    return JSON.parse(str);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Safe JSON parsing with type validation
- * 
- * Instead of: JSON.parse(str) as unknown as MyType
- * Use: safeJsonParseWithValidator(str, isMyType)
- */
-export function safeJsonParseWithValidator<T>(
-  str: string,
-  validator: (value: any) => value is T
-): T | null {
-  try {
-    const parsed = JSON.parse(str);
-    return validator(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Type guard for checking if a value is an array
- * 
- * Instead of: (value as unknown).length
- * Use: isArray(value) && value.length
- */
-export function isArray<T>(value: any): value is T[] {
+export function isArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }
 
 /**
- * Type guard for checking if a value is an object (not null or array)
- * 
- * Instead of: (value as unknown).property
- * Use: isObject(value) && hasProperty(value, "property") && value.property
+ * Type guard to check if a value is a string
  */
-export function isObject(value: any): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Type guard for checking if a value is a string
- * 
- * Instead of: (value as unknown).charAt(0)
- * Use: isString(value) && value.charAt(0)
- */
-export function isString(value: any): value is string {
+export function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
 /**
- * Type guard for checking if a value is a number
- * 
- * Instead of: (value as unknown).toFixed(2)
- * Use: isNumber(value) && value.toFixed(2)
+ * Type guard to check if a value is a number
  */
-export function isNumber(value: any): value is number {
+export function isNumber(value: unknown): value is number {
   return typeof value === "number" && !isNaN(value);
 }
 
 /**
- * Type guard for checking if a value is a boolean
- * 
- * Instead of: (value as unknown) ? true : false
- * Use: isBoolean(value) && value
+ * Type guard to check if a value is a boolean
  */
-export function isBoolean(value: any): value is boolean {
+export function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
 }
 
 /**
- * Safe array method access with type checking
- * 
- * Instead of: (arr as unknown).map(...)
- * Use: safeArrayMethod(arr, "map", ...)
+ * Type guard to check if a value is an object (and not null)
  */
-export function safeArrayMethod<T, K extends keyof T[]>(
-  arr: T[],
-  method: K,
-  ...args: any[]
-): any {
-  if (isArray(arr) && method in arr && isCallable(arr[method])) {
-    return (arr[method] as any)(...args);
-  }
-  return undefined;
+export function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /**
- * Safe service method call with type checking
- * 
- * Instead of: (service as unknown).method()
- * Use: safeServiceCall(service, "method")
+ * Safely cast a value to a specific type with validation
+ *
+ * Instead of: someValue as unknown as TargetType
+ * Use: safeCast(someValue, isTargetType)
  */
-export function safeServiceCall<T>(
-  service: T,
-  method: string,
-  ...args: any[]
-): any {
-  if (hasProperty(service, method) && isCallable(service[method])) {
-    return service[method](...args);
-  }
-  return undefined;
+export function safeCast<T>(value: unknown, guard: (value: unknown) => value is T): T | undefined {
+  return guard(value) ? value : undefined;
 }
 
 /**
- * Type assertion with runtime validation
- * 
- * Instead of: value as unknown as MyType
- * Use: assertType(value, isMyType)
+ * Assert that a value is not null or undefined
+ *
+ * Instead of: (someValue as unknown)!
+ * Use: assertDefined(someValue)
  */
-export function assertType<T>(value: any, guard: (value: any) => value is T): T {
-  if (guard(value)) {
+export function assertDefined<T>(value: T | null | undefined, message?: string): asserts value is T {
+  if (value === null || value === undefined) {
+    throw new Error(message || "Value is null or undefined");
+  }
+}
+
+/**
+ * Environment variable utilities to avoid 'as unknown' with process.env
+ */
+export const EnvUtils = {
+  /**
+   * Get environment variable as string
+   *
+   * Instead of: process.env.VARIABLE as unknown as string
+   * Use: EnvUtils.getString('VARIABLE')
+   */
+  getString(key: string, defaultValue?: string): string | undefined {
+    const value = process.env[key];
+    return value !== undefined ? value : defaultValue;
+  },
+
+  /**
+   * Get environment variable as number
+   *
+   * Instead of: Number(process.env.VARIABLE as unknown)
+   * Use: EnvUtils.getNumber('VARIABLE')
+   */
+  getNumber(key: string, defaultValue?: number): number | undefined {
+    const value = process.env[key];
+    if (value === undefined) {
+      return defaultValue;
+    }
+    const num = Number(value);
+    return isNaN(num) ? defaultValue : num;
+  },
+
+  /**
+   * Get environment variable as boolean
+   *
+   * Instead of: Boolean(process.env.VARIABLE as unknown)
+   * Use: EnvUtils.getBoolean('VARIABLE')
+   */
+  getBoolean(key: string, defaultValue?: boolean): boolean | undefined {
+    const value = process.env[key];
+    if (value === undefined) {
+      return defaultValue;
+    }
+    return value.toLowerCase() === "true" || value === "1";
+  },
+
+  /**
+   * Require environment variable (throws if not found)
+   *
+   * Instead of: process.env.VARIABLE as unknown as string
+   * Use: EnvUtils.require('VARIABLE')
+   */
+  require(key: string): string {
+    const value = process.env[key];
+    if (value === undefined) {
+      throw new Error(`Required environment variable ${key} is not set`);
+    }
     return value;
   }
-  throw new Error("Type assertion failed: value does not match expected type");
-}
+};
 
 /**
- * Safe type assertion with fallback
- * 
- * Instead of: value as unknown as MyType
- * Use: safeAssertType(value, isMyType, fallback)
+ * Safe JSON parsing utilities
+ *
+ * Instead of: JSON.parse(someString as unknown)
+ * Use: JsonUtils.safeParse(someString)
  */
-export function safeAssertType<T>(
-  value: any,
-  guard: (value: any) => value is T,
-  fallback: T
-): T {
-  return guard(value) ? value : fallback;
-}
-
-/**
- * Common type guards for domain objects
- */
-export namespace DomainTypeGuards {
-  export function isSessionLike(value: any): value is { id: string; [key: string]: any } {
-    return isObject(value) && hasProperty(value, "id") && isString(value.id);
-  }
-
-  export function isTaskLike(value: any): value is { id: string; status: string; [key: string]: any } {
-    return isObject(value) && 
-           hasProperty(value, "id") && isString(value.id) &&
-           hasProperty(value, "status") && isString(value.status);
-  }
-
-  export function isConfigLike(value: any): value is Record<string, any> {
-    return isObject(value);
-  }
-
-  export function isErrorLike(value: any): value is { message: string; [key: string]: any } {
-    return isObject(value) && hasProperty(value, "message") && isString(value.message);
-  }
-}
-
-/**
- * Utility for creating type-safe wrappers around existing APIs
- * 
- * Instead of: (api as unknown).method()
- * Use: createTypedWrapper(api, { method: isString })
- */
-export function createTypedWrapper<T>(
-  obj: any,
-  methods: Record<string, (value: any) => boolean>
-): T {
-  const wrapper: any = {};
-  
-  for (const [methodName, validator] of Object.entries(methods)) {
-    wrapper[methodName] = (...args: any[]) => {
-      if (hasProperty(obj, methodName) && isCallable(obj[methodName])) {
-        const result = obj[methodName](...args);
-        return validator(result) ? result : undefined;
-      }
+export const JsonUtils = {
+  /**
+   * Safely parse JSON with type checking
+   */
+  safeParse<T>(value: string, guard?: (value: unknown) => value is T): T | undefined {
+    try {
+      const parsed = JSON.parse(value);
+      return guard ? (guard(parsed) ? parsed : undefined) : parsed;
+    } catch {
       return undefined;
-    };
+    }
+  },
+
+  /**
+   * Parse JSON with default value
+   */
+  parseWithDefault<T>(value: string, defaultValue: T): T {
+    try {
+      return JSON.parse(value) || defaultValue;
+    } catch {
+      return defaultValue;
+    }
   }
-  
-  return wrapper as T;
-}
+};
+
+/**
+ * Service interface utilities
+ *
+ * Instead of: (someService as unknown).method()
+ * Use: ServiceUtils.safeCall(someService, 'method')
+ */
+export const ServiceUtils = {
+  /**
+   * Safely call a method on a service
+   */
+  safeCall<T, K extends keyof T>(
+    service: T,
+    method: K,
+    ...args: T[K] extends (...args: any[]) => any ? Parameters<T[K]> : never[]
+  ): T[K] extends (...args: any[]) => any ? ReturnType<T[K]> | undefined : undefined {
+    if (service && typeof service === "object" && method in service) {
+      const methodFn = service[method];
+      if (typeof methodFn === "function") {
+        try {
+          return (methodFn as Function).apply(service, args);
+        } catch {
+          return undefined;
+        }
+      }
+    }
+    return undefined;
+  },
+
+  /**
+   * Check if a service has a method
+   */
+  hasMethod<T, K extends keyof T>(service: T, method: K): boolean {
+    return service && typeof service === "object" && method in service &&
+           typeof service[method] === "function";
+  }
+};
+
+/**
+ * Configuration and options utilities
+ *
+ * Instead of: (options as unknown).property
+ * Use: ConfigUtils.get(options, 'property')
+ */
+export const ConfigUtils = {
+  /**
+   * Safely get configuration value with type checking
+   */
+  get<T>(config: unknown, key: string, defaultValue?: T): T | undefined {
+    if (isObject(config) && key in config) {
+      const value = config[key];
+      return value !== undefined ? value as T : defaultValue;
+    }
+    return defaultValue;
+  },
+
+  /**
+   * Merge configuration objects safely
+   */
+  merge<T extends Record<string, unknown>>(...configs: Array<T | undefined>): T {
+    const result = {} as T;
+    for (const config of configs) {
+      if (isObject(config)) {
+        Object.assign(result, config);
+      }
+    }
+    return result;
+  }
+};
+
+/**
+ * Array utilities for unknown types
+ *
+ * Instead of: (someArray as unknown).map(...)
+ * Use: ArrayUtils.safeMap(someArray, ...)
+ */
+export const ArrayUtils = {
+  /**
+   * Safely map over an array
+   */
+  safeMap<T, U>(value: unknown, fn: (item: T, index: number) => U): U[] {
+    if (isArray(value)) {
+      return value.map(fn as (item: unknown, index: number) => U);
+    }
+    return [];
+  },
+
+  /**
+   * Safely filter an array
+   */
+  safeFilter<T>(value: unknown, fn: (item: T) => boolean): T[] {
+    if (isArray(value)) {
+      return value.filter(fn as (item: unknown) => boolean) as T[];
+    }
+    return [];
+  },
+
+  /**
+   * Safely get array length
+   */
+  safeLength(value: unknown): number {
+    return isArray(value) ? value.length : 0;
+  }
+};
