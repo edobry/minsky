@@ -32,12 +32,12 @@ const configListParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Output in JSON format",
     required: false,
   },
   sources: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Show configuration sources and precedence",
     required: false,
   },
@@ -58,12 +58,12 @@ const configShowParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Output in JSON format",
     required: false,
   },
   sources: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Show configuration sources and precedence",
     required: false,
   },
@@ -74,14 +74,14 @@ const configShowParams: CommandParameterMap = {
  */
 const configListRegistration = {
   id: "config.list",
-  category: (CommandCategory as unknown).CONFIG,
+  category: CommandCategory.CONFIG,
   name: "list",
   description: "Show all configuration from all sources",
   parameters: configListParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
     try {
       // Use node-config directly to get configuration
-      const sources = (config.util as unknown).getConfigSources();
+      const sources = config.util.getConfigSources();
       const resolved = {
         backend: config.get("backend"),
         backendConfig: config.get("backendConfig"),
@@ -92,14 +92,14 @@ const configListRegistration = {
 
       return {
         success: true,
-        json: (params as unknown).json || false,
+        json: params.json || false,
         sources: sources.map((source) => ({
-          name: (source as unknown).name,
-          original: (source as unknown).original,
-          parsed: (source as unknown).parsed,
+          name: source.name,
+          original: source.original,
+          parsed: source.parsed,
         })),
         resolved,
-        showSources: (params as unknown).sources || false,
+        showSources: params.sources || false,
       };
     } catch (error) {
       log.error("Failed to load configuration", {
@@ -107,7 +107,7 @@ const configListRegistration = {
       });
       return {
         success: false,
-        json: (params as unknown).json || false,
+        json: params.json || false,
         error: getErrorMessage(error as any),
         showSources: (params as any).sources || false,
       };
@@ -120,7 +120,7 @@ const configListRegistration = {
  */
 const configShowRegistration = {
   id: "config.show",
-  category: (CommandCategory as unknown).CONFIG,
+  category: CommandCategory.CONFIG,
   name: "show",
   description: "Show the final resolved configuration",
   parameters: configShowParams,
@@ -137,14 +137,14 @@ const configShowRegistration = {
 
       return {
         success: true,
-        json: (params as unknown).json || false,
+        json: params.json || false,
         configuration: resolved,
-        showSources: (params as unknown).sources || false,
-        ...((params as unknown).sources && {
+        showSources: params.sources || false,
+        ...(params.sources && {
           sources: config.util.getConfigSources().map((source) => ({
-            name: (source as unknown).name,
-            original: (source as unknown).original,
-            parsed: (source as unknown).parsed,
+            name: source.name,
+            original: source.original,
+            parsed: source.parsed,
           })),
         }),
       };
@@ -154,7 +154,7 @@ const configShowRegistration = {
       });
       return {
         success: false,
-        json: (params as unknown).json || false,
+        json: params.json || false,
         error: getErrorMessage(error as any),
         showSources: (params as any).sources || false,
       };
@@ -166,6 +166,6 @@ const configShowRegistration = {
  * Register all config commands
  */
 export function registerConfigCommands() {
-  (sharedCommandRegistry as unknown).registerCommand(configListRegistration);
-  (sharedCommandRegistry as unknown).registerCommand(configShowRegistration);
+  sharedCommandRegistry.registerCommand(configListRegistration);
+  sharedCommandRegistry.registerCommand(configShowRegistration);
 }

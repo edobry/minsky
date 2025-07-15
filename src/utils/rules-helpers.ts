@@ -19,7 +19,7 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
       if (stats.isFile()) {
         // If it's a file, read its contents
         const content = String(await fs.readFile(contentPath, "utf-8"));
-        return (content as unknown).toString();
+        return content.toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
         throw new Error(`Failed to read _content from file ${contentPath}: Not a file`);

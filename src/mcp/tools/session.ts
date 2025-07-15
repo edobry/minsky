@@ -10,11 +10,11 @@ import { getErrorMessage } from "../../errors/index";
  */
 export function registerSessionTools(commandMapper: CommandMapper): void {
   // Session list tool
-  (commandMapper as unknown).addSessionCommand("list", "List all sessions", z.object({}), async () => {
+  commandMapper.addSessionCommand("list", "List all sessions", z.object({}), async () => {
     try {
       // Execute the command
       const command = "minsky session list --json";
-      const output = (execSync(command) as unknown).toString();
+      const output = execSync(command).toString();
 
       // Parse the JSON output
       return JSON.parse(output as unknown) as unknown;
@@ -27,7 +27,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
   });
 
   // Session get tool
-  (commandMapper as unknown).addSessionCommand(
+  commandMapper.addSessionCommand(
     "get",
     "Get details of a specific session",
     z.object({
@@ -37,7 +37,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       try {
         // Execute the command
         const command = `minsky session get ${(args as unknown)!.session} --json`;
-        const output = (execSync(command) as unknown).toString();
+        const output = execSync(command).toString();
 
         // Parse the JSON output
         return JSON.parse(output as unknown) as unknown;
@@ -50,13 +50,13 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     });
 
   // Session start tool
-  (commandMapper as unknown).addSessionCommand(
+  commandMapper.addSessionCommand(
     "start",
     "Start a new session",
     z.object({
       name: z.string().optional().describe("Name for the session"),
       task: z.string().optional().describe("Task ID to associate with the session"),
-      quiet: (z.boolean().optional().describe("Whether to suppress output") as unknown).default(true),
+      quiet: z.boolean().optional().describe("Whether to suppress output").default(true),
     }),
     async (
       args: z.infer<
@@ -70,8 +70,8 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       try {
         // Build the command
         let command = "minsky session start";
-        if ((args as unknown)?.name) {
-          command += ` --name ${(args as unknown).name}`;
+        if (args?.name) {
+          command += ` --name ${args.name}`;
         }
         if (args!.task) {
           command += ` --task ${args!.task}`;
@@ -80,16 +80,16 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         command += " --quiet";
 
         // Execute the command
-        const output = (execSync(command) as unknown).toString();
+        const output = execSync(command).toString();
 
         // Return success response
         return {
           success: true,
           message: output.trim(),
-          session: (args as unknown)?.name || `task#${args!.task}` || "unnamed-session",
+          session: args?.name || `task#${args!.task}` || "unnamed-session",
         };
       } catch (error) {
-        log.error("Error starting session", { error, name: (args as unknown).name, task: args!.task });
+        log.error("Error starting session", { error, name: args.name, task: args!.task });
         throw new Error(
           `Failed to start _session: ${getErrorMessage(error as any)}`
         );
@@ -97,7 +97,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     });
 
   // Session commit tool
-  (commandMapper as unknown).addSessionCommand(
+  commandMapper.addSessionCommand(
     "commit",
     "Commit changes in a session",
     z.object({
@@ -118,15 +118,15 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       try {
         // Build the command
         let command = "minsky session commit";
-        if ((args as unknown)?.message) {
-          command += ` -m "${(args as unknown).message}"`;
+        if (args?.message) {
+          command += ` -m "${args.message}"`;
         }
         if ((args as unknown)!.session) {
           command += ` --session ${(args as unknown)!.session}`;
         }
 
         // Execute the command
-        const output = (execSync(command) as unknown).toString();
+        const output = execSync(command).toString();
 
         // Return success response
         return {
@@ -142,7 +142,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     });
 
   // Session push tool
-  (commandMapper as unknown).addSessionCommand(
+  commandMapper.addSessionCommand(
     "push",
     "Push changes in a session",
     z.object({
@@ -166,7 +166,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         }
 
         // Execute the command
-        const output = (execSync(command) as unknown).toString();
+        const output = execSync(command).toString();
 
         // Return success response
         return {

@@ -57,7 +57,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   private readonly tasksDirectory: string;
 
   constructor(config: TaskBackendConfig) {
-    this.workspacePath = (config as unknown).workspacePath;
+    this.workspacePath = config.workspacePath;
     this.tasksFilePath = getTasksFilePath(this.workspacePath);
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
   }
@@ -175,17 +175,17 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       // Get all tasks first
       const tasksResult = await this.getTasksData();
-      if (!(tasksResult as unknown).success || !(tasksResult as unknown).content) {
+      if (!tasksResult.success || !tasksResult.content) {
         return false;
       }
 
       // Parse tasks and find the one to delete
-      const tasks = this.parseTasks((tasksResult as unknown).content);
+      const tasks = this.parseTasks(tasksResult.content);
       const taskToDelete = tasks.find(
         (task) =>
-          (task as unknown).id === id ||
-          (task as unknown).id === `#${id}` ||
-          (task as unknown).id.slice(1) === id
+          task.id === id ||
+          task.id === `#${id}` ||
+          task.id.slice(1) === id
       );
 
       if (!taskToDelete) {
@@ -194,25 +194,25 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
 
       // Remove the task from the array
-      const updatedTasks = tasks.filter((task) => (task as unknown).id !== (taskToDelete as unknown).id);
+      const updatedTasks = tasks.filter((task) => task.id !== taskToDelete.id);
 
       // Save the updated tasks
       const updatedContent = this.formatTasks(updatedTasks);
       const saveResult = await this.saveTasksData(updatedContent);
 
-      if (!(saveResult as unknown).success) {
+      if (!saveResult.success) {
         log.error(`Failed to save tasks after deleting ${id}:`, {
-          error: (saveResult.error as unknown).message,
+          error: saveResult.error.message,
         });
         return false;
       }
 
       // Try to delete the spec file if it exists
-      if ((taskToDelete as unknown).specPath) {
+      if (taskToDelete.specPath) {
         try {
-          const fullSpecPath = (taskToDelete.specPath as unknown).startsWith("/")
-            ? (taskToDelete as unknown).specPath
-            : join(this.workspacePath, (taskToDelete as unknown).specPath);
+          const fullSpecPath = taskToDelete.specPath.startsWith("/")
+            ? taskToDelete.specPath
+            : join(this.workspacePath, taskToDelete.specPath);
 
           if (await this.fileExists(fullSpecPath)) {
             const { unlink } = await import("fs/promises");
@@ -241,7 +241,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = (specPath as unknown).startsWith("/")
+    const fullPath = specPath.startsWith("/")
       ? specPath
       : join(this.workspacePath, specPath);
     return readTaskSpecFile(fullPath);
@@ -288,7 +288,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     // Then add any metadata as frontmatter
     if (spec.metadata && Object.keys(spec.metadata).length > 0) {
-      return (matter as unknown).stringify(markdownContent, (spec as unknown).metadata);
+      return matter.stringify(markdownContent, spec.metadata);
     }
 
     return markdownContent;
@@ -301,7 +301,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
-    const fullPath = (specPath as unknown).startsWith("/")
+    const fullPath = specPath.startsWith("/")
       ? specPath
       : join(this.workspacePath, specPath);
     return writeTaskSpecFile(fullPath, content);
@@ -331,7 +331,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   async findTaskSpecFiles(taskId: string): Promise<string[]> {
     try {
       const files = await readdir(this.tasksDirectory);
-      return files.filter((file) => (file as unknown).startsWith(`${taskId}-`));
+      return files.filter((file) => file.startsWith(`${taskId}-`));
     } catch (error) {
       log.error(`Failed to find task spec file for task #${taskId}`, {
         error: getErrorMessage(error as any),

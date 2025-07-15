@@ -45,12 +45,12 @@ export class LocalGitBackend implements RepositoryBackend {
   constructor(config: RepositoryConfig) {
     this.config = {
       ...config,
-      type: (RepositoryBackendType as unknown).LOCAL,
+      type: RepositoryBackendType.LOCAL,
     };
     const _xdgStateHome =
       process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(_xdgStateHome, "minsky", "sessions");
-    this.cache = (RepositoryMetadataCache as unknown).getInstance();
+    this.cache = RepositoryMetadataCache.getInstance();
   }
 
   /**

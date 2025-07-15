@@ -104,7 +104,7 @@ export function createLogger(configOverride?: LoggerConfig) {
 
   // Common format for agent logs (JSON)
   const agentLogFormat = format.combine(
-    (format as unknown).timestamp(),
+    format.timestamp(),
     format.errors({ stack: true }), // Log stack traces
     format.json()
   );
@@ -117,18 +117,18 @@ export function createLogger(configOverride?: LoggerConfig) {
       const logInfo = info as { message?: any; stack?: string; [key: string]: any };
       // Ensure message is a string
       const message =
-        typeof (logInfo as unknown).message === "string"
-          ? (logInfo as unknown).message
-          : JSON.stringify((logInfo as unknown).message);
+        typeof logInfo.message === "string"
+          ? logInfo.message
+          : JSON.stringify(logInfo.message);
       // For user-facing CLI output, just show the message without timestamp and log level
       let log = message;
       if (logInfo.stack) {
         log += `\n${logInfo.stack}`;
       }
       // Add other metadata if it exists
-      const metadata = (Object.keys(logInfo) as unknown).reduce(
+      const metadata = Object.keys(logInfo).reduce(
         (acc, key) => {
-          if ((["level", "message", "timestamp", "stack"] as unknown).includes(key)) {
+          if (["level", "message", "timestamp", "stack"].includes(key)) {
             return acc;
           }
           acc[key] = logInfo[key];
@@ -137,7 +137,7 @@ export function createLogger(configOverride?: LoggerConfig) {
         {} as Record<string, any>
       );
 
-      if ((Object as unknown).keysmetadata.length > 0) {
+      if (Object.keysmetadata.length > 0) {
         try {
           log += ` ${JSON.stringify(metadata as unknown)}`;
         } catch (error) {
@@ -158,11 +158,11 @@ export function createLogger(configOverride?: LoggerConfig) {
 
   // Only add stdout transport if in STRUCTURED mode or explicitly enabled in HUMAN mode
   if (currentLogMode === LogMode.STRUCTURED || enableAgentLogs) {
-    (agentLogger as unknown).add(new transports.Console({ stderrLevels: [] })); // Ensure only stdout
-    (agentLogger.exceptions as unknown).handle(
+    agentLogger.add(new transports.Console({ stderrLevels: [] })); // Ensure only stdout
+    agentLogger.exceptions.handle(
       new transports.Console({ format: agentLogFormat, stderrLevels: [] })
     );
-    (agentLogger.rejections as unknown).handle(
+    agentLogger.rejections.handle(
       new transports.Console({ format: agentLogFormat, stderrLevels: [] })
     );
   }
@@ -180,8 +180,8 @@ export function createLogger(configOverride?: LoggerConfig) {
   });
 
   // Always setup exception handlers for programLogger
-  (programLogger.exceptions as unknown).handle(new transports.Console({ format: programLogFormat }));
-  (programLogger.rejections as unknown).handle(new transports.Console({ format: programLogFormat }));
+  programLogger.exceptions.handle(new transports.Console({ format: programLogFormat }));
+  programLogger.rejections.handle(new transports.Console({ format: programLogFormat }));
 
   // Check if we're in structured mode
   const isStructuredMode = () => currentLogMode === LogMode.STRUCTURED;
@@ -196,7 +196,7 @@ export function createLogger(configOverride?: LoggerConfig) {
       if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
         return;
       }
-      (agentLogger as unknown).info(message);
+      agentLogger.info(message);
     },
     debug: (message: string, context?: LogContext) => {
       // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
@@ -206,9 +206,9 @@ export function createLogger(configOverride?: LoggerConfig) {
       }
       // Otherwise, use agentLogger as normal
       if (context) {
-        (agentLogger as unknown).debug(message, context as unknown);
+        agentLogger.debug(message, context as unknown);
       } else {
-        (agentLogger as unknown).debug(message);
+        agentLogger.debug(message);
       }
     },
     info: (message: string, context?: LogContext) => {
@@ -217,9 +217,9 @@ export function createLogger(configOverride?: LoggerConfig) {
         return;
       }
       if (context) {
-        (agentLogger as unknown).info(message, context as unknown);
+        agentLogger.info(message, context as unknown);
       } else {
-        (agentLogger as unknown).info(message);
+        agentLogger.info(message);
       }
     },
     warn: (message: string, context?: LogContext) => {
@@ -228,9 +228,9 @@ export function createLogger(configOverride?: LoggerConfig) {
         return;
       }
       if (context) {
-        (agentLogger as unknown).warn(message, context as unknown);
+        agentLogger.warn(message, context as unknown);
       } else {
-        (agentLogger as unknown).warn(message);
+        agentLogger.warn(message);
       }
     },
     error: (
@@ -241,60 +241,60 @@ export function createLogger(configOverride?: LoggerConfig) {
       if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
         // Format the error for the programLogger
         if (context instanceof Error) {
-          (programLogger as unknown).error(`${message}: ${(context as unknown).message}`);
-          if ((context as unknown).stack) {
-            (programLogger as unknown).error((context as unknown).stack);
+          programLogger.error(`${message}: ${context.message}`);
+          if (context.stack) {
+            programLogger.error(context.stack);
           }
         } else if (
           typeof context === "object" &&
           context !== null &&
-          ((context as unknown).originalError || (context as unknown).stack)
+          (context.originalError || context.stack)
         ) {
-          (programLogger as unknown).error(
-            `${message}: ${(context as unknown).originalError || JSON.stringify(context as unknown)}`
+          programLogger.error(
+            `${message}: ${context.originalError || JSON.stringify(context as unknown)}`
           );
-          if ((context as unknown).stack) {
-            (programLogger as unknown).error((context as unknown).stack);
+          if (context.stack) {
+            programLogger.error(context.stack);
           }
         } else {
-          (programLogger as unknown).error(message, context as unknown);
+          programLogger.error(message, context as unknown);
         }
         return;
       }
 
       // In STRUCTURED mode or if agent logs explicitly enabled, use agentLogger
       if (context instanceof Error) {
-        (agentLogger as unknown).error(message, {
-          originalError: (context as unknown).message,
-          stack: (context as unknown).stack,
-          name: (context as unknown).name,
+        agentLogger.error(message, {
+          originalError: context.message,
+          stack: context.stack,
+          name: context.name,
         });
       } else if (
         typeof context === "object" &&
         context !== null &&
-        ((context as unknown).originalError || (context as unknown).stack)
+        (context.originalError || context.stack)
       ) {
-        (agentLogger as unknown).error(message, context as unknown);
+        agentLogger.error(message, context as unknown);
       } else {
-        (agentLogger as unknown).error(message, context as unknown);
+        agentLogger.error(message, context as unknown);
       }
     },
     // Program/CLI logs (plain text to stderr)
-    cli: (message: any) => (programLogger as unknown).info(String(message)),
-    cliWarn: (message: any) => (programLogger as unknown).warn(String(message)),
-    cliError: (message: any) => (programLogger as unknown).error(String(message)),
+    cli: (message: any) => programLogger.info(String(message)),
+    cliWarn: (message: any) => programLogger.warn(String(message)),
+    cliError: (message: any) => programLogger.error(String(message)),
     // Add ability to set log level
     setLevel: (level: string) => {
-      (agentLogger as unknown).level = level;
-      (programLogger as unknown).level = level;
+      agentLogger.level = level;
+      programLogger.level = level;
     },
     // Add additional CLI-oriented debug log
-    cliDebug: (message: any) => (programLogger as unknown).debug(String(message)),
+    cliDebug: (message: any) => programLogger.debug(String(message)),
     // Add system-level debug logging that always goes to stderr, bypassing the mode limitations
     // Use this for important system debugging that should always be visible when debug level is set
     systemDebug: (message: any) => {
       // Always log to programLogger (stderr) regardless of mode
-      (programLogger as unknown).debug(String(message));
+      programLogger.debug(String(message));
     },
     // Expose log mode information
     mode: currentLogMode,
@@ -327,7 +327,7 @@ export { createLogger as createConfigurableLogger };
 const handleExit = async (error?: Error) => {
   if (error) {
     // Use default logger's internal program logger for unhandled errors that might crash the CLI
-    (defaultLogger._internal.programLogger as unknown).error("Unhandled error or rejection, exiting.", error as unknown);
+    defaultLogger._internal.programLogger.error("Unhandled error or rejection, exiting.", error as unknown);
   }
   // Give logs a moment to flush
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -353,5 +353,5 @@ if (process.env.RUN_LOGGER_TEST === "true") {
   log.cli(`Current Log Mode: ${log.mode}`);
   log.cli(`Is Structured Mode: ${log.isStructuredMode()}`);
   log.cli(`Is Human Mode: ${log.isHumanMode()}`);
-  log.cli(`Is Terminal (TTY): ${Boolean((process.stdout as unknown).isTTY)}`);
+  log.cli(`Is Terminal (TTY): ${Boolean(process.stdout.isTTY)}`);
 }

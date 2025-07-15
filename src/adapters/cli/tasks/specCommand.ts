@@ -19,12 +19,12 @@ import { handleCliError, outputResult } from "../utils/error-handler";
  * This command retrieves and displays task specification content
  */
 export function createSpecCommand(): Command {
-  const command = (new Command("spec")
+  const command = new Command("spec")
     .description("Get task specification _content")
-    .argument("<task-id>", "ID of the task to retrieve specification _content for") as unknown).option(
-    "--section <section>",
-    "Specific section of the specification to retrieve (e.g., 'requirements')"
-  );
+    .argument("<task-id>", "ID of the task to retrieve specification _content for").option(
+      "--section <section>",
+      "Specific section of the specification to retrieve (e.g., 'requirements')"
+    );
 
   // Add shared options
   addRepoOptions(command);
@@ -59,7 +59,7 @@ export function createSpecCommand(): Command {
         const params: TaskSpecContentParams = {
           ...normalizedParams,
           taskId: normalizedTaskId,
-          section: (options as unknown).section,
+          section: options.section,
         } as unknown;
 
         // Call the domain function
@@ -67,36 +67,36 @@ export function createSpecCommand(): Command {
 
         // Format and display the result
         outputResult(result as unknown, {
-          json: (options as unknown).json,
+          json: options.json,
           formatter: (data: any) => {
-            log.cli(`Task ${(data.task as unknown).id}: ${(data.task as unknown).title}`);
-            log.cli(`Specification file: ${(data as unknown).specPath}`);
+            log.cli(`Task ${data.task.id}: ${data.task.title}`);
+            log.cli(`Specification file: ${data.specPath}`);
 
             // If a specific section was requested, try to extract it
-            if ((data as unknown).section) {
+            if (data.section) {
               // Simple extraction logic for common section patterns
-              const sectionRegex = new RegExp(`## ${(data as unknown).section}`, "i");
-              const match = (data.content as unknown).match(sectionRegex);
+              const sectionRegex = new RegExp(`## ${data.section}`, "i");
+              const match = data.content.match(sectionRegex);
 
               if (match && match.index !== undefined) {
                 const startIndex = match.index;
                 // Find the next section or the end of the file
-                const nextSectionMatch = ((data.content as unknown).slice(startIndex + match[0].length) as unknown).match(/^## /m);
+                const nextSectionMatch = data.content.slice(startIndex + match[0].length).match(/^## /m);
                 const endIndex = nextSectionMatch
-                  ? startIndex + match[0].length + (nextSectionMatch as unknown).index
+                  ? startIndex + match[0].length + nextSectionMatch.index
                   : data.content.length;
 
-                const sectionContent = (((data.content.slice(startIndex, endIndex)) as unknown).toString() as unknown).trim();
+                const sectionContent = data.content.slice(startIndex, endIndex).toString().trim();
                 log.cli(`\n${sectionContent}`);
               } else {
-                log.cli(`\nSection "${(data as unknown).section}" not found in specification.`);
+                log.cli(`\nSection "${data.section}" not found in specification.`);
                 log.cli("\nFull specification content:");
-                log.cli((data as unknown).content);
+                log.cli(data.content);
               }
             } else {
               // Display the full content
               log.cli("\nSpecification content:");
-              log.cli((data as unknown).content);
+              log.cli(data.content);
             }
           },
         });

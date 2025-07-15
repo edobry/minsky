@@ -608,7 +608,7 @@ You need to specify one of these options to identify the target repository:
 
     const session = await deps.getSession(sessionName);
     if (!session) {
-      const context = (createErrorContext().addCommand("minsky git pr") as unknown).build();
+      const context = createErrorContext().addCommand("minsky git pr").build();
 
       throw new MinskyError(createSessionNotFoundMessage(sessionName, context as unknown));
     }
@@ -646,7 +646,7 @@ You need to specify one of these options to identify the target repository:
       const { stdout } = await deps.execAsync(
         `git -C ${workdir} symbolic-ref refs/remotes/origin/HEAD --short`
       );
-      const baseBranch = (stdout.trim() as unknown).replace("origin/", "");
+      const baseBranch = stdout.trim().replace("origin/", "");
       log.debug("Found remote HEAD branch", { baseBranch });
       return baseBranch;
     } catch (err) {
@@ -661,7 +661,7 @@ You need to specify one of these options to identify the target repository:
       const { stdout } = await deps.execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref ${branch}@{upstream}`
       );
-      const baseBranch = (stdout.trim() as unknown).replace("origin/", "");
+      const baseBranch = stdout.trim().replace("origin/", "");
       log.debug("Found upstream branch", { baseBranch });
       return baseBranch;
     } catch (err) {
@@ -792,7 +792,7 @@ You need to specify one of these options to identify the target repository:
 
     try {
       // Check if the commits are in the expected format with delimiters
-      if ((commits as unknown).includes("\x1f")) {
+      if (commits.includes("\x1f")) {
         // Parse the commits data with delimiters
         // Split by record separator
         const commitRecords = commits.split("\x1e").filter(Boolean);
@@ -803,7 +803,7 @@ You need to specify one of these options to identify the target repository:
           const fields = record.split("\x1f");
           if (fields.length > 1) {
             if (fields[0] !== undefined && fields[1] !== undefined) {
-              const hash = (fields[0] as unknown).substring(0, 7);
+              const hash = fields[0].substring(0, 7);
               const message = fields[1];
               formattedEntries.push(`${hash} ${message}`);
             }
@@ -814,7 +814,7 @@ You need to specify one of these options to identify the target repository:
         }
 
         if (formattedEntries.length > 0) {
-          return (formattedEntries as unknown).join("\n");
+          return formattedEntries.join("\n");
         }
       }
 
@@ -871,7 +871,7 @@ You need to specify one of these options to identify the target repository:
       sections.push(wdChanges);
     }
 
-    return (sections as unknown).join("\n");
+    return sections.join("\n");
   }
 
   /**
@@ -1033,7 +1033,7 @@ You need to specify one of these options to identify the target repository:
       }
       // Otherwise, try to infer stats from the diff status
       else if (diffNameStatus && diffNameStatus.trim()) {
-        const lines = (diffNameStatus.trim() as unknown).split("\n");
+        const lines = diffNameStatus.trim().split("\n");
         if (lines.length > 0) {
           stats = `${lines.length} files changed`;
         }
@@ -1041,7 +1041,7 @@ You need to specify one of these options to identify the target repository:
       // If we have uncommitted changes but no stats for the branch,
       // we should make sure those are reflected in the output
       else if (uncommittedChanges.trim()) {
-        const lines = (uncommittedChanges.trim() as unknown).split("\n");
+        const lines = uncommittedChanges.trim().split("\n");
         if (lines.length > 0) {
           stats = `${lines.length} uncommitted files changed`;
         }
@@ -1058,17 +1058,17 @@ You need to specify one of these options to identify the target repository:
 
     // Get modified files
     const { stdout: modifiedOutput } = await execAsync(`git -C ${workdir} diff --name-only`);
-    const modified = (modifiedOutput.trim() as unknown).split("\n").filter(Boolean);
+    const modified = modifiedOutput.trim().split("\n").filter(Boolean);
 
     // Get untracked files
     const { stdout: untrackedOutput } = await execAsync(
       `git -C ${workdir} ls-files --others --exclude-standard`
     );
-    const untracked = (untrackedOutput.trim() as unknown).split("\n").filter(Boolean);
+    const untracked = untrackedOutput.trim().split("\n").filter(Boolean);
 
     // Get deleted files
     const { stdout: deletedOutput } = await execAsync(`git -C ${workdir} ls-files --deleted`);
-    const deleted = (deletedOutput.trim() as unknown).split("\n").filter(Boolean);
+    const deleted = deletedOutput.trim().split("\n").filter(Boolean);
 
     return { modified, untracked, deleted };
   }
@@ -1175,15 +1175,15 @@ You need to specify one of these options to identify the target repository:
         log.debug("Git status after failed merge", { status });
 
         const hasConflicts =
-          (status as unknown).includes("UU") ||
-          (status as unknown).includes("AA") ||
-          (status as unknown).includes("DD");
+          status.includes("UU") ||
+          status.includes("AA") ||
+          status.includes("DD");
         log.debug("Conflict detection result", {
           hasConflicts,
           statusIncludes: {
-            UU: (status as unknown).includes("UU"),
-            AA: (status as unknown).includes("AA"),
-            DD: (status as unknown).includes("DD"),
+            UU: status.includes("UU"),
+            AA: status.includes("AA"),
+            DD: status.includes("DD"),
           },
         });
 
@@ -1254,7 +1254,7 @@ You need to specify one of these options to identify the target repository:
     // 2. Validate remote exists
     const { stdout: remotesOut } = await execAsync(`git -C ${workdir} remote`);
     const remotes = remotesOut.split("\n").map((r) => r.trim()).filter(Boolean);
-    if (!(remotes as unknown).includes(remote)) {
+    if (!remotes.includes(remote)) {
       throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
     }
 
@@ -1371,7 +1371,7 @@ You need to specify one of these options to identify the target repository:
         // Check if we're currently in a session workspace directory
         const currentDir = (process as any).cwd();
         const pathParts = currentDir.split("/");
-        const sessionsIndex = (pathParts as unknown).indexOf("sessions");
+        const sessionsIndex = pathParts.indexOf("sessions");
 
         if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
           const sessionNameFromPath = pathParts[sessionsIndex + 1];
@@ -1397,7 +1397,7 @@ You need to specify one of these options to identify the target repository:
                 session: options.session,
                 repoUrl: repoUrl.trim(),
                 repoName,
-                createdAt: (new Date() as unknown).toISOString(),
+                createdAt: new Date().toISOString(),
                 taskId,
                 branch: options.session,
               };
@@ -1608,7 +1608,7 @@ Session requested: "${(options as any).session}"
       }
 
       // Fix for origin/origin/main bug: Don't prepend origin/ if baseBranch already has it
-      const remoteBaseBranch = (baseBranch as unknown).startsWith("origin/")
+      const remoteBaseBranch = baseBranch.startsWith("origin/")
         ? baseBranch
         : `origin/${baseBranch}`;
 
@@ -1665,7 +1665,7 @@ Session requested: "${(options as any).session}"
 
       // VERIFICATION: Check that the merge commit has the correct message
       const actualCommitMessage = await execAsync(`git -C ${workdir} log -1 --pretty=format:%B`);
-      const actualTitle = ((actualCommitMessage.stdout as unknown).trim() as unknown).split("\n")[0];
+      const actualTitle = actualCommitMessage.stdout.trim().split("\n")[0];
       const expectedTitle = commitMessage.split("\n")[0];
 
       if (actualTitle !== expectedTitle) {
@@ -1673,7 +1673,7 @@ Session requested: "${(options as any).session}"
           expected: expectedTitle,
           actual: actualTitle,
           fullExpected: commitMessage,
-          fullActual: (actualCommitMessage.stdout as unknown).trim(),
+          fullActual: actualCommitMessage.stdout.trim(),
         });
         // Don't throw error but log the issue for debugging
       } else {
@@ -1685,7 +1685,7 @@ Session requested: "${(options as any).session}"
       log.debug(`Created prepared merge commit by merging ${sourceBranch} into ${prBranch}`);
 
       // Clean up the commit message file
-      await (fs.unlink(commitMsgFile) as unknown).catch(() => {
+      await fs.unlink(commitMsgFile).catch(() => {
         // Ignore errors when cleaning up
       });
     } catch (err) {
@@ -1693,7 +1693,7 @@ Session requested: "${(options as any).session}"
       try {
         await execAsync(`git -C ${workdir} merge --abort`);
         const fs = await import("fs/promises");
-        await (fs.unlink(commitMsgFile) as unknown).catch(() => {
+        await fs.unlink(commitMsgFile).catch(() => {
           // Ignore file cleanup errors
         });
         // CRITICAL: Switch back to session branch on error
@@ -1703,7 +1703,7 @@ Session requested: "${(options as any).session}"
         log.warn("Failed to clean up after merge error", { cleanupErr });
       }
 
-      if (err instanceof Error && (err.message as unknown).includes("CONFLICT")) {
+      if (err instanceof Error && err.message.includes("CONFLICT")) {
         throw new MinskyError(
           "Merge conflicts occurred while creating prepared merge commit. Please resolve conflicts and retry.",
           { exitCode: 4 }
@@ -1745,14 +1745,10 @@ Session requested: "${(options as any).session}"
    * e.g. "feat: add new feature" -> "feat-add-new-feature"
    */
   private titleToBranchName(title: string): string {
-    return (
-      (
-        title
-          .toLowerCase()
-          .replace(/[\s:/#]+/g, "-") // Replace spaces, colons, slashes, and hashes with dashes
-          .replace(/[^\w-]/g, "") as unknown
-      ).replace(/--+/g, "-") as unknown
-    ).replace(/^-|-$/g, ""); // Remove leading and trailing dashes
+    return title
+      .toLowerCase()
+      .replace(/[\s:/#]+/g, "-") // Replace spaces, colons, slashes, and hashes with dashes
+      .replace(/[^\w-]/g, "").replace(/--+/g, "-").replace(/^-|-$/g, ""); // Remove leading and trailing dashes
   }
 
   async mergePr(options: MergePrOptions): Promise<MergePrResult> {
@@ -1781,23 +1777,23 @@ Session requested: "${(options as any).session}"
     await this.execInRepository(workdir, `git pull origin ${baseBranch}`);
 
     // 4. Merge the PR branch
-    await this.execInRepository(workdir, `git merge --no-ff ${(options as unknown).prBranch}`);
+    await this.execInRepository(workdir, `git merge --no-ff ${options.prBranch}`);
 
     // 5. Get the commit hash of the merge
     const commitHash = ((await this.execInRepository(workdir, "git rev-parse HEAD")) as unknown).trim();
 
     // 6. Get merge date and author
-    const mergeDate = (new Date() as unknown).toISOString();
+    const mergeDate = new Date().toISOString();
     const mergedBy = ((await this.execInRepository(workdir, "git config user.name")) as unknown).trim();
 
     // 7. Push the merge to the remote
     await this.execInRepository(workdir, `git push origin ${baseBranch}`);
 
     // 8. Delete the PR branch from the remote
-    await this.execInRepository(workdir, `git push origin --delete ${(options as unknown).prBranch}`);
+    await this.execInRepository(workdir, `git push origin --delete ${options.prBranch}`);
 
     return {
-      prBranch: (options as unknown).prBranch,
+      prBranch: options.prBranch,
       baseBranch,
       commitHash,
       mergeDate,
@@ -1817,7 +1813,7 @@ Session requested: "${(options as any).session}"
       const defaultBranchCmd = "git symbolic-ref refs/remotes/origin/HEAD --short";
       const defaultBranch = await this.execInRepository(repoPath, defaultBranchCmd);
       // Format is usually "origin/main", so we need to remove the "origin/" prefix
-      const result = (defaultBranch.trim() as unknown).replace(/^origin\//, "");
+      const result = defaultBranch.trim().replace(/^origin\//, "");
       return result;
     } catch (error) {
       // Log error but don't throw
@@ -1841,11 +1837,11 @@ Session requested: "${(options as any).session}"
   ): Promise<string> {
     try {
       // Try to get the default branch from the remote's HEAD ref
-      const { stdout } = await (deps as unknown).execAsync(
+      const { stdout } = await deps.execAsync(
         `git -C ${repoPath} symbolic-ref refs/remotes/origin/HEAD --short`
       );
       // Format is usually "origin/main", so we need to remove the "origin/" prefix
-      const result = (stdout.trim() as unknown).replace(/^origin\//, "");
+      const result = stdout.trim().replace(/^origin\//, "");
       return result;
     } catch (error) {
       // Log error but don't throw
@@ -1870,7 +1866,7 @@ Session requested: "${(options as any).session}"
     amend: boolean = false
   ): Promise<string> {
     const amendFlag = amend ? "--amend" : "";
-    const { stdout } = await (deps as unknown).execAsync(
+    const { stdout } = await deps.execAsync(
       `git -C ${workdir} commit ${amendFlag} -m "${message}"`
     );
 
@@ -1891,7 +1887,7 @@ Session requested: "${(options as any).session}"
   ): Promise<StashResult> {
     try {
       // Check if there are changes to stash
-      const { stdout: status } = await (deps as unknown).execAsync(
+      const { stdout: status } = await deps.execAsync(
         `git -C ${workdir} status --porcelain`
       );
       if (!status.trim()) {
@@ -1900,7 +1896,7 @@ Session requested: "${(options as any).session}"
       }
 
       // Stash changes
-      await (deps as unknown).execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
+      await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
@@ -1916,14 +1912,14 @@ Session requested: "${(options as any).session}"
   ): Promise<StashResult> {
     try {
       // Check if there's a stash to pop
-      const { stdout: stashList } = await (deps as unknown).execAsync(`git -C ${workdir} stash list`);
+      const { stdout: stashList } = await deps.execAsync(`git -C ${workdir} stash list`);
       if (!stashList.trim()) {
         // No stash to pop
         return { workdir, stashed: false };
       }
 
       // Pop the stash
-      await (deps as unknown).execAsync(`git -C ${workdir} stash pop`);
+      await deps.execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to pop stash: ${getErrorMessage(err as any)}`);
@@ -1940,42 +1936,42 @@ Session requested: "${(options as any).session}"
   ): Promise<MergeResult> {
     try {
       // Get current commit hash
-      const { stdout: beforeHash } = await (deps as unknown).execAsync(
+      const { stdout: beforeHash } = await deps.execAsync(
         `git -C ${workdir} rev-parse HEAD`
       );
 
       // Try to merge the branch using dependency-injected execution
       try {
-        await (deps as unknown).execAsync(`git -C ${workdir} merge ${branch}`);
+        await deps.execAsync(`git -C ${workdir} merge ${branch}`);
       } catch (err) {
         // Check if the error indicates merge conflicts
         if (
           err instanceof Error &&
-          ((err.message as unknown).includes("Merge Conflicts Detected") ||
-            (err.message as unknown).includes("CONFLICT"))
+          (err.message.includes("Merge Conflicts Detected") ||
+            err.message.includes("CONFLICT"))
         ) {
           // The error message indicates conflicts
           return { workdir, merged: false, conflicts: true };
         }
 
         // Check if there are merge conflicts using traditional method as fallback
-        const { stdout: status } = await (deps as unknown).execAsync(
+        const { stdout: status } = await deps.execAsync(
           `git -C ${workdir} status --porcelain`
         );
         if (
-          (status as unknown).includes("UU") ||
-          (status as unknown).includes("AA") ||
-          (status as unknown).includes("DD")
+          status.includes("UU") ||
+          status.includes("AA") ||
+          status.includes("DD")
         ) {
           // Abort the merge and report conflicts
-          await (deps as unknown).execAsync(`git -C ${workdir} merge --abort`);
+          await deps.execAsync(`git -C ${workdir} merge --abort`);
           return { workdir, merged: false, conflicts: true };
         }
         throw err;
       }
 
       // Get new commit hash
-      const { stdout: afterHash } = await (deps as unknown).execAsync(
+      const { stdout: afterHash } = await deps.execAsync(
         `git -C ${workdir} rev-parse HEAD`
       );
 
@@ -1994,14 +1990,14 @@ Session requested: "${(options as any).session}"
    * Testable version of stageAll with dependency injection
    */
   async stageAllWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<void> {
-    await (deps as unknown).execAsync(`git -C ${workdir} add -A`);
+    await deps.execAsync(`git -C ${workdir} add -A`);
   }
 
   /**
    * Testable version of stageModified with dependency injection
    */
   async stageModifiedWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<void> {
-    await (deps as unknown).execAsync(`git -C ${workdir} add .`);
+    await deps.execAsync(`git -C ${workdir} add .`);
   }
 
   /**
@@ -2014,15 +2010,15 @@ Session requested: "${(options as any).session}"
   ): Promise<PullResult> {
     try {
       // Get current commit hash before fetch
-      const { stdout: beforeHash } = await (deps as unknown).execAsync(
+      const { stdout: beforeHash } = await deps.execAsync(
         `git -C ${workdir} rev-parse HEAD`
       );
 
       // Fetch latest changes from remote using dependency-injected execution
-      await (deps as unknown).execAsync(`git -C ${workdir} fetch ${remote}`);
+      await deps.execAsync(`git -C ${workdir} fetch ${remote}`);
 
       // Get commit hash after fetch (should be the same since we only fetched)
-      const { stdout: afterHash } = await (deps as unknown).execAsync(
+      const { stdout: afterHash } = await deps.execAsync(
         `git -C ${workdir} rev-parse HEAD`
       );
 
@@ -2042,14 +2038,14 @@ Session requested: "${(options as any).session}"
     options: CloneOptions,
     deps: ExtendedGitDependencies
   ): Promise<CloneResult> {
-    await (deps as unknown).mkdir(this.baseDir, { recursive: true });
+    await deps.mkdir(this.baseDir, { recursive: true });
 
     const session = options.session || this.generateSessionId();
     const repoName = normalizeRepoName(options.repoUrl);
     const normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
 
     const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
-    await (deps as unknown).mkdir(sessionsDir, { recursive: true });
+    await deps.mkdir(sessionsDir, { recursive: true });
 
     const workdir = this.getSessionWorkdir(session);
 
@@ -2061,7 +2057,7 @@ Session requested: "${(options as any).session}"
 
       // Check if destination already exists and is not empty
       try {
-        const dirContents = await (deps as unknown).readdir(workdir);
+        const dirContents = await deps.readdir(workdir);
         if (dirContents.length > 0) {
           log.warn("Destination directory is not empty", { workdir, contents: dirContents });
         }
@@ -2072,12 +2068,12 @@ Session requested: "${(options as any).session}"
 
       // Clone the repository
       const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
-      await (deps as unknown).execAsync(cloneCmd);
+      await deps.execAsync(cloneCmd);
 
       // Verify the clone was successful by checking for .git directory
       try {
         const gitDir = join(workdir, ".git");
-        await (deps as unknown).access(gitDir);
+        await deps.access(gitDir);
       } catch (accessErr) {
         throw new Error("Git repository was not properly cloned: .git directory not found");
       }
@@ -2095,14 +2091,14 @@ Session requested: "${(options as any).session}"
     options: BranchOptions,
     deps: PrDependencies
   ): Promise<BranchResult> {
-    const record = await (deps as unknown).getSession(options.session);
+    const record = await deps.getSession(options.session);
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
 
-    const workdir = (deps as unknown).getSessionWorkdir(options.session);
+    const workdir = deps.getSessionWorkdir(options.session);
 
-    await (deps as unknown).execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
+    await deps.execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
     return {
       workdir,
       branch: options.branch,
@@ -2119,16 +2115,16 @@ Session requested: "${(options as any).session}"
 
     // 1. Resolve workdir
     if (options.session) {
-      const record = await (deps as unknown).getSession(options.session);
+      const record = await deps.getSession(options.session);
       if (!record) {
         throw new Error(`Session '${options.session}' not found.`);
       }
-      workdir = (deps as unknown).getSessionWorkdir(options.session);
+      workdir = deps.getSessionWorkdir(options.session);
       branch = options.session; // Session branch is named after the session
     } else if (options.repoPath) {
       workdir = options.repoPath;
       // Get current branch from repo
-      const { stdout: branchOut } = await (deps as unknown).execAsync(
+      const { stdout: branchOut } = await deps.execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
       branch = branchOut.trim();
@@ -2136,16 +2132,16 @@ Session requested: "${(options as any).session}"
       // Try to infer from current directory
       workdir = (process as any).cwd();
       // Get current branch from cwd
-      const { stdout: branchOut } = await (deps as unknown).execAsync(
+      const { stdout: branchOut } = await deps.execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
       branch = branchOut.trim();
     }
 
     // 2. Validate remote exists
-    const { stdout: remotesOut } = await (deps as unknown).execAsync(`git -C ${workdir} remote`);
+    const { stdout: remotesOut } = await deps.execAsync(`git -C ${workdir} remote`);
     const remotes = remotesOut.split("\n").map((r) => r.trim()).filter(Boolean);
-    if (!(remotes as unknown).includes(remote)) {
+    if (!remotes.includes(remote)) {
       throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
     }
 
@@ -2157,7 +2153,7 @@ Session requested: "${(options as any).session}"
 
     // 4. Execute push
     try {
-      await (deps as unknown).execAsync(pushCmd);
+      await deps.execAsync(pushCmd);
       return { workdir, pushed: true };
     } catch (err: any) {
       // Provide helpful error messages for common issues
@@ -2199,7 +2195,7 @@ Session requested: "${(options as any).session}"
     sourceBranch: string,
     targetBranch: string
   ): Promise<ConflictPrediction> {
-    return (ConflictDetectionService as unknown).predictConflicts(repoPath, sourceBranch, targetBranch);
+    return ConflictDetectionService.predictConflicts(repoPath, sourceBranch, targetBranch);
   }
 
   /**
@@ -2210,7 +2206,7 @@ Session requested: "${(options as any).session}"
     sessionBranch: string,
     baseBranch: string
   ): Promise<BranchDivergenceAnalysis> {
-    return (ConflictDetectionService as unknown).analyzeBranchDivergence(
+    return ConflictDetectionService.analyzeBranchDivergence(
       repoPath,
       sessionBranch,
       baseBranch
@@ -2230,7 +2226,7 @@ Session requested: "${(options as any).session}"
       dryRun?: boolean;
     }
   ): Promise<EnhancedMergeResult> {
-    return (ConflictDetectionService as unknown).mergeWithConflictPrevention(
+    return ConflictDetectionService.mergeWithConflictPrevention(
       repoPath,
       sourceBranch,
       targetBranch,
@@ -2250,7 +2246,7 @@ Session requested: "${(options as any).session}"
       autoResolveConflicts?: boolean;
     }
   ): Promise<SmartUpdateResult> {
-    return (ConflictDetectionService as unknown).smartSessionUpdate(
+    return ConflictDetectionService.smartSessionUpdate(
       repoPath,
       sessionBranch,
       baseBranch,
@@ -2310,31 +2306,31 @@ export async function commitChangesFromParams(params: {
   try {
     const git = new GitService();
 
-    if (!(params as unknown).noStage) {
-      if ((params as unknown).all) {
-        await git.stageAll((params as unknown).repo);
+    if (!params.noStage) {
+      if (params.all) {
+        await git.stageAll(params.repo);
       } else {
-        await git.stageModified((params as unknown).repo);
+        await git.stageModified(params.repo);
       }
     }
 
-    const commitHash = await (git as unknown).commit(
-      (params as unknown).message,
-      (params as unknown).repo,
-      (params as unknown).amend
+    const commitHash = await git.commit(
+      params.message,
+      params.repo,
+      params.amend
     );
 
     return {
       commitHash,
-      message: (params as unknown).message,
+      message: params.message,
     };
   } catch (error) {
     log.error("Error committing changes", {
-      session: (params as unknown).session,
-      repo: (params as unknown).repo,
-      message: (params as unknown).message,
-      all: (params as unknown).all,
-      amend: (params as unknown).amend,
+      session: params.session,
+      repo: params.repo,
+      message: params.message,
+      all: params.all,
+      amend: params.amend,
       error: getErrorMessage(error as any),
       stack: error instanceof Error ? (error as any).stack : undefined,
     });
@@ -2436,7 +2432,7 @@ export async function branchFromParams(params: {
 }): Promise<BranchResult> {
   try {
     const git = new GitService();
-    const result = await (git as unknown).branch({
+    const result = await git.branch({
       session: params.session,
       branch: params.name,
     });

@@ -42,7 +42,7 @@ export class LocalGitBackend implements RepositoryBackend {
   constructor(config: RepositoryBackendConfig) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
-    this.repoUrl = (config as unknown).repoUrl;
+    this.repoUrl = config.repoUrl;
     this.repoName = normalizeRepositoryURI(this.repoUrl);
     this.sessionDb = createSessionProvider();
     this.config = config;
@@ -135,7 +135,7 @@ export class LocalGitBackend implements RepositoryBackend {
       const { stdout: revListOutput } = await execAsync(
         `git -C ${workdir} rev-list --left-right --count @{upstream}...HEAD`
       );
-      const counts = (revListOutput.trim() as unknown).split(/\s+/);
+      const counts = revListOutput.trim().split(/\s+/);
       if (counts && counts.length === 2) {
         behind = parseInt(counts[0] || "0", 10);
         ahead = parseInt(counts[1] || "0", 10);
@@ -149,13 +149,13 @@ export class LocalGitBackend implements RepositoryBackend {
     const modifiedFiles = statusOutput
       .trim()
       .split("\n").filter(Boolean).map((line: string) => ({
-        status: ((line as unknown).substring(0, 2) as unknown).trim(),
-        file: (line as unknown).substring(3),
+        status: line.substring(0, 2).trim(),
+        file: line.substring(3),
       }));
 
     // Get remote information
     const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote`);
-    const remotes = (remoteOutput.trim() as unknown).split("\n").filter(Boolean);
+    const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
     return {
       branch,
@@ -166,7 +166,7 @@ export class LocalGitBackend implements RepositoryBackend {
       workdir,
       modifiedFiles,
       clean: modifiedFiles.length === 0,
-      changes: modifiedFiles.map((file) => `M ${(file as unknown).file}`),
+      changes: modifiedFiles.map((file) => `M ${file.file}`),
     };
   }
 
@@ -199,7 +199,7 @@ export class LocalGitBackend implements RepositoryBackend {
       // For now, we'll just assume they're valid
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-      return { success: false, message: `Invalid git repository: ${(normalizedError as unknown).message}` };
+      return { success: false, message: `Invalid git repository: ${normalizedError.message}` };
     }
     return { success: true, message: "Repository is valid" };
   }

@@ -63,7 +63,7 @@ const tasksStatusGetParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -111,7 +111,7 @@ const tasksStatusSetParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -152,7 +152,7 @@ const tasksSpecParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -163,7 +163,7 @@ const tasksSpecParams: CommandParameterMap = {
  */
 const tasksStatusGetRegistration = {
   id: "tasks.status.get",
-  category: (CommandCategory as unknown).TASKS,
+  category: CommandCategory.TASKS,
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
@@ -191,7 +191,7 @@ const tasksStatusGetRegistration = {
  */
 const tasksStatusSetRegistration = {
   id: "tasks.status.set",
-  category: (CommandCategory as unknown).TASKS,
+  category: CommandCategory.TASKS,
   name: "status set",
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
@@ -225,7 +225,7 @@ const tasksStatusSetRegistration = {
     // If status is not provided, prompt for it interactively
     if (!status) {
       // Check if we're in an interactive environment
-      if (!(process.stdout as unknown).isTTY) {
+      if (!process.stdout.isTTY) {
         throw new ValidationError("Status parameter is required in non-interactive mode");
       }
 
@@ -241,7 +241,7 @@ const tasksStatusSetRegistration = {
 
       // Find the index of the current status to pre-select it
       const currentStatusIndex = statusOptions.findIndex(
-        (option) => (option as unknown)?.value === previousStatus
+        (option) => option?.value === previousStatus
       );
       const initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0; // Default to TODO if current status not found
 
@@ -287,7 +287,7 @@ const tasksStatusSetRegistration = {
  */
 const tasksSpecRegistration = {
   id: "tasks.spec",
-  category: (CommandCategory as unknown).TASKS,
+  category: CommandCategory.TASKS,
   name: "spec",
   description: "Get task specification content",
   parameters: tasksSpecParams,
@@ -338,7 +338,7 @@ const tasksListParams: CommandParameterMap = {
     required: false,
   },
   all: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Include completed tasks",
     required: false,
   },
@@ -363,7 +363,7 @@ const tasksListParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -399,7 +399,7 @@ const tasksGetParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -425,7 +425,7 @@ const tasksCreateParams: CommandParameterMap = {
     required: false,
   },
   force: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Force creation even if task already exists",
     required: false,
     defaultValue: false,
@@ -451,7 +451,7 @@ const tasksCreateParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -462,7 +462,7 @@ const tasksCreateParams: CommandParameterMap = {
  */
 const tasksListRegistration = {
   id: "tasks.list",
-  category: (CommandCategory as unknown).TASKS,
+  category: CommandCategory.TASKS,
   name: "list",
   description: "List tasks with optional filtering",
   parameters: tasksListParams,
@@ -485,7 +485,7 @@ const tasksListRegistration = {
  */
 const tasksGetRegistration = {
   id: "tasks.get",
-  category: (CommandCategory as unknown).TASKS,
+  category: CommandCategory.TASKS,
   name: "get",
   description: "Get a task by ID",
   parameters: tasksGetParams,
@@ -506,7 +506,7 @@ const tasksGetRegistration = {
  */
 const tasksCreateRegistration = {
   id: "tasks.create",
-  category: (CommandCategory as unknown).TASKS,
+  category: CommandCategory.TASKS,
   name: "create",
   description: "Create a new task with --title and --description",
   parameters: tasksCreateParams,
@@ -551,7 +551,7 @@ const tasksDeleteParams: CommandParameterMap = {
     required: true,
   },
   force: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Force deletion without confirmation",
     required: false,
     defaultValue: false,
@@ -577,7 +577,7 @@ const tasksDeleteParams: CommandParameterMap = {
     required: false,
   },
   json: {
-    schema: (z.boolean() as unknown).default(false),
+    schema: z.boolean().default(false),
     description: "Output in JSON format",
     required: false,
   },
@@ -588,7 +588,7 @@ const tasksDeleteParams: CommandParameterMap = {
  */
 const tasksDeleteRegistration = {
   id: "tasks.delete",
-  category: (CommandCategory as unknown).TASKS,
+  category: CommandCategory.TASKS,
   name: "delete",
   description: "Delete a task",
   parameters: tasksDeleteParams,
@@ -653,23 +653,23 @@ const tasksDeleteRegistration = {
 
 export function registerTasksCommands() {
   // Register tasks.list command
-  (sharedCommandRegistry as unknown).registerCommand(tasksListRegistration);
+  sharedCommandRegistry.registerCommand(tasksListRegistration);
 
   // Register tasks.get command
-  (sharedCommandRegistry as unknown).registerCommand(tasksGetRegistration);
+  sharedCommandRegistry.registerCommand(tasksGetRegistration);
 
   // Register tasks.create command
-  (sharedCommandRegistry as unknown).registerCommand(tasksCreateRegistration);
+  sharedCommandRegistry.registerCommand(tasksCreateRegistration);
 
   // Register tasks.delete command
-  (sharedCommandRegistry as unknown).registerCommand(tasksDeleteRegistration);
+  sharedCommandRegistry.registerCommand(tasksDeleteRegistration);
 
   // Register tasks.status.get command
-  (sharedCommandRegistry as unknown).registerCommand(tasksStatusGetRegistration);
+  sharedCommandRegistry.registerCommand(tasksStatusGetRegistration);
 
   // Register tasks.status.set command
-  (sharedCommandRegistry as unknown).registerCommand(tasksStatusSetRegistration);
+  sharedCommandRegistry.registerCommand(tasksStatusSetRegistration);
 
   // Register tasks.spec command
-  (sharedCommandRegistry as unknown).registerCommand(tasksSpecRegistration);
+  sharedCommandRegistry.registerCommand(tasksSpecRegistration);
 }

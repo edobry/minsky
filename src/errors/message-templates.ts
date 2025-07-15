@@ -71,8 +71,8 @@ export function getErrorMessage(error: any): string {
  * Format command suggestions with consistent styling
  */
 export function formatCommandSuggestions(suggestions: CommandSuggestion[]): string {
-  return (suggestions.map(({ description, command, emoji = ErrorEmojis.COMMAND }) => 
-    `${emoji} ${description}:\n   ${command}`) as unknown).join("\n\n");
+  return suggestions.map(({ description, command, emoji = ErrorEmojis.COMMAND }) => 
+    `${emoji} ${description}:\n   ${command}`).join("\n\n");
 }
 
 /**
@@ -81,7 +81,7 @@ export function formatCommandSuggestions(suggestions: CommandSuggestion[]): stri
 export function formatContextInfo(contexts: ContextInfo[]): string {
   if (contexts?.length === 0) return "";
   
-  const formatted = (contexts.map(({ label, value }) => `${label}: ${value}`) as unknown).join("\n");
+  const formatted = contexts.map(({ label, value }) => `${label}: ${value}`).join("\n");
     
   return `\n${formatted}`;
 }
@@ -93,25 +93,25 @@ export function buildErrorMessage(template: ErrorTemplate, context?: ContextInfo
   const parts: string[] = [];
   
   // Add title
-  parts.push((template as unknown).title);
+  parts.push(template.title);
   
   // Add description if provided
-  if ((template as unknown)?.description) {
+  if (template?.description) {
     parts.push("");
-    parts.push((template as unknown).description);
+    parts.push(template.description);
   }
   
   // Add sections
-  (template.sections as unknown).forEach(section => {
+  template.sections.forEach(section => {
     parts.push("");
     
-    if ((section as unknown)?.title) {
-      const title = (section as unknown)?.emoji ? `${(section as unknown).emoji} ${(section as unknown).title}` : (section as unknown)?.title;
+    if (section?.title) {
+      const title = section?.emoji ? `${section.emoji} ${section.title}` : section?.title;
       parts.push(title);
       parts.push("");
     }
     
-    parts.push((section as unknown).content);
+    parts.push(section.content);
   });
   
   // Add context information if provided
@@ -134,7 +134,7 @@ export function createResourceNotFoundMessage(
 ): string {
   const template: ErrorTemplate = {
     title: `${ErrorEmojis.NOT_FOUND} ${resourceType} "${resourceId}" Not Found`,
-    description: `The ${(resourceType as unknown).toLowerCase()} you're looking for doesn't exist or isn't accessible.`,
+    description: `The ${resourceType.toLowerCase()} you're looking for doesn't exist or isn't accessible.`,
     sections: [
       {
         title: "What you can do:",
@@ -317,7 +317,7 @@ export function createSessionNotFoundMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, (SessionErrorType as unknown).NOT_FOUND, context as unknown);
+  return createSessionErrorMessage(sessionName, SessionErrorType.NOT_FOUND, context as unknown);
 }
 
 /**
@@ -327,7 +327,7 @@ export function createSessionExistsMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, (SessionErrorType as unknown).ALREADY_EXISTS, context as unknown);
+  return createSessionErrorMessage(sessionName, SessionErrorType.ALREADY_EXISTS, context as unknown);
 }
 
 /**
@@ -337,7 +337,7 @@ export function createInvalidSessionMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, (SessionErrorType as unknown).INVALID, context as unknown);
+  return createSessionErrorMessage(sessionName, SessionErrorType.INVALID, context as unknown);
 }
 
 /**

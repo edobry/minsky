@@ -101,7 +101,7 @@ export async function installDependencies(
     }) as unknown;
 
     // Handle the case where execSync returns null when stdio is "ignore"
-    const output = result ? (result as unknown).toString() : "";
+    const output = result ? result.toString() : "";
 
     return { success: true, output };
   } catch (error) {
