@@ -240,7 +240,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       const fileInfos: FileInfo[] = [];
       
       for (const entry of entries) {
-        const entryPath = join(fullPath, entry as unknown);
+        const entryPath = join(fullPath, entry);
         try {
           const fileInfo = await this.getFileInfo(entryPath, workspaceDir);
           fileInfos.push(fileInfo);

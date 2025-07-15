@@ -64,12 +64,12 @@ export async function listTasksFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options as unknown),
+    createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<any[]> {
   try {
     // Validate params with Zod schema
-    const validParams = taskListParamsSchema.parse(params as unknown);
+    const validParams = taskListParamsSchema.parse(params);
 
     // Get the main workspace path (always resolves to main workspace, not session)
     const workspacePath = await deps.resolveMainWorkspacePath();
@@ -119,7 +119,7 @@ export async function getTaskFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options as unknown),
+    createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<any> {
   try {
@@ -190,7 +190,7 @@ export async function getTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options as unknown),
+    createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<string> {
   try {
@@ -264,7 +264,7 @@ export async function setTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options as unknown),
+    createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<void> {
   try {
@@ -339,12 +339,12 @@ export async function createTaskFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: (options) => createTaskServiceImpl(options as unknown),
+    createTaskService: (options) => createTaskServiceImpl(options),
   }
 ): Promise<any> {
   try {
     // Validate params with Zod schema
-    const validParams = taskCreateParamsSchema.parse(params as unknown);
+    const validParams = taskCreateParamsSchema.parse(params);
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -390,12 +390,12 @@ export async function getTaskSpecContentFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: (options) => createTaskServiceImpl(options as unknown),
+    createTaskService: (options) => createTaskServiceImpl(options),
   }
 ): Promise<{ task: any; specPath: string; content: string; section?: string }> {
   try {
     // Validate params with Zod schema
-    const validParams = taskSpecContentParamsSchema.parse(params as unknown);
+    const validParams = taskSpecContentParamsSchema.parse(params);
 
     // Normalize task ID
     const taskIdString = Array.isArray(validParams.taskId) ? validParams.taskId[0] : validParams.taskId;
@@ -500,12 +500,12 @@ export async function createTaskFromTitleAndDescription(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: (options) => createTaskServiceImpl(options as unknown),
+    createTaskService: (options) => createTaskServiceImpl(options),
   }
 ): Promise<any> {
   try {
     // Validate params with Zod schema
-    const validParams = taskCreateFromTitleAndDescriptionParamsSchema.parse(params as unknown);
+    const validParams = taskCreateFromTitleAndDescriptionParamsSchema.parse(params);
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -528,7 +528,7 @@ export async function createTaskFromTitleAndDescription(
       try {
         // Resolve relative paths relative to current working directory
         const filePath = require("path").resolve(validParams.descriptionPath);
-        description = ((await readFile(filePath, "utf-8")) as unknown).toString();
+        description = (await readFile(filePath, "utf-8")) as string;
 
         if (!description.trim()) {
           throw new ValidationError(`Description file is empty: ${validParams.descriptionPath}`);
@@ -590,7 +590,7 @@ export async function deleteTaskFromParams(
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options as unknown),
+    createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<{ success: boolean; taskId: string; task?: any }> {
   try {

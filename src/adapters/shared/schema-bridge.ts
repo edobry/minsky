@@ -207,7 +207,7 @@ export function addOptionsToCommand(
     const { flag, description, defaultValue } = parameterToOptionFlag(
       name,
       param,
-      (shortFlags as unknown)[name]
+      shortFlags[name]
     );
 
     // Add the option to the command
@@ -238,13 +238,13 @@ export function parseOptionsToParameters<T extends CommandParameterMap>(
   // For each parameter, validate and convert the option
   Object.entries(parameters).forEach(([name, param]) => {
     const optionName = paramNameToFlag(name).replace(/-/g, "");
-    const value = (options as unknown)[optionName];
+    const value = options[optionName];
 
     // If value is present, validate and add to result
     if (value !== undefined) {
       // Use the schema to validate and transform
       try {
-        (result as unknown)[name] = param.schema.parse(value as unknown);
+        result[name] = param.schema.parse(value);
       } catch (error) {
         // Re-throw with more context
         throw new Error(`Invalid value for parameter '${name}': ${error}`);
@@ -254,7 +254,7 @@ export function parseOptionsToParameters<T extends CommandParameterMap>(
       throw new Error(`Missing required parameter: ${name}`);
     } else if (param.defaultValue !== undefined) {
       // Use default value
-      (result as unknown)[name] = param.defaultValue;
+      result[name] = param.defaultValue;
     }
   });
 
