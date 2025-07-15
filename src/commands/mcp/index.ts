@@ -93,8 +93,8 @@ export function createMCPCommand(): Command {
           transportType,
           port,
           host: options.host,
-          repositoryPath: (projectContext as any).repositoryPath || (process as any).cwd(),
-          withInspector: (options as any).withInspector || false,
+          repositoryPath: projectContext?.repositoryPath || process.cwd(),
+          withInspector: options.withInspector || false,
           inspectorPort: options.inspectorPort,
         });
 
@@ -161,7 +161,7 @@ export function createMCPCommand(): Command {
               mcpTransportType: transportType,
               mcpPort: transportType !== "stdio" ? port : undefined,
               mcpHost: transportType !== "stdio" ? options.host : undefined,
-            }) as unknown;
+            });
 
             if (inspectorResult.success) {
               log.cli(`MCP Inspector started on port ${inspectorPort}`);
