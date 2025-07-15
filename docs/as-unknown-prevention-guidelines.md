@@ -13,6 +13,156 @@ This document provides comprehensive guidelines for preventing excessive use of 
 3. **Create maintenance burden**: Make refactoring and debugging harder
 4. **Indicate design issues**: Usually signal missing or incorrect type definitions
 
+<<<<<<< HEAD
+## Rules and Best Practices
+
+### 🚫 NEVER Use 'as unknown' For:
+
+#### 1. Return Statements
+```typescript
+// ❌ WRONG - Masks return type errors
+function getUser(): User {
+  return null as unknown;
+}
+
+// ✅ CORRECT - Proper return type
+function getUser(): User | null {
+  return null;
+}
+```
+
+#### 2. Null/Undefined Assignments
+```typescript
+// ❌ WRONG - Unnecessary casting
+const value = null as unknown;
+
+// ✅ CORRECT - Direct assignment
+const value = null;
+```
+
+#### 3. Property Access
+```typescript
+// ❌ WRONG - Masks type errors
+const sessions = (state as unknown).sessions;
+
+// ✅ CORRECT - Use type guards
+if (hasProperty(state, 'sessions')) {
+  const sessions = state.sessions;
+}
+```
+
+### ⚠️ AVOID Using 'as unknown' For:
+
+#### 1. Array Operations
+```typescript
+// ❌ WRONG - Masks array type errors
+const length = (arr as unknown).length;
+
+// ✅ CORRECT - Use type guards
+if (isArray(arr)) {
+  const length = arr.length;
+}
+```
+
+#### 2. Service Method Calls
+```typescript
+// ❌ WRONG - Masks service interface errors
+const result = (service as unknown).getData();
+
+// ✅ CORRECT - Use safe service calls
+const result = safeServiceCall(service, 'getData');
+```
+
+#### 3. Object Method Calls
+```typescript
+// ❌ WRONG - Masks method call errors
+const formatted = (formatter as unknown).format();
+
+// ✅ CORRECT - Use type guards
+if (hasProperty(formatter, 'format') && isCallable(formatter.format)) {
+  const formatted = formatter.format();
+}
+```
+
+### 📋 SOMETIMES ACCEPTABLE (Use with Caution):
+
+#### 1. Environment Variables
+```typescript
+// ❌ AVOID - Better alternatives exist
+const port = process.env.PORT as unknown as number;
+
+// ✅ PREFERRED - Use utilities
+const port = safeEnvWithDefault('PORT', '3000');
+```
+
+#### 2. JSON Parsing
+```typescript
+// ❌ AVOID - Masks parsing errors
+const data = JSON.parse(str) as unknown;
+
+// ✅ PREFERRED - Use safe parsing
+const data = safeJsonParse(str);
+```
+
+#### 3. Test Mocking (Only in Tests)
+```typescript
+// ⚠️ ACCEPTABLE - But only in test files
+const mockService = {
+  getData: jest.fn()
+} as unknown as MyService;
+```
+
+## Safe Alternatives
+
+### 1. Type Guards
+Use type guards from `src/utils/type-guards.ts`:
+
+```typescript
+import { hasProperty, isArray, isString } from '@/utils/type-guards';
+
+// Instead of: (obj as unknown).property
+if (hasProperty(obj, 'property')) {
+  const value = obj.property;
+}
+
+// Instead of: (arr as unknown).length
+if (isArray(arr)) {
+  const length = arr.length;
+}
+```
+
+### 2. Safe Utilities
+Use safe utility functions:
+
+```typescript
+import { safeGet, safeJsonParse, safeEnv } from '@/utils/type-guards';
+
+// Instead of: (obj as unknown).key
+const value = safeGet(obj, 'key');
+
+// Instead of: JSON.parse(str) as unknown
+const data = safeJsonParse(str);
+
+// Instead of: process.env.VAR as unknown
+const envVar = safeEnv('VAR');
+```
+
+### 3. Domain Type Guards
+Use domain-specific type guards:
+
+```typescript
+import { DomainTypeGuards } from '@/utils/type-guards';
+
+// Instead of: (obj as unknown).id
+if (DomainTypeGuards.isSessionLike(obj)) {
+  const id = obj.id; // TypeScript knows obj has id: string
+}
+```
+
+## ESLint Rule Configuration
+
+The custom ESLint rule `custom/no-excessive-as-unknown` helps prevent these patterns:
+=======
 ## Rule: Never Use These Patterns
 
 ### ❌ Critical Patterns (Always Forbidden)
@@ -145,17 +295,78 @@ The project includes a custom ESLint rule `custom/no-excessive-as-unknown` that 
 ```json
 {
   "rules": {
-    "custom/no-excessive-as-unknown": ["warn", {
-      "allowInTests": true,
-      "allowedPatterns": [
+    "custom/no-excessive-as-unknown": ["error", {
+      "allowInTests": false,
+      "allowPatterns": [
         "process\\.env\\[.*\\] as unknown",
         "import\\(.*\\) as unknown"
-      ]
+      ],
+      "maxAssertionsPerFile": 5
     }]
   }
 }
 ```
 
+### Rule Severity Levels:
+
+- **ERROR**: Critical patterns (return statements, null/undefined)
+- **WARN**: High-risk patterns (property access, method calls)
+- **INFO**: Medium-risk patterns (environment variables, JSON parsing)
+
+## Common Patterns and Solutions
+
+### 1. State Management
+```typescript
+// ❌ WRONG
+const sessions = (state as unknown).sessions;
+
+// ✅ CORRECT
+interface AppState {
+  sessions: Session[];
+}
+
+const sessions = (state as AppState).sessions;
+// Or better: use proper typing from the start
+```
+
+### 2. API Responses
+```typescript
+// ❌ WRONG
+const user = response.data as unknown;
+
+// ✅ CORRECT
+interface ApiResponse<T> {
+  data: T;
+}
+
+const user = (response as ApiResponse<User>).data;
+```
+
+### 3. Configuration Objects
+```typescript
+// ❌ WRONG
+const dbPort = (config as unknown).database.port;
+
+// ✅ CORRECT
+interface Config {
+  database: {
+    port: number;
+  };
+}
+
+const dbPort = (config as Config).database.port;
+```
+
+### 4. Error Handling
+```typescript
+// ❌ WRONG
+const message = (error as unknown).message;
+
+// ✅ CORRECT
+if (DomainTypeGuards.isErrorLike(error)) {
+  const message = error.message;
+}
+=======
 ### Rule Severity Levels
 
 - **ERROR**: Critical patterns that should never be used
@@ -264,4 +475,4 @@ Using proper type guards and validation has minimal performance impact compared 
 
 The goal is to eliminate dangerous 'as unknown' assertions while maintaining type safety and code quality. By following these guidelines and using the provided tools, you can write more maintainable, type-safe TypeScript code.
 
-Remember: **If you need 'as unknown', there's usually a better way to solve the problem with proper typing.** 
+Remember: **If you need 'as unknown', there's usually a better way to solve the problem with proper typing.**

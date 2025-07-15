@@ -137,7 +137,7 @@ export function createLogger(configOverride?: LoggerConfig) {
         {} as Record<string, any>
       );
 
-      if (Object.keys(metadata as unknown).length > 0) {
+      if (Object.keysmetadata.length > 0) {
         try {
           log += ` ${JSON.stringify(metadata as unknown)}`;
         } catch (error) {
