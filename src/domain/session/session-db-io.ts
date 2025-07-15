@@ -21,23 +21,23 @@ export interface SessionDbFileOptions {
 /**
  * Read sessions from the database file
  */
-export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionRecord[] {
+export function readSessionDbFile(options: SessionDbFileOptions = {}): { sessions: SessionRecord[]; baseDir: string } {
   const stateDir = getMinskyStateDir();
-  const dbPath = options!?.dbPath || getDefaultJsonDbPath();
-  const baseDir = options!?.baseDir || stateDir;
+  const dbPath = options?.dbPath || getDefaultJsonDbPath();
+  const baseDir = options?.baseDir || stateDir;
 
   try {
     if (!existsSync(dbPath)) {
-      return [];
+      return { sessions: [], baseDir };
     }
 
     const data = readFileSync(dbPath, "utf8") as string;
-    const sessions = JSON.parse(data as unknown);
+    const sessions = JSON.parse(data) as SessionRecord[];
 
-    return sessions;
+    return { sessions, baseDir };
   } catch (error) {
     log.error(`Error reading session database: ${getErrorMessage(error as any)}`);
-    return [];
+    return { sessions: [], baseDir };
   }
 }
 
