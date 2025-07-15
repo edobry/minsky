@@ -1,8 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { approveSessionFromParams } from "../session";
-import { ResourceNotFoundError, ValidationError } from "../../errors";
-import { createMock } from "../../utils/test-utils/mocking";
-import * as WorkspaceUtils from "../workspace";
+import { approveSessionFromParams } from "./session";
+import { ResourceNotFoundError, ValidationError } from "../errors/index";
+import { createMock } from "../utils/test-utils/mocking";
+import * as WorkspaceUtils from "./workspace";
 
 const TEST_VALUE = 123;
 
@@ -209,7 +209,7 @@ describe("Session Approve", () => {
       );
       // Should not reach this point
       expect(false).toBe(true);
-    } catch {
+    } catch (error) {
       expect(error instanceof ResourceNotFoundError).toBe(true);
       expect((error as Error).message).toContain("Session \"non-existent-session\" not found");
     }
@@ -245,7 +245,7 @@ describe("Session Approve", () => {
       );
       // Should not reach this point
       expect(false).toBe(true);
-    } catch {
+    } catch (error) {
       expect(error instanceof ValidationError).toBe(true);
       expect((error as Error).message).toContain("No session detected");
     }

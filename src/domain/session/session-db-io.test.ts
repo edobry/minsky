@@ -97,7 +97,7 @@ describe("Session DB I/O Functions", () => {
   });
 
   describe("writeSessionsToFile", () => {
-    test("should write session database file successfully", () => {
+    test("should write session database file successfully", async () => {
       const testState: SessionDbState = initializeSessionDbState({
         baseDir: tempDir,
       });
@@ -123,39 +123,37 @@ describe("Session DB I/O Functions", () => {
     });
 
     // Regression test for Task #166: Fix options.baseDir runtime error
-    test("should handle undefined options parameter without throwing runtime error", () => {
+    test("should handle undefined options parameter without throwing runtime error", async () => {
+      const testState: SessionDbState = initializeSessionDbState({
+        baseDir: tempDir,
+      });
+
+      // Test that the function doesn't throw when called with undefined options
+      expect(() => {
+        writeSessionsToFile(testState.sessions, undefined as unknown);
+      }).not.toThrow();
+    });
+
+    // Regression test for Task #166: Fix options.baseDir runtime error
+    test("should handle null options parameter without throwing runtime error", async () => {
       const testState: SessionDbState = initializeSessionDbState({
         baseDir: tempDir,
       });
 
       expect(() => {
-        await writeSessionsToFile(testState.sessions, undefined as unknown);
-        expect(typeof success).toBe("boolean");
+        writeSessionsToFile(testState.sessions, null as unknown);
       }).not.toThrow();
     });
 
     // Regression test for Task #166: Fix options.baseDir runtime error
-    test("should handle null options parameter without throwing runtime error", () => {
-      const testState: SessionDbState = initializeSessionDbState({
-        baseDir: tempDir,
-      });
-
-      expect(() => {
-        await writeSessionsToFile(testState.sessions, null as unknown);
-        expect(typeof success).toBe("boolean");
-      }).not.toThrow();
-    });
-
-    // Regression test for Task #166: Fix options.baseDir runtime error
-    test("should handle options with undefined dbPath property", () => {
+    test("should handle options with undefined dbPath property", async () => {
       const testState: SessionDbState = initializeSessionDbState({
         baseDir: tempDir,
       });
       const options = { dbPath: undefined };
 
       expect(() => {
-        await writeSessionsToFile(testState.sessions, options);
-        expect(typeof success).toBe("boolean");
+        writeSessionsToFile(testState.sessions, options);
       }).not.toThrow();
     });
   });

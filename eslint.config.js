@@ -3,6 +3,7 @@ import tsEslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
 import noUnderscorePrefixMismatch from "./src/eslint-rules/no-underscore-prefix-mismatch.js";
+import noExcessiveAsUnknown from "./src/eslint-rules/no-excessive-as-unknown.js";
 
 export default [
   js.configs.recommended,
@@ -82,6 +83,7 @@ export default [
       custom: {
         rules: {
           "no-underscore-prefix-mismatch": noUnderscorePrefixMismatch,
+          "no-excessive-as-unknown": noExcessiveAsUnknown,
         },
       },
     },
@@ -97,6 +99,17 @@ export default [
       // === VARIABLE NAMING RULES ===
       "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
 
+      // === TYPE SAFETY RULES ===
+      "custom/no-excessive-as-unknown": ["warn", {
+        allowInTests: true,
+        allowedPatterns: [
+          // Allow specific patterns that are legitimate
+          "process\\.env\\[.*\\] as unknown",
+          "import\\(.*\\) as unknown",
+          // Add more patterns as needed
+        ],
+      }],
+
       // === IMPORT RULES ===
       "no-restricted-imports": [
         "error",
@@ -111,7 +124,7 @@ export default [
               message: "Use extensionless imports for local files (Bun-native style). Remove .ts extension."
             },
             {
-              group: ["*/*.jsx", "./*.jsx", "../*.jsx", "../../*.jsx", "../../../*.jsx", "../../../../*.jsx"],
+              group: ["*/*.jsx", "./*.jsx", "../*.jsx", "../../*.jsx", "../../..//*.jsx", "../../../../*.jsx"],
               message: "Use extensionless imports for local files (Bun-native style). Remove .jsx extension."
             },
             {

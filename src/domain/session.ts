@@ -2049,9 +2049,9 @@ export async function sessionReviewFromParams(
       // Check if taskService has getTaskSpecData method dynamically
       if (
         "getTaskSpecData" in taskService &&
-        typeof (taskService as unknown).getTaskSpecData === "function"
+        typeof taskService.getTaskSpecData === "function"
       ) {
-        const taskSpec = await (taskService as unknown).getTaskSpecData(taskId);
+        const taskSpec = await taskService.getTaskSpecData(taskId);
         result.taskSpec = taskSpec;
       } else {
         log.debug("Task service does not support getTaskSpecData method");

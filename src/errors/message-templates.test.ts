@@ -20,7 +20,7 @@ import {
   type CommandSuggestion,
   type ContextInfo,
   type ErrorTemplate
-} from "../message-templates";
+} from "./message-templates";
 
 describe("Error Message Templates", () => {
   describe("getErrorMessage", () => {

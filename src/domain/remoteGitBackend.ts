@@ -57,7 +57,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
     this.baseDir = getMinskyStateDir();
     this.sessionDb = createSessionProvider();
-    this.cache = (RepositoryMetadataCache as unknown).getInstance();
+    this.cache = RepositoryMetadataCache.getInstance();
   }
 
   /**
@@ -78,11 +78,11 @@ export class RemoteGitBackend implements RepositoryBackend {
           cwd: cwd || this.localPath,
         });
       }
-      return (stdout as unknown).trim();
+      return stdout.trim();
     } catch (error) {
       throw new RepositoryError(
         `Git _command failed: ${cmd}`,
-        error instanceof Error ? error : undefined as unknown
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -135,7 +135,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to clone remote repository from ${this.config.url}`,
-        error instanceof Error ? error : undefined as unknown
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -170,14 +170,14 @@ export class RemoteGitBackend implements RepositoryBackend {
           return {
             workdir: this.localPath!,
             clean: statusOutput === "",
-            changes: (statusOutput as unknown).split("\n").filter((line) => line !== ""),
+            changes: statusOutput.split("\n").filter((line) => line !== ""),
             branch: branchOutput,
-            tracking: trackingOutput !== "" ? trackingOutput : undefined as unknown,
+            tracking: trackingOutput !== "" ? trackingOutput : undefined,
           };
         } catch (error) {
           throw new RepositoryError(
             "Failed to get repository status",
-            error instanceof Error ? error : undefined as unknown
+            error instanceof Error ? error : undefined
           );
         }
       },
@@ -234,7 +234,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     }
 
     // If there are any issues, validation fails
-    return { valid: (issues as unknown).length === 0, issues: (issues as unknown).length > 0 ? issues : undefined as unknown };
+    return { valid: issues.length === 0, issues: issues.length > 0 ? issues : undefined };
   }
 
   /**
@@ -257,7 +257,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to push branch ${branchToPush}`,
-        error instanceof Error ? error : undefined as unknown
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -282,7 +282,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to pull branch ${branchToPull}`,
-        error instanceof Error ? error : undefined as unknown
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -312,7 +312,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to create branch ${name}`,
-        error instanceof Error ? error : undefined as unknown
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -335,7 +335,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     } catch (error) {
       throw new RepositoryError(
         `Failed to checkout branch ${branch}`,
-        error instanceof Error ? error : undefined as unknown
+        error instanceof Error ? error : undefined
       );
     }
   }

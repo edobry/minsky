@@ -40,13 +40,13 @@ export class SessionWorkspaceService {
   async getSessionWorkspace(sessionId: string): Promise<SessionWorkspaceInfo> {
     try {
       // Try to get session by name first
-      let session = await (this.sessionProvider as unknown).getSession(sessionId);
+      let session = await this.sessionProvider.getSession(sessionId);
 
       if (!session) {
         // If not found by name, try to find by task ID
-        const sessions = await (this.sessionProvider as unknown).listSessions();
+        const sessions = await this.sessionProvider.listSessions();
         session =
-          (sessions as unknown).find((s) => (s as unknown).taskId === sessionId || (s as unknown).taskId === `#${sessionId}`) || null;
+          sessions.find((s) => s.taskId === sessionId || s.taskId === `#${sessionId}`) || null;
 
         if (!session) {
           throw new SessionNotFoundError(sessionId, `Session not found: ${sessionId}`);
@@ -54,27 +54,27 @@ export class SessionWorkspaceService {
       }
 
       // Get the session directory from the session provider
-      const sessionDir = await (this.sessionProvider as unknown).getSessionWorkdir((session as unknown).session);
+      const sessionDir = await this.sessionProvider.getSessionWorkdir(session.session);
 
       if (!sessionDir) {
         throw new SessionNotFoundError(
           sessionId,
-          `Session directory not found for session: ${(session as unknown).session}`
+          `Session directory not found for session: ${session.session}`
         );
       }
 
       log.debug("Retrieved session workspace info", {
         sessionId,
-        sessionName: (session as unknown).session,
+        sessionName: session.session,
         workspaceDir: sessionDir,
-        taskId: (session as unknown).taskId,
+        taskId: session.taskId,
       });
 
       return {
         sessionId,
-        sessionName: (session as unknown).session,
+        sessionName: session.session,
         workspaceDir: sessionDir,
-        taskId: (session as unknown).taskId,
+        taskId: session.taskId,
       };
     } catch (error) {
       if (error instanceof SessionNotFoundError) {
@@ -101,19 +101,19 @@ export class SessionWorkspaceService {
    */
   async readFile(sessionId: string, relativePath: string): Promise<string> {
     const workspace = await this.getSessionWorkspace(sessionId);
-    const validatedPath = (this.pathResolver as unknown).getRelativePathFromSession(
-      (workspace as unknown).workspaceDir,
+    const validatedPath = this.pathResolver.getRelativePathFromSession(
+      workspace.workspaceDir,
       relativePath
     );
 
     log.debug("Reading file from session workspace", {
       sessionId,
-      sessionName: (workspace as unknown).sessionName,
+      sessionName: workspace.sessionName,
       relativePath,
       validatedPath,
     });
 
-    return (this.workspaceBackend as unknown).readFile((workspace as unknown).workspaceDir, validatedPath);
+    return this.workspaceBackend.readFile(workspace.workspaceDir, validatedPath);
   }
 
   /**
@@ -129,20 +129,20 @@ export class SessionWorkspaceService {
     content: string
   ): Promise<WorkspaceOperationResult> {
     const workspace = await this.getSessionWorkspace(sessionId);
-    const validatedPath = (this.pathResolver as unknown).getRelativePathFromSession(
-      (workspace as unknown).workspaceDir,
+    const validatedPath = this.pathResolver.getRelativePathFromSession(
+      workspace.workspaceDir,
       relativePath
     );
 
     log.debug("Writing file to session workspace", {
       sessionId,
-      sessionName: (workspace as unknown).sessionName,
+      sessionName: workspace.sessionName,
       relativePath,
       validatedPath,
-      contentLength: (content as unknown).length,
+      contentLength: content.length,
     });
 
-    return (this.workspaceBackend as unknown).writeFile((workspace as unknown).workspaceDir, validatedPath, content);
+    return this.workspaceBackend.writeFile(workspace.workspaceDir, validatedPath, content);
   }
 
   /**
@@ -153,19 +153,19 @@ export class SessionWorkspaceService {
    */
   async deleteFile(sessionId: string, relativePath: string): Promise<WorkspaceOperationResult> {
     const workspace = await this.getSessionWorkspace(sessionId);
-    const validatedPath = (this.pathResolver as unknown).getRelativePathFromSession(
-      (workspace as unknown).workspaceDir,
+    const validatedPath = this.pathResolver.getRelativePathFromSession(
+      workspace.workspaceDir,
       relativePath
     );
 
     log.debug("Deleting file from session workspace", {
       sessionId,
-      sessionName: (workspace as unknown).sessionName,
+      sessionName: workspace.sessionName,
       relativePath,
       validatedPath,
     });
 
-    return (this.workspaceBackend as unknown).deleteFile((workspace as unknown).workspaceDir, validatedPath);
+    return this.workspaceBackend.deleteFile(workspace.workspaceDir, validatedPath);
   }
 
   /**
@@ -177,17 +177,17 @@ export class SessionWorkspaceService {
   async listDirectory(sessionId: string, relativePath?: string): Promise<FileInfo[]> {
     const workspace = await this.getSessionWorkspace(sessionId);
     const validatedPath = relativePath
-      ? (this.pathResolver as unknown).getRelativePathFromSession((workspace as unknown).workspaceDir, relativePath)
-      : undefined as unknown;
+      ? this.pathResolver.getRelativePathFromSession(workspace.workspaceDir, relativePath)
+      : undefined;
 
     log.debug("Listing directory in session workspace", {
       sessionId,
-      sessionName: (workspace as unknown).sessionName,
+      sessionName: workspace.sessionName,
       relativePath,
       validatedPath,
     });
 
-    return (this.workspaceBackend as unknown).listDirectory((workspace as unknown).workspaceDir, validatedPath);
+    return this.workspaceBackend.listDirectory(workspace.workspaceDir, validatedPath);
   }
 
   /**
@@ -199,12 +199,12 @@ export class SessionWorkspaceService {
   async exists(sessionId: string, relativePath: string): Promise<boolean> {
     try {
       const workspace = await this.getSessionWorkspace(sessionId);
-      const validatedPath = (this.pathResolver as unknown).getRelativePathFromSession(
-        (workspace as unknown).workspaceDir,
+      const validatedPath = this.pathResolver.getRelativePathFromSession(
+        workspace.workspaceDir,
         relativePath
       );
 
-      return (this.workspaceBackend as unknown).exists((workspace as unknown).workspaceDir, validatedPath);
+      return this.workspaceBackend.exists(workspace.workspaceDir, validatedPath);
     } catch (error) {
       log.debug("File existence check failed", {
         sessionId,
@@ -226,19 +226,19 @@ export class SessionWorkspaceService {
     relativePath: string
   ): Promise<WorkspaceOperationResult> {
     const workspace = await this.getSessionWorkspace(sessionId);
-    const validatedPath = (this.pathResolver as unknown).getRelativePathFromSession(
-      (workspace as unknown).workspaceDir,
+    const validatedPath = this.pathResolver.getRelativePathFromSession(
+      workspace.workspaceDir,
       relativePath
     );
 
     log.debug("Creating directory in session workspace", {
       sessionId,
-      sessionName: (workspace as unknown).sessionName,
+      sessionName: workspace.sessionName,
       relativePath,
       validatedPath,
     });
 
-    return (this.workspaceBackend as unknown).createDirectory((workspace as unknown).workspaceDir, validatedPath);
+    return this.workspaceBackend.createDirectory(workspace.workspaceDir, validatedPath);
   }
 
   /**
@@ -259,7 +259,7 @@ export class SessionWorkspaceService {
   async validatePath(sessionId: string, relativePath: string): Promise<boolean> {
     try {
       const workspace = await this.getSessionWorkspace(sessionId);
-      (this.pathResolver as unknown).validateAndResolvePath((workspace as unknown).workspaceDir, relativePath);
+      this.pathResolver.validateAndResolvePath(workspace.workspaceDir, relativePath);
       return true;
     } catch (error) {
       log.debug("Path validation failed", {
@@ -280,6 +280,6 @@ export class SessionWorkspaceService {
    */
   async getAbsolutePath(sessionId: string, relativePath: string): Promise<string> {
     const workspace = await this.getSessionWorkspace(sessionId);
-    return (this.pathResolver as unknown).validateAndResolvePath((workspace as unknown).workspaceDir, relativePath);
+    return this.pathResolver.validateAndResolvePath(workspace.workspaceDir, relativePath);
   }
 }

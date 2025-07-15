@@ -2,7 +2,7 @@
  * Type extensions for CommandMapper to support FastMCP tool registration
  */
 import type { z } from "zod";
-import type { CommandMapper } from "./command-mapper.js";
+import type { CommandMapper } from "./command-mapper";
 
 declare module "./command-mapper.js" {
   interface CommandMapper {

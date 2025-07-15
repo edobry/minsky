@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { TaskBackendRouter } from "../task-backend-router";
-import { createMarkdownTaskBackend } from "../markdownTaskBackend";
-import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
+import { TaskBackendRouter } from "./task-backend-router";
+import { createMarkdownTaskBackend } from "./markdownTaskBackend";
+import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { join } from "path";
 import { rmSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
