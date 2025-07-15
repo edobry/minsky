@@ -398,6 +398,88 @@ export class AsUnknownASTFixer extends CodemodBase {
           return text.includes("process.env as unknown");
         },
         canAutoFix: true
+      },
+
+      // HIGH PRIORITY: Method calls on external objects
+      {
+        name: "External Object Method Calls",
+        description: "Remove 'as unknown' from method calls on external objects",
+        riskLevel: "high",
+        detector: (node: AsExpression, context: string) => {
+          // Check if this AsExpression is followed by a method call
+          let parent = node.getParent();
+          if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+            const nextParent = parent.getParent();
+            if (nextParent) {
+              parent = nextParent;
+            }
+          }
+          
+          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+            const text = node.getText();
+            // Match patterns like (format as unknown).timestamp(), (z.string() as unknown).optional()
+            return text.includes("format") || text.includes("z.") || text.includes("Date") || 
+                   text.includes("Math") || text.includes("JSON") || text.includes("Object") ||
+                   text.includes("Array") || text.includes("console") || text.includes("Buffer");
+          }
+          return false;
+        },
+        canAutoFix: true
+      },
+
+      // HIGH PRIORITY: Property access on constants/objects
+      {
+        name: "Constant Property Access",
+        description: "Remove 'as unknown' from property access on constants",
+        riskLevel: "high",
+        detector: (node: AsExpression, context: string) => {
+          // Check if this AsExpression is followed by property access
+          let parent = node.getParent();
+          if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+            const nextParent = parent.getParent();
+            if (nextParent) {
+              parent = nextParent;
+            }
+          }
+          
+          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+            const text = node.getText();
+            // Match patterns like (descriptions as unknown).SESSION_DESCRIPTION
+            return text.includes("descriptions") || text.includes("constants") || 
+                   text.includes("config") || text.includes("options") || text.includes("params");
+          }
+          return false;
+        },
+        canAutoFix: true
+      },
+
+      // HIGH PRIORITY: Generic object property access
+      {
+        name: "Object Property Access",
+        description: "Remove 'as unknown' from object property access",
+        riskLevel: "high",
+        detector: (node: AsExpression, context: string) => {
+          // Check if this AsExpression is followed by property access
+          let parent = node.getParent();
+          if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+            const nextParent = parent.getParent();
+            if (nextParent) {
+              parent = nextParent;
+            }
+          }
+          
+          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+            const text = node.getText();
+            // Match patterns like (logInfo as unknown).message, (result as unknown).status
+            return !text.includes("process.env") && // Already handled above
+                   !text.includes("format") && // Already handled above
+                   !text.includes("z.") && // Already handled above
+                   !text.includes("state") && // Already handled by state/session pattern
+                   !text.includes("this."); // Already handled by service method pattern
+          }
+          return false;
+        },
+        canAutoFix: true
       }
     ];
   }

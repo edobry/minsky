@@ -55,7 +55,7 @@ export abstract class BaseResponseFormatter<T = any> implements ResponseFormatte
    */
   format(data: T, context: CommandExecutionContext): string | object {
     // Determine the output format
-    const format = (context.format as unknown).toLowerCase() as OutputFormat;
+    const format = context.format.toLowerCase() as OutputFormat;
 
     // Format the response based on the requested format
     if (format === OutputFormat.JSON) {
@@ -190,11 +190,11 @@ export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
 
     // Format each item
     if (this.itemFormatter) {
-      (items as unknown).forEach((item, index) => {
+      items.forEach((item, index) => {
         output += `${index + 1}. ${this.itemFormatter!(item as unknown)}\n`;
       });
     } else {
-      (items as unknown).forEach((item, index) => {
+      items.forEach((item, index) => {
         output += `${index + 1}. ${String(item as unknown)}\n`;
       });
     }
@@ -266,7 +266,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
     const headerRow = this.columns
       .map((col) => {
         const header = String(this.headers[col] || col);
-        return (header as unknown).padEnd((columnWidths as unknown)[col]);
+        return header.padEnd((columnWidths as unknown)[col]);
       })
       .join(" | ");
 
@@ -286,7 +286,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
       const dataRow = this.columns
         .map((col) => {
           const value = String(row[col] || "");
-          return (value as unknown).padEnd((columnWidths as unknown)[col]);
+          return value.padEnd((columnWidths as unknown)[col]);
         })
         .join(" | ") as unknown;
 

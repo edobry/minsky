@@ -43,7 +43,7 @@ export function handleCliError(error: any): never {
   // Format error message based on type
   if (error instanceof ValidationError) {
     // Use cliError for human-readable output (stderr)
-    log.cliError(`Validation error: ${(normalizedError as unknown).message}`);
+    log.cliError(`Validation error: ${normalizedError.message}`);
 
     // Show validation details in debug mode
     if (isDebugMode() && (error as any).errors) {
@@ -76,24 +76,24 @@ export function handleCliError(error: any): never {
       log.cliError(`Command: ${(error as any).command}`);
     }
   } else if (error instanceof MinskyError) {
-    log.cliError(`Error: ${(normalizedError as unknown).message}`);
+    log.cliError(`Error: ${normalizedError.message}`);
   } else {
-    log.cliError(`Unexpected error: ${(normalizedError as unknown).message}`);
+    log.cliError(`Unexpected error: ${normalizedError.message}`);
   }
 
   // Show detailed debug information only in debug mode
   if (isDebugMode()) {
     log.cliError("\nDebug information:");
-    if ((normalizedError as unknown).stack) {
-      log.cliError((normalizedError as unknown).stack);
+    if (normalizedError.stack) {
+      log.cliError(normalizedError.stack);
     }
 
     // Log cause chain if available
-    if (normalizedError instanceof MinskyError && (normalizedError as unknown).cause) {
+    if (normalizedError instanceof MinskyError && normalizedError.cause) {
       log.cliError("\nCaused by:");
-      const cause = (normalizedError as unknown).cause;
+      const cause = normalizedError.cause;
       if (cause instanceof Error) {
-        log.cliError((cause as unknown).stack || (cause as unknown).message);
+        log.cliError(cause.stack || cause.message);
       } else {
         log.cliError(String(cause));
       }
@@ -109,8 +109,8 @@ export function handleCliError(error: any): never {
     } else {
       // For other errors, log with basic information
       log.error("CLI operation failed", {
-        message: (normalizedError as unknown).message,
-        stack: (normalizedError as unknown).stack,
+        message: normalizedError.message,
+        stack: normalizedError.stack,
       });
     }
   }
@@ -128,7 +128,7 @@ export function outputResult<T>(
   result: T,
   options: { json?: boolean; formatter?: (result: any) => void }
 ): void {
-  if ((options as unknown).json) {
+  if (options.json) {
     // For JSON output, use agent logger to ensure it goes to stdout
     // This ensures machine-readable output is separated from human-readable messages
     if (isStructuredMode()) {
@@ -138,8 +138,8 @@ export function outputResult<T>(
       // In human mode or when json is explicitly requested, write directly to stdout
       log.cli(JSON.stringify(result as unknown, undefined, 2));
     }
-  } else if ((options as unknown).formatter) {
-    (options as unknown).formatter(result as unknown);
+  } else if (options.formatter) {
+    options.formatter(result as unknown);
   } else {
     log.cli(String(result as unknown));
   }

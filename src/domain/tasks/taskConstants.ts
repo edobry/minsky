@@ -68,7 +68,7 @@ export const STATUS_TO_CHECKBOX: Record<string, string> = {
  * Status validation helper
  */
 export function isValidTaskStatus(status: string): status is TaskStatus {
-  return (Object.values(TASK_STATUS) as unknown).includes(status as TaskStatus);
+  return Object.values(TASK_STATUS).includes(status as TaskStatus);
 }
 
 // ============================================================================
@@ -81,10 +81,10 @@ export function isValidTaskStatus(status: string): status is TaskStatus {
  */
 function generateCheckboxPattern(): string {
   const specialRegexChars = ["+", "-", "*", "?", "^", "$", "(", ")", "[", "]", "{", "}", "|", "\\"];
-  const checkboxChars = (Object.keys(CHECKBOX_TO_STATUS).map((char) => {
+  const checkboxChars = Object.keys(CHECKBOX_TO_STATUS).map((char) => {
     if (char === " ") return " ";
     return specialRegexChars.includes(char) ? `\\${char}` : char;
-  }) as unknown).join("|");
+  }).join("|");
   return checkboxChars;
 }
 

@@ -11,12 +11,12 @@ import { getErrorMessage } from "../../errors/index";
  */
 export function registerTaskTools(commandMapper: CommandMapper): void {
   // Task list tool
-  (commandMapper as unknown).addTaskCommand(
+  commandMapper.addTaskCommand(
     "list",
     "List all tasks",
     z.object({
       filter: z.string().optional().describe("Filter tasks by status or other criteria"),
-      limit: (z.number().optional() as unknown).describe("Limit the number of tasks returned"),
+      limit: z.number().optional().describe("Limit the number of tasks returned"),
       format: z.enum(["detailed", "simple"] as const).optional().describe("Format of the task list"),
     }),
     async (
@@ -40,7 +40,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         command += " --json"; // Always return JSON output for MCP
 
         // Execute the command
-        const output = (execSync(command) as unknown).toString();
+        const output = execSync(command).toString();
 
         // Parse the JSON output
         return JSON.parse(output as unknown) as unknown;
@@ -57,7 +57,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     });
 
   // Task get tool
-  (commandMapper as unknown).addTaskCommand(
+  commandMapper.addTaskCommand(
     "get",
     "Get a specific task by ID",
     z.object({
@@ -67,7 +67,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       try {
         // Execute the command
         const command = `minsky tasks get ${(args as unknown)!.taskId} --json`;
-        const output = (execSync(command) as unknown).toString();
+        const output = execSync(command).toString();
 
         // Parse the JSON output
         return JSON.parse(output as unknown) as unknown;
@@ -84,7 +84,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     });
 
   // Task status get tool
-  (commandMapper as unknown).addTaskCommand(
+  commandMapper.addTaskCommand(
     "status.get",
     "Get the status of a task",
     z.object({
@@ -94,7 +94,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       try {
         // Execute the command
         const command = `minsky tasks status get ${(args as unknown)!.taskId}`;
-        const output = ((execSync(command) as unknown).toString() as unknown).trim();
+        const output = execSync(command).toString().trim();
 
         // Format output
         return {
@@ -114,7 +114,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     });
 
   // Task status set tool
-  (commandMapper as unknown).addTaskCommand(
+  commandMapper.addTaskCommand(
     "status.set",
     "Set the status of a task",
     z.object({
@@ -126,14 +126,14 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args: { taskId: string; status: string }) => {
       try {
         // Execute the command
-        const command = `minsky tasks status set ${(args as unknown)!.taskId} ${(args as unknown).status}`;
+        const command = `minsky tasks status set ${(args as unknown)!.taskId} ${args.status}`;
         execSync(command);
 
         // Return success confirmation
         return {
           success: true,
           taskId: (args as unknown)!.taskId,
-          status: (args as unknown).status,
+          status: args.status,
         };
       } catch (error) {
         log.error(`MCP: Error setting task status for ${(args as unknown)!.taskId} via execSync`, {
@@ -148,7 +148,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     });
 
   // Task create tool
-  (commandMapper as unknown).addTaskCommand(
+  commandMapper.addTaskCommand(
     "create",
     "Create a new task from a specification document",
     z.object({
@@ -157,8 +157,8 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args: { specPath: string }) => {
       try {
         // Execute the command
-        const command = `minsky tasks create ${(args as unknown).specPath} --json`;
-        const output = (execSync(command) as unknown).toString();
+        const command = `minsky tasks create ${args.specPath} --json`;
+        const output = execSync(command).toString();
 
         // Parse the JSON output
         return JSON.parse(output as unknown) as unknown;

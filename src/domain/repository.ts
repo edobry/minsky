@@ -240,25 +240,25 @@ export type RepositoryBackendConfig = RepositoryConfig;
 export async function createRepositoryBackend(
   config: RepositoryConfig
 ): Promise<RepositoryBackend> {
-  switch ((config as unknown).type) {
-  case (RepositoryBackendType as unknown).LOCAL: {
+  switch (config.type) {
+  case RepositoryBackendType.LOCAL: {
     const { LocalGitBackend } = await import("./localGitBackend.js");
     return new LocalGitBackend(config as unknown);
   }
-  case (RepositoryBackendType as unknown).REMOTE: {
+  case RepositoryBackendType.REMOTE: {
     const { RemoteGitBackend } = await import("./remoteGitBackend.js");
     return new RemoteGitBackend(config as unknown);
   }
-  case (RepositoryBackendType as unknown).GITHUB: {
+  case RepositoryBackendType.GITHUB: {
     const { GitService } = await import("./git.js");
     const gitService = new GitService();
 
     // Create an adapter using GitService that conforms to RepositoryBackend interface
     return {
       clone: async (session: string): Promise<CloneResult> => {
-        const workdir = (gitService as unknown).getSessionWorkdir(session);
-        return await (gitService as unknown).clone({
-          repoUrl: (config as unknown).url || "",
+        const workdir = gitService.getSessionWorkdir(session);
+        return await gitService.clone({
+          repoUrl: config.url || "",
           session,
           workdir,
         });
@@ -268,19 +268,19 @@ export async function createRepositoryBackend(
         // If no session is provided, work with the most recent session
         if (!session) {
           const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
-          const sessions = await (sessionDb as unknown).listSessions();
-          const repoName = normalizeRepoName((config as unknown).url || "");
-          const repoSession = sessions.find((s) => (s as unknown).repoName === repoName);
+          const sessions = await sessionDb.listSessions();
+          const repoName = normalizeRepoName(config.url || "");
+          const repoSession = sessions.find((s) => s.repoName === repoName);
           if (!repoSession) {
             throw new Error("No session found for this repository");
           }
-          session = (repoSession as unknown).session;
+          session = repoSession.session;
         }
 
-        const repoName = normalizeRepoName((config as unknown).url || "");
-        const workdir = (gitService as unknown).getSessionWorkdir(session);
+        const repoName = normalizeRepoName(config.url || "");
+        const workdir = gitService.getSessionWorkdir(session);
 
-        const gitStatus = await (gitService as unknown).getStatus(workdir);
+        const gitStatus = await gitService.getStatus(workdir);
 
         // Get additional status info directly via Git commands
         const { stdout: branchOutput } = await (
@@ -312,22 +312,22 @@ export async function createRepositoryBackend(
         // If no session is provided, work with the most recent session
         if (!session) {
           const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
-          const sessions = await (sessionDb as unknown).listSessions();
-          const repoName = normalizeRepoName((config as unknown).url || "");
-          const repoSession = sessions.find((s) => (s as unknown).repoName === repoName);
+          const sessions = await sessionDb.listSessions();
+          const repoName = normalizeRepoName(config.url || "");
+          const repoSession = sessions.find((s) => s.repoName === repoName);
           if (!repoSession) {
             throw new Error("No session found for this repository");
           }
-          session = (repoSession as unknown).session;
+          session = repoSession.session;
         }
 
-        const repoName = normalizeRepoName((config as unknown).url || "");
-        return (gitService as unknown).getSessionWorkdir(session);
+        const repoName = normalizeRepoName(config.url || "");
+        return gitService.getSessionWorkdir(session);
       },
 
       validate: async (): Promise<ValidationResult> => {
         // Basic validation of the GitHub configuration
-        if (!(config as unknown).url) {
+        if (!config.url) {
           return {
             valid: false,
             issues: ["Repository URL is required"],
@@ -346,16 +346,16 @@ export async function createRepositoryBackend(
       push: async (branch?: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
-        const sessions = await (sessionDb as unknown).listSessions();
-        const repoName = normalizeRepoName((config as unknown).url || "");
-        const repoSession = sessions.find((s) => (s as unknown).repoName === repoName);
+        const sessions = await sessionDb.listSessions();
+        const repoName = normalizeRepoName(config.url || "");
+        const repoSession = sessions.find((s) => s.repoName === repoName);
 
         if (!repoSession) {
           throw new Error("No session found for this repository");
         }
 
-        const sessionName = (repoSession as unknown).session;
-        const workdir = (gitService as unknown).getSessionWorkdir(sessionName);
+        const sessionName = repoSession.session;
+        const workdir = gitService.getSessionWorkdir(sessionName);
 
         await gitService.push({
           session: sessionName,
@@ -366,21 +366,21 @@ export async function createRepositoryBackend(
       pull: async (branch?: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
-        const sessions = await (sessionDb as unknown).listSessions();
-        const repoName = normalizeRepoName((config as unknown).url || "");
-        const repoSession = sessions.find((s) => (s as unknown).repoName === repoName);
+        const sessions = await sessionDb.listSessions();
+        const repoName = normalizeRepoName(config.url || "");
+        const repoSession = sessions.find((s) => s.repoName === repoName);
 
         if (!repoSession) {
           throw new Error("No session found for this repository");
         }
 
-        const workdir = (gitService as unknown).getSessionWorkdir((repoSession as unknown).session);
-        await (gitService as unknown).pullLatest(workdir);
+        const workdir = gitService.getSessionWorkdir(repoSession.session);
+        await gitService.pullLatest(workdir);
       },
 
       branch: async (session: string, name: string): Promise<BranchResult> => {
-        const repoName = normalizeRepoName((config as unknown).url || "");
-        const workdir = (gitService as unknown).getSessionWorkdir(session);
+        const repoName = normalizeRepoName(config.url || "");
+        const workdir = gitService.getSessionWorkdir(session);
 
         // Execute branch creation via Git command
         await (await import("util")).promisify(((await import("child_process")) as unknown).exec)(
@@ -396,15 +396,15 @@ export async function createRepositoryBackend(
       checkout: async (branch: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
-        const sessions = await (sessionDb as unknown).listSessions();
-        const repoName = normalizeRepoName((config as unknown).url || "");
-        const repoSession = sessions.find((s) => (s as unknown).repoName === repoName);
+        const sessions = await sessionDb.listSessions();
+        const repoName = normalizeRepoName(config.url || "");
+        const repoSession = sessions.find((s) => s.repoName === repoName);
 
         if (!repoSession) {
           throw new Error("No session found for this repository");
         }
 
-        const workdir = (gitService as unknown).getSessionWorkdir((repoSession as unknown).session);
+        const workdir = gitService.getSessionWorkdir(repoSession.session);
 
         // Execute checkout via Git command
         await (await import("util")).promisify(((await import("child_process")) as unknown).exec)(
@@ -414,8 +414,8 @@ export async function createRepositoryBackend(
 
       getConfig: (): RepositoryConfig => {
         return {
-          type: (RepositoryBackendType as unknown).GITHUB,
-          url: (config as unknown).url,
+          type: RepositoryBackendType.GITHUB,
+          url: config.url,
           owner: (config as GitHubConfig).owner,
           repo: (config as GitHubConfig).repo,
           token: (config as GitHubConfig).token,
@@ -424,7 +424,7 @@ export async function createRepositoryBackend(
     };
   }
   default: {
-    throw new Error(`Unsupported repository backend type: ${(config as unknown).type}`);
+    throw new Error(`Unsupported repository backend type: ${config.type}`);
   }
   }
 }
@@ -449,7 +449,7 @@ export async function resolveRepository(
   const { uri, session, taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
 
   let repositoryUri: string | undefined;
-  let backendType = (RepositoryBackendType as unknown).LOCAL;
+  let backendType = RepositoryBackendType.LOCAL;
 
   // 1. Try to resolve from explicit URI
   if (uri) {
@@ -458,25 +458,25 @@ export async function resolveRepository(
   // 2. Try to resolve from session
   else if (session) {
     const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
-    const sessionRecord = await (sessionDb as unknown).getSession(session);
+    const sessionRecord = await sessionDb.getSession(session);
     if (!sessionRecord) {
       throw new ValidationError(`Session not found: ${session}`);
     }
-    repositoryUri = (sessionRecord as unknown).repoUrl;
+    repositoryUri = sessionRecord.repoUrl;
     backendType =
-      ((sessionRecord as unknown).backendType as RepositoryBackendType) || (RepositoryBackendType as unknown).LOCAL;
+      (sessionRecord.backendType as RepositoryBackendType) || RepositoryBackendType.LOCAL;
   }
   // 3. Try to resolve from task ID
   else if (taskId) {
     const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
     const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
-    const sessionRecord = await (sessionDb as unknown).getSessionByTaskId(normalizedTaskId);
+    const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
     if (!sessionRecord) {
       throw new ValidationError(`No session found for task: ${taskId}`);
     }
-    repositoryUri = (sessionRecord as unknown).repoUrl;
+    repositoryUri = sessionRecord.repoUrl;
     backendType =
-      ((sessionRecord as unknown).backendType as RepositoryBackendType) || (RepositoryBackendType as unknown).LOCAL;
+      (sessionRecord.backendType as RepositoryBackendType) || RepositoryBackendType.LOCAL;
   }
   // 4. Try auto-detection from current directory
   else if (autoDetect) {
@@ -500,31 +500,31 @@ export async function resolveRepository(
     });
 
     // Determine backend type based on URI format
-    if ((normalized as unknown).isLocal) {
-      backendType = (RepositoryBackendType as unknown).LOCAL;
+    if (normalized.isLocal) {
+      backendType = RepositoryBackendType.LOCAL;
     } else {
       // Default to GITHUB for remote repositories unless specified otherwise
-      if (backendType === (RepositoryBackendType as unknown).LOCAL) {
-        backendType = (RepositoryBackendType as unknown).GITHUB;
+      if (backendType === RepositoryBackendType.LOCAL) {
+        backendType = RepositoryBackendType.GITHUB;
       }
     }
 
     // For local repositories, extract the path
     let path: string | undefined;
-    if ((normalized as unknown).isLocal) {
+    if (normalized.isLocal) {
       path =
-        (normalized as unknown).format === UriFormat.FILE
-          ? (normalized.uri as unknown).replace(/^file:\/\//, "")
-          : (normalized as unknown).uri;
+        normalized.format === UriFormat.FILE
+          ? normalized.uri.replace(/^file:\/\//, "")
+          : normalized.uri;
     }
 
     return {
-      uri: (normalized as unknown).uri,
-      name: (normalized as unknown).name,
-      isLocal: (normalized as unknown).isLocal,
+      uri: normalized.uri,
+      name: normalized.name,
+      isLocal: normalized.isLocal,
       path,
       backendType,
-      format: (normalized as unknown).format,
+      format: normalized.format,
     };
   } catch (error) {
     if (error instanceof ValidationError) {
@@ -546,16 +546,16 @@ export async function resolveRepoPath(options: {
 
   try {
     const repository = await resolveRepository({
-      uri: (options as unknown).repo,
-      session: (options as unknown).session,
+      uri: options.repo,
+      session: options.session,
       autoDetect: true,
     });
 
-    if ((repository as unknown).isLocal) {
-      return (repository as unknown).path || "";
+    if (repository.isLocal) {
+      return repository.path || "";
     } else {
       // For backward compatibility, return the URI for remote repositories
-      return (repository as unknown).uri;
+      return repository.uri;
     }
   } catch (error) {
     throw new MinskyError(

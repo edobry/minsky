@@ -57,7 +57,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
     this.baseDir = getMinskyStateDir();
     this.sessionDb = createSessionProvider();
-    this.cache = (RepositoryMetadataCache as unknown).getInstance();
+    this.cache = RepositoryMetadataCache.getInstance();
   }
 
   /**

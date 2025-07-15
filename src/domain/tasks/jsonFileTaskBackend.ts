@@ -51,7 +51,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   private readonly tasksDirectory: string;
 
   constructor(options: JsonFileTaskBackendOptions) {
-    this.workspacePath = (options as unknown).workspacePath;
+    this.workspacePath = options.workspacePath;
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
 
     // Storage location priority:
@@ -60,9 +60,9 @@ export class JsonFileTaskBackend implements TaskBackend {
     // 3. Local fallback in .minsky directory
     let dbFilePath: string;
 
-    if ((options as unknown).dbFilePath) {
+    if (options.dbFilePath) {
       // Use provided path (likely from special workspace or team configuration)
-      dbFilePath = (options as unknown).dbFilePath;
+      dbFilePath = options.dbFilePath;
     } else {
       // Try team-shareable location first
       const teamLocation = join(this.workspacePath, "process", "tasks.json");
@@ -79,11 +79,11 @@ export class JsonFileTaskBackend implements TaskBackend {
       idField: "id",
       initializeState: () => ({
         tasks: [],
-        lastUpdated: (new Date() as unknown).toISOString(),
+        lastUpdated: new Date().toISOString(),
         metadata: {
           storageLocation: dbFilePath,
           backendType: "json-file",
-          createdAt: (new Date() as unknown).toISOString(),
+          createdAt: new Date().toISOString(),
         },
       }),
       prettyPrint: true,
@@ -95,16 +95,16 @@ export class JsonFileTaskBackend implements TaskBackend {
   async getTasksData(): Promise<TaskReadOperationResult> {
     try {
       const result = await (this.storage as unknown).readState();
-      if (!(result as unknown).success) {
+      if (!result.success) {
         return {
           success: false,
-          error: (result as unknown).error,
+          error: result.error,
           filePath: (this.storage as unknown).getStorageLocation(),
         } as unknown;
       }
 
       // Convert state to a tasks.md-like format for compatibility
-      const tasks = (result.data as unknown).tasks || [];
+      const tasks = result.data.tasks || [];
       const content = this.formatTasks(tasks);
 
       return {
@@ -124,7 +124,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
     try {
-      const fullPath = (specPath as unknown).startsWith("/")
+      const fullPath = specPath.startsWith("/")
         ? specPath
         : join(this.workspacePath, specPath);
 
@@ -162,7 +162,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     // Format as JSON for storage
     const state: TaskState = {
       tasks: tasks,
-      lastUpdated: (new Date() as unknown).toISOString(),
+      lastUpdated: new Date().toISOString(),
       metadata: {
         storageLocation: (this.storage as unknown).getStorageLocation(),
         backendType: this.name,
@@ -174,7 +174,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   parseTaskSpec(content: string): TaskSpecData {
     // Basic parsing of task spec content
-    const lines = ((content as unknown).toString() as unknown).split("\n");
+    const lines = content.toString().split("\n");
     let title = "";
     let description = "";
     let id = "";
@@ -182,21 +182,21 @@ export class JsonFileTaskBackend implements TaskBackend {
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if ((trimmed as unknown).startsWith("# ")) {
-        const headerText = (trimmed as unknown).slice(2);
+      if (trimmed.startsWith("# ")) {
+        const headerText = trimmed.slice(2);
 
         // Try to extract task ID and title from header like "Task #TEST_VALUE: Title"
-        const taskMatch = (headerText as unknown).match(/^Task\s+#?([A-Za-z0-9_]+):\s*(.+)$/);
+        const taskMatch = headerText.match(/^Task\s+#?([A-Za-z0-9_]+):\s*(.+)$/);
         if (taskMatch && taskMatch[1] && taskMatch[2]) {
           id = `#${taskMatch[1]}`;
-          title = (taskMatch[2] as unknown).trim();
+          title = taskMatch[2].trim();
         } else {
           // Fallback: use entire header as title
           title = headerText.trim();
         }
       } else if (trimmed === "## Context" || trimmed === "## Description") {
         inDescription = true;
-      } else if ((trimmed as unknown).startsWith("## ") && inDescription) {
+      } else if (trimmed.startsWith("## ") && inDescription) {
         inDescription = false;
       } else if (inDescription && trimmed) {
         description += (description ? "\n" : "") + trimmed;
@@ -213,7 +213,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   formatTaskSpec(spec: TaskSpecData): string {
     // Create markdown content
-    return `# ${(spec as unknown).title}\n\n## Context\n\n${(spec as unknown).description}\n`;
+    return `# ${spec.title}\n\n## Context\n\n${spec.description}\n`;
   }
 
   // ---- Public API ----
@@ -280,7 +280,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       // Create state object
       const state: TaskState = {
         tasks,
-        lastUpdated: (new Date() as unknown).toISOString(),
+        lastUpdated: new Date().toISOString(),
         metadata: {
           storageLocation: (this.storage as unknown).getStorageLocation(),
           backendType: this.name,
@@ -295,9 +295,9 @@ export class JsonFileTaskBackend implements TaskBackend {
       const result = await (this.storage as unknown).writeState(state);
 
       return {
-        success: (result as unknown).success,
-        error: (result as unknown).error,
-        bytesWritten: (result as unknown).bytesWritten,
+        success: result.success,
+        error: result.error,
+        bytesWritten: result.bytesWritten,
         filePath: (this.storage as unknown).getStorageLocation(),
       } as unknown;
     } catch (error) {
@@ -312,7 +312,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
     try {
-      const fullPath = (specPath as unknown).startsWith("/")
+      const fullPath = specPath.startsWith("/")
         ? specPath
         : join(this.workspacePath, specPath);
 
@@ -352,16 +352,16 @@ export class JsonFileTaskBackend implements TaskBackend {
       // Delete from database
       const deleted = await this.deleteTaskData(normalizedId);
 
-      if (deleted && (existingTask as unknown).specPath) {
+      if (deleted && existingTask.specPath) {
         // Delete the spec file if it exists
         try {
-          const fullSpecPath = (existingTask.specPath as unknown).startsWith("/")
-            ? (existingTask as unknown).specPath
-            : join(this.workspacePath, (existingTask as unknown).specPath);
+          const fullSpecPath = existingTask.specPath.startsWith("/")
+            ? existingTask.specPath
+            : join(this.workspacePath, existingTask.specPath);
           await unlink(fullSpecPath);
         } catch (error) {
           // Spec file might not exist, log but don't fail the operation
-          log.debug(`Spec file could not be deleted: ${(existingTask as unknown).specPath}`, {
+          log.debug(`Spec file could not be deleted: ${existingTask.specPath}`, {
             error: getErrorMessage(error as any),
           });
         }
@@ -513,17 +513,17 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   private parseMarkdownTasks(content: string): TaskData[] {
     const tasks: TaskData[] = [];
-    const lines = ((content as unknown).toString() as unknown).split("\n");
+    const lines = content.toString().split("\n");
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if ((trimmed as unknown).startsWith("- [ ] ") || (trimmed as unknown).startsWith("- [x] ")) {
-        const completed = (trimmed as unknown).startsWith("- [x] ");
-        const taskLine = (trimmed as unknown).slice(SIZE_6); // Remove '- [ ] ' or '- [x] '
+      if (trimmed.startsWith("- [ ] ") || trimmed.startsWith("- [x] ")) {
+        const completed = trimmed.startsWith("- [x] ");
+        const taskLine = trimmed.slice(SIZE_6); // Remove '- [ ] ' or '- [x] '
 
         // Extract task ID and title
-        const idMatch = (taskLine as unknown).match(/\[#(\d+)\]/);
-        const linkMatch = (taskLine as unknown).match(/\[([^\]]+)\]\(([^)]+)\)/);
+        const idMatch = taskLine.match(/\[#(\d+)\]/);
+        const linkMatch = taskLine.match(/\[([^\]]+)\]\(([^)]+)\)/);
 
         if (idMatch && idMatch[1] && linkMatch && linkMatch[1] && linkMatch[2]) {
           const id = `#${idMatch[1]}`;

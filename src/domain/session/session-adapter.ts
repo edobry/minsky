@@ -143,7 +143,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   async addSession(_record: SessionRecord): Promise<void> {
     await this.readDb();
     const newState = addSessionFn(this.state, _record);
-    await this.writeDb((newState as unknown).sessions);
+    await this.writeDb(newState.sessions);
   }
 
   /**
@@ -155,7 +155,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   ): Promise<void> {
     await this.readDb();
     const newState = updateSessionFn(this.state, session, _updates);
-    await this.writeDb((newState as unknown).sessions);
+    await this.writeDb(newState.sessions);
   }
 
   /**
@@ -171,7 +171,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
       return false;
     }
 
-    await this.writeDb((newState as unknown).sessions);
+    await this.writeDb(newState.sessions);
     return true;
   }
 

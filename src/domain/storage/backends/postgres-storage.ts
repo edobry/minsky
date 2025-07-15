@@ -57,13 +57,13 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   private readonly connectionUrl: string;
 
   constructor(config: PostgresStorageConfig) {
-    this.connectionUrl = (config as unknown).connectionUrl;
+    this.connectionUrl = config.connectionUrl;
     
     // Initialize PostgreSQL connection
     this.sql = postgres(this.connectionUrl, {
-      max: (config as unknown).maxConnections || 10,
-      connect_timeout: (config as unknown).connectTimeout || 30,
-      idle_timeout: (config as unknown).idleTimeout || 600,
+      max: config.maxConnections || 10,
+      connect_timeout: config.connectTimeout || 30,
+      idle_timeout: config.idleTimeout || 600,
       // Enable connection pooling
       prepare: false,
     });
@@ -148,8 +148,8 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
           const insertData = toPostgresInsert(session);
           await sql`
             INSERT INTO sessions (session, repo_name, repo_url, created_at, task_id, branch, repo_path)
-            VALUES (${(insertData as unknown).session}, ${(insertData as unknown).repoName}, ${(insertData as unknown).repoUrl}, 
-                   ${(insertData as unknown).createdAt}, ${(insertData as unknown).taskId}, ${(insertData as unknown).branch}, ${(insertData as unknown).repoPath})
+            VALUES (${insertData.session}, ${insertData.repoName}, ${insertData.repoUrl}, 
+                   ${insertData.createdAt}, ${insertData.taskId}, ${insertData.branch}, ${insertData.repoPath})
           `;
         }
       });
@@ -224,7 +224,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       // Update in database
       await (this.drizzle
         .update(postgresSessions)
-        .set(updateData as unknown) as unknown).where(eq((postgresSessions as unknown).session, id));
+        .set(updateData as unknown) as unknown).where(eq(postgresSessions.session, id));
 
       return updated;
     } catch (error) {
@@ -239,9 +239,9 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async deleteEntity(id: string): Promise<boolean> {
     try {
       const result = await (this.drizzle
-        .delete(postgresSessions) as unknown).where(eq((postgresSessions as unknown).session, id));
+        .delete(postgresSessions) as unknown).where(eq(postgresSessions.session, id));
 
-      return (result as unknown).rowCount !== null && (result as unknown).rowCount > 0 as unknown;
+      return result.rowCount !== null && result.rowCount > 0 as unknown;
     } catch (error) {
       log.error("Failed to delete session from PostgreSQL:", error as unknown);
       return false;

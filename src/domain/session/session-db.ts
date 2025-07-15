@@ -66,7 +66,7 @@ export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): Ses
   // Normalize taskId by removing # prefix if present
   const normalizedTaskId = taskId.replace(/^#/, "");
   return (
-    state.sessions.find((s) => (s.taskId as unknown).replace(/^#/, "") === normalizedTaskId) ||
+    state.sessions.find((s) => s.taskId.replace(/^#/, "") === normalizedTaskId) ||
     null
   );
 }

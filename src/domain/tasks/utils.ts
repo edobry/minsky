@@ -16,13 +16,13 @@ export function normalizeTaskId(userInput: string): string | undefined {
   let normalizedInput = userInput.trim();
 
   // Handle formats like "task#064" or "task#64"
-  if ((normalizedInput.toLowerCase() as unknown).startsWith("task#")) {
-    normalizedInput = (normalizedInput as unknown).substring(5);
+  if (normalizedInput.toLowerCase().startsWith("task#")) {
+    normalizedInput = normalizedInput.substring(5);
   }
 
   // Remove all leading '#' characters to avoid multiple hashes
-  while ((normalizedInput as unknown).startsWith("#")) {
-    normalizedInput = (normalizedInput as unknown).substring(1);
+  while (normalizedInput.startsWith("#")) {
+    normalizedInput = normalizedInput.substring(1);
   }
 
   // Check if the result is valid (numeric only)

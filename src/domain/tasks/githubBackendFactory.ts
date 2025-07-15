@@ -17,7 +17,7 @@ export async function tryCreateGitHubBackend(
 ): Promise<TaskBackend | null> {
   try {
     // Dynamic import to avoid hard dependency
-    const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await (Promise as unknown).all([
+    const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
       import("./githubBackendConfig"),
       import("./githubIssuesTaskBackend"),
     ]);

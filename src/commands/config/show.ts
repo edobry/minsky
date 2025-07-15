@@ -13,41 +13,41 @@ interface ShowOptions {
 }
 
 export function createConfigShowCommand(): Command {
-  return (new Command("show")
+  return new Command("show")
     .description("Show the final resolved configuration")
     .option("--json", "Output in JSON format", false)
-    .option("--working-dir <dir>", "Working directory", process.cwd()) as unknown).action(async (options: ShowOptions) => {
-    try {
+    .option("--working-dir <dir>", "Working directory", process.cwd()).action(async (options: ShowOptions) => {
+      try {
       // Use node-config directly for resolved configuration
-      const resolved = {
-        backend: (config as unknown).get("backend"),
-        backendConfig: (config as unknown).get("backendConfig"),
-        credentials: (config as unknown).get("credentials"),
-        sessiondb: (config as unknown).get("sessiondb"),
-        ai: (config as unknown).has("ai") ? (config as unknown).get("ai") : undefined,
-      };
+        const resolved = {
+          backend: config.get("backend"),
+          backendConfig: config.get("backendConfig"),
+          credentials: config.get("credentials"),
+          sessiondb: config.get("sessiondb"),
+          ai: config.has("ai") ? config.get("ai") : undefined,
+        };
 
-      if ((options as unknown).json) {
-        await Bun.write(Bun.stdout, `${JSON.stringify(resolved)}\n`);
-      } else {
-        await displayResolvedConfiguration(resolved);
+        if (options.json) {
+          await Bun.write(Bun.stdout, `${JSON.stringify(resolved)}\n`);
+        } else {
+          await displayResolvedConfiguration(resolved);
+        }
+      } catch (error) {
+        await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
+        exit(1);
       }
-    } catch (error) {
-      await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
-      exit(1);
-    }
-  }) as unknown;
+    }) as unknown;
 }
 
 async function displayResolvedConfiguration(resolved: any) {
   await Bun.write(Bun.stdout, "RESOLVED CONFIGURATION\n");
   await Bun.write(Bun.stdout, `${"=".repeat(40)}\n`);
 
-  await Bun.write(Bun.stdout, `Backend: ${(resolved as unknown).backend}\n`);
+  await Bun.write(Bun.stdout, `Backend: ${resolved.backend}\n`);
 
   if (Object.keys(resolved.backendConfig).length > 0) {
     await Bun.write(Bun.stdout, "\nBackend Configuration:\n");
-    for (const [backend, config] of Object.entries((resolved as unknown).backendConfig)) {
+    for (const [backend, config] of Object.entries(resolved.backendConfig)) {
       if (config && typeof config === "object" && Object.keys(config as object).length > 0) {
         await Bun.write(Bun.stdout, `  ${backend}:\n`);
         for (const [key, value] of Object.entries(config as object)) {
@@ -59,14 +59,14 @@ async function displayResolvedConfiguration(resolved: any) {
 
   if (Object.keys(resolved.credentials).length > 0) {
     await Bun.write(Bun.stdout, "\nCredentials:\n");
-    for (const [service, creds] of Object.entries((resolved as unknown).credentials)) {
+    for (const [service, creds] of Object.entries(resolved.credentials)) {
       if (creds && typeof creds === "object") {
         await Bun.write(Bun.stdout, `  ${service}:\n`);
         const credsObj = creds as unknown;
-        if ((credsObj as unknown).source) {
-          await Bun.write(Bun.stdout, `    Source: ${(credsObj as unknown).source}\n`);
+        if (credsObj.source) {
+          await Bun.write(Bun.stdout, `    Source: ${credsObj.source}\n`);
         }
-        if ((credsObj as unknown).token) {
+        if (credsObj.token) {
           await Bun.write(Bun.stdout, `    Token: ${"*".repeat(20)} (hidden)\n`);
         }
       }

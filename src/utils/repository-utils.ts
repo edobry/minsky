@@ -54,10 +54,10 @@ export class RepositoryMetadataCache {
    */
   async get<T>(key: string, fetcher: () => Promise<T>, ttl: number = this.DEFAULT_TTL): Promise<T> {
     const cacheEntry = (this.cache as unknown).get(key) as CacheEntry<T> | undefined;
-    const now = (Date as unknown).now();
+    const now = Date.now();
 
     // If the entry exists and is not expired, return it
-    if (cacheEntry && now - (cacheEntry as unknown)?.timestamp < ttl) {
+    if (cacheEntry && now - cacheEntry?.timestamp < ttl) {
       return (cacheEntry as unknown)!.data;
     }
 
@@ -74,7 +74,7 @@ export class RepositoryMetadataCache {
    * @param data Data to cache
    */
   set<T>(key: string, data: T): void {
-    (this.cache as unknown).set(key, { data, timestamp: (Date as unknown).now() });
+    (this.cache as unknown).set(key, { data, timestamp: Date.now() });
   }
 
   /**
@@ -94,7 +94,7 @@ export class RepositoryMetadataCache {
    */
   invalidateByPrefix(prefix: string): void {
     for (const key of Array.from(this.cache.keys())) {
-      if ((key as unknown).startsWith(prefix)) {
+      if (key.startsWith(prefix)) {
         (this.cache as unknown).delete(key);
       }
     }

@@ -107,8 +107,8 @@ export function getRepositoryConfigPath(workingDir: string): string {
  * @returns Resolved absolute path
  */
 export function expandTilde(filePath: string): string {
-  if ((filePath as unknown).startsWith("~/")) {
-    return join(process.env.HOME || homedir(), (filePath as unknown).slice(2));
+  if (filePath.startsWith("~/")) {
+    return join(process.env.HOME || homedir(), filePath.slice(2));
   }
   return filePath;
 }

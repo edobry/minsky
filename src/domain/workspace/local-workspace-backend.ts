@@ -32,7 +32,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
     const relativeToBoundary = relative(normalizedWorkspace, targetPath);
     
     // If the relative path starts with "..", it's outside the workspace
-    if ((relativeToBoundary as unknown).startsWith("..") || relativeToBoundary === "..") {
+    if (relativeToBoundary.startsWith("..") || relativeToBoundary === "..") {
       throw new InvalidPathError(
         `Path '${relativePath}' resolves outside workspace boundaries`,
         normalizedWorkspace,
@@ -60,10 +60,10 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       const relativePath = relative(workspaceDir, fullPath);
       
       return {
-        name: (relativePath.split("/") as unknown).pop() || relativePath,
+        name: relativePath.split("/").pop() || relativePath,
         path: relativePath,
         type: stats.isDirectory() ? "directory" : "file",
-        size: stats.isFile() ? (stats as unknown)?.size : undefined,
+        size: stats.isFile() ? stats?.size : undefined,
         lastModified: stats.mtime,
       };
     } catch (error) {
@@ -129,7 +129,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       await fs.mkdir(dir, { recursive: true });
       
       // Write the file atomically by writing to a temp file first
-      const tempPath = `${fullPath}.tmp.${(Date as unknown).now()}`;
+      const tempPath = `${fullPath}.tmp.${Date.now()}`;
       
       try {
         await fs.writeFile(tempPath, content, "utf8");
@@ -259,12 +259,12 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         entryCount: fileInfos.length,
       });
       
-      return (fileInfos as unknown).sort((a, b) => {
+      return fileInfos.sort((a, b) => {
         // Sort directories first, then files, then alphabetically
-        if ((a as unknown)?.type !== (b as unknown)?.type) {
-          return (a as unknown)?.type === "directory" ? -1 : 1;
+        if (a?.type !== b?.type) {
+          return a?.type === "directory" ? -1 : 1;
         }
-        return (a.name as unknown).localeCompare((b as unknown).name);
+        return a.name.localeCompare(b.name);
       });
     } catch (error) {
       if (error instanceof InvalidPathError || error instanceof DirectoryError) {

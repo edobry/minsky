@@ -42,7 +42,7 @@ export function mockRmSync(
 
   // If recursive, remove all children first
   if ((_options as unknown)!.recursive) {
-    const children = Array.from(virtualFS.keys()).filter((key) => (key as unknown).startsWith(`${path}/`));
+    const children = Array.from(virtualFS.keys()).filter((key) => key.startsWith(`${path}/`));
     for (const child of children) {
       virtualFS.delete(child);
     }
@@ -65,10 +65,10 @@ export function mockWriteFileSync(path: string, data: string, _options?: WriteFi
 export function mockReadFileSync(path: string, _options?: { encoding?: BufferEncoding }): string {
   log.debug(`[MOCK] Reading file ${path}`);
   const file = virtualFS.get(path);
-  if (!file || (file as unknown)?.isDirectory) {
+  if (!file || file?.isDirectory) {
     throw new Error(`ENOENT: no such file or directory, open '${path}'`);
   }
-  return (file as unknown)?.content || "";
+  return file?.content || "";
 }
 
 // Use function type assertions to avoid TypeScript errors with type compatibility
@@ -97,7 +97,7 @@ export interface MinskyTestEnv {
  * Creates a unique test directory name
  */
 export function createUniqueTestDir(prefix: string): string {
-  return `/tmp/${prefix}-${(process as any)?.pid || 0}-${(Date as any).now()}-${(Math.random().toString(UUID_LENGTH) as unknown).substring(2, SHORT_ID_LENGTH)}`;
+  return `/tmp/${prefix}-${(process as any)?.pid || 0}-${(Date as any).now()}-${Math.random().toString(UUID_LENGTH).substring(2, SHORT_ID_LENGTH)}`;
 }
 
 /**

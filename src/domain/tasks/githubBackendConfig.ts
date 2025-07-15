@@ -26,22 +26,22 @@ function extractGitHubRepoFromRemote(
 ): { owner: string; repo: string } | null {
   try {
     // Get the origin remote URL
-    const remoteUrl = ((execSync("git remote get-url origin", {
+    const remoteUrl = execSync("git remote get-url origin", {
       cwd: workspacePath,
       encoding: "utf8",
-    }) as unknown).toString() as unknown).trim();
+    }).toString().trim();
 
     // Parse GitHub repository from various URL formats
     // SSH: git@github.com:owner/repo.git
     // HTTPS: https://github.com/owner/repo.git
-    const sshMatch = (remoteUrl as unknown).match(/git@github\.com:([^\/]+)\/([^\.]+)/);
-    const httpsMatch = (remoteUrl as unknown).match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+    const sshMatch = remoteUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
+    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
 
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {
       return {
         owner: match[1],
-        repo: (match[2] as unknown).replace(/\.git$/, ""), // Remove .git suffix
+        repo: match[2].replace(/\.git$/, ""), // Remove .git suffix
       };
     }
 
@@ -88,8 +88,8 @@ export function getGitHubBackendConfig(
     name: "github-issues",
     workspacePath,
     githubToken,
-    owner: (repoInfo as unknown).owner,
-    repo: (repoInfo as unknown).repo,
+    owner: repoInfo.owner,
+    repo: repoInfo.repo,
   };
 }
 
@@ -106,7 +106,7 @@ export async function createGitHubLabels(
     try {
       // Check if label already exists
       try {
-        await (octokit.rest.issues as unknown).getLabel({
+        await octokit.rest.issues.getLabel({
           owner,
           repo,
           name: labelName,
@@ -121,7 +121,7 @@ export async function createGitHubLabels(
       }
 
       // Create the label
-      await (octokit.rest.issues as unknown).createLabel({
+      await octokit.rest.issues.createLabel({
         owner,
         repo,
         name: labelName,
