@@ -499,3 +499,5 @@
 - [ ] Cleanup excessive 'as unknown' assertions to improve TypeScript effectiveness [#280](process/tasks/280-cleanup-excessive-as-unknown-assertions-to-improve-typescript-effectiveness.md)
 
 - [x] Fix systematic verification failures in AI responses [#281](process/tasks/281-fix-systematic-verification-failures-in-ai-responses.md)
+
+- [ ] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)
