@@ -94,7 +94,8 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
 
   try {
     // Build the MCP server command that the inspector will launch
-    const serverCommand = ["minsky", "mcp", "start"];
+    // Use bun run to execute the minsky command properly
+    const serverCommand = ["bun", "run", "minsky", "mcp", "start"];
 
     // Add transport-specific arguments
     if (mcpTransportType === "httpStream") {
@@ -144,6 +145,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
         stdio: ["ignore", "pipe", "pipe"],
         detached: false,
         env,
+        cwd: process.cwd(), // Ensure we're in the right directory for bun run
       }
     );
 
