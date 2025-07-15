@@ -124,7 +124,7 @@ export class AICompletionError extends Error {
     public details?: Record<string, any>
   ) {
     super(message);
-    this?.name = "AICompletionError";
+    this.name = "AICompletionError";
   }
 }
 
@@ -136,7 +136,7 @@ export class AIProviderError extends Error {
     public details?: Record<string, any>
   ) {
     super(message);
-    this?.name = "AIProviderError";
+    this.name = "AIProviderError";
   }
 }
 

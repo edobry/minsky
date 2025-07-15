@@ -15,7 +15,7 @@ import {
   updateSessionFromParams,
   type SessionProviderInterface,
   type SessionRecord,
-} from "../../session";
+} from "../session";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 
 // Mock session provider

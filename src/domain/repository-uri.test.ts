@@ -8,7 +8,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mkdirSync } from "fs";
-import { setupTestMocks } from "../../utils/test-utils/mocking";
+import { setupTestMocks } from "../utils/test-utils/mocking";
 import {
   parseRepositoryURI,
   normalizeRepositoryURI,
@@ -19,7 +19,7 @@ import {
   expandGitHubShorthand,
   RepositoryURIType,
   detectRepositoryURI,
-} from "../repository-uri";
+} from "./repository-uri";
 
 // Set up automatic mock cleanup
 setupTestMocks();

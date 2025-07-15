@@ -26,7 +26,7 @@ describe("Variable Naming Fixer Consolidated", () => {
   });
 
   describe("Underscore Prefix Mismatches", () => {
-    it("should fix parameter definitions with underscores when usage has no underscore", () => {
+    it("should fix parameter definitions with underscores when usage has no underscore", async () => {
       const testFile = join(testDir, "test.ts");
       const originalCode = `
 function processData(_data: unknown) {
@@ -41,14 +41,14 @@ function processData(data: unknown) {
 }`;
 
       writeFileSync(testFile, originalCode);
-      
-      fixer.processFiles(`${testDir}/**/*.ts`);
-      
+
+      await fixer.processFiles(`${testDir}/**/*.ts`);
+
       const fixedCode = readFileSync(testFile, "utf-8");
       expect(fixedCode.trim()).toBe(expectedCode.trim());
     });
 
-    it("should fix variable declarations with underscores when usage has no underscore", () => {
+    it("should fix variable declarations with underscores when usage has no underscore", async () => {
       const testFile = join(testDir, "test.ts");
       const originalCode = `
 const _result = fetchData();
@@ -61,14 +61,14 @@ console.log(result.status);
 return result.data;`;
 
       writeFileSync(testFile, originalCode);
-      
-      fixer.processFiles(`${testDir}/**/*.ts`);
-      
-      const fixedCode = readFileSync(testFile, "utf-8");
+
+      await fixer.processFiles(`${testDir}/**/*.ts`);
+
+      const fixedCode = readFileSync(testFile, "utf-8") as string;
       expect(fixedCode.trim()).toBe(expectedCode.trim());
     });
 
-    it("should handle destructuring with underscore mismatches", () => {
+    it("should handle destructuring with underscore mismatches", async () => {
       const testFile = join(testDir, "test.ts");
       const originalCode = `
 const { _name, _age } = person;
@@ -79,10 +79,10 @@ const { name, age } = person;
 console.log(name, age);`;
 
       writeFileSync(testFile, originalCode);
-      
-      fixer.processFiles(`${testDir}/**/*.ts`);
-      
-      const fixedCode = readFileSync(testFile, "utf-8");
+
+      await fixer.processFiles(`${testDir}/**/*.ts`);
+
+      const fixedCode = readFileSync(testFile, "utf-8") as string;
       expect(fixedCode.trim()).toBe(expectedCode.trim());
     });
   });
@@ -96,9 +96,9 @@ function handler(_unusedEvent: Event, data: unknown) {
 }`;
 
       writeFileSync(testFile, originalCode);
-      
+
       fixer.processFiles(`${testDir}/**/*.ts`);
-      
+
       const fixedCode = readFileSync(testFile, "utf-8");
       expect(fixedCode.trim()).toBe(originalCode.trim());
     });
@@ -111,9 +111,9 @@ console.log(_privateVar);
 return _privateVar.data;`;
 
       writeFileSync(testFile, originalCode);
-      
+
       fixer.processFiles(`${testDir}/**/*.ts`);
-      
+
       const fixedCode = readFileSync(testFile, "utf-8");
       expect(fixedCode.trim()).toBe(originalCode.trim());
     });
@@ -126,9 +126,9 @@ const message = "Use _parameter for private vars";
 const regex = /_[a-z]+/g;`;
 
       writeFileSync(testFile, originalCode);
-      
+
       fixer.processFiles(`${testDir}/**/*.ts`);
-      
+
       const fixedCode = readFileSync(testFile, "utf-8");
       expect(fixedCode.trim()).toBe(originalCode.trim());
     });
@@ -145,9 +145,9 @@ function outer(_data: unknown) {
 }`;
 
       writeFileSync(testFile, originalCode);
-      
+
       fixer.processFiles(`${testDir}/**/*.ts`);
-      
+
       const fixedCode = readFileSync(testFile, "utf-8");
       expect(fixedCode.trim()).toBe(originalCode.trim());
     });
@@ -162,12 +162,12 @@ function test(_param: unknown) {
 }; // Syntax error`;
 
       writeFileSync(testFile, brokenCode);
-      
+
       // Should not throw
       expect(() => {
         fixer.processFiles(`${testDir}/**/*.ts`);
       }).not.toThrow();
-      
+
       // File should remain unchanged due to syntax error
       const unchangedCode = readFileSync(testFile, "utf-8");
       expect(unchangedCode.trim()).toBe(brokenCode.trim());
@@ -181,27 +181,27 @@ function test(param: unknown) {
 }`;
 
       writeFileSync(testFile, cleanCode);
-      
+
       fixer.processFiles(`${testDir}/**/*.ts`);
-      
+
       const unchangedCode = readFileSync(testFile, "utf-8");
       expect(unchangedCode.trim()).toBe(cleanCode.trim());
     });
   });
 
   describe("Complex Scenarios", () => {
-    it("should handle mixed scenarios correctly", () => {
+    it("should handle mixed scenarios correctly", async () => {
       const testFile = join(testDir, "mixed.ts");
       const originalCode = `
 function complex(_config: Config, data: Data) {
   // _config is unused, should stay with underscore
   const _result = processData(data);
   console.log(result.status); // result used without underscore
-  
+
   const { _name, age } = data;
   console.log(name); // name used without underscore
   console.log(age);  // age used consistently
-  
+
   return result;
 }`;
 
@@ -210,19 +210,19 @@ function complex(_config: Config, data: Data) {
   // _config is unused, should stay with underscore
   const result = processData(data);
   console.log(result.status); // result used without underscore
-  
+
   const { name, age } = data;
   console.log(name); // name used without underscore
   console.log(age);  // age used consistently
-  
+
   return result;
 }`;
 
       writeFileSync(testFile, originalCode);
-      
-      fixer.processFiles(`${testDir}/**/*.ts`);
-      
-      const fixedCode = readFileSync(testFile, "utf-8");
+
+      await fixer.processFiles(`${testDir}/**/*.ts`);
+
+      const fixedCode = readFileSync(testFile, "utf-8") as string;
       expect(fixedCode.trim()).toBe(expectedCode.trim());
     });
   });
@@ -237,22 +237,22 @@ function test(_param: unknown, _another: string) {
 }`;
 
       writeFileSync(testFile, originalCode);
-      
+
       // Mock the console.log to capture metrics
       const originalLog = console.log;
       const logs: string[] = [];
       console.log = (...args: any[]) => {
         logs.push(args.join(" "));
       };
-      
+
       fixer.processFiles(`${testDir}/**/*.ts`);
-      
+
       console.log = originalLog;
-      
+
       // Check that metrics were logged
       const metricsLog = logs.find(log => log.includes("Variable Naming Fix Results"));
       expect(metricsLog).toBeDefined();
-      
+
       const fixesLog = logs.find(log => log.includes("Total fixes applied"));
       expect(fixesLog).toContain("2"); // Should have fixed 2 variables
     });
@@ -282,11 +282,11 @@ function test<T>(_generic: T): Promise<T> {
 }`;
 
       writeFileSync(testFile, originalCode);
-      
+
       fixer.processFiles(`${testDir}/**/*.ts`);
-      
+
       const fixedCode = readFileSync(testFile, "utf-8");
       expect(fixedCode.trim()).toBe(expectedCode.trim());
     });
   });
-}); 
+});

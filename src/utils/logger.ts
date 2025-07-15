@@ -30,15 +30,15 @@ export enum LogMode {
  */
 function getLoggerConfig(): LoggerConfig {
   // First try environment variables to avoid early node-config initialization
-  const envMode = (process.env.MINSKY_LOG_MODE as unknown) || null;
-  const envLevel = (process.env.LOGLEVEL as unknown) || null;
+  const envMode = process.env.MINSKY_LOG_MODE || null;
+  const envLevel = process.env.LOGLEVEL || null;
   const envAgentLogs = (process.env.ENABLE_AGENT_LOGS as unknown) === "true";
 
   // If we have all config from environment, use it
   if (envMode && envLevel) {
     return {
-      mode: envMode,
-      level: envLevel,
+      mode: envMode as "HUMAN" | "STRUCTURED" | "auto",
+      level: envLevel as "debug" | "info" | "warn" | "error",
       enableAgentLogs: envAgentLogs,
     };
   }
@@ -48,17 +48,21 @@ function getLoggerConfig(): LoggerConfig {
 
   try {
     // Try to get configuration from the config system
+    const configMode = config.has("logger.mode") ? config.get("logger.mode") : null;
+    const configLevel = config.has("logger.level") ? config.get("logger.level") : null;
+    const configAgentLogs = config.has("logger.enableAgentLogs") ? config.get("logger.enableAgentLogs") : null;
+
     loggerConfig = {
-      mode: config.has("logger.mode") ? config.get("logger.mode") : (envMode || "auto"),
-      level: config.has("logger.level") ? config.get("logger.level") : (envLevel || "info"),
-      enableAgentLogs: config.has("logger.enableAgentLogs") ? config.get("logger.enableAgentLogs") : envAgentLogs,
+      mode: (typeof configMode === "string" ? configMode : envMode || "auto") as "HUMAN" | "STRUCTURED" | "auto",
+      level: (typeof configLevel === "string" ? configLevel : envLevel || "info") as "debug" | "info" | "warn" | "error",
+      enableAgentLogs: typeof configAgentLogs === "boolean" ? configAgentLogs : envAgentLogs,
     };
   } catch (error) {
     // Fallback to environment variables if config system is unavailable
     // This ensures the logger works even during early initialization
     loggerConfig = {
-      mode: envMode || "auto",
-      level: envLevel || "info",
+      mode: (envMode || "auto") as "HUMAN" | "STRUCTURED" | "auto",
+      level: (envLevel || "info") as "debug" | "info" | "warn" | "error",
       enableAgentLogs: envAgentLogs,
     };
   }
@@ -137,7 +141,7 @@ export function createLogger(configOverride?: LoggerConfig) {
         {} as Record<string, any>
       );
 
-      if (Object.keys(metadata as unknown).length > 0) {
+      if (Object.keys(metadata).length > 0) {
         try {
           log += ` ${JSON.stringify(metadata as unknown)}`;
         } catch (error) {
