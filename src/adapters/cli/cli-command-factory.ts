@@ -680,7 +680,7 @@ function formatConfigSection(config: Record<string, any>): string {
       });
     } else if (typeof value === "object" && value !== null) {
       output += `  ${key}:\n`;
-      for (const [subKey, subValue] of Object.entries(value as unknown)) {
+      for (const [subKey, subValue] of Object.entries(value)) {
         if (typeof subValue === "object" && subValue !== null) {
           // Special handling for credentials
           if (key === "credentials") {
@@ -718,7 +718,7 @@ function formatFlattenedConfiguration(resolved: any): string {
   const flatten = (obj: any, prefix = ""): string[] => {
     const result: string[] = [];
 
-    for (const [key, value] of Object.entries(obj as unknown)) {
+    for (const [key, value] of Object.entries(obj)) {
       const fullKey = prefix ? `${prefix}.${key}` : key;
 
       if (value === null || value === undefined) {

@@ -208,7 +208,7 @@ export class MinskyMCPServer {
         // @ts-ignore - Accessing a private property for debugging
         if ((this.server as unknown)._tools) {
           // @ts-ignore
-          methods.push(...Object.keys((this.server as unknown)._tools) as unknown);
+          methods.push(...Object.keys((this.server)._tools) as unknown);
         }
         log.debug("MCP Server registered methods", {
           methodCount: methods.length,
