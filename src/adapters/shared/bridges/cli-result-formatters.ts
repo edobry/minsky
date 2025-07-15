@@ -42,11 +42,11 @@ export function formatSessionSummary(session: Record<string, any>): void {
   if (!session) return;
 
   const sessionName = session.session || "unknown";
-  const status = session.status || "unknown";
   const taskId = session.taskId ? ` (task: ${session.taskId})` : "";
   const branchName = session.branch ? ` [${session.branch}]` : "";
 
-  log.cli(`${sessionName}${taskId}${branchName} - ${status}`);
+  // Sessions don't have status - that's a task concept
+  log.cli(`${sessionName}${taskId}${branchName}`);
 }
 
 /**
