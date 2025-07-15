@@ -2,11 +2,11 @@
 
 ## Status
 
-COMPLETED
+IN PROGRESS - PHASE 4: REMAINING ASSERTION CLEANUP
 
 ## Priority
 
-MEDIUM
+HIGH - Continued systematic cleanup of remaining assertions
 
 ## Description
 
@@ -53,13 +53,34 @@ This technical debt was identified during Task #276 test suite optimization, whe
 - **Prevention measures implemented** in session workspace
 - **Successfully merged** with latest main branch (commit 94d51f90)
 - **All conflicts resolved** maintaining both prevention measures and codemod transformations
-- **ESLint rule active** detecting remaining 550 'as unknown' assertions for ongoing monitoring
+- **ESLint rule active** detecting remaining 510 'as unknown' assertions for ongoing monitoring
 
 ### Integration Results
 - **Merge successful**: Prevention measures integrated with main codebase
 - **No regressions**: All functionality maintained during integration
 - **Active monitoring**: ESLint rule provides continuous feedback on assertion usage
 - **Documentation complete**: Full prevention guidelines available for team reference
+
+## Current Phase 4: Remaining Assertion Cleanup
+
+### Session-First Workflow Implementation
+- **Moved all changes** from main workspace to session workspace following session-first protocol
+- **Work continues** in session workspace: `/Users/edobry/.local/state/minsky/sessions/task#280`
+- **ESLint monitoring** shows 510 remaining 'as unknown' assertions requiring manual fixes
+- **Systematic approach** being applied to address high-priority assertions first
+
+### Current Progress
+- **Files moved to session**:
+  - `src/adapters/shared/commands/tasks.ts` - WIP type-safe command parameters
+  - `src/domain/git.test.ts` - WIP type-safe mock factories for dependency injection
+  - `src/domain/tasks/taskService.ts` - WIP removing 'as unknown' casts from TaskBackend methods
+- **Session branch**: `task#280` with all changes committed and ready for continued work
+
+### Remaining Work
+- **510 'as unknown' assertions** identified by ESLint rule requiring manual fixes
+- **Systematic prioritization** based on ESLint severity levels (Dangerous > Don't cast > Risky)
+- **Type-safe alternatives** being implemented using established patterns from prevention measures
+- **Test compatibility** being maintained throughout cleanup process
 
 ## Objectives
 
@@ -78,6 +99,12 @@ This technical debt was identified during Task #276 test suite optimization, whe
    - Add ESLint rules to discourage excessive `as unknown` usage
    - Document when `as unknown` is appropriate vs. alternatives
    - Create type utility functions for common assertion patterns
+
+4. **Manual Cleanup of Remaining Assertions** 🔄 IN PROGRESS
+   - Address remaining 510 'as unknown' assertions identified by ESLint
+   - Apply systematic prioritization based on risk levels
+   - Implement type-safe alternatives using established patterns
+   - Maintain test compatibility throughout cleanup process
 
 ## Requirements
 
@@ -99,6 +126,13 @@ This technical debt was identified during Task #276 test suite optimization, whe
 - [x] Create type utility functions for common scenarios
 - [x] Update development guidelines
 
+### Phase 4: Remaining Assertion Cleanup
+- [ ] Address high-priority (Dangerous) assertions first
+- [ ] Fix property access casting issues (Don't cast)
+- [ ] Resolve risky assertions with proper type guards
+- [ ] Update test files to use type-safe mocking patterns
+- [ ] Ensure all changes maintain TypeScript compilation
+
 ## Success Criteria
 
 - [x] Significant reduction in `as unknown` assertion count (target: 50%+ reduction) - **ACHIEVED 74.7%**
@@ -106,12 +140,15 @@ This technical debt was identified during Task #276 test suite optimization, whe
 - [x] Type safety maintained or improved throughout cleanup
 - [x] Prevention measures in place to avoid regression
 - [x] Code quality and maintainability improved
+- [ ] **Phase 4 Goal**: Reduce remaining 510 assertions to acceptable levels (target: <100)
+- [ ] **All critical and high-risk assertions eliminated**
+- [ ] **Test suite maintains compatibility with type-safe patterns**
 
 ## Priority
 
 High - This technical debt is actively hindering development workflow and masking real issues.
 
-## Final Results
+## Current Results
 
 **OUTSTANDING SUCCESS**: The AST codemod achieved exceptional results far exceeding all targets:
 - **74.7% reduction rate** (49% above target)
@@ -126,4 +163,4 @@ High - This technical debt is actively hindering development workflow and maskin
 - **Comprehensive guidelines** (`as-unknown-prevention-guidelines.md`) documenting best practices
 - **Session integration** successfully merged with main branch maintaining all improvements
 
-The task successfully transformed TypeScript code quality by removing dangerous type assertions, revealing real type issues that need proper fixes, and establishing robust prevention measures to avoid future regression. **ALL PHASES COMPLETED SUCCESSFULLY**.
+**PHASE 4 IN PROGRESS**: Continuing systematic cleanup of remaining 510 'as unknown' assertions using session-first workflow approach with ESLint-guided prioritization to achieve final cleanup targets.
