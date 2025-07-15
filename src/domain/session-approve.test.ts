@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { approveSessionFromParams } from "../session";
+import { approveSessionFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../../errors";
 import { createMock } from "../../utils/test-utils/mocking";
 import * as WorkspaceUtils from "../workspace";
