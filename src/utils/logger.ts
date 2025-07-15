@@ -30,9 +30,9 @@ export enum LogMode {
  */
 function getLoggerConfig(): LoggerConfig {
   // First try environment variables to avoid early node-config initialization
-  const envMode = (process.env.MINSKY_LOG_MODE as unknown) || null;
-  const envLevel = (process.env.LOGLEVEL as unknown) || null;
-  const envAgentLogs = (process.env.ENABLE_AGENT_LOGS as unknown) === "true";
+  const envMode = process.env.MINSKY_LOG_MODE as LoggerConfig["mode"] | undefined;
+  const envLevel = process.env.LOGLEVEL as LoggerConfig["level"] | undefined;
+  const envAgentLogs = process.env.ENABLE_AGENT_LOGS === "true";
 
   // If we have all config from environment, use it
   if (envMode && envLevel) {
@@ -137,7 +137,7 @@ export function createLogger(configOverride?: LoggerConfig) {
         {} as Record<string, any>
       );
 
-      if (Object.keysmetadata.length > 0) {
+      if (Object.keys(metadata).length > 0) {
         try {
           log += ` ${JSON.stringify(metadata as unknown)}`;
         } catch (error) {
