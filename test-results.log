@@ -1,0 +1,2772 @@
+bun test v1.2.15 (df017990)
+
+test-verification/quoting.test.ts:
+(pass) Rule description quoting fix > createRule should use double quotes for descriptions with special characters [2.27ms]
+(pass) Rule description quoting fix > updateRule should use double quotes for descriptions with special characters [2.37ms]
+(pass) Rule description quoting fix > createRule should not add quotes to simple descriptions [0.36ms]
+
+codemods/fix-import-extensions.test.ts:
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 0
+Total transformations: 3
+Processing time: 16ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400246-364495asd/src/test.ts: 3 imports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Unit Tests - Individual Transformations > should remove .js extension from local imports [17.75ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 3ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400274-1mbr65vpg/src/test.ts: 2 imports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Unit Tests - Individual Transformations > should remove .ts extension from local imports [3.58ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 0
+Export statements fixed: 3
+Total transformations: 3
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400280-7hh1hjb5t/src/test.ts: 3 exports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Unit Tests - Individual Transformations > should remove extensions from export statements [3.81ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 2ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Unit Tests - Individual Transformations > should preserve external npm package imports [2.50ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 3ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Unit Tests - Individual Transformations > should preserve non-.js/.ts extensions [3.66ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400294-2s6ucfm39/src/test.ts: 2 imports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Unit Tests - Individual Transformations > should handle mixed import types correctly [2.75ms]
+🚀 Starting import extension fixer...
+📁 Found 3 files to process
+💾 Saving changes...
+✅ Saved 3 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 3
+Files modified: 3
+Import statements fixed: 2
+Export statements fixed: 1
+Total transformations: 3
+Processing time: 12ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400299-ty4mlk7nu/src/app.ts: 1 imports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400299-ty4mlk7nu/src/components/Button.ts: 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400299-ty4mlk7nu/src/utils/index.ts: 1 imports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Integration Tests - Full Codemod Execution > should process multiple files correctly [12.58ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 1
+Total transformations: 3
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400313-82rdmsqkr/src/test.ts: 2 imports, 1 exports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Integration Tests - Full Codemod Execution > should generate accurate metrics [2.14ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 1
+Export statements fixed: 1
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400317-1k76t3076/src/test.ts: 1 imports, 1 exports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Integration Tests - Full Codemod Execution > should provide detailed results per file [2.09ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 2ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Integration Tests - Full Codemod Execution > should handle files with no changes [1.92ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Edge Cases and Error Handling > should handle empty files [1.10ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 4ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Edge Cases and Error Handling > should handle files with only comments [3.43ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Edge Cases and Error Handling > should handle imports without extensions [1.33ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 3
+Total transformations: 6
+Processing time: 3ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400334-4ucj6p7d7/src/complex.ts: 3 imports, 3 exports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Edge Cases and Error Handling > should handle complex import/export patterns [3.26ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 2ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Edge Cases and Error Handling > should handle exports without module specifiers [2.17ms]
+🚀 Starting import extension fixer...
+📁 Found 0 files to process
+💾 Saving changes...
+✅ Saved 0 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 0
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 0ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Edge Cases and Error Handling > should exclude test files from processing [0.90ms]
+🚀 Starting import extension fixer...
+📁 Found 0 files to process
+💾 Saving changes...
+✅ Saved 0 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 0
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Edge Cases and Error Handling > should exclude spec files from processing [1.07ms]
+🚀 Starting import extension fixer...
+📁 Found 10 files to process
+💾 Saving changes...
+✅ Saved 10 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 10
+Files modified: 10
+Import statements fixed: 10
+Export statements fixed: 10
+Total transformations: 20
+Processing time: 10ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400347-p8qp480qq/src/file0.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400347-p8qp480qq/src/file1.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400347-p8qp480qq/src/file2.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400347-p8qp480qq/src/file3.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400347-p8qp480qq/src/file4.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400347-p8qp480qq/src/file5.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400347-p8qp480qq/src/file6.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400347-p8qp480qq/src/file7.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400347-p8qp480qq/src/file8.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400347-p8qp480qq/src/file9.ts: 1 imports, 1 exports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Performance Benchmarks > should process files efficiently [11.56ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400361-nxy5ty8mq/src/test.ts: 2 imports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Performance Benchmarks > should maintain high success rate [2.00ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 0
+Total transformations: 3
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400365-1eyv5cyy8/src/typescript.ts: 3 imports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > TypeScript Support > should handle TypeScript-specific imports [2.59ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400369-ri2b0xl86/src/component.tsx: 2 imports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > TypeScript Support > should handle JSX/TSX files [2.42ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400373-u5utmogwm/src/bun-example.ts: 2 imports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Real-world Scenarios > should handle Bun-style imports correctly [3.68ms]
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 0
+Total transformations: 3
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752551400378-tiqoehfoi/src/nested/deep/component.ts: 3 imports
+
+✅ Import extension fixing completed!
+(pass) ImportExtensionFixer > Real-world Scenarios > should handle nested directory imports [2.81ms]
+
+codemods/fix-indentation.test.ts:
+(pass) ESLint auto-fix codemod runs ONLY the correct ESLint command [0.05ms]
+(pass) ESLint auto-fix uses only safe ESLint flags [0.02ms]
+(pass) ESLint auto-fix handles error cases properly [0.02ms]
+(pass) ESLint auto-fix uses project configuration [0.01ms]
+(pass) ESLint auto-fix does NOT modify files directly [0.02ms]
+(pass) ESLint auto-fix provides appropriate logging [0.01ms]
+(pass) ESLint auto-fix has proper imports and dependencies [0.07ms]
+
+src/types/project.test.ts:
+(pass) ProjectContext > validateRepositoryPath > returns false for clearly invalid paths [0.06ms]
+(pass) ProjectContext > validateRepositoryPath > returns true for current working directory [0.04ms]
+(pass) ProjectContext > createProjectContext > creates a ProjectContext for current working directory [0.06ms]
+{"level":"error","message":"Invalid repository path: /definitely/does/not/exist/path/12345","timestamp":"2025-07-15T03:50:00.387Z"}
+(pass) ProjectContext > createProjectContext > throws an error for clearly invalid path [0.32ms]
+(pass) ProjectContext > createProjectContextFromCwd > creates a ProjectContext from current working directory [0.02ms]
+
+src/utils/package-manager.test.ts:
+(pass) Package Manager Utilities > detectPackageManager > detects bun from bun.lock [0.06ms]
+(pass) Package Manager Utilities > detectPackageManager > detects yarn from yarn.lock [0.02ms]
+(pass) Package Manager Utilities > detectPackageManager > detects pnpm from pnpm-lock.yaml [0.04ms]
+(pass) Package Manager Utilities > detectPackageManager > detects npm from package-lock.json [0.03ms]
+(pass) Package Manager Utilities > detectPackageManager > defaults to npm if only package.json exists [0.02ms]
+(pass) Package Manager Utilities > detectPackageManager > returns undefined if no package files exist [0.02ms]
+(pass) Package Manager Utilities > getInstallCommand > returns correct command for bun [0.03ms]
+(pass) Package Manager Utilities > getInstallCommand > returns correct command for npm
+(pass) Package Manager Utilities > getInstallCommand > returns correct command for yarn
+(pass) Package Manager Utilities > getInstallCommand > returns correct command for pnpm
+(pass) Package Manager Utilities > getInstallCommand > returns undefined for unknown package manager
+(pass) Package Manager Utilities > installDependencies > successfully installs dependencies [0.23ms]
+(pass) Package Manager Utilities > installDependencies > uses provided package manager if specified [0.06ms]
+(pass) Package Manager Utilities > installDependencies > handles no package manager detected [0.03ms]
+(pass) Package Manager Utilities > installDependencies > handles unsupported package manager [0.02ms]
+{"level":"error","message":"Failed to install dependencies: Installation failed","timestamp":"2025-07-15T03:50:00.390Z"}
+(pass) Package Manager Utilities > installDependencies > handles installation errors [0.18ms]
+(pass) Package Manager Utilities > installDependencies > respects quiet option for stdio [0.04ms]
+
+src/utils/param-schemas.test.ts:
+(pass) Parameter Schemas > Schema Helpers > optionalString should create an optional string schema with description [0.86ms]
+(pass) Parameter Schemas > Schema Helpers > requiredString should create a required string schema with description [0.08ms]
+(pass) Parameter Schemas > Schema Helpers > optionalBoolean should create an optional boolean schema with description [0.08ms]
+(pass) Parameter Schemas > Common Parameters > all common parameter schemas should have descriptions [0.09ms]
+
+src/utils/git-exec-enhanced.test.ts:
+104 |       throw new MinskyError(errorMessage);
+105 |     }
+106 | 
+107 |     // Re-throw other errors with additional context
+108 |     const errorMessage = (error as any)?.message || "Unknown git command error";
+109 |     const enhancedError = new MinskyError(
+                                ^
+MinskyError: Git fetch failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'
+
+Command: git -C /test/repo fetch origin
+Working directory: /test/repo
+Execution time: 2ms
+ cause: undefined,
+
+      at execGitWithTimeout (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.ts:109:27)
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should execute git command successfully [2.23ms]
+87 |           timeout: 5000,
+88 |         });
+89 |         expect.unreachable("Should have thrown an error");
+90 |       } catch (error) {
+91 |         expect(error).toBeInstanceOf(MinskyError);
+92 |         expect(error.message).toContain("Git Operation Timeout");
+                                   ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Git Operation Timeout"
+Received: "Git fetch failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'\n\nCommand: git -C /test/repo fetch origin\nWorking directory: /test/repo\nExecution time: 0ms"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:92:31)
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should handle timeout errors with enhanced error messages [0.47ms]
+
+# Unhandled error between tests
+-------------------------------
+74 |         cwd: "/test/repo",
+75 |       });
+76 |     });
+77 | 
+78 |     test("should handle timeout errors with enhanced error messages", async () => {
+79 |       const timeoutError: ExtendedError = new Error("Command timed out");
+                                               ^
+error: Command timed out
+ killed: true,
+ signal: "SIGTERM",
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:79:43)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:78:71)
+-------------------------------
+
+
+# Unhandled error between tests
+-------------------------------
+87 |           timeout: 5000,
+88 |         });
+89 |         expect.unreachable("Should have thrown an error");
+90 |       } catch (error) {
+91 |         expect(error).toBeInstanceOf(MinskyError);
+92 |         expect(error.message).toContain("Git Operation Timeout");
+                                   ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Git Operation Timeout"
+Received: "Git fetch failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'\n\nCommand: git -C /test/repo fetch origin\nWorking directory: /test/repo\nExecution time: 0ms"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:92:31)
+-------------------------------
+
+107 |           workdir: "/test/repo",
+108 |         });
+109 |         expect.unreachable("Should have thrown an error");
+110 |       } catch (error) {
+111 |         expect(error).toBeInstanceOf(MinskyError);
+112 |         expect(error.message).toContain("Merge Conflicts Detected");
+                                    ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Merge Conflicts Detected"
+Received: "Git merge failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'\n\nCommand: git -C /test/repo merge feature-branch\nWorking directory: /test/repo\nExecution time: 0ms"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:112:31)
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should handle merge conflicts with enhanced error messages [0.33ms]
+
+# Unhandled error between tests
+-------------------------------
+94 |         expect(error.message).toContain("git -C /test/repo fetch origin");
+95 |       }
+96 |     });
+97 | 
+98 |     test("should handle merge conflicts with enhanced error messages", async () => {
+99 |       const conflictError: ExtendedError = new Error("Merge conflict");
+                                                ^
+error: Merge conflict
+ stdout: "CONFLICT (content): Merge conflict in file1.txt\nCONFLICT (add/add): Merge conflict in file2.txt",
+ stderr: "CONFLICT (modify/delete): file3.txt",
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:99:44)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:98:72)
+-------------------------------
+
+
+# Unhandled error between tests
+-------------------------------
+107 |           workdir: "/test/repo",
+108 |         });
+109 |         expect.unreachable("Should have thrown an error");
+110 |       } catch (error) {
+111 |         expect(error).toBeInstanceOf(MinskyError);
+112 |         expect(error.message).toContain("Merge Conflicts Detected");
+                                    ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Merge Conflicts Detected"
+Received: "Git merge failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'\n\nCommand: git -C /test/repo merge feature-branch\nWorking directory: /test/repo\nExecution time: 0ms"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:112:31)
+-------------------------------
+
+115 |         expect(error.message).toContain("file3.txt");
+116 |       }
+117 |     });
+118 | 
+119 |     test("should handle other git errors with enhanced context", async () => {
+120 |       const gitError: ExtendedError = new Error("Git command failed");
+                                            ^
+error: Git command failed
+ code: 1,
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:120:39)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:119:66)
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should handle other git errors with enhanced context [0.35ms]
+147 |         timeout: 5000,
+148 |       });
+149 | 
+150 |       expect(result.command).toBe("git status");
+151 |       expect(result.workdir).toBeUndefined();
+152 |       expect(mockExecAsync).toHaveBeenCalledWith("git status", {
+                                  ^
+error: expect(received).toHaveBeenCalledWith(expected)
+
+Number of calls: 0
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:152:29)
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should work without workdir specified [30.80ms]
+161 |       };
+162 |       mockExecAsync.mockResolvedValue(mockResult);
+163 | 
+164 |       await execGitWithTimeout("status", "status");
+165 | 
+166 |       expect(mockExecAsync).toHaveBeenCalledWith("git status", {
+                                  ^
+error: expect(received).toHaveBeenCalledWith(expected)
+
+Number of calls: 0
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:166:29)
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should use default timeout when not specified [19.25ms]
+104 |       throw new MinskyError(errorMessage);
+105 |     }
+106 | 
+107 |     // Re-throw other errors with additional context
+108 |     const errorMessage = (error as any)?.message || "Unknown git command error";
+109 |     const enhancedError = new MinskyError(
+                                ^
+MinskyError: Git clone failed: Command failed: git clone https://github.com/user/repo.git /path/to/clone
+fatal: could not create leading directories of '/path/to/clone': Read-only file system
+
+
+Command: git clone https://github.com/user/repo.git /path/to/clone
+Working directory: /Users/edobry/.local/state/minsky/sessions/task#276
+Execution time: 9ms
+ cause: undefined,
+
+      at execGitWithTimeout (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.ts:109:27)
+(fail) Enhanced Git Execution Utility > gitCloneWithTimeout > should execute git clone with correct parameters [8.37ms]
+104 |       throw new MinskyError(errorMessage);
+105 |     }
+106 | 
+107 |     // Re-throw other errors with additional context
+108 |     const errorMessage = (error as any)?.message || "Unknown git command error";
+109 |     const enhancedError = new MinskyError(
+                                ^
+MinskyError: Git fetch failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'
+
+Command: git -C /test/repo fetch origin
+Working directory: /test/repo
+Execution time: 0ms
+ cause: undefined,
+
+      at execGitWithTimeout (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.ts:109:27)
+(fail) Enhanced Git Execution Utility > gitFetchWithTimeout > should execute git fetch with default remote [0.49ms]
+104 |       throw new MinskyError(errorMessage);
+105 |     }
+106 | 
+107 |     // Re-throw other errors with additional context
+108 |     const errorMessage = (error as any)?.message || "Unknown git command error";
+109 |     const enhancedError = new MinskyError(
+                                ^
+MinskyError: Git fetch failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'
+
+Command: git -C /test/repo fetch upstream main
+Working directory: /test/repo
+Execution time: 0ms
+ cause: undefined,
+
+      at execGitWithTimeout (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.ts:109:27)
+(fail) Enhanced Git Execution Utility > gitFetchWithTimeout > should execute git fetch with specific remote and branch [0.19ms]
+104 |       throw new MinskyError(errorMessage);
+105 |     }
+106 | 
+107 |     // Re-throw other errors with additional context
+108 |     const errorMessage = (error as any)?.message || "Unknown git command error";
+109 |     const enhancedError = new MinskyError(
+                                ^
+MinskyError: Git push failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'
+
+Command: git -C /test/repo push origin
+Working directory: /test/repo
+Execution time: 1ms
+ cause: undefined,
+
+      at execGitWithTimeout (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.ts:109:27)
+(fail) Enhanced Git Execution Utility > gitPushWithTimeout > should execute git push with default remote [0.28ms]
+104 |       throw new MinskyError(errorMessage);
+105 |     }
+106 | 
+107 |     // Re-throw other errors with additional context
+108 |     const errorMessage = (error as any)?.message || "Unknown git command error";
+109 |     const enhancedError = new MinskyError(
+                                ^
+MinskyError: Git push failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'
+
+Command: git -C /test/repo push upstream feature-branch
+Working directory: /test/repo
+Execution time: 0ms
+ cause: undefined,
+
+      at execGitWithTimeout (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.ts:109:27)
+(fail) Enhanced Git Execution Utility > gitPushWithTimeout > should execute git push with specific remote and branch [0.24ms]
+104 |       throw new MinskyError(errorMessage);
+105 |     }
+106 | 
+107 |     // Re-throw other errors with additional context
+108 |     const errorMessage = (error as any)?.message || "Unknown git command error";
+109 |     const enhancedError = new MinskyError(
+                                ^
+MinskyError: Git pull failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'
+
+Command: git -C /test/repo pull origin
+Working directory: /test/repo
+Execution time: 0ms
+ cause: undefined,
+
+      at execGitWithTimeout (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.ts:109:27)
+(fail) Enhanced Git Execution Utility > gitPullWithTimeout > should execute git pull with default remote [0.39ms]
+104 |       throw new MinskyError(errorMessage);
+105 |     }
+106 | 
+107 |     // Re-throw other errors with additional context
+108 |     const errorMessage = (error as any)?.message || "Unknown git command error";
+109 |     const enhancedError = new MinskyError(
+                                ^
+MinskyError: Git merge failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'
+
+Command: git -C /test/repo merge feature-branch
+Working directory: /test/repo
+Execution time: 1ms
+ cause: undefined,
+
+      at execGitWithTimeout (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.ts:109:27)
+(fail) Enhanced Git Execution Utility > gitMergeWithTimeout > should execute git merge with specified branch [0.46ms]
+318 |     });
+319 |   });
+320 | 
+321 |   describe("Error Message Quality", () => {
+322 |     test("should include execution time in all error messages", async () => {
+323 |       const gitError = new Error("Git command failed");
+                             ^
+error: Git command failed
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:323:24)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:322:65)
+(fail) Enhanced Git Execution Utility > Error Message Quality > should include execution time in all error messages [0.40ms]
+335 |         expect(error.message).toMatch(/\d+ms/);
+336 |       }
+337 |     });
+338 | 
+339 |     test("should include full command in error messages", async () => {
+340 |       const gitError = new Error("Git command failed");
+                             ^
+error: Git command failed
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:340:24)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:339:59)
+(fail) Enhanced Git Execution Utility > Error Message Quality > should include full command in error messages [0.32ms]
+352 |         expect(error.message).toContain("git -C /test/repo push origin main");
+353 |       }
+354 |     });
+355 | 
+356 |     test("should include context information in error messages", async () => {
+357 |       const gitError = new Error("Git command failed");
+                             ^
+error: Git command failed
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:357:24)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:356:66)
+(fail) Enhanced Git Execution Utility > Error Message Quality > should include context information in error messages [0.33ms]
+390 |           workdir: "/test/repo",
+391 |         });
+392 |         expect.unreachable("Should have thrown an error");
+393 |       } catch (error) {
+394 |         expect(error).toBeInstanceOf(MinskyError);
+395 |         expect(error.message).toContain("Merge Conflicts Detected");
+                                    ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Merge Conflicts Detected"
+Received: "Git merge failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'\n\nCommand: git -C /test/repo merge feature-branch\nWorking directory: /test/repo\nExecution time: 0ms"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:395:31)
+(fail) Enhanced Git Execution Utility > Conflict Detection > should detect different types of merge conflicts [0.31ms]
+
+# Unhandled error between tests
+-------------------------------
+374 |     });
+375 |   });
+376 | 
+377 |   describe("Conflict Detection", () => {
+378 |     test("should detect different types of merge conflicts", async () => {
+379 |       const conflictError: ExtendedError = new Error("Merge conflict");
+                                                 ^
+error: Merge conflict
+ stdout: "\n        CONFLICT (content): Merge conflict in src/file1.js\n        CONFLICT (add/add): Merge conflict in src/file2.js\n        CONFLICT (modify/delete): src/file3.js deleted in HEAD and modified in feature-branch\n      ",
+ stderr: "",
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:379:44)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:378:62)
+-------------------------------
+
+
+# Unhandled error between tests
+-------------------------------
+390 |           workdir: "/test/repo",
+391 |         });
+392 |         expect.unreachable("Should have thrown an error");
+393 |       } catch (error) {
+394 |         expect(error).toBeInstanceOf(MinskyError);
+395 |         expect(error.message).toContain("Merge Conflicts Detected");
+                                    ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Merge Conflicts Detected"
+Received: "Git merge failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'\n\nCommand: git -C /test/repo merge feature-branch\nWorking directory: /test/repo\nExecution time: 0ms"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:395:31)
+-------------------------------
+
+410 |           workdir: "/test/repo",
+411 |         });
+412 |         expect.unreachable("Should have thrown an error");
+413 |       } catch (error) {
+414 |         expect(error).toBeInstanceOf(MinskyError);
+415 |         expect(error.message).toContain("Merge Conflicts Detected");
+                                    ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Merge Conflicts Detected"
+Received: "Git merge failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'\n\nCommand: git -C /test/repo merge feature-branch\nWorking directory: /test/repo\nExecution time: 1ms"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:415:31)
+(fail) Enhanced Git Execution Utility > Conflict Detection > should provide resolution strategies for merge conflicts [0.41ms]
+
+# Unhandled error between tests
+-------------------------------
+398 |         expect(error.message).toContain("🗑️ src/file3.js (delete/modify conflict)");
+399 |       }
+400 |     });
+401 | 
+402 |     test("should provide resolution strategies for merge conflicts", async () => {
+403 |       const conflictError: ExtendedError = new Error("Merge conflict");
+                                                 ^
+error: Merge conflict
+ stdout: "CONFLICT (content): Merge conflict in test.txt",
+ stderr: "",
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:403:44)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:402:70)
+-------------------------------
+
+
+# Unhandled error between tests
+-------------------------------
+410 |           workdir: "/test/repo",
+411 |         });
+412 |         expect.unreachable("Should have thrown an error");
+413 |       } catch (error) {
+414 |         expect(error).toBeInstanceOf(MinskyError);
+415 |         expect(error.message).toContain("Merge Conflicts Detected");
+                                    ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Merge Conflicts Detected"
+Received: "Git merge failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'\n\nCommand: git -C /test/repo merge feature-branch\nWorking directory: /test/repo\nExecution time: 1ms"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts:415:31)
+-------------------------------
+
+
+src/utils/filter-messages.test.ts:
+(pass) Filter Messages Utility > getStatusFilterMessage > returns correct message for a given status [0.03ms]
+(pass) Filter Messages Utility > getStatusFilterMessage > includes the status in single quotes
+(pass) Filter Messages Utility > getActiveTasksMessage > returns message about active tasks
+(pass) Filter Messages Utility > getActiveTasksMessage > includes instruction about --all flag
+(pass) Filter Messages Utility > generateFilterMessages > returns status filter message when status is provided [0.07ms]
+(pass) Filter Messages Utility > generateFilterMessages > returns active tasks message when not showing all tasks [0.02ms]
+(pass) Filter Messages Utility > generateFilterMessages > returns no messages when all is true
+(pass) Filter Messages Utility > generateFilterMessages > prioritizes status filter over active tasks message [0.01ms]
+(pass) Filter Messages Utility > generateFilterMessages > returns empty array when no filter options provided [0.01ms]
+
+src/utils/option-descriptions.test.ts:
+(pass) Option Descriptions > all exported descriptions should be non-empty strings [0.80ms]
+(pass) Option Descriptions > all descriptions should follow consistent naming pattern (UPPERCASE_WITH_DESCRIPTION suffix) [0.04ms]
+(pass) Option Descriptions > all descriptions should end with proper punctuation [0.06ms]
+(pass) Option Descriptions > repository resolution descriptions should be consistent
+(pass) Option Descriptions > output format descriptions should be consistent
+(pass) Option Descriptions > task descriptions should be consistent
+(pass) Option Descriptions > backend descriptions should be consistent
+(pass) Option Descriptions > force option descriptions should be consistent
+(pass) Option Descriptions > git option descriptions should be consistent
+(pass) Option Descriptions > rules option descriptions should be consistent
+
+src/utils/logger.test.ts:
+(pass) Logger > getLogMode > should return HUMAN when configuration mode is set to HUMAN [0.02ms]
+(pass) Logger > getLogMode > should return STRUCTURED when configuration mode is set to STRUCTURED [0.01ms]
+(pass) Logger > getLogMode > should default to HUMAN when mode is auto and TTY is available [0.03ms]
+(pass) Logger > getLogMode > should default to STRUCTURED when mode is auto and TTY is not available [0.01ms]
+(pass) Logger > createConfigurableLogger > should create logger with configuration [0.38ms]
+(pass) Logger > createConfigurableLogger > should create logger with STRUCTURED mode [0.22ms]
+(pass) Logger > createConfigurableLogger > should expose logger methods [0.12ms]
+(pass) Logger > createConfigurableLogger > should support dependency injection for testing [0.17ms]
+(pass) Logger > createConfigurableLogger > should handle different log levels [0.37ms]
+(pass) Logger > createConfigurableLogger > should isolate logger instances [0.54ms]
+(pass) Logger > configuration integration > should maintain backward compatibility [0.29ms]
+(pass) Logger > configuration integration > should support enableAgentLogs configuration [0.23ms]
+
+src/mcp/command-mapper.test.ts:
+(pass) CommandMapper > should initialize with server and project context [0.01ms]
+(pass) CommandMapper > should add tool to server when addCommand is called [0.33ms]
+
+src/mcp/server.test.ts:
+(pass) MCP Server > should import FastMCP module successfully [39.66ms]
+(pass) MCP Server > should be able to import our server modules [0.02ms]
+
+src/errors/network-errors.test.ts:
+(pass) Network Error handling > NetworkError class > should create a NetworkError with the correct properties [0.47ms]
+(pass) Network Error handling > PortInUseError class > should create a PortInUseError with the correct message [0.04ms]
+(pass) Network Error handling > PortInUseError class > should provide helpful suggestions [0.04ms]
+(pass) Network Error handling > NetworkPermissionError class > should create a NetworkPermissionError with the correct message [0.03ms]
+(pass) Network Error handling > NetworkPermissionError class > should provide helpful suggestions [0.02ms]
+(pass) Network Error handling > isNetworkError function > should identify common network errors [0.05ms]
+(pass) Network Error handling > createNetworkError function > should create a PortInUseError for EADDRINUSE errors [0.05ms]
+(pass) Network Error handling > createNetworkError function > should create a NetworkPermissionError for EACCES errors [0.01ms]
+(pass) Network Error handling > createNetworkError function > should create a generic NetworkError for other errors [0.01ms]
+(pass) Network Error handling > formatNetworkErrorMessage function > should format a PortInUseError with suggestions [0.07ms]
+(pass) Network Error handling > formatNetworkErrorMessage function > should not include the debug hint when debug is true [0.01ms]
+
+src/errors/enhanced-error-templates.test.ts:
+(pass) Task 223 Enhanced Error Messages > createSessionPrBranchErrorMessage > should create helpful error message for PR branch restriction [0.15ms]
+(pass) Task 223 Enhanced Error Messages > createSessionPrBranchErrorMessage > should handle undefined session name gracefully [0.02ms]
+(pass) Task 223 Enhanced Error Messages > createSessionPrBranchErrorMessage > should include context information when provided [0.02ms]
+(pass) Task 223 Enhanced Error Messages > createTaskIdParsingErrorMessage > should show supported task ID formats [0.06ms]
+(pass) Task 223 Enhanced Error Messages > createTaskIdParsingErrorMessage > should include operation context [0.02ms]
+(pass) Task 223 Enhanced Error Messages > createVariableNamingErrorMessage > should identify underscore prefix mismatch (declaration has underscore, usage doesn't) [0.08ms]
+(pass) Task 223 Enhanced Error Messages > createVariableNamingErrorMessage > should identify reverse underscore mismatch (declaration without underscore, usage has underscore) [0.02ms]
+(pass) Task 223 Enhanced Error Messages > createVariableNamingErrorMessage > should include file path and line numbers when provided [0.02ms]
+(pass) Task 223 Enhanced Error Messages > createGitTimeoutErrorMessage > should provide troubleshooting steps for git timeouts [0.06ms]
+(pass) Task 223 Enhanced Error Messages > createGitTimeoutErrorMessage > should include timeout duration in context [0.02ms]
+(pass) Task 223 Enhanced Error Messages > createMergeConflictErrorMessage > should identify conflicting files with conflict types [0.10ms]
+(pass) Task 223 Enhanced Error Messages > createMergeConflictErrorMessage > should provide resolution strategies [0.02ms]
+(pass) Task 223 Enhanced Error Messages > createBackendDetectionErrorMessage > should show available backends and their requirements [0.09ms]
+(pass) Task 223 Enhanced Error Messages > createBackendDetectionErrorMessage > should provide default backend list when no backends provided [0.03ms]
+(pass) Task 223 Enhanced Error Messages > createBackendDetectionErrorMessage > should include workspace path in context [0.02ms]
+(pass) Task 223 Enhanced Error Messages > Error Message Quality > should use consistent emoji patterns across all error types [0.07ms]
+(pass) Task 223 Enhanced Error Messages > Error Message Quality > should provide actionable command suggestions [0.04ms]
+(pass) Task 223 Enhanced Error Messages > Error Message Quality > should include context information when provided [0.02ms]
+
+src/errors/message-templates.test.ts:
+(pass) Error Message Templates > getErrorMessage > extracts message from Error object [0.72ms]
+(pass) Error Message Templates > getErrorMessage > converts non-Error to string [0.03ms]
+(pass) Error Message Templates > formatCommandSuggestions > formats single suggestion [0.06ms]
+(pass) Error Message Templates > formatCommandSuggestions > formats multiple suggestions [0.03ms]
+(pass) Error Message Templates > formatContextInfo > returns empty string for no context [0.01ms]
+(pass) Error Message Templates > formatContextInfo > formats single context info [0.03ms]
+(pass) Error Message Templates > formatContextInfo > formats multiple context info [0.01ms]
+(pass) Error Message Templates > buildErrorMessage > builds basic error message [0.02ms]
+(pass) Error Message Templates > buildErrorMessage > builds error message with description [0.01ms]
+(pass) Error Message Templates > buildErrorMessage > builds error message with sections and emojis [0.02ms]
+(pass) Error Message Templates > buildErrorMessage > includes context information [0.01ms]
+(pass) Error Message Templates > createResourceNotFoundMessage > creates session not found message [0.04ms]
+(pass) Error Message Templates > createMissingInfoMessage > creates missing information message [0.02ms]
+(pass) Error Message Templates > createValidationErrorMessage > creates validation error message [0.04ms]
+(pass) Error Message Templates > createCommandFailureMessage > creates command failure message [0.03ms]
+(pass) Error Message Templates > createSessionErrorMessage > creates not found session error [0.06ms]
+(pass) Error Message Templates > createSessionErrorMessage > creates session exists error [0.01ms]
+(pass) Error Message Templates > createSessionErrorMessage > creates invalid session error [0.02ms]
+(pass) Error Message Templates > createGitErrorMessage > creates git conflict error [0.08ms]
+(pass) Error Message Templates > createGitErrorMessage > creates general git error [0.02ms]
+(pass) Error Message Templates > createConfigErrorMessage > creates configuration error message [0.03ms]
+(pass) Error Message Templates > ErrorContextBuilder > builds empty context [0.03ms]
+(pass) Error Message Templates > ErrorContextBuilder > adds current directory [0.03ms]
+(pass) Error Message Templates > ErrorContextBuilder > adds session information [0.02ms]
+(pass) Error Message Templates > ErrorContextBuilder > adds repository information [0.01ms]
+(pass) Error Message Templates > ErrorContextBuilder > adds task information [0.01ms]
+(pass) Error Message Templates > ErrorContextBuilder > adds command information [0.01ms]
+(pass) Error Message Templates > ErrorContextBuilder > adds custom information [0.01ms]
+(pass) Error Message Templates > ErrorContextBuilder > chains multiple context additions [0.02ms]
+(pass) Error Message Templates > Error message consistency > all templates use consistent emoji patterns [0.04ms]
+(pass) Error Message Templates > Error message consistency > all templates have consistent structure [0.05ms]
+
+src/domain/session-lookup-bug-integration.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/rules.test.ts:
+(pass) RuleService > listRules > lists rules from both formats when no format specified [1.63ms]
+(pass) RuleService > listRules > filters rules by format [0.91ms]
+(pass) RuleService > listRules > filters rules by tag [1.11ms]
+(pass) RuleService > getRule > gets a rule by ID [0.70ms]
+(pass) RuleService > getRule > throws error for non-existent rule [0.33ms]
+(pass) RuleService > getRule > finds rule in specified format [0.81ms]
+(pass) RuleService > createRule > creates a new rule with metadata [0.42ms]
+(pass) RuleService > createRule > handles undefined metadata fields correctly [0.42ms]
+(pass) RuleService > createRule > throws error if rule exists and overwrite is false [0.32ms]
+(pass) RuleService > createRule > overwrites existing rule when overwrite is true [0.67ms]
+(pass) RuleService > updateRule > updates metadata only [3.89ms]
+(pass) RuleService > updateRule > updates content only [0.72ms]
+(pass) RuleService > updateRule > updates both metadata and content [0.85ms]
+(pass) RuleService > searchRules > searches for rules by content [0.99ms]
+(pass) RuleService > searchRules > searches for rules by metadata [5.67ms]
+(pass) RuleService > searchRules > filters search results by format and tag [1.59ms]
+
+src/domain/git-pr-workflow.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/session-lookup-bug-reproduction.test.ts:
+
+src/domain/session-pr-body-path.test.ts:
+(pass) sessionPrFromParams bodyPath file reading functionality > should read body content from bodyPath when provided [0.14ms]
+(pass) sessionPrFromParams bodyPath file reading functionality > should handle non-existent files correctly [0.18ms]
+(pass) sessionPrFromParams bodyPath file reading functionality > should detect empty files correctly [0.20ms]
+(pass) sessionPrFromParams bodyPath file reading functionality > should work with relative paths correctly [0.36ms]
+(pass) sessionPrFromParams bodyPath file reading functionality > should validate bodyPath parameter priority logic [0.03ms]
+
+src/domain/session-review.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/session-git-clone-bug-regression.test.ts:
+
+src/domain/git-default-branch.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/gitServiceTaskStatusUpdate.test.ts:
+
+src/domain/rules-format.test.ts:
+(pass) RuleService Format Compatibility > should get a rule in its original format when requested [0.54ms]
+(pass) RuleService Format Compatibility > should get a rule in any format if no format specified [1.38ms]
+(pass) RuleService Format Compatibility > should return rule with format note when requested in different format [0.34ms]
+(pass) RuleService Format Compatibility > should prioritize the requested format for dual-format rules [0.51ms]
+(pass) RuleService Format Compatibility > should throw specific error messages for non-existent rules [0.16ms]
+
+src/domain/session-approve.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/session-approve-branch-cleanup.test.ts:
+
+src/domain/session-update.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/session-pr-no-branch-switch.test.ts:
+
+src/domain/session-auto-task-creation.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/repository-uri.test.ts:
+(pass) Repository URI Utilities > parseRepositoryURI > parses HTTPS URLs [0.26ms]
+(pass) Repository URI Utilities > parseRepositoryURI > parses SSH URLs [0.11ms]
+(pass) Repository URI Utilities > parseRepositoryURI > parses GitHub shorthand [0.05ms]
+(pass) Repository URI Utilities > parseRepositoryURI > handles invalid URLs gracefully [0.11ms]
+(pass) Repository URI Utilities > normalizeRepositoryURI > normalizes HTTPS URLs [0.04ms]
+(pass) Repository URI Utilities > normalizeRepositoryURI > normalizes SSH URLs [0.04ms]
+(pass) Repository URI Utilities > normalizeRepositoryURI > preserves GitHub shorthand [0.03ms]
+(pass) Repository URI Utilities > validateRepositoryURI > returns true for valid HTTPS URLs [0.13ms]
+(pass) Repository URI Utilities > validateRepositoryURI > returns false for invalid URIs [0.04ms]
+(pass) Repository URI Utilities > convertRepositoryURI > converts from GitHub shorthand to HTTPS URL [0.13ms]
+(pass) Repository URI Utilities > convertRepositoryURI > converts from GitHub shorthand to SSH URL [0.02ms]
+(pass) Repository URI Utilities > convertRepositoryURI > converts from HTTPS URL to SSH URL [0.05ms]
+(pass) Repository URI Utilities > convertRepositoryURI > returns null for incompatible conversions [0.08ms]
+(pass) Repository URI Utilities > isLocalRepositoryURI > returns true for local paths [0.08ms]
+(pass) Repository URI Utilities > isLocalRepositoryURI > returns false for HTTPS URLs [0.04ms]
+(pass) Repository URI Utilities > getRepositoryName > extracts name from HTTPS URL [0.08ms]
+(pass) Repository URI Utilities > getRepositoryName > extracts name from SSH URL [0.04ms]
+(pass) Repository URI Utilities > getRepositoryName > extracts name from GitHub shorthand [0.09ms]
+(pass) Repository URI Utilities > expandGitHubShorthand > expands to HTTPS URL by default [0.10ms]
+(pass) Repository URI Utilities > expandGitHubShorthand > expands to SSH URL when specified [0.02ms]
+(pass) Repository URI Utilities > expandGitHubShorthand > returns null for invalid shorthand [0.05ms]
+
+src/domain/uri-utils.test.ts:
+(pass) URI Utilities > normalizeRepositoryUri > normalizes HTTPS URLs [0.03ms]
+(pass) URI Utilities > normalizeRepositoryUri > normalizes SSH URLs [0.01ms]
+(pass) URI Utilities > normalizeRepositoryUri > normalizes GitHub shorthand [0.01ms]
+(pass) URI Utilities > convertRepositoryUri > converts HTTPS to SSH [0.01ms]
+(pass) URI Utilities > convertRepositoryUri > converts SSH to HTTPS
+(pass) URI Utilities > convertRepositoryUri > converts shorthand to HTTPS
+(pass) URI Utilities > convertRepositoryUri > returns same URI if already in target format
+(pass) URI Utilities > extractRepositoryInfo > extracts info from HTTPS URL [0.01ms]
+(pass) URI Utilities > extractRepositoryInfo > extracts info from SSH URL
+(pass) URI Utilities > extractRepositoryInfo > extracts info from shorthand
+
+src/domain/workspace.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/session-lookup-bug-simple.test.ts:
+
+src/domain/repo-utils.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/github-backend.test.ts:
+
+src/domain/tasks.specpath.test.ts:
+
+src/domain/task-status-variables.test.ts:
+(pass) Task Status Variables Regression Tests > TASK_PARSING_UTILS.getCheckboxFromStatus > should return correct checkbox for TODO status [0.07ms]
+(pass) Task Status Variables Regression Tests > TASK_PARSING_UTILS.getCheckboxFromStatus > should return correct checkbox for IN-PROGRESS status [0.01ms]
+(pass) Task Status Variables Regression Tests > TASK_PARSING_UTILS.getCheckboxFromStatus > should return correct checkbox for DONE status
+(pass) Task Status Variables Regression Tests > TASK_PARSING_UTILS.getCheckboxFromStatus > should not throw 'status is not defined' error [0.02ms]
+
+src/domain/repository.test.ts:
+(pass) Repository backends > placeholder test to make CI pass - RepositoryBackend
+(pass) Repository backends > placeholder test for LocalGitBackend
+(pass) Repository backends > placeholder test for RemoteGitBackend
+(pass) Repository backends > placeholder test for GitHubBackend
+
+src/domain/tasks.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/prepared-merge-commit-workflow.test.ts:
+
+src/domain/session-pr-refresh.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/git.test.ts:
+
+src/domain/session-pr-state-optimization.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/session-pr-branch-reference-bug.test.ts:
+(pass) Session PR Branch Reference Bug Regression > should normalize branch references to prevent origin/origin/main [0.19ms]
+(pass) Session PR Branch Reference Bug Regression > should detect origin/origin/main patterns in git commands [0.06ms]
+(pass) Session PR Branch Reference Bug Regression > should validate git command construction prevents double-prefixing [0.05ms]
+(pass) Session PR Branch Reference Bug Regression > should document the specific bug that was fixed [0.03ms]
+
+src/domain/github-basic.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/git.pr.test.ts:
+
+src/domain/session-start-consistency.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/task-status-bug-regression.test.ts:
+(pass) Task Status Bug Regression Tests > TASK_PARSING_UTILS.getCheckboxFromStatus > should return correct checkbox for TODO status [0.03ms]
+(pass) Task Status Bug Regression Tests > TASK_PARSING_UTILS.getCheckboxFromStatus > should return correct checkbox for IN-PROGRESS status [0.05ms]
+(pass) Task Status Bug Regression Tests > TASK_PARSING_UTILS.getCheckboxFromStatus > should return correct checkbox for IN-REVIEW status
+(pass) Task Status Bug Regression Tests > TASK_PARSING_UTILS.getCheckboxFromStatus > should return correct checkbox for DONE status
+(pass) Task Status Bug Regression Tests > TASK_PARSING_UTILS.getCheckboxFromStatus > should return correct checkbox for BLOCKED status
+(pass) Task Status Bug Regression Tests > TASK_PARSING_UTILS.getCheckboxFromStatus > should not throw 'status is not defined' error [0.03ms]
+(pass) Task Status Bug Regression Tests > Integration test with task status functionality > should handle all status transitions without variable naming errors [0.06ms]
+
+tests/consolidated-utilities/variable-naming-fixer.test.ts:
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 1 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-I97bO9/test.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 1
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+(pass) Variable Naming Fixer Consolidated > Underscore Prefix Mismatches > should fix parameter definitions with underscores when usage has no underscore [8.46ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 1 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-Trd5mo/test.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 1
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+(pass) Variable Naming Fixer Consolidated > Underscore Prefix Mismatches > should fix variable declarations with underscores when usage has no underscore [4.81ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 2 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-c1JdyY/test.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 2
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 2 fixes
+(pass) Variable Naming Fixer Consolidated > Underscore Prefix Mismatches > should handle destructuring with underscore mismatches [3.69ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Variable Naming Fixer Consolidated > Boundary Validation - Should NOT Change > should NOT change intentionally unused parameters with underscores [2.48ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Variable Naming Fixer Consolidated > Boundary Validation - Should NOT Change > should NOT change variables that are used with underscores consistently [1.52ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Variable Naming Fixer Consolidated > Boundary Validation - Should NOT Change > should NOT change underscore patterns in strings or comments [1.55ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+(pass) Variable Naming Fixer Consolidated > Boundary Validation - Should NOT Change > should handle scope correctly - same variable names in different scopes [2.04ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+(pass) Variable Naming Fixer Consolidated > Error Handling > should handle files with syntax errors gracefully [2.10ms]
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-JYKcwg/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-JYKcwg/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-JYKcwg/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Variable Naming Fixer Consolidated > Error Handling > should handle non-existent patterns gracefully [1.35ms]
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-pbrUrD/broken.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-pbrUrD/broken.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-pbrUrD/broken.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 2 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-8fR6jy/mixed.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 2
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 2 fixes
+(pass) Variable Naming Fixer Consolidated > Complex Scenarios > should handle mixed scenarios correctly [7.10ms]
+249 | 
+250 |       console.log = originalLog;
+251 | 
+252 |       // Check that metrics were logged
+253 |       const metricsLog = logs.find(log => log.includes("Variable Naming Fix Results"));
+254 |       expect(metricsLog).toBeDefined();
+                               ^
+error: expect(received).toBeDefined()
+
+Received: undefined
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/variable-naming-fixer.test.ts:254:26)
+(fail) Variable Naming Fixer Consolidated > Performance and Metrics > should provide accurate metrics [3.17ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+284 |       writeFileSync(testFile, originalCode);
+285 | 
+286 |       fixer.processFiles(`${testDir}/**/*.ts`);
+287 | 
+288 |       const fixedCode = readFileSync(testFile, "utf-8");
+289 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "interface Config {\n  _value: string;\n}\n\nfunction test<T>(_generic: T): Promise<T> {\n  const typed: T = _generic;\n  return Promise.resolve(typed);\n}"
+Received: "interface Config {\n  _value: string;\n}\n\nfunction test<T>(_generic: T): Promise<T> {\n  const _typed: T = _generic;\n  return Promise.resolve(typed);\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/variable-naming-fixer.test.ts:289:32)
+(fail) Variable Naming Fixer Consolidated > Integration with AST Analysis > should properly parse TypeScript files with complex syntax [2.23ms]
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-mgyO4x/metrics.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-mgyO4x/metrics.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-mgyO4x/metrics.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 2 fixes
+
+tests/consolidated-utilities/typescript-error-fixer.test.ts:
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-YSq0ZC/complex-syntax.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-YSq0ZC/complex-syntax.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-YSq0ZC/complex-syntax.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+41 |       writeFileSync(testFile, originalCode);
+42 | 
+43 |       fixer.processFiles(`${testDir}/**/*.ts`);
+44 | 
+45 |       const fixedCode = readFileSync(testFile, "utf-8");
+46 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "function test(param: any) {\n  return param;\n}"
+Received: "function test(param) {\n  return param;\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:46:32)
+(fail) TypeScript Error Fixer Consolidated > Type Annotations > should add missing type annotations [343.36ms]
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+65 |       writeFileSync(testFile, originalCode);
+66 | 
+67 |       fixer.processFiles(`${testDir}/**/*.ts`);
+68 | 
+69 |       const fixedCode = readFileSync(testFile, "utf-8");
+70 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "let data: any;\nconst array: any[] = [];\nfunction process(value: any) {\n  return value;\n}"
+Received: "let data;\nconst array = [];\nfunction process(value) {\n  return value;\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:70:32)
+(fail) TypeScript Error Fixer Consolidated > Type Annotations > should fix implicit any types [196.31ms]
+🔧 Processing 1 TypeScript files for error fixing...
+Error fixing TS2339 in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-4ufB4L/test.ts: 331 | (function (errors) {
+332 |     class BaseError extends Error {
+333 |         constructor(message, node) {
+334 |             const nodeLocation = node && getPrettyNodeLocation(node);
+335 |             const messageWithLocation = nodeLocation ? `${message}\n\n${nodeLocation}` : message;
+336 |             super(messageWithLocation);
+                  ^
+error: Manipulation error: A syntax error was inserted.
+
+[96m../../../../../../../var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-4ufB4L/test.ts[0m:[93m3[0m:[93m24[0m - [91merror[0m[90m TS1005: [0m';' expected.
+
+[7m3[0m   return Promise as any?.resolve("test" as any);
+[7m [0m [91m                       ~~[0m
+
+Error replacing tree: The children of the old and new trees were expected to have the same count (1:3).
+
+-- Details --
+Path: /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-4ufB4L/test.ts
+Text: "\nfunction test() {\n  return Promise as any?.resolve(\"test\" as any);\n}"
+Stack: Error: Error replacing tree: The children of the old and new trees were expected to have the same count (1:3).
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1494:23)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1432:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1432:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2389:21)
+    at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+    at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+    at fixTS2339 (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:290:20)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:368:35)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:348:29)
+    at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:84:13)
+ filePath: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-4ufB4L/test.ts",
+  oldText: "\nfunction test() {\n  return Promise?.resolve(\"test\" as any);\n}",
+  newText: "\nfunction test() {\n  return Promise as any?.resolve(\"test\" as any);\n}",
+
+      at new BaseError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:336:13)
+      at new InvalidOperationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:388:13)
+      at new ManipulationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2376:9)
+      at throwError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2405:19)
+      at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2399:13)
+      at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+      at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+      at fixTS2339 (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:290:20)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:368:35)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:348:29)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:84:13)
+
+(pass) TypeScript Error Fixer Consolidated > Import/Export Fixes > should fix missing imports [235.20ms]
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) TypeScript Error Fixer Consolidated > Import/Export Fixes > should fix export syntax [164.03ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-4ufB4L/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-4ufB4L/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-4ufB4L/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2345: 1 fixes
+   TS18048: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+(pass) TypeScript Error Fixer Consolidated > Generic Type Fixes > should fix generic constraint errors [166.44ms]
+🔧 Processing 1 TypeScript files for error fixing...
+(pass) TypeScript Error Fixer Consolidated > Generic Type Fixes > should handle complex generic scenarios [173.91ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-ePZDdk/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-ePZDdk/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-ePZDdk/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+(pass) TypeScript Error Fixer Consolidated > Boundary Validation - Should NOT Change > should NOT change properly typed code [185.56ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-MIZ6qg/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-MIZ6qg/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-MIZ6qg/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+   TS2353: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) TypeScript Error Fixer Consolidated > Boundary Validation - Should NOT Change > should NOT change complex type structures [176.01ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-PBgUKq/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-PBgUKq/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-PBgUKq/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+   TS2353: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) TypeScript Error Fixer Consolidated > Error Handling > should handle files with syntax errors gracefully [156.56ms]
+🔧 Processing 1 TypeScript files for error fixing...
+Error fixing TS2339 in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-y0rLGD/complex.ts: 331 | (function (errors) {
+332 |     class BaseError extends Error {
+333 |         constructor(message, node) {
+334 |             const nodeLocation = node && getPrettyNodeLocation(node);
+335 |             const messageWithLocation = nodeLocation ? `${message}\n\n${nodeLocation}` : message;
+336 |             super(messageWithLocation);
+                  ^
+error: Manipulation error: A syntax error was inserted.
+
+[96m../../../../../../../var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-y0rLGD/complex.ts[0m:[93m5[0m:[93m22[0m - [91merror[0m[90m TS1005: [0m';' expected.
+
+[7m5[0m   return Array as any?.isArray(value as any) ? value : [value] as ConditionalType<T>;
+[7m [0m [91m                     ~~[0m
+
+Error replacing tree: The children of the old and new trees were expected to have the same count (1:3).
+
+-- Details --
+Path: /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-y0rLGD/complex.ts
+Text: "...nalType<T> = T extends string ? string[] : T[];\n\nfunction process<T>(value: T): ConditionalType<T> {\n  return Array as any?.isArray(value as any) ? value : [value] as ConditionalType<T>;\n}"
+Stack: Error: Error replacing tree: The children of the old and new trees were expected to have the same count (1:3).
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1494:23)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1432:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1432:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2389:21)
+    at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+    at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+    at fixTS2339 (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:290:20)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:368:35)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:348:29)
+    at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:209:13)
+ filePath: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-y0rLGD/complex.ts",
+  oldText: "\ntype ConditionalType<T> = T extends string ? string[] : T[];\n\nfunction process<T>(value: T): ConditionalType<T> {\n  return Array?.isArray(value as any) ? value : [value] as ConditionalType<T>;\n}",
+  newText: "\ntype ConditionalType<T> = T extends string ? string[] : T[];\n\nfunction process<T>(value: T): ConditionalType<T> {\n  return Array as any?.isArray(value as any) ? value : [value] as ConditionalType<T>;\n}",
+
+      at new BaseError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:336:13)
+      at new InvalidOperationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:388:13)
+      at new ManipulationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2376:9)
+      at throwError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2405:19)
+      at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2399:13)
+      at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+      at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+      at fixTS2339 (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:290:20)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:368:35)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:348:29)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:209:13)
+
+(pass) TypeScript Error Fixer Consolidated > Error Handling > should handle complex TypeScript syntax [207.19ms]
+235 | 
+236 |       console.log = originalLog;
+237 | 
+238 |       // Check that metrics were logged
+239 |       const metricsLog = logs.find(log => log.includes("TypeScript Error Fix Results"));
+240 |       expect(metricsLog).toBeDefined();
+                               ^
+error: expect(received).toBeDefined()
+
+Received: undefined
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:240:26)
+(fail) TypeScript Error Fixer Consolidated > Performance and Metrics > should provide accurate metrics [158.65ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-y0rLGD/complex.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-y0rLGD/complex.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-y0rLGD/complex.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2345: 1 fixes
+   TS18048: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+(pass) TypeScript Error Fixer Consolidated > Integration with AST Analysis > should handle nested function types [168.69ms]
+
+tests/consolidated-utilities/unused-elements-fixer.test.ts:
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-897VPe/nested.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-897VPe/nested.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-897VPe/nested.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+40 |       writeFileSync(testFile, originalCode);
+41 | 
+42 |       fixer.processFiles(`${testDir}/**/*.ts`);
+43 | 
+44 |       const fixedCode = readFileSync(testFile, "utf-8");
+45 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "const used = \"hello\";\nconsole.log(used);"
+Received: "const used = \"hello\";\nconst unused = \"world\";\nconsole.log(used);"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:45:32)
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused variable declarations [3.86ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+60 |       writeFileSync(testFile, originalCode);
+61 | 
+62 |       fixer.processFiles(`${testDir}/**/*.ts`);
+63 | 
+64 |       const fixedCode = readFileSync(testFile, "utf-8");
+65 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "function test(used: string) {\n  return used.length;\n}"
+Received: "function test(used: string, unused: number) {\n  return used.length;\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:65:32)
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused function parameters [1.38ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-MPThoY/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-MPThoY/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-MPThoY/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+79 |       writeFileSync(testFile, originalCode);
+80 | 
+81 |       fixer.processFiles(`${testDir}/**/*.ts`);
+82 | 
+83 |       const fixedCode = readFileSync(testFile, "utf-8");
+84 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "import { used } from \"./module\";\nconsole.log(used);"
+Received: "import { used, unused } from \"./module\";\nimport { anotherUnused } from \"./other\";\nconsole.log(used);"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:84:32)
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused imports [1.62ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-2NPtTV/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-2NPtTV/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-2NPtTV/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-parameters: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Unused Elements Fixer Consolidated > Boundary Validation - Should NOT Remove > should NOT remove variables with underscore prefix (intentionally unused) [0.83ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+(pass) Unused Elements Fixer Consolidated > Boundary Validation - Should NOT Remove > should NOT remove exports [1.14ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Unused Elements Fixer Consolidated > Boundary Validation - Should NOT Remove > should NOT remove type definitions [0.98ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-ySleHr/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-ySleHr/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-ySleHr/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Unused Elements Fixer Consolidated > Boundary Validation - Should NOT Remove > should NOT remove variables used in closures [1.15ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+Error fixing unused-variables in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-E98brK/test.ts: 331 | (function (errors) {
+332 |     class BaseError extends Error {
+333 |         constructor(message, node) {
+334 |             const nodeLocation = node && getPrettyNodeLocation(node);
+335 |             const messageWithLocation = nodeLocation ? `${message}\n\n${nodeLocation}` : message;
+336 |             super(messageWithLocation);
+                  ^
+error: Manipulation error: A syntax error was inserted.
+
+[96m../../../../../../../var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-E98brK/test.ts[0m:[93m2[0m:[93m8[0m - [91merror[0m[90m TS1005: [0m',' expected.
+
+[7m2[0m const _{ used, unused } = getData();
+[7m [0m [91m       ~[0m
+
+Error replacing tree: The children of the old and new trees were expected to have the same count (1:2).
+
+-- Details --
+Path: /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-E98brK/test.ts
+Text: "\nconst _{ used, unused } = getData();\nconsole.log(used);"
+Stack: Error: Error replacing tree: The children of the old and new trees were expected to have the same count (1:2).
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1494:23)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2389:21)
+    at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+    at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+    at fixUnusedVariables (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:150:35)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:353:35)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:333:29)
+    at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:169:13)
+ filePath: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-E98brK/test.ts",
+  oldText: "\nconst { used, unused } = getData();\nconsole.log(used);",
+  newText: "\nconst _{ used, unused } = getData();\nconsole.log(used);",
+
+      at new BaseError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:336:13)
+      at new InvalidOperationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:388:13)
+      at new ManipulationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2376:9)
+      at throwError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2405:19)
+      at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2399:13)
+      at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+      at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+      at fixUnusedVariables (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:150:35)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:353:35)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:333:29)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:169:13)
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+167 |       writeFileSync(testFile, originalCode);
+168 | 
+169 |       fixer.processFiles(`${testDir}/**/*.ts`);
+170 | 
+171 |       const fixedCode = readFileSync(testFile, "utf-8");
+172 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "const { used } = getData();\nconsole.log(used);"
+Received: "const { used, unused } = getData();\nconsole.log(used);"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:172:32)
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle destructuring correctly [40.28ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+193 |       writeFileSync(testFile, originalCode);
+194 | 
+195 |       fixer.processFiles(`${testDir}/**/*.ts`);
+196 | 
+197 |       const fixedCode = readFileSync(testFile, "utf-8");
+198 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "const callback = (used: string) => {\n  return used.length;\n};\nconst func = function(used: string) {\n  return used.toUpperCase();\n};"
+Received: "const callback = (used: string, unused: number) => {\n  return used.length;\n};\nconst func = function(used: string, unused: number) {\n  return used.toUpperCase();\n};"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:198:32)
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle function expressions and arrow functions [3.11ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+226 |       writeFileSync(testFile, originalCode);
+227 | 
+228 |       fixer.processFiles(`${testDir}/**/*.ts`);
+229 | 
+230 |       const fixedCode = readFileSync(testFile, "utf-8");
+231 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "class TestClass {\n  private usedProperty = \"used\";\n  \n  public usedMethod() {\n    return this.usedProperty;\n  }\n}"
+Received: "class TestClass {\n  private usedProperty = \"used\";\n  private unusedProperty = \"unused\";\n  \n  public usedMethod() {\n    return this.usedProperty;\n  }\n  \n  private unusedMethod() {\n    return \"unused\";\n  }\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:231:32)
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle class properties and methods [1.10ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-nXMMJe/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-nXMMJe/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-nXMMJe/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 4
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 2 fixes
+   unused-parameters: 2 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+(pass) Unused Elements Fixer Consolidated > Error Handling > should handle files with syntax errors gracefully [1.14ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Unused Elements Fixer Consolidated > Error Handling > should handle empty files gracefully [0.71ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-pFUfSG/broken.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-pFUfSG/broken.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-pFUfSG/broken.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 1 fixes
+287 | 
+288 |       console.log = originalLog;
+289 | 
+290 |       // Check that metrics were logged
+291 |       const metricsLog = logs.find(log => log.includes("Unused Elements Fix Results"));
+292 |       expect(metricsLog).toBeDefined();
+                               ^
+error: expect(received).toBeDefined()
+
+Received: undefined
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:292:26)
+(fail) Unused Elements Fixer Consolidated > Performance and Metrics > should provide accurate metrics [1.41ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+320 |       writeFileSync(testFile, originalCode);
+321 | 
+322 |       fixer.processFiles(`${testDir}/**/*.ts`);
+323 | 
+324 |       const fixedCode = readFileSync(testFile, "utf-8");
+325 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "interface Config {\n  value: string;\n}\n\nfunction test<T>(used: T): T {\n  return used;\n}"
+Received: "interface Config {\n  value: string;\n}\n\nfunction test<T>(used: T, unused: Config): T {\n  return used;\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:325:32)
+(fail) Unused Elements Fixer Consolidated > Integration with AST Analysis > should properly handle TypeScript-specific syntax [1.17ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-9g0MDC/metrics.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-9g0MDC/metrics.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-9g0MDC/metrics.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 2 fixes
+
+src/utils/test-utils/assertions.test.ts:
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-9o6Rm3/typescript-syntax.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-9o6Rm3/typescript-syntax.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-9o6Rm3/typescript-syntax.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-parameters: 1 fixes
+(pass) Custom Assertion Helpers > expectToMatch > should match a string against a regex pattern [0.64ms]
+(pass) Custom Assertion Helpers > expectToHaveLength > should verify array length [0.05ms]
+(pass) Custom Assertion Helpers > expectToHaveLength > should verify string length [0.02ms]
+(pass) Custom Assertion Helpers > expectToBeInstanceOf > should verify object instanceof [0.03ms]
+(pass) Custom Assertion Helpers > expectToHaveProperty > should verify object has property [0.11ms]
+(pass) Custom Assertion Helpers > expectToBeCloseTo > should compare floating point numbers with precision [0.03ms]
+(pass) Custom Assertion Helpers > expectToContainEqual > should check if array contains an item with deep equality [0.08ms]
+
+src/utils/test-utils/enhanced-utils.test.ts:
+(pass) Enhanced Test Utilities > mockFunction > should create a type-safe mock function [0.04ms]
+(pass) Enhanced Test Utilities > mockFunction > should allow changing implementation [0.02ms]
+(pass) Enhanced Test Utilities > createPartialMock > should create a mock with provided implementations [0.09ms]
+(pass) Enhanced Test Utilities > mockReadonlyProperty > should mock readonly properties [0.04ms]
+(pass) Enhanced Test Utilities > createTestDeps > should create default test dependencies [0.08ms]
+(pass) Enhanced Test Utilities > createTestDeps > should allow overriding specific methods [0.06ms]
+(pass) Enhanced Test Utilities > withMockedDeps > should temporarily override dependencies [0.10ms]
+(pass) Enhanced Test Utilities > Factory Functions > should create task data with defaults [0.05ms]
+(pass) Enhanced Test Utilities > Factory Functions > should create task data with overrides [0.02ms]
+(pass) Enhanced Test Utilities > Factory Functions > should create an array of task data [0.07ms]
+(pass) Enhanced Test Utilities > Factory Functions > should create session data [0.04ms]
+(pass) Enhanced Test Utilities > Integration Example > should demonstrate a complex test scenario [0.13ms]
+
+src/utils/test-utils/compatibility.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/utils/test-utils/mocking.test.ts:
+(pass) Mocking Utilities > createMock creates a proper mock function [0.04ms]
+(pass) Mocking Utilities > createMock without implementation returns a mock that returns undefined [0.01ms]
+(pass) Mocking Utilities > createSpyOn spies on object methods [0.05ms]
+(pass) Mocking Utilities > createSpyOn throws error when trying to spy on non-function property [0.07ms]
+
+src/domain/configuration/sessiondb-config.test.ts:
+(pass) SessionDB Configuration Loading > Default Configuration > should provide sensible defaults [0.04ms]
+(pass) SessionDB Configuration Loading > Configuration Structure > should return proper configuration structure [0.57ms]
+(pass) SessionDB Configuration Loading > SessionDB Configuration > should have proper sessiondb configuration fields [0.04ms]
+(pass) SessionDB Configuration Loading > SessionDB Configuration > should validate sessiondb configuration with Zod [0.09ms]
+(pass) SessionDB Configuration Loading > Configuration Validation > should validate repository config [0.44ms]
+(pass) SessionDB Configuration Loading > Configuration Validation > should validate global user config [0.09ms]
+(pass) SessionDB Configuration Loading > Configuration Validation > should handle invalid repository config [0.37ms]
+(pass) SessionDB Configuration Loading > Configuration Validation > should handle invalid global user config [0.14ms]
+(pass) SessionDB Configuration Loading > Direct Config Access > should access configuration values directly [0.05ms]
+(pass) SessionDB Configuration Loading > Direct Config Access > should handle missing configuration values [0.05ms]
+
+src/domain/tasks/utils.test.ts:
+(pass) normalizeTaskId > should normalize "#064" to "#064" (with # and leading zero) [0.06ms]
+(pass) normalizeTaskId > should normalize "#64" to "#64" (with #, no leading zero)
+(pass) normalizeTaskId > should normalize "064" to "#064" (no #, with leading zero)
+(pass) normalizeTaskId > should normalize "64" to "#64" (no #, no leading zero)
+(pass) normalizeTaskId > should normalize "task#064" to "#064" (with task# and leading zero)
+(pass) normalizeTaskId > should normalize "task#64" to "#64" (with task#, no leading zero)
+(pass) normalizeTaskId > should normalize "TASK#64" to "#64" (with TASK# (uppercase), no leading zero)
+(pass) normalizeTaskId > should normalize "  #64  " to "#64" (with whitespace)
+(pass) normalizeTaskId > should normalize "task#0" to "#0" (task ID zero)
+(pass) normalizeTaskId > should normalize "0" to "#0" (task ID zero numeric)
+(pass) normalizeTaskId > should return null for invalid input "abc" (non-numeric)
+(pass) normalizeTaskId > should return null for invalid input "#abc" (# with non-numeric)
+(pass) normalizeTaskId > should return null for invalid input "task#abc" (task# with non-numeric)
+(pass) normalizeTaskId > should return null for invalid input "64a" (numeric followed by alpha)
+(pass) normalizeTaskId > should return null for invalid input "a64" (alpha followed by numeric)
+(pass) normalizeTaskId > should return null for invalid input "#" (only #)
+(pass) normalizeTaskId > should return null for invalid input "task#" (only task#)
+(pass) normalizeTaskId > should return null for invalid input "" (empty string)
+(pass) normalizeTaskId > should return null for invalid input "   " (whitespace only)
+(pass) normalizeTaskId > should return null for invalid input "null" (null input)
+(pass) normalizeTaskId > should return null for invalid input "undefined" (undefined input)
+(pass) normalizeTaskId > should return null for invalid input "123" (number input type)
+
+src/domain/tasks/taskService-jsonFile-integration.test.ts:
+(pass) TaskService JsonFile Integration (Enhanced) > Basic Task Operations > should create and retrieve tasks [1.33ms]
+(pass) TaskService JsonFile Integration (Enhanced) > Basic Task Operations > should handle multiple tasks [0.90ms]
+(pass) TaskService JsonFile Integration (Enhanced) > Basic Task Operations > should update task status [0.49ms]
+(pass) TaskService JsonFile Integration (Enhanced) > Error Handling > should handle invalid task IDs gracefully [0.17ms]
+(pass) TaskService JsonFile Integration (Enhanced) > Error Handling > should validate task status values [0.16ms]
+(pass) TaskService JsonFile Integration (Enhanced) > Data Persistence > should persist changes across service instances [0.30ms]
+(pass) TaskService JsonFile Integration (Enhanced) > Test Isolation Validation > should maintain proper test isolation [0.08ms]
+(pass) TaskService JsonFile Integration (Enhanced) > Test Isolation Validation > should cleanup properly after each test [0.06ms]
+
+src/domain/tasks/jsonFileTaskBackend.test.ts:
+(pass) JsonFileTaskBackend > storage operations > should initialize storage correctly [0.03ms]
+(pass) JsonFileTaskBackend > storage operations > should store and retrieve tasks [0.54ms]
+(pass) JsonFileTaskBackend > storage operations > should update tasks [0.43ms]
+(pass) JsonFileTaskBackend > storage operations > should delete tasks [1.60ms]
+(pass) JsonFileTaskBackend > TaskBackend interface compliance > should implement getTasksData [0.08ms]
+(pass) JsonFileTaskBackend > TaskBackend interface compliance > should implement saveTasksData [0.24ms]
+(pass) JsonFileTaskBackend > TaskBackend interface compliance > should implement parseTasks [0.06ms]
+(pass) JsonFileTaskBackend > TaskBackend interface compliance > should implement formatTasks [0.06ms]
+(pass) JsonFileTaskBackend > TaskBackend interface compliance > should handle task spec operations [0.30ms]
+(pass) JsonFileTaskBackend > markdown compatibility > should parse markdown task format [0.17ms]
+(pass) JsonFileTaskBackend > helper methods > should generate correct task spec paths [0.04ms]
+(pass) JsonFileTaskBackend > helper methods > should return correct workspace path [0.02ms]
+
+src/domain/tasks/special-workspace-integration.test.ts:
+(pass) Special Workspace Integration > TaskService with Backend Routing > should create TaskService with external backends [0.38ms]
+(pass) Special Workspace Integration > TaskService with Backend Routing > should route JSON backend correctly based on file location [0.14ms]
+(pass) Special Workspace Integration > Backend Router Factory Methods > should create external-only router
+(pass) Special Workspace Integration > Backend Router Factory Methods > should create router with repository URL [0.04ms]
+(pass) Special Workspace Integration > Backend Configuration Priority > should use explicit dbFilePath when provided [0.14ms]
+(pass) Special Workspace Integration > Backend Configuration Priority > should detect team-shareable location correctly [0.07ms]
+(pass) Special Workspace Integration > Error Recovery > should handle backend creation errors gracefully [0.14ms]
+(pass) Special Workspace Integration > Error Recovery > should handle missing repository URL for in-tree operations [0.17ms]
+(pass) Special Workspace Integration > Team Collaboration Benefits > should demonstrate centralized storage advantage [0.06ms]
+
+src/domain/tasks/real-world-workflow.test.ts:
+(pass) Real-World Workflow Testing > JSON Backend Real Storage > should actually create and store data in the correct location [0.31ms]
+(pass) Real-World Workflow Testing > JSON Backend Real Storage > should default to process/tasks.json when no explicit path provided [0.06ms]
+(pass) Real-World Workflow Testing > TaskService Integration > should work with JSON backend for complete task operations [0.37ms]
+(pass) Real-World Workflow Testing > Error Handling > should handle missing process directory gracefully [0.09ms]
+
+src/domain/tasks/taskService.test.ts:
+(pass) TaskService > listTasks > should get tasks data and parse it [0.12ms]
+(pass) TaskService > listTasks > should filter tasks by status if provided [0.06ms]
+(pass) TaskService > listTasks > should return empty array if data retrieval fails [0.05ms]
+(pass) TaskService > getTask > should find a task by ID [0.05ms]
+(pass) TaskService > getTask > should find a task by ID without # prefix [0.05ms]
+(pass) TaskService > getTask > should return null if task not found [0.03ms]
+(pass) TaskService > getTaskStatus > should get a task's status [0.02ms]
+(pass) TaskService > getTaskStatus > should return null if task not found [0.04ms]
+(pass) TaskService > setTaskStatus > should update a task's status [0.10ms]
+(pass) TaskService > setTaskStatus > should throw error for invalid status [0.08ms]
+(pass) TaskService > setTaskStatus > should throw error if task not found [0.05ms]
+(pass) TaskService > createTask > should create a new task from spec file [0.09ms]
+(pass) TaskService > createTask > should throw error if spec file read fails [0.06ms]
+(pass) TaskService > backend handling > should throw error for non-existent backend [0.08ms]
+(pass) TaskService > backend handling > should use markdown backend by default [0.04ms]
+
+src/domain/tasks/task-backend-router.test.ts:
+(pass) TaskBackendRouter > Manual Override (isInTreeBackend method) > should use manual override for MarkdownTaskBackend (which has isInTreeBackend) [0.04ms]
+52 |       const routingInfo = router.getBackendRoutingInfo(jsonBackend);
+53 | 
+54 |       expect(routingInfo.category).toBe("in-tree");
+55 |       expect(routingInfo.requiresSpecialWorkspace).toBe(true);
+56 |       // Should use manual override description since backend has isInTreeBackend method
+57 |       expect(routingInfo.description).toContain("Manually configured as in-tree");
+                                           ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Manually configured as in-tree"
+Received: "JSON file stored in repository process directory"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/task-backend-router.test.ts:57:39)
+(fail) TaskBackendRouter > Manual Override (isInTreeBackend method) > should use manual override for JsonFileTaskBackend (which has isInTreeBackend) [0.13ms]
+(pass) TaskBackendRouter > Auto-Detection Logic (without isInTreeBackend method) > should auto-detect MarkdownTaskBackend as in-tree when isInTreeBackend is removed [0.04ms]
+(pass) TaskBackendRouter > Auto-Detection Logic (without isInTreeBackend method) > should auto-detect JsonFileTaskBackend as in-tree when using process directory [0.03ms]
+(pass) TaskBackendRouter > Auto-Detection Logic (without isInTreeBackend method) > should auto-detect JsonFileTaskBackend as in-tree when using .minsky directory [0.02ms]
+(pass) TaskBackendRouter > Auto-Detection Logic (without isInTreeBackend method) > should auto-detect JsonFileTaskBackend as external when using external path [0.02ms]
+(pass) TaskBackendRouter > Manual Override Support > should respect isInTreeBackend() manual override when true [0.02ms]
+(pass) TaskBackendRouter > Manual Override Support > should respect isInTreeBackend() manual override when false [0.03ms]
+(pass) TaskBackendRouter > Router Creation > should create external-only router successfully
+(pass) TaskBackendRouter > Router Creation > should create router with repository URL [0.04ms]
+(pass) TaskBackendRouter > Backend Operation Routing > should route external backends to current directory [0.08ms]
+(pass) TaskBackendRouter > Backend Operation Routing > should throw error for in-tree backend without repository URL [0.04ms]
+(pass) TaskBackendRouter > Helper Methods > should detect SQLite backends correctly [0.08ms]
+(pass) TaskBackendRouter > Helper Methods > should detect PostgreSQL backends correctly [0.03ms]
+(pass) TaskBackendRouter > Helper Methods > should default to external for unknown backends [0.02ms]
+{"level":"warn","message":"Failed to determine JSON backend file path, defaulting to in-tree","timestamp":"2025-07-15T03:50:03.374Z"}
+(pass) TaskBackendRouter > Error Handling > should handle errors in JSON backend file path extraction gracefully [0.21ms]
+
+src/domain/tasks/taskFunctions.test.ts:
+(pass) Task Functions > normalizeTaskId > should return canonical form for valid IDs [0.03ms]
+(pass) Task Functions > normalizeTaskId > should handle various prefix patterns [0.02ms]
+(pass) Task Functions > normalizeTaskId > should return null for non-numeric input [0.01ms]
+(pass) Task Functions > normalizeTaskId > should extract numeric portion from mixed formats [0.01ms]
+(pass) Task Functions > normalizeTaskId > should handle alphanumeric task IDs
+(pass) Task Functions > parseTasksFromMarkdown > should return empty array for empty content [0.10ms]
+(pass) Task Functions > parseTasksFromMarkdown > should parse tasks from markdown content [0.15ms]
+(pass) Task Functions > parseTasksFromMarkdown > should ignore tasks in code blocks [0.02ms]
+(pass) Task Functions > formatTasksToMarkdown > should return empty string for empty array [0.02ms]
+(pass) Task Functions > formatTasksToMarkdown > should format tasks to markdown with one-liner format only [0.03ms]
+(pass) Task Functions > formatTasksToMarkdown > should use task specPath if available [0.02ms]
+(pass) Task Functions > getTaskById > should return null for empty input [0.03ms]
+(pass) Task Functions > getTaskById > should find task by exact ID match [0.02ms]
+(pass) Task Functions > getTaskById > should find task by ID without # prefix [0.02ms]
+(pass) Task Functions > getTaskById > should handle numeric equivalence [0.02ms]
+(pass) Task Functions > getNextTaskId > should return #001 for empty tasks array [0.01ms]
+(pass) Task Functions > getNextTaskId > should find the maximum ID and increment it [0.03ms]
+(pass) Task Functions > getNextTaskId > should handle non-sequential IDs [0.01ms]
+(pass) Task Functions > getNextTaskId > should pad with zeros
+(pass) Task Functions > setTaskStatus > should update a task's status [0.04ms]
+(pass) Task Functions > setTaskStatus > should work with task ID variations [0.01ms]
+(pass) Task Functions > setTaskStatus > should return original array if task not found
+(pass) Task Functions > setTaskStatus > should return original array if status is invalid
+(pass) Task Functions > addTask > should add a new task to the array [0.03ms]
+(pass) Task Functions > addTask > should replace an existing task with the same ID [0.01ms]
+(pass) Task Functions > addTask > should generate an ID if not provided [0.02ms]
+(pass) Task Functions > filterTasks > should return all tasks if no filter provided [0.02ms]
+(pass) Task Functions > filterTasks > should filter by status [0.05ms]
+(pass) Task Functions > filterTasks > should filter by ID [0.01ms]
+(pass) Task Functions > filterTasks > should filter by title (string match) [0.01ms]
+(pass) Task Functions > filterTasks > should filter by title (regex match) [0.01ms]
+(pass) Task Functions > filterTasks > should filter by specPath existence [0.01ms]
+(pass) Task Functions > filterTasks > should combine multiple filter criteria [0.02ms]
+(pass) Task Functions > parseTaskSpecFromMarkdown > should parse task spec from markdown [0.09ms]
+(pass) Task Functions > parseTaskSpecFromMarkdown > should handle specs without task ID [0.02ms]
+(pass) Task Functions > parseTaskSpecFromMarkdown > should handle general heading format
+(pass) Task Functions > parseTaskSpecFromMarkdown > should return empty values for invalid input
+(pass) Task Functions > formatTaskSpecToMarkdown > should format task spec to markdown with ID [0.02ms]
+(pass) Task Functions > formatTaskSpecToMarkdown > should format task spec without ID
+(pass) Task Functions > isValidTaskStatus > should validate correct statuses [0.01ms]
+(pass) Task Functions > isValidTaskStatus > should reject invalid statuses [0.01ms]
+
+src/domain/tasks/configuration-integration.test.ts:
+{"error":{"code":"ENOENT","errno":-2,"path":"/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/config-test-1752551403379/process/tasks.md","syscall":"open"},"level":"error","message":"Failed to read tasks file: /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/config-test-1752551403379/process/tasks.md","timestamp":"2025-07-15T03:50:03.381Z"}
+(pass) Configuration Integration > createConfiguredTaskService should use configuration to resolve backend [2.33ms]
+(pass) Configuration Integration > createConfiguredTaskService should fall back to default when configuration fails [0.11ms]
+(pass) Configuration Integration > createConfiguredTaskService should respect explicit backend parameter [0.41ms]
+
+src/domain/tasks/githubIssuesTaskBackend.test.ts:
+(pass) GitHubIssuesTaskBackend > configuration > should create instance with correct configuration [0.02ms]
+(pass) GitHubIssuesTaskBackend > configuration > should initialize with custom status labels [0.16ms]
+{"error":"[\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"number\",\n    \"received\": \"undefined\",\n    \"path\": [\n      0,\n      \"id\"\n    ],\n    \"message\": \"Required\"\n  },\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      0,\n      \"labels\",\n      0,\n      \"color\"\n    ],\n    \"message\": \"Required\"\n  },\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"array\",\n    \"received\": \"undefined\",\n    \"path\": [\n      0,\n      \"assignees\"\n    ],\n    \"message\": \"Required\"\n  }\n]","level":"error","message":"Failed to parse GitHub issues data","timestamp":"2025-07-15T03:50:03.386Z"}
+61 |         },
+62 |       ]);
+63 | 
+64 |       const tasks = backend.parseTasks(issuesJson);
+65 | 
+66 |       expect(tasks.length).toBe(1);
+                                ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/githubIssuesTaskBackend.test.ts:66:28)
+(fail) GitHubIssuesTaskBackend > parseTasks > should parse GitHub issues into TaskData objects [0.48ms]
+{"error":"JSON Parse error: Unexpected identifier \"invalid\"","level":"error","message":"Failed to parse GitHub issues data","timestamp":"2025-07-15T03:50:03.386Z"}
+(pass) GitHubIssuesTaskBackend > parseTasks > should handle invalid JSON gracefully [0.06ms]
+(pass) GitHubIssuesTaskBackend > formatTasks > should format TaskData objects for GitHub API [0.07ms]
+(pass) GitHubIssuesTaskBackend > parseTaskSpec > should parse task specification content [0.08ms]
+(pass) GitHubIssuesTaskBackend > formatTaskSpec > should format task specification data [0.04ms]
+(pass) GitHubIssuesTaskBackend > getTaskSpecPath > should generate correct spec path [0.02ms]
+(pass) GitHubIssuesTaskBackend > getTaskSpecPath > should handle task ID without # prefix
+(pass) GitHubIssuesTaskBackend > getTaskSpecPath > should normalize title for filename [0.01ms]
+
+src/domain/tasks/taskConstants.test.ts:
+(pass) Task Constants and Utilities > Basic Constants > should have all required task statuses [1.34ms]
+(pass) Task Constants and Utilities > Basic Constants > should have bidirectional mapping between status and checkbox [0.08ms]
+(pass) Task Constants and Utilities > Regex Patterns > should match valid task lines [0.06ms]
+(pass) Task Constants and Utilities > Regex Patterns > should not match invalid task lines [0.03ms]
+(pass) Task Constants and Utilities > Parsing Utilities > should parse valid task lines correctly [0.07ms]
+(pass) Task Constants and Utilities > Parsing Utilities > should return null for invalid task lines [0.02ms]
+(pass) Task Constants and Utilities > Parsing Utilities > should replace checkbox status correctly [0.05ms]
+(pass) Task Constants and Utilities > Parsing Utilities > should get status from checkbox correctly [0.02ms]
+(pass) Task Constants and Utilities > Parsing Utilities > should get checkbox from status correctly
+(pass) Task Constants and Utilities > Parsing Utilities > should validate task-like lines correctly [0.02ms]
+(pass) Task Constants and Utilities > Status Validation > should validate valid statuses [0.03ms]
+(pass) Task Constants and Utilities > Status Validation > should reject invalid statuses
+(pass) Task Constants and Utilities > Dynamic Pattern Generation > should generate patterns that include all status characters [0.03ms]
+(pass) Task Constants and Utilities > Dynamic Pattern Generation > should handle new status additions gracefully [0.03ms]
+
+src/domain/tasks/taskCommands.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/workspace/session-path-resolver.test.ts:
+(pass) SessionPathResolver > validateAndResolvePath > should resolve relative paths within session [0.05ms]
+(pass) SessionPathResolver > validateAndResolvePath > should resolve current directory reference [0.01ms]
+(pass) SessionPathResolver > validateAndResolvePath > should throw error for path traversal outside session [0.07ms]
+(pass) SessionPathResolver > validateAndResolvePath > should throw error for absolute paths outside session [0.02ms]
+(pass) SessionPathResolver > validateAndResolvePath > should handle complex path traversal attempts [0.01ms]
+(pass) SessionPathResolver > validateAndResolvePath > should allow absolute paths within session
+(pass) SessionPathResolver > isPathWithinSession > should return true for paths within session [0.03ms]
+(pass) SessionPathResolver > isPathWithinSession > should return false for paths outside session
+(pass) SessionPathResolver > isPathWithinSession > should return true for session root
+(pass) SessionPathResolver > absoluteToRelative > should convert absolute path to relative [0.02ms]
+(pass) SessionPathResolver > absoluteToRelative > should return null for paths outside session
+(pass) SessionPathResolver > absoluteToRelative > should return '.' for session root
+(pass) SessionPathResolver > getRelativePathFromSession > should get relative path from user input [0.02ms]
+(pass) SessionPathResolver > getRelativePathFromSession > should normalize relative path from user input [0.01ms]
+(pass) SessionPathResolver > getRelativePathFromSession > should return '.' for session root reference
+(pass) SessionPathResolver > validateMultiplePaths > should validate multiple valid paths [0.06ms]
+(pass) SessionPathResolver > validateMultiplePaths > should throw error if any path is invalid [0.08ms]
+(pass) SessionPathResolver > createSafePath > should create safe path from components [0.05ms]
+(pass) SessionPathResolver > createSafePath > should throw error for unsafe path components [0.03ms]
+
+src/domain/storage/database-integrity-checker.test.ts:
+75 |   });
+76 | 
+77 |   describe("File Format Detection", () => {
+78 |     test("should detect valid SQLite format", async () => {
+79 |       // Create a valid SQLite file
+80 |       const db = new Database(testDbPath);
+                      ^
+SQLiteError: unable to open database file
+      errno: 14,
+ byteOffset: -1,
+       code: "SQLITE_CANTOPEN"
+
+      at new Database (bun:sqlite:240:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:80:18)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:78:47)
+(fail) DatabaseIntegrityChecker > File Format Detection > should detect valid SQLite format [1.44ms]
+(pass) DatabaseIntegrityChecker > File Format Detection > should detect valid JSON format [0.68ms]
+(pass) DatabaseIntegrityChecker > File Format Detection > should detect corrupted JSON format [0.67ms]
+(pass) DatabaseIntegrityChecker > File Format Detection > should detect empty file [0.14ms]
+(pass) DatabaseIntegrityChecker > File Format Detection > should detect missing file [0.16ms]
+(pass) DatabaseIntegrityChecker > Format Mismatch Detection > should detect JSON file when SQLite expected [0.15ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Atodo - 401 with id D312:1BA63D:9BC51A:13AAA4C:6875CFEB in 80ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T03:50:03.466Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Atodo - 401 with id D315:C95B9:91FC78:12739D7:6875CFEB in 81ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T03:50:03.466Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Atodo - 401 with id D30C:3B2D23:95853D:12E2ED0:6875CFEB in 82ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T03:50:03.469Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Atodo - 401 with id D311:108F8F:924738:127E862:6875CFEB in 83ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T03:50:03.469Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Atodo - 401 with id D313:37CE02:99E758:136B889:6875CFEB in 84ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T03:50:03.470Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Atodo - 401 with id D310:E2439:922EB1:127A40A:6875CFEB in 84ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T03:50:03.471Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Atodo - 401 with id D30F:C95B9:91FC81:12739F9:6875CFEB in 86ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T03:50:03.473Z"}
+153 |       expect(migrationAction?.priority).toBe("high");
+154 |     });
+155 | 
+156 |     test("should detect SQLite file when JSON expected", async () => {
+157 |       const sqlitePath = join(testDirPath, "fake-json.json");
+158 |       const db = new Database(sqlitePath);
+                       ^
+SQLiteError: unable to open database file
+      errno: 14,
+ byteOffset: -1,
+       code: "SQLITE_CANTOPEN"
+
+      at new Database (bun:sqlite:240:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:158:18)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:156:58)
+(fail) DatabaseIntegrityChecker > Format Mismatch Detection > should detect SQLite file when JSON expected [0.23ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Atodo - 401 with id D316:C95B9:91FC81:12739FA:6875CFEB in 95ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T03:50:03.479Z"}
+GET /repos/test-owner/test-repo/labels/custom%3Atodo - 401 with id D314:208361:961DC2:12F880B:6875CFEB in 95ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:todo","timestamp":"2025-07-15T03:50:03.480Z"}
+(pass) DatabaseIntegrityChecker > Backup File Detection > should find backup files with standard patterns [0.35ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Atodo - 401 with id D30D:1A3AE8:907094:1244404:6875CFEB in 98ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T03:50:03.485Z"}
+(pass) DatabaseIntegrityChecker > Backup File Detection > should detect session count in JSON backups [0.12ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Atodo - 401 with id D30E:1A8927:9FFC86:14301E9:6875CFEB in 108ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T03:50:03.495Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-progress - 401 with id D315:C95B9:91FCA0:1273A2C:6875CFEB in 36ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T03:50:03.502Z"}
+213 |   });
+214 | 
+215 |   describe("SQLite Integrity Validation", () => {
+216 |     test("should validate SQLite database integrity", async () => {
+217 |       // Create valid SQLite database
+218 |       const db = new Database(testDbPath);
+                       ^
+SQLiteError: unable to open database file
+      errno: 14,
+ byteOffset: -1,
+       code: "SQLITE_CANTOPEN"
+
+      at new Database (bun:sqlite:240:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:218:18)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:216:55)
+(fail) DatabaseIntegrityChecker > SQLite Integrity Validation > should validate SQLite database integrity [0.19ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-progress - 401 with id D311:108F8F:92475A:127E8AE:6875CFEB in 36ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T03:50:03.505Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-progress - 401 with id D30F:C95B9:91FCA9:1273A44:6875CFEB in 33ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T03:50:03.506Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-progress - 401 with id D313:37CE02:99E778:136B8D6:6875CFEB in 40ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T03:50:03.510Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-progress - 401 with id D310:E2439:922ED7:127A459:6875CFEB in 39ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T03:50:03.510Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-progress - 401 with id D312:1BA63D:9BC535:13AAA89:6875CFEB in 46ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T03:50:03.512Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-progress - 401 with id D30C:3B2D23:95856A:12E2F1F:6875CFEB in 43ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T03:50:03.512Z"}
+241 |       expect(result.issues).toHaveLength(0);
+242 |     });
+243 | 
+244 |     test("should detect SQLite database without sessions table", async () => {
+245 |       // Create SQLite database without sessions table
+246 |       const db = new Database(testDbPath);
+                       ^
+SQLiteError: unable to open database file
+      errno: 14,
+ byteOffset: -1,
+       code: "SQLITE_CANTOPEN"
+
+      at new Database (bun:sqlite:240:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:246:18)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:244:66)
+(fail) DatabaseIntegrityChecker > SQLite Integrity Validation > should detect SQLite database without sessions table [0.16ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-progress - 401 with id D316:C95B9:91FCAD:1273A50:6875CFEB in 38ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T03:50:03.517Z"}
+GET /repos/test-owner/test-repo/labels/custom%3Ain-progress - 401 with id D314:208361:961DE5:12F885A:6875CFEB in 38ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:in-progress","timestamp":"2025-07-15T03:50:03.518Z"}
+255 |       );
+256 |     });
+257 | 
+258 |     test("should detect empty SQLite database", async () => {
+259 |       // Create empty SQLite database
+260 |       const db = new Database(testDbPath);
+                       ^
+SQLiteError: unable to open database file
+      errno: 14,
+ byteOffset: -1,
+       code: "SQLITE_CANTOPEN"
+
+      at new Database (bun:sqlite:240:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:260:18)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:258:49)
+(fail) DatabaseIntegrityChecker > SQLite Integrity Validation > should detect empty SQLite database [0.25ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-progress - 401 with id D30D:1A3AE8:9070C0:124446A:6875CFEB in 51ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T03:50:03.536Z"}
+(pass) DatabaseIntegrityChecker > JSON Validation > should validate JSON structure [0.20ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-review - 401 with id D311:108F8F:92477A:127E8EF:6875CFEB in 38ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T03:50:03.543Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-review - 401 with id D315:C95B9:91FCCF:1273A83:6875CFEB in 43ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T03:50:03.545Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-review - 401 with id D312:1BA63D:9BC563:13AAAE7:6875CFEB in 33ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T03:50:03.545Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-review - 401 with id D30F:C95B9:91FCD3:1273A8D:6875CFEB in 40ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T03:50:03.546Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-review - 401 with id D30C:3B2D23:95858B:12E2F81:6875CFEB in 34ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T03:50:03.546Z"}
+(pass) DatabaseIntegrityChecker > JSON Validation > should detect JSON without sessions array [0.16ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-review - 401 with id D313:37CE02:99E7A2:136B927:6875CFEB in 39ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T03:50:03.549Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-review - 401 with id D310:E2439:922F0A:127A4B3:6875CFEB in 42ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T03:50:03.552Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-review - 401 with id D316:C95B9:91FCE0:1273AA8:6875CFEB in 35ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T03:50:03.552Z"}
+(pass) DatabaseIntegrityChecker > JSON Validation > should detect empty JSON sessions array [0.29ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-progress - 401 with id D30E:1A8927:9FFCCC:143026F:6875CFEB in 64ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T03:50:03.559Z"}
+GET /repos/test-owner/test-repo/labels/custom%3Ain-review - 401 with id D314:208361:961E04:12F889F:6875CFEB in 41ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:in-review","timestamp":"2025-07-15T03:50:03.559Z"}
+(pass) DatabaseIntegrityChecker > Suggested Actions > should suggest repair for corrupted database [0.21ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-review - 401 with id D30D:1A3AE8:9070DC:12444D7:6875CFEB in 38ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T03:50:03.574Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Adone - 401 with id D315:C95B9:91FCF6:1273AE4:6875CFEB in 31ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T03:50:03.576Z"}
+(pass) DatabaseIntegrityChecker > Suggested Actions > should suggest initialization for missing database [0.15ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Adone - 401 with id D30F:C95B9:91FCF7:1273AE7:6875CFEB in 34ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T03:50:03.580Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Adone - 401 with id D312:1BA63D:9BC583:13AAB26:6875CFEB in 36ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T03:50:03.581Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Adone - 401 with id D30C:3B2D23:9585AC:12E2FE2:6875CFEB in 35ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T03:50:03.581Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Adone - 401 with id D311:108F8F:9247A4:127E93A:6875CFEB in 39ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T03:50:03.582Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Adone - 401 with id D313:37CE02:99E7C4:136B96B:6875CFEB in 35ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T03:50:03.584Z"}
+(pass) DatabaseIntegrityChecker > Suggested Actions > should prioritize high-priority actions [0.21ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Adone - 401 with id D310:E2439:922F2E:127A52E:6875CFEB in 39ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T03:50:03.591Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Adone - 401 with id D316:C95B9:91FCFA:1273AF5:6875CFEB in 41ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T03:50:03.593Z"}
+(pass) DatabaseIntegrityChecker > Integrity Report Formatting > should format comprehensive integrity report [2.84ms]
+GET /repos/test-owner/test-repo/labels/custom%3Adone - 401 with id D314:208361:961E31:12F890C:6875CFEB in 44ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:done","timestamp":"2025-07-15T03:50:03.603Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ain-review - 401 with id D30E:1A8927:9FFD07:14302E9:6875CFEB in 48ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T03:50:03.607Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Adone - 401 with id D30D:1A3AE8:90710F:124451F:6875CFEB in 34ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T03:50:03.608Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ablocked - 401 with id D315:C95B9:91FD1C:1273B3A:6875CFEB in 37ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T03:50:03.613Z"}
+366 |       expect(report).toContain("BACKUP FILES FOUND:");
+367 |       expect(report).toContain("SUGGESTED ACTIONS:");
+368 |     });
+369 | 
+370 |     test("should format report for valid database", async () => {
+371 |       const db = new Database(testDbPath);
+                       ^
+SQLiteError: unable to open database file
+      errno: 14,
+ byteOffset: -1,
+       code: "SQLITE_CANTOPEN"
+
+      at new Database (bun:sqlite:240:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:371:18)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts:370:53)
+(fail) DatabaseIntegrityChecker > Integrity Report Formatting > should format report for valid database [0.27ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Ablocked - 401 with id D312:1BA63D:9BC5A2:13AAB5D:6875CFEB in 35ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T03:50:03.616Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ablocked - 401 with id D313:37CE02:99E7E7:136B9A7:6875CFEB in 35ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T03:50:03.619Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ablocked - 401 with id D30F:C95B9:91FD21:1273B44:6875CFEB in 42ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T03:50:03.622Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ablocked - 401 with id D311:108F8F:9247D2:127E998:6875CFEB in 41ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T03:50:03.623Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ablocked - 401 with id D30C:3B2D23:9585D8:12E3035:6875CFEB in 42ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T03:50:03.623Z"}
+(pass) DatabaseIntegrityChecker > Error Handling > should handle permission errors gracefully [0.12ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Ablocked - 401 with id D310:E2439:922F5F:127A56A:6875CFEB in 35ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T03:50:03.626Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ablocked - 401 with id D316:C95B9:91FD38:1273B62:6875CFEB in 35ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T03:50:03.628Z"}
+(pass) DatabaseIntegrityChecker > Error Handling > should handle invalid file paths gracefully [0.21ms]
+GET /repos/test-owner/test-repo/labels/custom%3Ablocked - 401 with id D314:208361:961E5D:12F8952:6875CFEB in 39ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:blocked","timestamp":"2025-07-15T03:50:03.642Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Adone - 401 with id D30E:1A8927:9FFD30:1430346:6875CFEB in 35ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T03:50:03.642Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ablocked - 401 with id D30D:1A3AE8:90712A:124456C:6875CFEB in 36ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T03:50:03.644Z"}
+(pass) DatabaseIntegrityChecker > Edge Cases > should handle extremely large backup directories [0.83ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Aclosed - 401 with id D315:C95B9:91FD49:1273B8E:6875CFEB in 35ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T03:50:03.648Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Aclosed - 401 with id D312:1BA63D:9BC5BF:13AABA0:6875CFEB in 36ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T03:50:03.652Z"}
+(pass) DatabaseIntegrityChecker > Edge Cases > should handle backup files with different extensions [0.25ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Aclosed - 401 with id D311:108F8F:9247FB:127E9D7:6875CFEB in 33ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T03:50:03.656Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Aclosed - 401 with id D313:37CE02:99E803:136B9E5:6875CFEB in 38ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T03:50:03.657Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Aclosed - 401 with id D30F:C95B9:91FD58:1273BA8:6875CFEB in 37ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T03:50:03.659Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Aclosed - 401 with id D30C:3B2D23:958604:12E3091:6875CFEB in 41ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T03:50:03.664Z"}
+
+src/domain/storage/json-file-storage.test.ts:
+GET /repos/test-owner/test-repo/labels/minsky%3Aclosed - 401 with id D310:E2439:922F8A:127A5D9:6875CFEB in 42ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T03:50:03.668Z"}
+(pass) JsonFileStorage Core Tests > Core CRUD Operations > should create and retrieve entities [0.13ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Aclosed - 401 with id D316:C95B9:91FD5C:1273BB4:6875CFEB in 42ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T03:50:03.670Z"}
+GET /repos/test-owner/test-repo/labels/minsky%3Ablocked - 401 with id D30E:1A8927:9FFD48:14303A4:6875CFEB in 37ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T03:50:03.679Z"}
+(pass) JsonFileStorage Core Tests > Core CRUD Operations > should update entities [0.12ms]
+GET /repos/test-owner/test-repo/labels/custom%3Aclosed - 401 with id D314:208361:961E7F:12F8994:6875CFEB in 38ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:closed","timestamp":"2025-07-15T03:50:03.680Z"}
+(pass) JsonFileStorage Core Tests > Core CRUD Operations > should delete entities [0.20ms]
+(pass) JsonFileStorage Core Tests > Core CRUD Operations > should get all entities [0.21ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Aclosed - 401 with id D30D:1A3AE8:907150:12445AE:6875CFEB in 61ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T03:50:03.705Z"}
+(pass) JsonFileStorage Core Tests > State Management > should read and write state [0.08ms]
+GET /repos/test-owner/test-repo/labels/minsky%3Aclosed - 401 with id D315:C95B9:91FD91:1273C1E:6875CFEB in 39ms
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T03:50:03.718Z"}
+(pass) JsonFileStorage Core Tests > Error Handling > should handle non-existent entities gracefully [0.08ms]
+(pass) JsonFileStorage Core Tests > Persistence > should persist data across storage instances [0.11ms]
+(pass) JsonFileStorage Core Tests > Persistence > should handle storage location correctly [0.03ms]
+
+src/domain/__tests__/tasks.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/git/conflict-detection.test.ts:
+
+src/domain/git/conflict-detection.integration.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/session/session-context-resolver.test.ts:
+
+src/domain/session/session-path-resolver.test.ts:
+
+src/domain/session/session-adapter.test.ts:
+(pass) SessionAdapter > should initialize with empty sessions [0.42ms]
+(pass) SessionAdapter > should add and retrieve a session [0.98ms]
+(pass) SessionAdapter > should retrieve a session by task ID [0.36ms]
+(pass) SessionAdapter > should update a session [0.33ms]
+(pass) SessionAdapter > should delete a session [0.55ms]
+(pass) SessionAdapter > should return false when deleting a non-existent session [0.12ms]
+(pass) SessionAdapter > should get repository path for a session [0.30ms]
+(pass) SessionAdapter > should get working directory for a session [0.23ms]
+
+src/domain/session/session-approve-task-status-commit.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/session/session-auto-detection-integration.test.ts:
+
+src/domain/session/session-db.test.ts:
+(pass) SessionDB Functional Implementation > initializeSessionDbState > should initialize state with default values [1.82ms]
+(pass) SessionDB Functional Implementation > initializeSessionDbState > should initialize state with custom baseDir [0.15ms]
+(pass) SessionDB Functional Implementation > initializeSessionDbState > should handle undefined options parameter without throwing runtime error [0.13ms]
+(pass) SessionDB Functional Implementation > initializeSessionDbState > should handle null options parameter without throwing runtime error [0.08ms]
+(pass) SessionDB Functional Implementation > initializeSessionDbState > should handle options with undefined baseDir property [0.10ms]
+(pass) SessionDB Functional Implementation > listSessionsFn > should return all sessions [0.13ms]
+(pass) SessionDB Functional Implementation > getSessionFn > should return the session by name [0.05ms]
+(pass) SessionDB Functional Implementation > getSessionFn > should return null if session not found [0.04ms]
+(pass) SessionDB Functional Implementation > getSessionByTaskIdFn > should return the session by task ID [0.06ms]
+(pass) SessionDB Functional Implementation > getSessionByTaskIdFn > should return the session when task ID includes # [0.11ms]
+(pass) SessionDB Functional Implementation > getSessionByTaskIdFn > should return null if no session exists for the task ID [0.03ms]
+(pass) SessionDB Functional Implementation > addSessionFn > should add a new session to the state [0.06ms]
+(pass) SessionDB Functional Implementation > updateSessionFn > should update an existing session [0.08ms]
+(pass) SessionDB Functional Implementation > updateSessionFn > should not modify state if session not found [0.05ms]
+(pass) SessionDB Functional Implementation > updateSessionFn > should ignore session property in updates [0.06ms]
+(pass) SessionDB Functional Implementation > deleteSessionFn > should delete an existing session [0.06ms]
+(pass) SessionDB Functional Implementation > deleteSessionFn > should not modify state if session not found [0.04ms]
+(pass) SessionDB Functional Implementation > getRepoPathFn > should return the repository path for a session record [0.03ms]
+(pass) SessionDB Functional Implementation > getRepoPathFn > should handle session records with repoPath already set [0.03ms]
+(pass) SessionDB Functional Implementation > getRepoPathFn > should throw error for invalid input [0.07ms]
+(pass) SessionDB Functional Implementation > getSessionWorkdirFn > should return the working directory for a session [0.03ms]
+(pass) SessionDB Functional Implementation > getSessionWorkdirFn > should return null if session not found [0.02ms]
+
+src/domain/session/session-db-io.test.ts:
+(pass) Session DB I/O Functions > readSessionDbFile > should read existing session database file [0.10ms]
+(pass) Session DB I/O Functions > readSessionDbFile > should return initialized state when database file doesn't exist [0.04ms]
+(pass) Session DB I/O Functions > readSessionDbFile > should handle undefined options parameter without throwing runtime error [0.07ms]
+(pass) Session DB I/O Functions > readSessionDbFile > should handle null options parameter without throwing runtime error [0.18ms]
+(pass) Session DB I/O Functions > readSessionDbFile > should handle options with undefined dbPath and baseDir properties [0.14ms]
+(pass) Session DB I/O Functions > writeSessionsToFile > should write session database file successfully [0.20ms]
+(pass) Session DB I/O Functions > writeSessionsToFile > should handle undefined options parameter without throwing runtime error [0.12ms]
+(pass) Session DB I/O Functions > writeSessionsToFile > should handle null options parameter without throwing runtime error [0.23ms]
+(pass) Session DB I/O Functions > writeSessionsToFile > should handle options with undefined dbPath property [0.12ms]
+
+tests/adapters/mcp/session-edit-tools.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+tests/adapters/cli/rules.test.ts:
+(pass) Rules CLI Core Functionality > readContentFromFileIfExists function > returns input string when path doesn't exist [0.83ms]
+(pass) Rules CLI Core Functionality > parseGlobs function > handles comma-separated glob patterns [0.08ms]
+(pass) Rules CLI Core Functionality > parseGlobs function > handles JSON array glob patterns [0.02ms]
+(pass) Rules CLI Core Functionality > parseGlobs function > returns undefined for undefined input
+(pass) Rules CLI Core Functionality > parseGlobs function > returns undefined for empty string
+
+tests/adapters/cli/cli-rules-integration.test.ts:
+(pass) Rules CLI Helper Functions Integration > parseGlobs handles different format patterns [0.05ms]
+(pass) Rules CLI Helper Functions Integration > readContentFromFileIfExists returns input when not a file [0.04ms]
+
+tests/adapters/cli/rules-helpers.test.ts:
+(pass) Rules CLI Helper Functions > parseGlobs > returns undefined for undefined input [0.01ms]
+(pass) Rules CLI Helper Functions > parseGlobs > parses comma-separated string into array [0.02ms]
+(pass) Rules CLI Helper Functions > parseGlobs > trims whitespace in comma-separated strings [0.01ms]
+(pass) Rules CLI Helper Functions > parseGlobs > parses JSON array string format [0.01ms]
+(pass) Rules CLI Helper Functions > parseGlobs > falls back to comma handling if JSON parsing fails [0.01ms]
+(pass) Rules CLI Helper Functions > parseGlobs > returns undefined for empty string
+
+tests/adapters/cli/session.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+tests/domain/commands/workspace.commands.test.ts:
+
+src/domain/git/commands/__tests__/simple-function.test.ts:
+(pass) Git Commands Function Tests > should be able to define simple git command functions [2.01ms]
+(pass) Git Commands Function Tests > should be able to call git command functions [0.31ms]
+
+src/domain/git/commands/__tests__/integration.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+TypeError: Requested module is not instantiated yet.
+-------------------------------
+
+
+src/domain/git/commands/__tests__/basic-imports.test.ts:
+TypeError: Requested module is not instantiated yet.
+(fail) Git Commands Import Tests > should be able to import git command index [1.50ms]
+(pass) Git Commands Import Tests > should be able to import git types [0.45ms]
+TypeError: Requested module is not instantiated yet.
+(fail) Git Commands Import Tests > should be able to import individual command files [0.20ms]
+TypeError: Requested module is not instantiated yet.
+(fail) Git Commands Import Tests > should be able to import subcommands [1.48ms]
+
+78 tests failed:
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should execute git command successfully [2.23ms]
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should handle timeout errors with enhanced error messages [0.47ms]
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should handle merge conflicts with enhanced error messages [0.33ms]
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should handle other git errors with enhanced context [0.35ms]
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should work without workdir specified [30.80ms]
+(fail) Enhanced Git Execution Utility > execGitWithTimeout > should use default timeout when not specified [19.25ms]
+(fail) Enhanced Git Execution Utility > gitCloneWithTimeout > should execute git clone with correct parameters [8.37ms]
+(fail) Enhanced Git Execution Utility > gitFetchWithTimeout > should execute git fetch with default remote [0.49ms]
+(fail) Enhanced Git Execution Utility > gitFetchWithTimeout > should execute git fetch with specific remote and branch [0.19ms]
+(fail) Enhanced Git Execution Utility > gitPushWithTimeout > should execute git push with default remote [0.28ms]
+(fail) Enhanced Git Execution Utility > gitPushWithTimeout > should execute git push with specific remote and branch [0.24ms]
+(fail) Enhanced Git Execution Utility > gitPullWithTimeout > should execute git pull with default remote [0.39ms]
+(fail) Enhanced Git Execution Utility > gitMergeWithTimeout > should execute git merge with specified branch [0.46ms]
+(fail) Enhanced Git Execution Utility > Error Message Quality > should include execution time in all error messages [0.40ms]
+(fail) Enhanced Git Execution Utility > Error Message Quality > should include full command in error messages [0.32ms]
+(fail) Enhanced Git Execution Utility > Error Message Quality > should include context information in error messages [0.33ms]
+(fail) Enhanced Git Execution Utility > Conflict Detection > should detect different types of merge conflicts [0.31ms]
+(fail) Enhanced Git Execution Utility > Conflict Detection > should provide resolution strategies for merge conflicts [0.41ms]
+(fail) Variable Naming Fixer Consolidated > Performance and Metrics > should provide accurate metrics [3.17ms]
+(fail) Variable Naming Fixer Consolidated > Integration with AST Analysis > should properly parse TypeScript files with complex syntax [2.23ms]
+(fail) TypeScript Error Fixer Consolidated > Type Annotations > should add missing type annotations [343.36ms]
+(fail) TypeScript Error Fixer Consolidated > Type Annotations > should fix implicit any types [196.31ms]
+(fail) TypeScript Error Fixer Consolidated > Performance and Metrics > should provide accurate metrics [158.65ms]
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused variable declarations [3.86ms]
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused function parameters [1.38ms]
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused imports [1.62ms]
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle destructuring correctly [40.28ms]
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle function expressions and arrow functions [3.11ms]
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle class properties and methods [1.10ms]
+(fail) Unused Elements Fixer Consolidated > Performance and Metrics > should provide accurate metrics [1.41ms]
+(fail) Unused Elements Fixer Consolidated > Integration with AST Analysis > should properly handle TypeScript-specific syntax [1.17ms]
+(fail) TaskBackendRouter > Manual Override (isInTreeBackend method) > should use manual override for JsonFileTaskBackend (which has isInTreeBackend) [0.13ms]
+(fail) GitHubIssuesTaskBackend > parseTasks > should parse GitHub issues into TaskData objects [0.48ms]
+(fail) DatabaseIntegrityChecker > File Format Detection > should detect valid SQLite format [1.44ms]
+(fail) DatabaseIntegrityChecker > Format Mismatch Detection > should detect SQLite file when JSON expected [0.23ms]
+(fail) DatabaseIntegrityChecker > SQLite Integrity Validation > should validate SQLite database integrity [0.19ms]
+(fail) DatabaseIntegrityChecker > SQLite Integrity Validation > should detect SQLite database without sessions table [0.16ms]
+(fail) DatabaseIntegrityChecker > SQLite Integrity Validation > should detect empty SQLite database [0.25ms]
+(fail) DatabaseIntegrityChecker > Integrity Report Formatting > should format report for valid database [0.27ms]
+(fail) Git Commands Import Tests > should be able to import git command index [1.50ms]
+(fail) Git Commands Import Tests > should be able to import individual command files [0.20ms]
+(fail) Git Commands Import Tests > should be able to import subcommands [1.48ms]
+
+ 540 pass
+ 78 fail
+ 30 errors
+ 1659 expect() calls
+Ran 618 tests across 91 files. [4.14s]
