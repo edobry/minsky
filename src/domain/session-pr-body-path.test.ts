@@ -50,12 +50,12 @@ describe("sessionPrFromParams bodyPath file reading functionality", () => {
     const content = await readFile(filePath, "utf-8");
     
     expect(content).toBe("");
-    expect((content).toString().trim()).toBe("");
+    expect(String(content).trim()).toBe("");
   });
 
   test("should work with relative paths correctly", async () => {
     // Create file in session workspace using absolute path
-    const sessionDir = "/Users/edobry/.local/state/minsky/sessions/task#272";
+    const sessionDir = "/Users/edobry/.local/state/minsky/sessions/task#276";
     const relativeFilePath = "test-relative-body.txt";
     const absoluteTestFilePath = join(sessionDir, relativeFilePath);
     await writeFile(absoluteTestFilePath, testContent);

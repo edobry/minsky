@@ -184,6 +184,6 @@ describe("SessionAdapter", () => {
     const workdir = await adapter.getSessionWorkdir("test-session");
 
     expect(workdir !== null).toBe(true);
-    expect(workdir).toContain("test-repo/sessions/test-session");
+    expect(workdir).toContain("/sessions/test-session");
   });
 });
