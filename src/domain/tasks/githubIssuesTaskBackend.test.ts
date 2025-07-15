@@ -3,7 +3,7 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { GitHubIssuesTaskBackend, createGitHubIssuesTaskBackend } from "../githubIssuesTaskBackend";
+import { GitHubIssuesTaskBackend, createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 
 describe("GitHubIssuesTaskBackend", () => {
   let backend: GitHubIssuesTaskBackend;

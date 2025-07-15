@@ -206,7 +206,12 @@ export async function resolveSessionContextWithFeedback(
   
   // Provide user feedback for auto-detection
   if (context?.autoDetectionMessage) {
-    log.cli(context.autoDetectionMessage);
+    // Only call log.cli if it exists (may not be available in test environments)
+    if (typeof log.cli === "function") {
+      log.cli(context.autoDetectionMessage);
+    } else {
+      log.debug(context.autoDetectionMessage);
+    }
   }
   
   return context;
