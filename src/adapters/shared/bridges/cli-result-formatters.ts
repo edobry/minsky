@@ -15,7 +15,7 @@ export function formatSessionDetails(session: Record<string, any>): void {
   // Display session information in a user-friendly format
   log.cli("📄 Session Details:");
   log.cli("");
-
+  
   if (session.id) log.cli(`   ID: ${session.id}`);
   if (session.name) log.cli(`   Name: ${session.name}`);
   if (session.status) log.cli(`   Status: ${session.status}`);
@@ -31,7 +31,7 @@ export function formatSessionDetails(session: Record<string, any>): void {
     const date = new Date(session.lastUpdated);
     log.cli(`   Updated: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
   }
-
+  
   log.cli("");
 }
 
@@ -46,7 +46,7 @@ export function formatSessionSummary(session: Record<string, any>): void {
   const status = session.status || "unknown";
   const taskId = session.taskId ? ` (task: ${session.taskId})` : "";
   const branchName = session.branchName ? ` [${session.branchName}]` : "";
-
+  
   log.cli(`${sessionId}: ${sessionName}${taskId}${branchName} - ${status}`);
 }
 
@@ -222,4 +222,4 @@ export function formatRuleSummary(rule: Record<string, any>): void {
   const format = rule.format ? ` [${rule.format}]` : "";
 
   log.cli(`${ruleId}${format}${description}`);
-}
+} 

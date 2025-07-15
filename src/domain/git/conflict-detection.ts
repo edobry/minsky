@@ -8,164 +8,37 @@ import { execAsync } from "../../utils/exec";
 import { log } from "../../utils/logger";
 import { predictRebaseConflictsImpl } from "./rebase-conflict-prediction";
 import { generateAdvancedResolutionStrategiesImpl } from "./advanced-resolution-strategies";
-
-export interface ConflictPrediction {
-  hasConflicts: boolean;
-  conflictType: ConflictType;
-  severity: ConflictSeverity;
-  affectedFiles: ConflictFile[];
-  resolutionStrategies: ResolutionStrategy[];
-  userGuidance: string;
-  recoveryCommands: string[];
-}
-
-export interface ConflictFile {
-  path: string;
-  status: FileConflictStatus;
-  conflictRegions?: ConflictRegion[];
-  deletionInfo?: DeletionInfo;
-}
-
-export interface ConflictRegion {
-  startLine: number;
-  endLine: number;
-  type: "content" | "deletion" | "addition";
-  description: string;
-}
-
-export interface DeletionInfo {
-  deletedInBranch: string;
-  modifiedInBranch: string;
-  lastCommitHash: string;
-  canAutoResolve: boolean;
-}
-
-// New interfaces for comprehensive git workflow protection
-export interface GitOperationPreview {
-  operation: GitOperationType;
-  repoPath: string;
-  sourceRef: string;
-  targetRef?: string;
-  prediction: ConflictPrediction;
-  safeToExecute: boolean;
-  recommendedActions: string[];
-}
-
-export interface BranchSwitchWarning {
-  fromBranch: string;
-  toBranch: string;
-  uncommittedChanges: string[];
-  conflictingFiles: string[];
-  wouldLoseChanges: boolean;
-  recommendedAction: "commit" | "stash" | "force" | "abort";
-  stashStrategy?: StashStrategy;
-}
-
-export interface RebaseConflictPrediction {
-  baseBranch: string;
-  featureBranch: string;
-  conflictingCommits: ConflictingCommit[];
-  overallComplexity: "simple" | "moderate" | "complex";
-  estimatedResolutionTime: string;
-  canAutoResolve: boolean;
-  recommendations: string[];
-}
-
-export interface ConflictingCommit {
-  sha: string;
-  message: string;
-  author: string;
-  conflictFiles: string[];
-  complexity: "simple" | "moderate" | "complex";
-}
-
-export interface StashStrategy {
-  type: "full" | "partial" | "keep_index";
-  description: string;
-  commands: string[];
-}
-
-export interface AdvancedResolutionStrategy {
-  type: "intelligent" | "pattern_based" | "user_preference";
-  confidence: number;
-  description: string;
-  commands: string[];
-  riskLevel: "low" | "medium" | "high";
-  applicableFileTypes: string[];
-}
-
-export enum GitOperationType {
-  MERGE = "merge",
-  REBASE = "rebase",
-  CHECKOUT = "checkout",
-  SWITCH = "switch",
-  PULL = "pull",
-  CHERRY_PICK = "cherry-pick",
-}
-
-export enum ConflictType {
-  NONE = "none",
-  CONTENT_CONFLICT = "content_conflict",
-  DELETE_MODIFY = "delete_modify",
-  RENAME_CONFLICT = "rename_conflict",
-  MODE_CONFLICT = "mode_conflict",
-  ALREADY_MERGED = "already_merged",
-  UNCOMMITTED_CHANGES = "uncommitted_changes",
-  REBASE_CONFLICT = "rebase_conflict",
-}
-
-export enum ConflictSeverity {
-  NONE = "none",
-  AUTO_RESOLVABLE = "auto_resolvable",
-  MANUAL_SIMPLE = "manual_simple",
-  MANUAL_COMPLEX = "manual_complex",
-  BLOCKING = "blocking",
-}
-
-export enum FileConflictStatus {
-  CLEAN = "clean",
-  MODIFIED_BOTH = "modified_both",
-  DELETED_BY_US = "deleted_by_us",
-  DELETED_BY_THEM = "deleted_by_them",
-  ADDED_BY_US = "added_by_us",
-  ADDED_BY_THEM = "added_by_them",
-  RENAMED = "renamed",
-}
-
-export interface ResolutionStrategy {
-  type: "automatic" | "guided" | "manual";
-  description: string;
-  commands: string[];
-  riskLevel: "low" | "medium" | "high";
-}
-
-export interface BranchDivergenceAnalysis {
-  sessionBranch: string;
-  baseBranch: string;
-  aheadCommits: number;
-  behindCommits: number;
-  lastCommonCommit: string;
-  sessionChangesInBase: boolean;
-  divergenceType: "none" | "ahead" | "behind" | "diverged";
-  recommendedAction: "none" | "fast_forward" | "update_needed" | "skip_update";
-}
-
-export interface EnhancedMergeResult {
-  workdir: string;
-  merged: boolean;
-  conflicts: boolean;
-  conflictDetails?: string;
-  prediction?: ConflictPrediction;
-}
-
-export interface SmartUpdateResult {
-  workdir: string;
-  updated: boolean;
-  skipped: boolean;
-  reason?: string;
-  conflictDetails?: string;
-  divergenceAnalysis?: BranchDivergenceAnalysis;
-}
+import { simulateMergeImpl } from "./merge-simulation";
+import {
+  analyzeConflictFiles,
+  analyzeDeletion,
+  analyzeConflictRegions,
+  analyzeConflictSeverity,
+} from "./conflict-analysis-operations";
+import {
+  generateResolutionStrategies,
+  generateUserGuidance,
+} from "./conflict-resolution-strategies";
+import {
+  ConflictPrediction,
+  ConflictFile,
+  ConflictRegion,
+  DeletionInfo,
+  GitOperationPreview,
+  BranchSwitchWarning,
+  RebaseConflictPrediction,
+  ConflictingCommit,
+  StashStrategy,
+  AdvancedResolutionStrategy,
+  ResolutionStrategy,
+  BranchDivergenceAnalysis,
+  EnhancedMergeResult,
+  SmartUpdateResult,
+  GitOperationType,
+  ConflictType,
+  ConflictSeverity,
+  FileConflictStatus,
+} from "./conflict-detection-types";
 
 export class ConflictDetectionService {
   /**
@@ -802,57 +675,10 @@ export class ConflictDetectionService {
     sourceBranch: string,
     targetBranch: string
   ): Promise<ConflictFile[]> {
-    log.debug("Simulating merge", { repoPath, sourceBranch, targetBranch });
-
-    try {
-      // Create a temporary branch for simulation
-      const tempBranch = `conflict-simulation-${Date.now()}`;
-
-      try {
-        // Create temp branch from target
-        await execAsync(
-          `git -C ${repoPath} checkout -b ${tempBranch} ${targetBranch}`
-        );
-
-        // Attempt merge
-        try {
-          await execAsync(
-            `git -C ${repoPath} merge --no-commit --no-ff ${sourceBranch}`
-          );
-
-          // If merge succeeds, reset and return no conflicts
-          await execAsync(`git -C ${repoPath} reset --hard HEAD`);
-          return [];
-        } catch (mergeError) {
-          // Merge failed, analyze conflicts
-          const conflictFiles = await this.analyzeConflictFiles(repoPath);
-
-          // Abort the merge
-          await execAsync(`git -C ${repoPath} merge --abort`);
-
-          return conflictFiles;
-        }
-      } finally {
-        // Clean up temporary branch
-        try {
-          await execAsync(`git -C ${repoPath} checkout ${targetBranch}`);
-          await execAsync(`git -C ${repoPath} branch -D ${tempBranch}`);
-        } catch (cleanupError) {
-          log.warn("Failed to clean up temporary branch", {
-            tempBranch,
-            cleanupError,
-          });
-        }
-      }
-    } catch (error) {
-      log.error("Error simulating merge", {
-        error,
-        repoPath,
-        sourceBranch,
-        targetBranch,
-      });
-      throw error;
-    }
+    return simulateMergeImpl(repoPath, sourceBranch, targetBranch, {
+      execAsync,
+      analyzeConflictFiles: this.analyzeConflictFiles.bind(this),
+    });
   }
 
   private parseMergeConflictOutput(output: string): string[] {
@@ -866,68 +692,7 @@ export class ConflictDetectionService {
   }
 
   private async analyzeConflictFiles(repoPath: string): Promise<ConflictFile[]> {
-    try {
-      const { stdout: statusOutput } = await execAsync(
-        `git -C ${repoPath} status --porcelain`
-      );
-
-      const conflictFiles: ConflictFile[] = [];
-      const lines = statusOutput
-        .trim()
-        .split("\n")
-        .filter((line) => line.trim());
-
-      for (const line of lines) {
-        const status = line.substring(0, 2);
-        const filePath = line.substring(3);
-
-        let fileStatus: FileConflictStatus;
-        let deletionInfo: DeletionInfo | undefined;
-
-        switch (status) {
-        case "UU":
-          fileStatus = FileConflictStatus.MODIFIED_BOTH;
-          break;
-        case "DU":
-          fileStatus = FileConflictStatus.DELETED_BY_US;
-          deletionInfo = await this.analyzeDeletion(repoPath, filePath, "us");
-          break;
-        case "UD":
-          fileStatus = FileConflictStatus.DELETED_BY_THEM;
-          deletionInfo = await this.analyzeDeletion(
-            repoPath,
-            filePath,
-            "them"
-          );
-          break;
-        case "AU":
-          fileStatus = FileConflictStatus.ADDED_BY_US;
-          break;
-        case "UA":
-          fileStatus = FileConflictStatus.ADDED_BY_THEM;
-          break;
-        default:
-          continue; // Skip non-conflict files
-        }
-
-        const conflictRegions =
-          fileStatus === FileConflictStatus.MODIFIED_BOTH
-            ? await this.analyzeConflictRegions(repoPath, filePath)
-            : undefined;
-
-        conflictFiles.push({
-          path: filePath,
-          status: fileStatus,
-          conflictRegions,
-          deletionInfo,
-        });
-      }
-
-      return conflictFiles;
-    } catch (error) {
-      log.error("Error analyzing conflict files", { error, repoPath });
-      throw error;
-    }
+    return analyzeConflictFiles(repoPath);
   }
 
   private async analyzeDeletion(
@@ -935,67 +700,14 @@ export class ConflictDetectionService {
     filePath: string,
     deletedBy: "us" | "them"
   ): Promise<DeletionInfo> {
-    try {
-      // Get the last commit that touched this file
-      const { stdout: lastCommit } = await execAsync(
-        `git -C ${repoPath} log -n 1 --format=%H -- ${filePath}`
-      );
-
-      return {
-        deletedInBranch: deletedBy === "us" ? "session" : "main",
-        modifiedInBranch: deletedBy === "us" ? "main" : "session",
-        lastCommitHash: lastCommit.trim(),
-        canAutoResolve: true, // Deletions are generally auto-resolvable
-      };
-    } catch (error) {
-      log.warn("Could not analyze deletion", { error, filePath });
-      return {
-        deletedInBranch: deletedBy === "us" ? "session" : "main",
-        modifiedInBranch: deletedBy === "us" ? "main" : "session",
-        lastCommitHash: "unknown",
-        canAutoResolve: false,
-      };
-    }
+    return analyzeDeletion(repoPath, filePath, deletedBy);
   }
 
   private async analyzeConflictRegions(
     repoPath: string,
     filePath: string
   ): Promise<ConflictRegion[]> {
-    try {
-      const { stdout: fileContent } = await execAsync(
-        `cat "${repoPath}/${filePath}"`
-      );
-      const lines = fileContent.split("\n");
-
-      const regions: ConflictRegion[] = [];
-      let inConflict = false;
-      let startLine = 0;
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-
-        if (!line) continue;
-
-        if (line.startsWith("<<<<<<<")) {
-          inConflict = true;
-          startLine = i + 1;
-        } else if (line.startsWith(">>>>>>>") && inConflict) {
-          regions.push({
-            startLine,
-            endLine: i + 1,
-            type: "content",
-            description: `Content conflict in lines ${startLine}-${i + 1}`,
-          });
-          inConflict = false;
-        }
-      }
-
-      return regions;
-    } catch (error) {
-      log.warn("Could not analyze conflict regions", { error, filePath });
-      return [];
-    }
+    return analyzeConflictRegions(repoPath, filePath);
   }
 
   private async checkSessionChangesInBase(
@@ -1066,102 +778,14 @@ export class ConflictDetectionService {
     conflictType: ConflictType;
     severity: ConflictSeverity;
   } {
-    if (conflictFiles.length === 0) {
-      return {
-        conflictType: ConflictType.NONE,
-        severity: ConflictSeverity.NONE,
-      };
-    }
-
-    const hasContentConflicts = conflictFiles.some(
-      (f) => f.status === FileConflictStatus.MODIFIED_BOTH
-    );
-    const hasDeleteConflicts = conflictFiles.some(
-      (f) =>
-        f.status === FileConflictStatus.DELETED_BY_US ||
-        f.status === FileConflictStatus.DELETED_BY_THEM
-    );
-    const hasRenameConflicts = conflictFiles.some(
-      (f) => f.status === FileConflictStatus.RENAMED
-    );
-
-    let conflictType: ConflictType;
-    let severity: ConflictSeverity;
-
-    if (hasRenameConflicts) {
-      conflictType = ConflictType.RENAME_CONFLICT;
-      severity = ConflictSeverity.MANUAL_COMPLEX;
-    } else if (hasContentConflicts && hasDeleteConflicts) {
-      conflictType = ConflictType.CONTENT_CONFLICT;
-      severity = ConflictSeverity.MANUAL_COMPLEX;
-    } else if (hasDeleteConflicts) {
-      conflictType = ConflictType.DELETE_MODIFY;
-      // Check if all deletions are auto-resolvable
-      const allAutoResolvable = conflictFiles
-        .filter((f) => f.deletionInfo)
-        .every((f) => f.deletionInfo?.canAutoResolve);
-      severity = allAutoResolvable
-        ? ConflictSeverity.AUTO_RESOLVABLE
-        : ConflictSeverity.MANUAL_SIMPLE;
-    } else if (hasContentConflicts) {
-      conflictType = ConflictType.CONTENT_CONFLICT;
-      // Analyze content conflict complexity
-      const totalRegions = conflictFiles.reduce(
-        (sum, f) => sum + (f.conflictRegions?.length || 0),
-        0
-      );
-      severity =
-        totalRegions <= 3
-          ? ConflictSeverity.MANUAL_SIMPLE
-          : ConflictSeverity.MANUAL_COMPLEX;
-    } else {
-      conflictType = ConflictType.CONTENT_CONFLICT;
-      severity = ConflictSeverity.MANUAL_SIMPLE;
-    }
-
-    return { conflictType, severity };
+    return analyzeConflictSeverity(conflictFiles);
   }
 
   private generateResolutionStrategies(
     conflictFiles: ConflictFile[],
     conflictType: ConflictType
   ): ResolutionStrategy[] {
-    const strategies: ResolutionStrategy[] = [];
-
-    if (conflictType === ConflictType.DELETE_MODIFY) {
-      const allAutoResolvable = conflictFiles
-        .filter((f) => f.deletionInfo)
-        .every((f) => f.deletionInfo?.canAutoResolve);
-
-      if (allAutoResolvable) {
-        strategies.push({
-          type: "automatic",
-          description: "Accept deletions (recommended for removed files)",
-          commands: [
-            ...conflictFiles
-              .filter((f) => f.deletionInfo)
-              .map((f) => `git rm ${f.path}`),
-            "git commit -m \"resolve conflicts: accept file deletions\"",
-          ],
-          riskLevel: "low",
-        });
-      }
-    }
-
-    // Always provide manual resolution option
-    strategies.push({
-      type: "manual",
-      description: "Manually resolve conflicts by editing files",
-      commands: [
-        "git status",
-        "# Edit conflicted files to resolve <<<<<<< ======= >>>>>>> markers",
-        "git add .",
-        "git commit -m \"resolve merge conflicts\"",
-      ],
-      riskLevel: "medium",
-    });
-
-    return strategies;
+    return generateResolutionStrategies(conflictFiles, conflictType);
   }
 
   private generateUserGuidance(
@@ -1169,66 +793,7 @@ export class ConflictDetectionService {
     severity: ConflictSeverity,
     conflictFiles: ConflictFile[]
   ): string {
-    switch (conflictType) {
-    case ConflictType.DELETE_MODIFY: {
-      const deletedFiles = conflictFiles
-        .filter((f) => f.deletionInfo)
-        .map((f) => f.path);
-      return `
-🗑️  Deleted file conflicts detected
-
-Files deleted in main branch but modified in your session:
-${deletedFiles.map((f) => `  • ${f}`).join("\n")}
-
-These conflicts are typically auto-resolvable by accepting the deletion.
-The files were removed for a reason (likely part of refactoring or cleanup).
-
-Recommended action: Accept the deletions and remove your changes to these files.
-        `.trim();
-    }
-    case ConflictType.CONTENT_CONFLICT:
-      return `
-✏️  Content conflicts detected
-
-${
-  conflictFiles.length
-} file(s) have conflicting changes between your session and main branch.
-These require manual resolution by editing the files and choosing which changes to keep.
-
-📋 Next Steps:
-1. Run: git status                    (see which files are conflicted)
-2. Edit the conflicted files          (look for <<<<<<< markers)
-3. Run: git add <file>               (mark conflicts as resolved)
-4. Run: git commit                    (complete the merge)
-5. Run: minsky session pr [options]   (retry PR creation)
-
-🔧 Quick Check:
-• Run 'git status' now to see the conflicted files
-• Edit files and remove conflict markers
-• Choose which changes to keep between <<<<<<< and >>>>>>>
-
-Look for conflict markers:
-  <<<<<<< HEAD (your changes)
-  =======
-  >>>>>>> main (main branch changes)
-        `.trim();
-
-    case ConflictType.ALREADY_MERGED:
-      return `
-✅ Changes already merged
-
-Your session changes appear to already be present in the main branch.
-You can skip the update step and proceed directly to PR creation.
-        `.trim();
-
-    default:
-      return `
-⚠️  Merge conflicts detected
-
-${conflictFiles.length} file(s) have conflicts that need resolution.
-Review the affected files and choose appropriate resolution strategy.
-        `.trim();
-    }
+    return generateUserGuidance(conflictType, severity, conflictFiles);
   }
 
   private generateRecoveryCommands(
