@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { join } from "path";
+import { join, dirname } from "path";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { randomUUID } from "crypto";
 import { Database } from "bun:sqlite";
@@ -49,7 +49,7 @@ describe("DatabaseIntegrityChecker", () => {
     const sequence = ++testSequenceNumber;
     testDirPath = join(
       tmpdir(),
-      "minsky-test", 
+      "minsky-test",
       `integrity-checker-test-${timestamp}-${uuid}-${sequence}`
     );
     testDbPath = join(testDirPath, "test-sessions.db");

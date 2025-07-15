@@ -5,6 +5,26 @@ import { log } from "../../utils/logger";
 import { TASK_STATUS_VALUES } from "../../domain/tasks/taskConstants";
 import { getErrorMessage } from "../../errors/index";
 
+// Zod schemas for task data validation
+const TaskSchema = z.object({
+  id: z.string(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  status: z.enum(TASK_STATUS_VALUES as [string, ...string[]]).optional(),
+  specPath: z.string().optional(),
+  worklog: z.string().optional(),
+  created: z.string().optional(),
+  modified: z.string().optional(),
+});
+
+const TaskListSchema = z.array(TaskSchema);
+
+const TaskStatusSchema = z.object({
+  taskId: z.string(),
+  status: z.enum(TASK_STATUS_VALUES as [string, ...string[]]),
+  updated: z.string().optional(),
+});
+
 /**
  * Register task-related tools with the MCP server
  * @param commandMapper The command mapper instance
@@ -19,15 +39,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       limit: z.number().optional().describe("Limit the number of tasks returned"),
       format: z.enum(["detailed", "simple"] as const).optional().describe("Format of the task list"),
     }),
-    async (
-      args: z.infer<
-            z.ZodObject<{
-              filter: z.ZodOptional<z.ZodString>;
-              limit: z.ZodOptional<z.ZodNumber>;
-              format: z.ZodOptional<z.ZodEnum<["detailed", "simple"]>>;
-            }>
-          >
-    ) => {
+    async (args: { filter?: string; limit?: number; format?: "detailed" | "simple" }) => {
       try {
         // Build the command with appropriate options
         let command = "minsky tasks list";
@@ -42,8 +54,10 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         // Execute the command
         const output = execSync(command).toString();
 
-        // Parse the JSON output
-        return JSON.parse(output as unknown) as unknown;
+        // Parse and validate the JSON output
+        const parsed = JSON.parse(output);
+        const validated = TaskListSchema.parse(parsed);
+        return validated as Record<string, unknown>[];
       } catch (error) {
         log.error("MCP: Error listing tasks via execSync", {
           originalError: getErrorMessage(error as any),
@@ -66,13 +80,15 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args: { taskId: string }) => {
       try {
         // Execute the command
-        const command = `minsky tasks get ${(args as unknown)!.taskId} --json`;
+        const command = `minsky tasks get ${args.taskId} --json`;
         const output = execSync(command).toString();
 
-        // Parse the JSON output
-        return JSON.parse(output as unknown) as unknown;
+        // Parse and validate the JSON output
+        const parsed = JSON.parse(output);
+        const validated = TaskSchema.parse(parsed);
+        return validated as Record<string, unknown>;
       } catch (error) {
-        log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {
+        log.error(`MCP: Error getting task ${args.taskId} via execSync`, {
           originalError: getErrorMessage(error as any),
           stack: error instanceof Error ? (error as any).stack as any : undefined as any,
           mcpArgs: args,
@@ -93,22 +109,22 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args: { taskId: string }) => {
       try {
         // Execute the command
-        const command = `minsky tasks status get ${(args as unknown)!.taskId}`;
+        const command = `minsky tasks status get ${args.taskId}`;
         const output = execSync(command).toString().trim();
 
         // Format output
         return {
-          taskId: (args as unknown)!.taskId,
+          taskId: args.taskId,
           status: output.split(": ")[1], // Extract the status value
         };
       } catch (error) {
-        log.error(`MCP: Error getting task status for ${(args as unknown)!.taskId} via execSync`, {
+        log.error(`MCP: Error getting task status for ${args.taskId} via execSync`, {
           originalError: getErrorMessage(error as any),
           stack: error instanceof Error ? (error as any).stack as any : undefined as any,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to get task status for ${(args as any)!.taskId}: ${getErrorMessage(error as any)}`
+          `Failed to get task status for ${args.taskId}: ${getErrorMessage(error as any)}`
         );
       }
     });
@@ -126,23 +142,23 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args: { taskId: string; status: string }) => {
       try {
         // Execute the command
-        const command = `minsky tasks status set ${(args as unknown)!.taskId} ${args.status}`;
+        const command = `minsky tasks status set ${args.taskId} ${args.status}`;
         execSync(command);
 
         // Return success confirmation
         return {
           success: true,
-          taskId: (args as unknown)!.taskId,
+          taskId: args.taskId,
           status: args.status,
         };
       } catch (error) {
-        log.error(`MCP: Error setting task status for ${(args as unknown)!.taskId} via execSync`, {
+        log.error(`MCP: Error setting task status for ${args.taskId} via execSync`, {
           originalError: getErrorMessage(error as any),
           stack: error instanceof Error ? (error as any).stack as any : undefined as any,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to set task status for ${(args as any)!.taskId}: ${getErrorMessage(error as any)}`
+          `Failed to set task status for ${args.taskId}: ${getErrorMessage(error as any)}`
         );
       }
     });
@@ -160,8 +176,10 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         const command = `minsky tasks create ${args.specPath} --json`;
         const output = execSync(command).toString();
 
-        // Parse the JSON output
-        return JSON.parse(output as unknown) as unknown;
+        // Parse and validate the JSON output
+        const parsed = JSON.parse(output);
+        const validated = TaskSchema.parse(parsed);
+        return validated as Record<string, unknown>;
       } catch (error) {
         log.error("MCP: Error creating task via execSync", {
           originalError: getErrorMessage(error as any),

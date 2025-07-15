@@ -212,6 +212,47 @@ For catastrophic errors (data loss, corruption of shared resources, security bre
 2. **Response Quality**: Answer actual question, implement rather than describe
 3. **Verification Complete**: Confirm all required checks performed
 
+## ⚠️ Critical Resource Existence Verification Protocol
+
+**Addresses pattern where AI claims resources don't exist without proper verification**
+
+### Documented Verification Failures
+
+**Pattern: Resource Existence Claims Without Verification**
+- **Error**: Claiming files, rules, or resources don't exist without using search tools
+- **User Signal**: "yes there is @self-improvement.mdc" (after AI claimed it didn't exist)
+- **Root Cause**: Verification Error - failed to use proper search tools before making negative claims
+- **Correct Approach**: ALWAYS use file_search and grep_search before claiming non-existence
+
+### Mandatory Verification Protocol
+
+**BEFORE claiming ANY resource doesn't exist, MUST complete:**
+
+1. **File Search**: Use `file_search` tool to look for the resource by name
+2. **Content Search**: Use `grep_search` if needed for content-based verification
+3. **Exhaustive Search**: Only claim non-existence after comprehensive search
+4. **Documentation**: Document search attempts in response
+
+### Examples
+
+// AVOID
+```
+User: "what @self-improvement.mdc"
+Assistant: "It looks like there isn't a rule called `self-improvement.mdc` available"
+```
+
+// PREFER
+```
+User: "what @self-improvement.mdc"
+Assistant: [uses file_search tool first] "I found the self-improvement.mdc rule at..."
+```
+
+### Enforcement Mechanism
+
+- **First Violation**: Immediate correction with proper verification
+- **Repeat Violation**: Critical protocol failure requiring systematic review
+- **All negative existence claims**: Must be backed by documented tool usage
+
 ## When to Apply This Rule
 
 This rule MUST be applied whenever:

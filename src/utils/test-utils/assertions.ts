@@ -106,7 +106,7 @@ export function expectToHaveProperty(object: unknown, propertyPath: string, valu
     expect(current).toBeDefined();
     expect(typeof current === "object" || Array.isArray(current)).toBeTruthy();
     expect(part in (current as unknown)).toBeTruthy();
-    current = (current as unknown)[part];
+    current = current[part];
   }
 
   if (value !== undefined) {

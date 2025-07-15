@@ -171,7 +171,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
       // Fetch all issues with Minsky labels
       const labelQueries = Object.values(this.statusLabels).join(",");
-      const response = await (this.octokit.rest.issues as unknown).listForRepo({
+      const response = await this.octokit.rest.issues.listForRepo({
         owner: this.owner,
         repo: this.repo,
         labels: labelQueries,
@@ -224,7 +224,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       const taskId = `#${taskIdMatch[1]}`;
 
       // Try to find the corresponding GitHub issue
-      const response = await (this.octokit.rest.issues as unknown).listForRepo({
+      const response = await this.octokit.rest.issues.listForRepo({
         owner: this.owner,
         repo: this.repo,
         labels: Object.values(this.statusLabels).join(",") as unknown,
@@ -474,7 +474,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   }
 
   private getLabelsForTaskStatus(status: string): string[] {
-    return [(this.statusLabels as unknown)[status] || this.statusLabels.TODO];
+    return [this.statusLabels[status] || this.statusLabels.TODO];
   }
 
   private async syncTaskToGitHub(taskData: TaskData): Promise<void> {

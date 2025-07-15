@@ -39,7 +39,7 @@ export interface ResponseFormatter<T = any> {
  * @returns JSON formatted string
  */
 export function formatAsJson(data: any): string {
-  return JSON.stringify(data as unknown, undefined, 2);
+  return JSON.stringify(data, undefined, 2);
 }
 
 /**
@@ -59,11 +59,11 @@ export abstract class BaseResponseFormatter<T = any> implements ResponseFormatte
 
     // Format the response based on the requested format
     if (format === OutputFormat.JSON) {
-      return this.formatJson(data as unknown, context as unknown);
+      return this.formatJson(data, context);
     }
 
     // Default to text format
-    return this.formatText(data as unknown, context as unknown);
+    return this.formatText(data, context);
   }
 
   /**
@@ -191,11 +191,11 @@ export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
     // Format each item
     if (this.itemFormatter) {
       items.forEach((item, index) => {
-        output += `${index + 1}. ${this.itemFormatter!(item as unknown)}\n`;
+        output += `${index + 1}. ${this.itemFormatter!(item)}\n`;
       });
     } else {
       items.forEach((item, index) => {
-        output += `${index + 1}. ${String(item as unknown)}\n`;
+        output += `${index + 1}. ${String(item)}\n`;
       });
     }
 
@@ -258,7 +258,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
     rows.forEach((row) => {
       this.columns.forEach((col) => {
         const value = String(row[col] || "");
-        columnWidths[col] = Math.max((columnWidths as unknown)[col], value.length);
+        columnWidths[col] = Math.max(columnWidths[col], value.length);
       });
     });
 
@@ -266,7 +266,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
     const headerRow = this.columns
       .map((col) => {
         const header = String(this.headers[col] || col);
-        return header.padEnd((columnWidths as unknown)[col]);
+        return header.padEnd(columnWidths[col]);
       })
       .join(" | ");
 
@@ -275,7 +275,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
     // Create separator row
     const separatorRow = this.columns
       .map((col) => {
-        return "-".repeat((columnWidths as unknown)[col]);
+        return "-".repeat(columnWidths[col]);
       })
       .join("-|-");
 
@@ -286,7 +286,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
       const dataRow = this.columns
         .map((col) => {
           const value = String(row[col] || "");
-          return value.padEnd((columnWidths as unknown)[col]);
+          return value.padEnd(columnWidths[col]);
         })
         .join(" | ") as unknown;
 

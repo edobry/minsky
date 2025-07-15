@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import { join } from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { createSessionProvider, type SessionProviderInterface } from "./session";
+import { createSessionProvider, type SessionProviderInterface, type SessionRecord } from "./session";
 import { log } from "../utils/logger";
 import { createHash } from "crypto";
 import { readFileSync, existsSync } from "fs";
@@ -39,8 +39,8 @@ export interface TestDependencies {
  */
 export function resolveMainWorkspaceFromRepoUrl(repoUrl: string): string {
   // For file:// URLs, just remove the file:// prefix
-  if ((repoUrl as unknown)!.startsWith("file://")) {
-    return (repoUrl as unknown)!.replace("file://", "");
+  if (repoUrl.startsWith("file://")) {
+    return repoUrl.replace("file://", "");
   }
   // For other URLs, assume they refer to the current directory
   return (process as any).cwd();
@@ -53,7 +53,7 @@ export function resolveMainWorkspaceFromRepoUrl(repoUrl: string): string {
  */
 export function isSessionWorkspace(workspacePath: string): boolean {
   const minskySessionsPath = getSessionsDir();
-  return (workspacePath as unknown)!.startsWith(minskySessionsPath);
+  return workspacePath.startsWith(minskySessionsPath);
 }
 
 /**
@@ -96,13 +96,13 @@ export async function getSessionFromWorkspace(
     const db = sessionDbOverride || createSessionProvider();
     const sessionRecord = await db.getSession(sessionName);
 
-    if (!sessionRecord || !(sessionRecord as unknown)!.repoUrl) {
+    if (!sessionRecord || !sessionRecord.repoUrl) {
       return null;
     }
 
     return {
       session: sessionName,
-      upstreamRepository: (sessionRecord as unknown)!.repoUrl,
+      upstreamRepository: sessionRecord.repoUrl,
       gitRoot,
     };
   } catch (error) {

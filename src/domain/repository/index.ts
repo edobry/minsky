@@ -232,7 +232,7 @@ export async function createRepositoryBackend(
     }
 
     const { LocalGitBackend } = await import("./local");
-    return new LocalGitBackend(config as unknown);
+    return new LocalGitBackend(config);
   }
 
   case RepositoryBackendType.REMOTE: {
@@ -266,7 +266,7 @@ export async function createRepositoryBackend(
     }
 
     const { RemoteGitBackend } = await import("./remote");
-    return new RemoteGitBackend(config as unknown);
+    return new RemoteGitBackend(config);
   }
 
   case RepositoryBackendType.GITHUB: {
@@ -287,7 +287,7 @@ export async function createRepositoryBackend(
     }
 
     const { GitHubBackend } = await import("./github");
-    return new GitHubBackend(config as unknown);
+    return new GitHubBackend(config);
   }
 
   default:

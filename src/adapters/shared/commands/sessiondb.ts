@@ -186,9 +186,16 @@ sharedCommandRegistry.registerCommand({
         // Handle sessions stored as key-value pairs
         for (const [sessionId, sessionData] of Object.entries(sourceData)) {
           if (typeof sessionData === "object" && sessionData !== null) {
+            // Type sessionData as Partial<SessionRecord> for safe spreading
+            const typedSessionData = sessionData as Partial<SessionRecord>;
             sessionRecords.push({
               session: sessionId,
-              ...(sessionData as unknown),
+              repoName: typedSessionData.repoName || sessionId,
+              repoUrl: typedSessionData.repoUrl || sessionId,
+              createdAt: typedSessionData.createdAt || new Date().toISOString(),
+              taskId: typedSessionData.taskId || "",
+              branch: typedSessionData.branch || "main",
+              ...typedSessionData,
             });
           }
         }

@@ -156,7 +156,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
     const safeUpdates: Partial<Omit<SessionRecord, "session">> = {};
     Object.entries(updates).forEach(([key, value]) => {
       if (key !== "session") {
-        (safeUpdates as unknown)[key] = value;
+        safeUpdates[key] = value;
       }
     });
 
