@@ -31,48 +31,30 @@ export class CommandMapper {
   }
 
   /**
-   * Get the current project context
-   * @returns The current project context, or undefined if not available
+   * Normalize method name to ensure compatibility with MCP
+   * 
+   * The MCP protocol supports dots in method names for namespacing,
+   * but some JSON-RPC implementations may have issues with dot notation.
+   * We normalize method names and provide underscore aliases for compatibility.
+   * 
+   * @param methodName Original method name (may contain dots for namespacing)
+   * @returns Normalized method name safe for JSON-RPC
+   */
+  private normalizeMethodName(methodName: string): string {
+    // Remove any characters that could cause issues in JSON-RPC
+    return methodName.replace(/[^a-zA-Z0-9._-]/g, "");
+  }
+
+  /**
+   * Get the project context (if available)
+   * @returns The project context or undefined if not set
    */
   getProjectContext(): ProjectContext | undefined {
     return this.projectContext;
   }
 
   /**
-   * Get a list of all registered method names
-   * @returns Array of method names that have been registered
-   */
-  getRegisteredMethodNames(): string[] {
-    return [...this.registeredMethodNames];
-  }
-
-  /**
-   * Normalize method name to ensure compatibility with MCP
-   *
-   * This handles potential issues in the JSON-RPC method naming conventions
-   * by normalizing the method name to a format the MCP protocol can process.
-   *
-   * @param methodName Original method name
-   * @returns Normalized method name
-   */
-  private normalizeMethodName(methodName: string): string {
-    // Ensure there are no unexpected characters in the method name
-    // Replace any problematic characters with underscores
-    const normalized = methodName.replace(/[^a-zA-Z0-9_.]/g, "_");
-
-    // Log the normalization if it changed the method name
-    if (normalized !== methodName) {
-      log.debug("Normalized method name for compatibility", {
-        original: methodName,
-        normalized,
-      });
-    }
-
-    return normalized;
-  }
-
-  /**
-   * Convert Zod schema to JSON Schema for MCP compatibility
+   * Convert a Zod schema to a JSON Schema for MCP tool registration
    * @param zodSchema The Zod schema to convert
    * @returns JSON Schema object
    */
@@ -84,10 +66,10 @@ export class CommandMapper {
       });
     } catch (error) {
       log.warn("Failed to convert Zod schema to JSON Schema, using fallback", {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
       
-      // Fallback to a basic object schema
+      // Return a permissive fallback schema
       return {
         type: "object",
         properties: {},
@@ -97,32 +79,30 @@ export class CommandMapper {
   }
 
   /**
-   * Add a basic command to the server
-   * @param command Command definition with name, parameters, description, and execution logic
+   * Add a command to the MCP server as a tool
+   * @param command Command configuration object
    */
-  addCommand<T extends z.ZodTypeAny>(command: {
+  addCommand(command: {
     name: string;
     description: string;
-    parameters?: T;
-    execute: (args: z.infer<T>) => Promise<string | Record<string, any>>;
+    parameters?: z.ZodTypeAny;
+    handler: (args: any, context?: ProjectContext) => Promise<string | Record<string, any>>;
   }): void {
-    // Normalize the method name for consistency and compatibility
+    // Normalize the method name for JSON-RPC compatibility
     const normalizedName = this.normalizeMethodName(command.name);
 
-    // Convert Zod schema to JSON Schema
-    const inputSchema = command.parameters 
-      ? this.zodToJsonSchema(command.parameters)
-      : { type: "object", properties: {}, additionalProperties: false };
+    // Convert Zod schema to JSON Schema if provided
+    let inputSchema: any = {
+      type: "object",
+      properties: {},
+      additionalProperties: true,
+    };
 
-    // Log the addition of the tool to help with debugging
-    log.debug("Registering MCP tool", {
-      methodName: normalizedName,
-      originalName: command.name,
-      description: command.description,
-      hasParameters: command.parameters ? true : false,
-    });
+    if (command.parameters) {
+      inputSchema = this.zodToJsonSchema(command.parameters);
+    }
 
-    // Keep track of registered method names
+    // Track registered method names for debugging
     this.registeredMethodNames.push(normalizedName);
 
     // Create the tool definition
@@ -134,54 +114,26 @@ export class CommandMapper {
         try {
           log.debug("Executing MCP command", {
             methodName: normalizedName,
-            args,
+            args: args || {},
+            hasProjectContext: !!this.projectContext,
           });
 
-          // Validate args against Zod schema if provided
-          let validatedArgs = args;
-          if (command.parameters) {
-            try {
-              validatedArgs = command.parameters.parse(args);
-            } catch (validationError) {
-              const errorMessage = getErrorMessage(validationError as any);
-              log.error("Command parameter validation failed", {
-                command: normalizedName,
-                error: errorMessage,
-                args,
-              });
-              throw new Error(`Invalid parameters for command '${normalizedName}': ${errorMessage}`);
-            }
-          }
+          // Pass the project context to the handler if available
+          const result = await command.handler(args || {}, this.projectContext);
 
-          // If the command might use repository context and no explicit repository is provided,
-          // inject the default repository path from project context
-          if (
-            this.projectContext &&
-            this.projectContext.repositoryPath &&
-            validatedArgs &&
-            typeof validatedArgs === "object"
-          ) {
-            if (!("repositoryPath" in validatedArgs) || !validatedArgs.repositoryPath) {
-              validatedArgs = {
-                ...validatedArgs,
-                repositoryPath: this.projectContext.repositoryPath,
-              };
-            }
-          }
+          log.debug("MCP command executed successfully", {
+            methodName: normalizedName,
+            resultType: typeof result,
+          });
 
-          const result = await command.execute(validatedArgs);
-          
-          // Return result directly - the server will handle formatting
           return result;
         } catch (error) {
-          const errorMessage = getErrorMessage(error as any);
-          log.error("Error executing MCP command", {
-            command: normalizedName,
-            error: errorMessage,
-            args,
-            stack: error instanceof Error ? (error as any).stack : undefined,
+          log.error("MCP command execution failed", {
+            methodName: normalizedName,
+            error: getErrorMessage(error),
+            args: args || {},
           });
-          
+
           // Re-throw to let the MCP server handle error presentation
           throw error;
         }
@@ -198,178 +150,44 @@ export class CommandMapper {
 
       // Don't register the same name twice
       if (underscoreName !== normalizedName) {
-        log.debug("Also registering underscore alias for dot notation", {
-          originalName: normalizedName,
-          underscoreName,
-        });
-
-        // Keep track of the alias
-        this.registeredMethodNames.push(underscoreName);
-
-        // Create alias tool definition
-        const aliasToolDefinition: ToolDefinition = {
+        const underscoreToolDefinition: ToolDefinition = {
           name: underscoreName,
           description: `${command.description} (underscore alias)`,
           inputSchema,
           handler: toolDefinition.handler, // Same handler
         };
 
-        // Register the alias
-        this.server.addTool(aliasToolDefinition);
+        this.server.addTool(underscoreToolDefinition);
+        this.registeredMethodNames.push(underscoreName);
+
+        log.debug("Registered underscore alias for MCP tool", {
+          originalName: normalizedName,
+          aliasName: underscoreName,
+        });
       }
     }
-  }
 
-  /**
-   * Add a task command to the server
-   * @param name Command name
-   * @param description Command description
-   * @param parameters Command parameters schema
-   * @param executeFunction Function to execute the command
-   */
-  addTaskCommand<T extends z.ZodObject<any>>(
-    name: string,
-    description: string,
-    parameters: T,
-    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
-  ): void {
-    // Extend parameters to include optional repositoryPath if not already present
-    const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
-
-    let extendedParameters: z.ZodTypeAny;
-    if (!hasRepositoryPath) {
-      // Create extended parameters including repositoryPath
-      extendedParameters = parameters.extend({
-        repositoryPath: z
-          .string()
-          .optional()
-          .describe("Repository path to use for this operation (overrides server context)"),
-      });
-    } else {
-      extendedParameters = parameters;
-    }
-
-    this.addCommand({
-      name: `tasks.${name}`,
-      description,
-      parameters: extendedParameters,
-      execute: executeFunction as (
-        args: z.infer<typeof extendedParameters>
-      ) => Promise<string | Record<string, any>>,
+    log.debug("MCP tool registered successfully", {
+      methodName: normalizedName,
+      description: command.description,
+      hasParameters: !!command.parameters,
+      totalRegisteredMethods: this.registeredMethodNames.length,
     });
   }
 
   /**
-   * Add a session command to the server
-   * @param name Command name
-   * @param description Command description
-   * @param parameters Command parameters schema
-   * @param executeFunction Function to execute the command
+   * Get list of registered method names for debugging
+   * @returns Array of registered method names
    */
-  addSessionCommand<T extends z.ZodObject<any>>(
-    name: string,
-    description: string,
-    parameters: T,
-    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
-  ): void {
-    // Extend parameters to include optional repositoryPath if not already present
-    const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
-
-    let extendedParameters: z.ZodTypeAny;
-    if (!hasRepositoryPath) {
-      extendedParameters = parameters.extend({
-        repositoryPath: z
-          .string()
-          .optional()
-          .describe("Repository path to use for this operation (overrides server context)"),
-      });
-    } else {
-      extendedParameters = parameters;
-    }
-
-    this.addCommand({
-      name: `session.${name}`,
-      description,
-      parameters: extendedParameters,
-      execute: executeFunction as (
-        args: z.infer<typeof extendedParameters>
-      ) => Promise<string | Record<string, any>>,
-    });
+  getRegisteredMethodNames(): string[] {
+    return [...this.registeredMethodNames];
   }
 
   /**
-   * Add a git command to the server
-   * @param name Command name
-   * @param description Command description
-   * @param parameters Command parameters schema
-   * @param executeFunction Function to execute the command
+   * Get the number of registered commands
+   * @returns Number of registered commands
    */
-  addGitCommand<T extends z.ZodObject<any>>(
-    name: string,
-    description: string,
-    parameters: T,
-    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
-  ): void {
-    // Extend parameters to include optional repositoryPath if not already present
-    const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
-
-    let extendedParameters: z.ZodTypeAny;
-    if (!hasRepositoryPath) {
-      extendedParameters = parameters.extend({
-        repositoryPath: z
-          .string()
-          .optional()
-          .describe("Repository path to use for this operation (overrides server context)"),
-      });
-    } else {
-      extendedParameters = parameters;
-    }
-
-    this.addCommand({
-      name: `git.${name}`,
-      description,
-      parameters: extendedParameters,
-      execute: executeFunction as (
-        args: z.infer<typeof extendedParameters>
-      ) => Promise<string | Record<string, any>>,
-    });
-  }
-
-  /**
-   * Add a rule command to the server
-   * @param name Command name
-   * @param description Command description
-   * @param parameters Command parameters schema
-   * @param executeFunction Function to execute the command
-   */
-  addRuleCommand<T extends z.ZodObject<any>>(
-    name: string,
-    description: string,
-    parameters: T,
-    executeFunction: (args: z.infer<T>) => Promise<string | Record<string, any>>
-  ): void {
-    // Extend parameters to include optional repositoryPath if not already present
-    const hasRepositoryPath = Object.keys(parameters.shape).includes("repositoryPath");
-
-    let extendedParameters: z.ZodTypeAny;
-    if (!hasRepositoryPath) {
-      extendedParameters = parameters.extend({
-        repositoryPath: z
-          .string()
-          .optional()
-          .describe("Repository path to use for this operation (overrides server context)"),
-      });
-    } else {
-      extendedParameters = parameters;
-    }
-
-    this.addCommand({
-      name: `rules.${name}`,
-      description,
-      parameters: extendedParameters,
-      execute: executeFunction as (
-        args: z.infer<typeof extendedParameters>
-      ) => Promise<string | Record<string, any>>,
-    });
+  getRegisteredCommandCount(): number {
+    return this.registeredMethodNames.length;
   }
 }

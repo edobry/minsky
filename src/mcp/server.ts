@@ -1,41 +1,17 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { 
+import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
   ListPromptsRequestSchema,
-  GetPromptRequestSchema
+  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
 import { getErrorMessage } from "../errors/index";
-
-/**
- * Configuration options for the Minsky MCP server
- */
-export interface MinskyMCPServerOptions {
-  /**
-   * The name of the server
-   * @default "Minsky MCP Server"
-   */
-  name?: string;
-
-  /**
-   * The version of the server
-   * @default "1.0.0"
-   */
-  version?: string;
-
-  /**
-   * Project context containing repository information
-   * Used for operations that require repository context
-   * @default Context created from process.cwd()
-   */
-  projectContext?: ProjectContext;
-}
 
 /**
  * Tool definition interface for registering tools with the MCP server
@@ -78,6 +54,30 @@ export interface PromptDefinition {
       };
     }>;
   }>;
+}
+
+/**
+ * Configuration options for the Minsky MCP server
+ */
+export interface MinskyMCPServerOptions {
+  /**
+   * The name of the server
+   * @default "Minsky MCP Server"
+   */
+  name?: string;
+
+  /**
+   * The version of the server
+   * @default "1.0.0"
+   */
+  version?: string;
+
+  /**
+   * Project context containing repository information
+   * Used for operations that require repository context
+   * @default Context created from process.cwd()
+   */
+  projectContext?: ProjectContext;
 }
 
 /**
