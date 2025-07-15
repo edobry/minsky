@@ -9,12 +9,12 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { mkdir, rmdir } from "fs/promises";
 import { existsSync } from "fs";
-import { getSessionDirFromParams, updateSessionFromParams } from "../../../domain/session.js";
-import { getCurrentSession, getSessionFromWorkspace } from "../../../domain/workspace.js";
-import { createMock, setupTestMocks } from "../../../utils/test-utils/mocking.js";
-import { withDirectoryIsolation } from "../../../utils/test-utils/cleanup-patterns.js";
-import type { SessionRecord, SessionProviderInterface } from "../../../domain/session.js";
-import type { GitServiceInterface } from "../../../domain/git.js";
+import { getSessionDirFromParams, updateSessionFromParams } from "../../../src/domain/session";
+import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
+import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
+import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
+import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
+import type { GitServiceInterface } from "../../../src/domain/git";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -587,7 +587,7 @@ describe("Session CLI Commands", () => {
       };
 
       // Import and create GitService instance
-      const { GitService } = await import("../../../domain/git.js");
+      const { GitService } = await import("../../../src/domain/git");
       const gitService = new GitService();
 
       // Mock the dependencies

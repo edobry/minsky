@@ -242,19 +242,21 @@ class UnusedElementsFixer {
       const line = lines[i];
       
       // Check if line contains @ts-expect-error
-      if (line.includes('@ts-expect-error')) {
+      if (line && line.includes('@ts-expect-error')) {
         // Check if next line actually has an error
         const nextLine = i + 1 < lines.length ? lines[i + 1] : '';
         
         // Simple heuristic: if next line looks like it might not have an error, remove the comment
-        if (nextLine.trim() === '' || !this.lineContainsLikelyError(nextLine)) {
+        if (nextLine && (nextLine.trim() === '' || !this.lineContainsLikelyError(nextLine))) {
           // Skip this line (remove the @ts-expect-error comment)
           fixes++;
           continue;
         }
       }
       
-      updatedLines.push(line);
+      if (line) {
+        updatedLines.push(line);
+      }
     }
     
     if (fixes > 0) {

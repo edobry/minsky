@@ -10,10 +10,10 @@ import { join } from "path";
 import { mkdir } from "fs/promises";
 import { rmSync, existsSync } from "fs";
 import { randomUUID } from "crypto";
-import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
-import type { JsonFileTaskBackend } from "../jsonFileTaskBackend";
-import type { TaskData } from "../../../types/tasks/taskData";
-import { log } from "../../../utils/logger";
+import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import type { JsonFileTaskBackend } from "./jsonFileTaskBackend";
+import type { TaskData } from "../../types/tasks/taskData";
+import { log } from "../../utils/logger";
 
 // Test isolation counter
 let testSequenceNumber = 0;
