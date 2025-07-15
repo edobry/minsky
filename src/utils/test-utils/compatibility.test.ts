@@ -7,7 +7,7 @@
  */
 import { describe, test, expect as bunExpect } from "bun:test";
 import { compat } from "../index";
-import { setupTestMocks } from "../mocking";
+import { setupTestMocks } from "./mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();

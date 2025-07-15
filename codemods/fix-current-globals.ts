@@ -56,7 +56,7 @@ for (const file of files) {
         const importMatch = newContent.match(/^(import.*?\n)+/m);
         if (importMatch) {
           const importSection = importMatch[0];
-          const loggerImport = 'import { log } from "../utils/logger.js";\n';
+          const loggerImport = 'import { log } from "../utils/logger";\n';
           newContent = newContent.replace(importSection, importSection + loggerImport);
           fileChanges++;
         }
