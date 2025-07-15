@@ -40,7 +40,7 @@ async function normalizeSessionTaskIds(options: {
 
   for (const session of allSessions) {
     if (session.taskId) {
-      // Check if task ID needs normalization (doesn't start with #)
+      // Check if task ID needs normalization (does not start with #)
       if (!session.taskId.startsWith("#")) {
         const normalizedTaskId = `#${session.taskId}`;
 
@@ -101,7 +101,7 @@ async function normalizeSessionTaskIds(options: {
       }
     }
 
-    log.cli(`\n🎉 Normalization complete!`);
+    log.cli("\n🎉 Normalization complete!");
     log.cli(`  ✅ Successfully normalized: ${successCount} sessions`);
     if (errorCount > 0) {
       log.cli(`  ❌ Failed to normalize: ${errorCount} sessions`);
