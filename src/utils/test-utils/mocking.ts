@@ -460,7 +460,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
  */
 export function createPartialMock<T extends object>(implementations: Partial<T> = {}): T {
   // Create a base object with the provided implementations
-  const base = { ...implementations } as unknown;
+  const base = { ...implementations } as Record<string | symbol, any>;
 
   // Create a proxy that will handle method calls
   return new Proxy(base, {
