@@ -1,14 +1,14 @@
 {
-  "totalCount": 885,
+  "totalCount": 861,
   "byCategory": {
-    "suspicious": 173,
-    "error-masking": 552,
+    "suspicious": 171,
+    "error-masking": 531,
     "test-mocking": 140,
-    "type-bridging": 20
+    "type-bridging": 19
   },
   "byPriority": {
-    "medium": 222,
-    "high": 552,
+    "medium": 219,
+    "high": 531,
     "low": 111
   },
   "matches": [
@@ -2443,6 +2443,249 @@
       "reason": "Property access masking - should use proper types"
     },
     {
+      "file": "src/mcp/command-mapper.ts",
+      "line": 98,
+      "content": "(this.server as unknown).addTool({",
+      "context": "\n    // Register the tool with FastMCP\n    (this.server as unknown).addTool({\n      name: normalizedName,\n      description: command.description,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/command-mapper.ts",
+      "line": 108,
+      "content": "(this.projectContext as unknown).repositoryPath &&",
+      "context": "          if (\n            this.projectContext &&\n            (this.projectContext as unknown).repositoryPath &&\n            args &&\n            typeof args === \"object\"",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/command-mapper.ts",
+      "line": 115,
+      "content": "repositoryPath: (this.projectContext as unknown).repositoryPath,",
+      "context": "              args = {\n                ...args,\n                repositoryPath: (this.projectContext as unknown).repositoryPath,\n              };\n              log.debug(`Using default repository path for command ${normalizedName}`, {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/command-mapper.ts",
+      "line": 118,
+      "content": "repositoryPath: (this.projectContext as unknown).repositoryPath,",
+      "context": "              };\n              log.debug(`Using default repository path for command ${normalizedName}`, {\n                repositoryPath: (this.projectContext as unknown).repositoryPath,\n              });\n            }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/command-mapper.ts",
+      "line": 135,
+      "content": "return JSON.stringify(result as unknown, undefined, 2);",
+      "context": "          }\n          // Otherwise, return it as a JSON string for structured data\n          return JSON.stringify(result as unknown, undefined, 2);\n        } catch (error) {\n          const errorMessage = getErrorMessage(error as any);",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/mcp/command-mapper.ts",
+      "line": 165,
+      "content": "(this.server as unknown).addTool({",
+      "context": "\n        // Register the alias\n        (this.server as unknown).addTool({\n          name: underscoreName,\n          description: `${command.description} (underscore alias)`,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/command-mapper.ts",
+      "line": 181,
+      "content": "(this.projectContext as unknown).repositoryPath &&",
+      "context": "              if (\n                this.projectContext &&\n                (this.projectContext as unknown).repositoryPath &&\n                args &&\n                typeof args === \"object\"",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/command-mapper.ts",
+      "line": 188,
+      "content": "repositoryPath: (this.projectContext as unknown).repositoryPath,",
+      "context": "                  args = {\n                    ...args,\n                    repositoryPath: (this.projectContext as unknown).repositoryPath,\n                  };\n                }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/command-mapper.ts",
+      "line": 199,
+      "content": "return JSON.stringify(result as unknown, undefined, 2);",
+      "context": "              }\n              // Otherwise, return it as a JSON string for structured data\n              return JSON.stringify(result as unknown, undefined, 2);\n            } catch (error) {\n              const errorMessage = getErrorMessage(error as any);",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 101,
+      "content": "repositoryPath: (this.projectContext as unknown).repositoryPath,",
+      "context": "      this.projectContext = options.projectContext || createProjectContextFromCwd();\n      log.debug(\"Using project context\", {\n        repositoryPath: (this.projectContext as unknown).repositoryPath,\n      });\n    } catch (error) {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 157,
+      "content": "(this.server as unknown).on(\"connect\", () => {",
+      "context": "\n    // Listen for client connections\n    (this.server as unknown).on(\"connect\", () => {\n      log.agent(\"Client connected to Minsky MCP Server\");\n    });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 162,
+      "content": "(this.server as unknown).on(\"disconnect\", () => {",
+      "context": "\n    // Listen for client disconnections\n    (this.server as unknown).on(\"disconnect\", () => {\n      log.agent(\"Client disconnected from Minsky MCP Server\");\n    });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 179,
+      "content": "await (this.server as unknown).start({ transportType: \"stdio\" });",
+      "context": "\n      if (this.options.transportType === \"stdio\") {\n        await (this.server as unknown).start({ transportType: \"stdio\" });\n      } else if (this.options.transportType === \"sse\" && this.options.sse) {\n        await (this.server as unknown).start({",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 181,
+      "content": "await (this.server as unknown).start({",
+      "context": "        await (this.server as unknown).start({ transportType: \"stdio\" });\n      } else if (this.options.transportType === \"sse\" && this.options.sse) {\n        await (this.server as unknown).start({\n          transportType: \"sse\",\n          sse: {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 189,
+      "content": "await (this.server as unknown).start({",
+      "context": "        });\n      } else if (this.options.transportType === \"httpStream\" && this.options.httpStream) {\n        await (this.server as unknown).start({\n          transportType: \"httpStream\",\n          httpStream: {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 198,
+      "content": "await (this.server as unknown).start({ transportType: \"stdio\" });",
+      "context": "      } else {\n        // Default to stdio if transport type is invalid\n        await (this.server as unknown).start({ transportType: \"stdio\" });\n      }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 209,
+      "content": "if ((this.server as unknown)._tools) {",
+      "context": "        const methods = [];\n        // @ts-ignore - Accessing a private property for debugging\n        if ((this.server as unknown)._tools) {\n          // @ts-ignore\n          methods.push(...Object.keys((this.server)._tools) as unknown);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 211,
+      "content": "methods.push(...Object.keys((this.server)._tools) as unknown);",
+      "context": "        if ((this.server as unknown)._tools) {\n          // @ts-ignore\n          methods.push(...Object.keys((this.server)._tools) as unknown);\n        }\n        log.debug(\"MCP Server registered methods\", {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 219,
+      "content": "error: getErrorMessage(e as unknown),",
+      "context": "      } catch (e) {\n        log.debug(\"Could not log MCP server methods\", {\n          error: getErrorMessage(e as unknown),\n        });\n      }",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/mcp/fastmcp-command-mapper.ts",
+      "line": 32,
+      "content": "(this.server as unknown).addTool({",
+      "context": "    log.debug(`Registering tool: ${name}`, { description });\n\n    (this.server as unknown).addTool({\n      name,\n      description,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/fastmcp-command-mapper.ts",
+      "line": 49,
+      "content": "this.addTool(`session.${name}`, description, schema, handler as unknown);",
+      "context": "    handler: (args: z.infer<T>) => Promise<Record<string, any>>\n  ): void {\n    this.addTool(`session.${name}`, description, schema, handler as unknown);\n  }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/fastmcp-command-mapper.ts",
+      "line": 61,
+      "content": "this.addTool(`tasks.${name}`, description, schema, handler as unknown);",
+      "context": "    handler: (args: z.infer<T>) => Promise<Record<string, any>>\n  ): void {\n    this.addTool(`tasks.${name}`, description, schema, handler as unknown);\n  }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/fastmcp-command-mapper.ts",
+      "line": 73,
+      "content": "this.addTool(`git.${name}`, description, schema, handler as unknown);",
+      "context": "    handler: (args: z.infer<T>) => Promise<Record<string, any>>\n  ): void {\n    this.addTool(`git.${name}`, description, schema, handler as unknown);\n  }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/fastmcp-command-mapper.ts",
+      "line": 80,
+      "content": "(this.server as unknown).addTool({",
+      "context": "   */\n  addCommand(command: { name: string; description: string; inputSchema?: any }): void {\n    (this.server as unknown).addTool({\n      name: command.name,\n      description: command.description,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/inspector-launcher.ts",
+      "line": 101,
+      "content": "SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server",
+      "context": "      ...(process as any).env,\n      CLIENT_PORT: (port as any).toString(),\n      SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server\n    };\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/inspector-launcher.ts",
+      "line": 149,
+      "content": "log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);",
+      "context": "\n    inspectorProcess.stderr.on(\"data\", (data) => {\n      log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);\n    });\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/command-mapper.test.ts",
+      "line": 31,
+      "content": "commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);",
+      "context": "    } as ProjectContext;\n\n    commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);\n  });\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
       "file": "src/domain/session-start-consistency.test.ts",
       "line": 106,
       "content": "(fs.existsSync as unknown).mockReturnValue(true); // Directory exists",
@@ -4108,258 +4351,6 @@
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/types/project.ts",
-      "line": 55,
-      "content": "throw new Error(errorMessage as unknown);",
-      "context": "    const errorMessage = `Invalid repository path: ${normalizedPath}`;\n    log.error(errorMessage);\n    throw new Error(errorMessage as unknown);\n  }\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/mcp/command-mapper.ts",
-      "line": 98,
-      "content": "(this.server as unknown).addTool({",
-      "context": "\n    // Register the tool with FastMCP\n    (this.server as unknown).addTool({\n      name: normalizedName,\n      description: command.description,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/command-mapper.ts",
-      "line": 108,
-      "content": "(this.projectContext as unknown).repositoryPath &&",
-      "context": "          if (\n            this.projectContext &&\n            (this.projectContext as unknown).repositoryPath &&\n            args &&\n            typeof args === \"object\"",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/command-mapper.ts",
-      "line": 115,
-      "content": "repositoryPath: (this.projectContext as unknown).repositoryPath,",
-      "context": "              args = {\n                ...args,\n                repositoryPath: (this.projectContext as unknown).repositoryPath,\n              };\n              log.debug(`Using default repository path for command ${normalizedName}`, {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/command-mapper.ts",
-      "line": 118,
-      "content": "repositoryPath: (this.projectContext as unknown).repositoryPath,",
-      "context": "              };\n              log.debug(`Using default repository path for command ${normalizedName}`, {\n                repositoryPath: (this.projectContext as unknown).repositoryPath,\n              });\n            }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/command-mapper.ts",
-      "line": 135,
-      "content": "return JSON.stringify(result as unknown, undefined, 2);",
-      "context": "          }\n          // Otherwise, return it as a JSON string for structured data\n          return JSON.stringify(result as unknown, undefined, 2);\n        } catch (error) {\n          const errorMessage = getErrorMessage(error as any);",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/command-mapper.ts",
-      "line": 165,
-      "content": "(this.server as unknown).addTool({",
-      "context": "\n        // Register the alias\n        (this.server as unknown).addTool({\n          name: underscoreName,\n          description: `${command.description} (underscore alias)`,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/command-mapper.ts",
-      "line": 181,
-      "content": "(this.projectContext as unknown).repositoryPath &&",
-      "context": "              if (\n                this.projectContext &&\n                (this.projectContext as unknown).repositoryPath &&\n                args &&\n                typeof args === \"object\"",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/command-mapper.ts",
-      "line": 188,
-      "content": "repositoryPath: (this.projectContext as unknown).repositoryPath,",
-      "context": "                  args = {\n                    ...args,\n                    repositoryPath: (this.projectContext as unknown).repositoryPath,\n                  };\n                }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/command-mapper.ts",
-      "line": 199,
-      "content": "return JSON.stringify(result as unknown, undefined, 2);",
-      "context": "              }\n              // Otherwise, return it as a JSON string for structured data\n              return JSON.stringify(result as unknown, undefined, 2);\n            } catch (error) {\n              const errorMessage = getErrorMessage(error as any);",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/server.ts",
-      "line": 101,
-      "content": "repositoryPath: (this.projectContext as unknown).repositoryPath,",
-      "context": "      this.projectContext = options.projectContext || createProjectContextFromCwd();\n      log.debug(\"Using project context\", {\n        repositoryPath: (this.projectContext as unknown).repositoryPath,\n      });\n    } catch (error) {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/server.ts",
-      "line": 157,
-      "content": "(this.server as unknown).on(\"connect\", () => {",
-      "context": "\n    // Listen for client connections\n    (this.server as unknown).on(\"connect\", () => {\n      log.agent(\"Client connected to Minsky MCP Server\");\n    });",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/server.ts",
-      "line": 162,
-      "content": "(this.server as unknown).on(\"disconnect\", () => {",
-      "context": "\n    // Listen for client disconnections\n    (this.server as unknown).on(\"disconnect\", () => {\n      log.agent(\"Client disconnected from Minsky MCP Server\");\n    });",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/server.ts",
-      "line": 179,
-      "content": "await (this.server as unknown).start({ transportType: \"stdio\" });",
-      "context": "\n      if (this.options.transportType === \"stdio\") {\n        await (this.server as unknown).start({ transportType: \"stdio\" });\n      } else if (this.options.transportType === \"sse\" && this.options.sse) {\n        await (this.server as unknown).start({",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/server.ts",
-      "line": 181,
-      "content": "await (this.server as unknown).start({",
-      "context": "        await (this.server as unknown).start({ transportType: \"stdio\" });\n      } else if (this.options.transportType === \"sse\" && this.options.sse) {\n        await (this.server as unknown).start({\n          transportType: \"sse\",\n          sse: {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/server.ts",
-      "line": 189,
-      "content": "await (this.server as unknown).start({",
-      "context": "        });\n      } else if (this.options.transportType === \"httpStream\" && this.options.httpStream) {\n        await (this.server as unknown).start({\n          transportType: \"httpStream\",\n          httpStream: {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/server.ts",
-      "line": 198,
-      "content": "await (this.server as unknown).start({ transportType: \"stdio\" });",
-      "context": "      } else {\n        // Default to stdio if transport type is invalid\n        await (this.server as unknown).start({ transportType: \"stdio\" });\n      }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/server.ts",
-      "line": 209,
-      "content": "if ((this.server as unknown)._tools) {",
-      "context": "        const methods = [];\n        // @ts-ignore - Accessing a private property for debugging\n        if ((this.server as unknown)._tools) {\n          // @ts-ignore\n          methods.push(...Object.keys((this.server)._tools) as unknown);",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/server.ts",
-      "line": 211,
-      "content": "methods.push(...Object.keys((this.server)._tools) as unknown);",
-      "context": "        if ((this.server as unknown)._tools) {\n          // @ts-ignore\n          methods.push(...Object.keys((this.server)._tools) as unknown);\n        }\n        log.debug(\"MCP Server registered methods\", {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/server.ts",
-      "line": 219,
-      "content": "error: getErrorMessage(e as unknown),",
-      "context": "      } catch (e) {\n        log.debug(\"Could not log MCP server methods\", {\n          error: getErrorMessage(e as unknown),\n        });\n      }",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/mcp/fastmcp-command-mapper.ts",
-      "line": 32,
-      "content": "(this.server as unknown).addTool({",
-      "context": "    log.debug(`Registering tool: ${name}`, { description });\n\n    (this.server as unknown).addTool({\n      name,\n      description,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/fastmcp-command-mapper.ts",
-      "line": 49,
-      "content": "this.addTool(`session.${name}`, description, schema, handler as unknown);",
-      "context": "    handler: (args: z.infer<T>) => Promise<Record<string, any>>\n  ): void {\n    this.addTool(`session.${name}`, description, schema, handler as unknown);\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/fastmcp-command-mapper.ts",
-      "line": 61,
-      "content": "this.addTool(`tasks.${name}`, description, schema, handler as unknown);",
-      "context": "    handler: (args: z.infer<T>) => Promise<Record<string, any>>\n  ): void {\n    this.addTool(`tasks.${name}`, description, schema, handler as unknown);\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/fastmcp-command-mapper.ts",
-      "line": 73,
-      "content": "this.addTool(`git.${name}`, description, schema, handler as unknown);",
-      "context": "    handler: (args: z.infer<T>) => Promise<Record<string, any>>\n  ): void {\n    this.addTool(`git.${name}`, description, schema, handler as unknown);\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/fastmcp-command-mapper.ts",
-      "line": 80,
-      "content": "(this.server as unknown).addTool({",
-      "context": "   */\n  addCommand(command: { name: string; description: string; inputSchema?: any }): void {\n    (this.server as unknown).addTool({\n      name: command.name,\n      description: command.description,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/inspector-launcher.ts",
-      "line": 101,
-      "content": "SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server",
-      "context": "      ...(process as any).env,\n      CLIENT_PORT: (port as any).toString(),\n      SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server\n    };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/inspector-launcher.ts",
-      "line": 149,
-      "content": "log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);",
-      "context": "\n    inspectorProcess.stderr.on(\"data\", (data) => {\n      log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);\n    });\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/command-mapper.test.ts",
-      "line": 31,
-      "content": "commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);",
-      "context": "    } as ProjectContext;\n\n    commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);\n  });\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
       "file": "src/utils/git-exec-enhanced.ts",
       "line": 176,
       "content": "...(options as unknown)!.context || [],",
@@ -4403,60 +4394,6 @@
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/filter-messages.ts",
-      "line": 36,
-      "content": "const status = (options as unknown)!.status;",
-      "context": "\n  // Add status filter message if status is provided\n  const status = (options as unknown)!.status;\n  if (status) {\n    messages.push(getStatusFilterMessage(status));",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/filter-messages.ts",
-      "line": 41,
-      "content": "else if (!(options as unknown)!.all) {",
-      "context": "  }\n  // Add active tasks message if not showing all tasks and no specific status filter\n  else if (!(options as unknown)!.all) {\n    messages.push(getActiveTasksMessage());\n  }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/package-manager.ts",
-      "line": 74,
-      "content": "const detectedPackageManager = (options as unknown)!.packageManager || detectPackageManager(repoPath);",
-      "context": "  try {\n    // Detect or use provided package manager\n    const detectedPackageManager = (options as unknown)!.packageManager || detectPackageManager(repoPath);\n\n    if (!detectedPackageManager) {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/package-manager.ts",
-      "line": 93,
-      "content": "if (!(options as unknown)!.quiet) {",
-      "context": "\n    // Log installation start unless quiet\n    if (!(options as unknown)!.quiet) {\n      log.debug(`Installing dependencies using ${detectedPackageManager}...`);\n    }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/package-manager.ts",
-      "line": 100,
-      "content": "stdio: (options as unknown)!.quiet ? \"ignore\" : \"inherit\",",
-      "context": "    const result = execSync(installCmd, {\n      cwd: repoPath,\n      stdio: (options as unknown)!.quiet ? \"ignore\" : \"inherit\",\n    }) as unknown;\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/package-manager.ts",
-      "line": 101,
-      "content": "}) as unknown;",
-      "context": "      cwd: repoPath,\n      stdio: (options as unknown)!.quiet ? \"ignore\" : \"inherit\",\n    }) as unknown;\n\n    // Handle the case where execSync returns null when stdio is \"ignore\"",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
     },
     {
       "file": "src/utils/logger.ts",
@@ -4544,114 +4481,6 @@
       "line": 58,
       "content": "} as unknown as DateConstructor;",
       "context": "  const MockDate = function () {\n    return new originalDate(fixedDate);\n  } as unknown as DateConstructor;\n\n  // Copy all the static methods from the original Date",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 41,
-      "content": "if (!(RepositoryMetadataCache as unknown)!.instance) {",
-      "context": "   */\n  static getInstance(): RepositoryMetadataCache {\n    if (!(RepositoryMetadataCache as unknown)!.instance) {\n      (RepositoryMetadataCache as unknown)!.instance = new RepositoryMetadataCache();\n    }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 42,
-      "content": "(RepositoryMetadataCache as unknown)!.instance = new RepositoryMetadataCache();",
-      "context": "  static getInstance(): RepositoryMetadataCache {\n    if (!(RepositoryMetadataCache as unknown)!.instance) {\n      (RepositoryMetadataCache as unknown)!.instance = new RepositoryMetadataCache();\n    }\n    return (RepositoryMetadataCache as unknown)!.instance;",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 44,
-      "content": "return (RepositoryMetadataCache as unknown)!.instance;",
-      "context": "      (RepositoryMetadataCache as unknown)!.instance = new RepositoryMetadataCache();\n    }\n    return (RepositoryMetadataCache as unknown)!.instance;\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 56,
-      "content": "const cacheEntry = (this.cache as unknown).get(key) as CacheEntry<T> | undefined;",
-      "context": "   */\n  async get<T>(key: string, fetcher: () => Promise<T>, ttl: number = this.DEFAULT_TTL): Promise<T> {\n    const cacheEntry = (this.cache as unknown).get(key) as CacheEntry<T> | undefined;\n    const now = Date.now();\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 61,
-      "content": "return (cacheEntry as unknown)!.data;",
-      "context": "    // If the entry exists and is not expired, return it\n    if (cacheEntry && now - cacheEntry?.timestamp < ttl) {\n      return (cacheEntry as unknown)!.data;\n    }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 66,
-      "content": "(this.cache as unknown).set(key, { data, timestamp: now });",
-      "context": "    // Otherwise fetch the data and update the cache\n    const data = await fetcher();\n    (this.cache as unknown).set(key, { data, timestamp: now });\n    return data;\n  }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 77,
-      "content": "(this.cache as unknown).set(key, { data, timestamp: Date.now() });",
-      "context": "   */\n  set<T>(key: string, data: T): void {\n    (this.cache as unknown).set(key, { data, timestamp: Date.now() });\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 86,
-      "content": "(this.cache as unknown).delete(key);",
-      "context": "   */\n  invalidate(key: string): void {\n    (this.cache as unknown).delete(key);\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 98,
-      "content": "(this.cache as unknown).delete(key);",
-      "context": "    for (const key of Array.from(this.cache.keys())) {\n      if (key.startsWith(prefix)) {\n        (this.cache as unknown).delete(key);\n      }\n    }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 107,
-      "content": "(this.cache as unknown).clear();",
-      "context": "   */\n  invalidateAll(): void {\n    (this.cache as unknown).clear();\n  }\n}",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/repository-utils.ts",
-      "line": 127,
-      "content": "key += `:${JSON.stringify(params as unknown)}`;",
-      "context": "\n  if (params) {\n    key += `:${JSON.stringify(params as unknown)}`;\n  }\n",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/utils/repo.ts",
-      "line": 13,
-      "content": "return resolveRepoPathInternal(options as unknown);",
-      "context": " */\nexport async function resolveRepoPath(options: RepoResolutionOptions = {}): Promise<string> {\n  return resolveRepoPathInternal(options as unknown);\n}\n",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
@@ -4864,58 +4693,13 @@
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/utils/test-helpers.ts",
-      "line": 22,
-      "content": "if ((_options as unknown)!.recursive) {",
-      "context": "\n  // If recursive, create parent directories\n  if ((_options as unknown)!.recursive) {\n    let parent = dirname(path);\n    while (parent && parent !== \".\" && parent !== \"/\") {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-helpers.ts",
-      "line": 44,
-      "content": "if ((_options as unknown)!.recursive) {",
-      "context": "\n  // If recursive, remove all children first\n  if ((_options as unknown)!.recursive) {\n    const children = Array.from(virtualFS.keys()).filter((key) => key.startsWith(`${path}/`));\n    for (const child of children) {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-helpers.ts",
-      "line": 179,
-      "content": "if (!result || (result as unknown)!.status === null) {",
-      "context": " */\nexport function ensureValidCommandResult(result: SpawnSyncReturns<string>): void {\n  if (!result || (result as unknown)!.status === null) {\n    log.error(\"Command execution failed or was killed\");\n    throw new Error(\"Command execution failed\");",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-helpers.ts",
-      "line": 184,
-      "content": "if ((result as unknown)!.status !== 0) {",
-      "context": "  }\n\n  if ((result as unknown)!.status !== 0) {\n    log.error(`Command failed with status ${(result as unknown)!.status}`);\n    log.error(`Stderr: ${(result as unknown)!.stderr}`);",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-helpers.ts",
-      "line": 185,
-      "content": "log.error(`Command failed with status ${(result as unknown)!.status}`);",
-      "context": "\n  if ((result as unknown)!.status !== 0) {\n    log.error(`Command failed with status ${(result as unknown)!.status}`);\n    log.error(`Stderr: ${(result as unknown)!.stderr}`);\n  }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-helpers.ts",
-      "line": 186,
-      "content": "log.error(`Stderr: ${(result as unknown)!.stderr}`);",
-      "context": "  if ((result as unknown)!.status !== 0) {\n    log.error(`Command failed with status ${(result as unknown)!.status}`);\n    log.error(`Stderr: ${(result as unknown)!.stderr}`);\n  }\n}",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
+      "file": "src/types/project.ts",
+      "line": 55,
+      "content": "throw new Error(errorMessage as unknown);",
+      "context": "    const errorMessage = `Invalid repository path: ${normalizedPath}`;\n    log.error(errorMessage);\n    throw new Error(errorMessage as unknown);\n  }\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
     },
     {
       "file": "src/commands/mcp/index.ts",
@@ -4970,6 +4754,537 @@
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 492,
+      "content": "log.cli(output as unknown);",
+      "context": "            }\n\n            log.cli(output as unknown);\n          } else if (result.error) {\n            log.cli(`Failed to load configuration: ${result.error}`);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 496,
+      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
+      "context": "            log.cli(`Failed to load configuration: ${result.error}`);\n          } else {\n            log.cli(JSON.stringify(result as unknown, null, 2));\n          }\n        },",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 504,
+      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
+      "context": "          // Check if JSON output was requested\n          if (result.json) {\n            log.cli(JSON.stringify(result as unknown, null, 2));\n            return;\n          }",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 519,
+      "content": "log.cli(output as unknown);",
+      "context": "            }\n\n            log.cli(output as unknown);\n          } else if (result.error) {\n            log.cli(`Failed to load configuration: ${result.error}`);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 523,
+      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
+      "context": "            log.cli(`Failed to load configuration: ${result.error}`);\n          } else {\n            log.cli(JSON.stringify(result as unknown, null, 2));\n          }\n        },",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 600,
+      "content": "const credsObj = creds as unknown;",
+      "context": "    for (const [service, creds] of Object.entries(resolved.credentials)) {\n      if (creds && typeof creds === \"object\") {\n        const credsObj = creds as unknown;\n        const serviceName = service === \"github\" ? \"GitHub\" : service;\n        const source = credsObj.source === \"environment\" ? \"env\" : credsObj.source;",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 676,
+      "content": "output += `    ${index}: ${JSON.stringify(item as unknown)}\\n`;",
+      "context": "      value.forEach((item, index) => {\n        if (typeof item === \"object\" && item !== null) {\n          output += `    ${index}: ${JSON.stringify(item as unknown)}\\n`;\n        } else {\n          output += `    ${index}: ${item}\\n`;",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 726,
+      "content": "} else if (typeof value === \"object\" && !Array.isArray(value as unknown)) {",
+      "context": "      if (value === null || value === undefined) {\n        result.push(`${fullKey}=(null)`);\n      } else if (typeof value === \"object\" && !Array.isArray(value as unknown)) {\n        // Recursively flatten objects\n        result.push(...flatten(value as unknown, fullKey));",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 728,
+      "content": "result.push(...flatten(value as unknown, fullKey));",
+      "context": "      } else if (typeof value === \"object\" && !Array.isArray(value as unknown)) {\n        // Recursively flatten objects\n        result.push(...flatten(value as unknown, fullKey));\n      } else if (Array.isArray(value as unknown)) {\n        if (value.length === 0) {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 729,
+      "content": "} else if (Array.isArray(value as unknown)) {",
+      "context": "        // Recursively flatten objects\n        result.push(...flatten(value as unknown, fullKey));\n      } else if (Array.isArray(value as unknown)) {\n        if (value.length === 0) {\n          result.push(`${fullKey}=(empty array)`);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 735,
+      "content": "result.push(...flatten(item as unknown, `${fullKey}[${index}]`));",
+      "context": "          value.forEach((item, index) => {\n            if (typeof item === \"object\") {\n              result.push(...flatten(item as unknown, `${fullKey}[${index}]`));\n            } else {\n              result.push(`${fullKey}[${index}]=${item}`);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 768,
+      "content": "flatten((current as unknown)[key], fullKey);",
+      "context": "        const fullKey = prefix ? `${prefix}.${key}` : key;\n        if (typeof current[key] === \"object\" && current[key] !== null) {\n          flatten((current as unknown)[key], fullKey);\n        } else {\n          flattened[fullKey] = current[key];",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 776,
+      "content": "flatten(obj as unknown);",
+      "context": "  }\n\n  flatten(obj as unknown);\n  return flattened;\n}",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/cli/cli-command-factory.ts",
+      "line": 787,
+      "content": "cliFactory.initialize(config as unknown);",
+      "context": "export function initializeCliCommands(program: Command, config?: Partial<CliFactoryConfig>): void {\n  // Initialize the factory\n  cliFactory.initialize(config as unknown);\n\n  // Setup common customizations",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/mcp/integration-example.ts",
+      "line": 83,
+      "content": "log.debug(\"MCP git.commit called with params:\", params as unknown);",
+      "context": "  // In real implementation, this would call the shared command registry\n  handler: async (params: any) => {\n    log.debug(\"MCP git.commit called with params:\", params as unknown);\n    return {\n      success: true,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/mcp/integration-example.ts",
+      "line": 87,
+      "content": "message: (params as unknown)!.message,",
+      "context": "      success: true,\n      commitHash: \"example-hash\",\n      message: (params as unknown)!.message,\n    };\n  },",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/mcp/integration-example.ts",
+      "line": 117,
+      "content": "log.debug(\"MCP tasks.status.get called with params:\", params as unknown);",
+      "context": "  // In real implementation, this would call the shared command registry\n  handler: async (params: any) => {\n    log.debug(\"MCP tasks.status.get called with params:\", params as unknown);\n    return {\n      success: true,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/mcp/integration-example.ts",
+      "line": 120,
+      "content": "taskId: (params as unknown)!.taskId,",
+      "context": "    return {\n      success: true,\n      taskId: (params as unknown)!.taskId,\n      _status: \"TODO\", // Example _status\n    };",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/mcp/integration-example.ts",
+      "line": 141,
+      "content": "log.debug(\"MCP session.list called with params:\", params as unknown);",
+      "context": "  // In real implementation, this would call the shared command registry\n  handler: async (params: any) => {\n    log.debug(\"MCP session.list called with params:\", params as unknown);\n    return {\n      success: true,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/mcp/integration-example.ts",
+      "line": 182,
+      "content": "log.debug(\"MCP rules.list called with params:\", params as unknown);",
+      "context": "  // In real implementation, this would call the shared command registry\n  handler: async (params: any) => {\n    log.debug(\"MCP rules.list called with params:\", params as unknown);\n    return {\n      success: true,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/schema-bridge.ts",
+      "line": 210,
+      "content": "(shortFlags as unknown)[name]",
+      "context": "      name,\n      param,\n      (shortFlags as unknown)[name]\n    );\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/schema-bridge.ts",
+      "line": 241,
+      "content": "const value = (options as unknown)[optionName];",
+      "context": "  Object.entries(parameters).forEach(([name, param]) => {\n    const optionName = paramNameToFlag(name).replace(/-/g, \"\");\n    const value = (options as unknown)[optionName];\n\n    // If value is present, validate and add to result",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/schema-bridge.ts",
+      "line": 247,
+      "content": "(result as unknown)[name] = param.schema.parse(value as unknown);",
+      "context": "      // Use the schema to validate and transform\n      try {\n        (result as unknown)[name] = param.schema.parse(value as unknown);\n      } catch (error) {\n        // Re-throw with more context",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/schema-bridge.ts",
+      "line": 257,
+      "content": "(result as unknown)[name] = param.defaultValue;",
+      "context": "    } else if (param.defaultValue !== undefined) {\n      // Use default value\n      (result as unknown)[name] = param.defaultValue;\n    }\n  });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 42,
+      "content": "return JSON.stringify(data as unknown, undefined, 2);",
+      "context": " */\nexport function formatAsJson(data: any): string {\n  return JSON.stringify(data as unknown, undefined, 2);\n}\n",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 62,
+      "content": "return this.formatJson(data as unknown, context as unknown);",
+      "context": "    // Format the response based on the requested format\n    if (format === OutputFormat.JSON) {\n      return this.formatJson(data as unknown, context as unknown);\n    }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 66,
+      "content": "return this.formatText(data as unknown, context as unknown);",
+      "context": "\n    // Default to text format\n    return this.formatText(data as unknown, context as unknown);\n  }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 86,
+      "content": "return data as unknown as object;",
+      "context": "   */\n  formatJson(data: T, context: CommandExecutionContext): object {\n    return data as unknown as object;\n  }\n}",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 194,
+      "content": "output += `${index + 1}. ${this.itemFormatter!(item as unknown)}\\n`;",
+      "context": "    if (this.itemFormatter) {\n      items.forEach((item, index) => {\n        output += `${index + 1}. ${this.itemFormatter!(item as unknown)}\\n`;\n      });\n    } else {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 198,
+      "content": "output += `${index + 1}. ${String(item as unknown)}\\n`;",
+      "context": "    } else {\n      items.forEach((item, index) => {\n        output += `${index + 1}. ${String(item as unknown)}\\n`;\n      });\n    }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 261,
+      "content": "columnWidths[col] = Math.max((columnWidths as unknown)[col], value.length);",
+      "context": "      this.columns.forEach((col) => {\n        const value = String(row[col] || \"\");\n        columnWidths[col] = Math.max((columnWidths as unknown)[col], value.length);\n      });\n    });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 269,
+      "content": "return header.padEnd((columnWidths as unknown)[col]);",
+      "context": "      .map((col) => {\n        const header = String(this.headers[col] || col);\n        return header.padEnd((columnWidths as unknown)[col]);\n      })\n      .join(\" | \");",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 278,
+      "content": "return \"-\".repeat((columnWidths as unknown)[col]);",
+      "context": "    const separatorRow = this.columns\n      .map((col) => {\n        return \"-\".repeat((columnWidths as unknown)[col]);\n      })\n      .join(\"-|-\");",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 289,
+      "content": "return value.padEnd((columnWidths as unknown)[col]);",
+      "context": "        .map((col) => {\n          const value = String(row[col] || \"\");\n          return value.padEnd((columnWidths as unknown)[col]);\n        })\n        .join(\" | \") as unknown;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 291,
+      "content": ".join(\" | \") as unknown;",
+      "context": "          return value.padEnd((columnWidths as unknown)[col]);\n        })\n        .join(\" | \") as unknown;\n\n      output += `${dataRow}\\n`;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/legacy-command-registry.ts",
+      "line": 167,
+      "content": "if (this.commands.has(commandDef.id) && !(options as unknown)!.allowOverwrite) {",
+      "context": "    R = any,\n  >(commandDef: CommandDefinition<T, R>, options: { allowOverwrite?: boolean } = {}): void {\n    if (this.commands.has(commandDef.id) && !(options as unknown)!.allowOverwrite) {\n      throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);\n    }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/legacy-command-registry.ts",
+      "line": 171,
+      "content": "this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);",
+      "context": "    }\n\n    this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);\n  }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/error-handling.ts",
+      "line": 153,
+      "content": "(typeof process.env.NODE_DEBUG === \"string\" && (process.env.NODE_DEBUG as unknown).includes(\"minsky\"))",
+      "context": "      process.env.DEBUG === \"true\" ||\n      process.env.DEBUG === \"1\" ||\n      (typeof process.env.NODE_DEBUG === \"string\" && (process.env.NODE_DEBUG as unknown).includes(\"minsky\"))\n    );\n  }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/error-handling.ts",
+      "line": 169,
+      "content": "const formattedError = SharedErrorHandler.formatError(error as unknown, debug);",
+      "context": "\n    // Format error for structured logging\n    const formattedError = SharedErrorHandler.formatError(error as unknown, debug);\n\n    // Log to appropriate channels based on mode",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/error-handling.ts",
+      "line": 241,
+      "content": "const formattedError = SharedErrorHandler.formatError(error as unknown, debug);",
+      "context": "    if (isStructuredMode()) {\n      // Format error for structured logging\n      const formattedError = SharedErrorHandler.formatError(error as unknown, debug);\n      log.error(\"CLI operation failed\", formattedError);\n    }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/error-handling.ts",
+      "line": 264,
+      "content": "const formattedError = SharedErrorHandler.formatError(error as unknown, debug);",
+      "context": "\n    // Format error for MCP response\n    const formattedError = SharedErrorHandler.formatError(error as unknown, debug);\n\n    // Log error in structured format",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 46,
+      "content": "return JSON.parse(output as unknown) as unknown;",
+      "context": "\n        // Parse the JSON output\n        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(\"MCP: Error listing tasks via execSync\", {",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 69,
+      "content": "const command = `minsky tasks get ${(args as unknown)!.taskId} --json`;",
+      "context": "      try {\n        // Execute the command\n        const command = `minsky tasks get ${(args as unknown)!.taskId} --json`;\n        const output = execSync(command).toString();\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 73,
+      "content": "return JSON.parse(output as unknown) as unknown;",
+      "context": "\n        // Parse the JSON output\n        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 75,
+      "content": "log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {",
+      "context": "        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {\n          originalError: getErrorMessage(error as any),\n          stack: error instanceof Error ? (error as any).stack as any : undefined as any,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 96,
+      "content": "const command = `minsky tasks status get ${(args as unknown)!.taskId}`;",
+      "context": "      try {\n        // Execute the command\n        const command = `minsky tasks status get ${(args as unknown)!.taskId}`;\n        const output = execSync(command).toString().trim();\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 101,
+      "content": "taskId: (args as unknown)!.taskId,",
+      "context": "        // Format output\n        return {\n          taskId: (args as unknown)!.taskId,\n          status: output.split(\": \")[1], // Extract the status value\n        };",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 105,
+      "content": "log.error(`MCP: Error getting task status for ${(args as unknown)!.taskId} via execSync`, {",
+      "context": "        };\n      } catch (error) {\n        log.error(`MCP: Error getting task status for ${(args as unknown)!.taskId} via execSync`, {\n          originalError: getErrorMessage(error as any),\n          stack: error instanceof Error ? (error as any).stack as any : undefined as any,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 129,
+      "content": "const command = `minsky tasks status set ${(args as unknown)!.taskId} ${args.status}`;",
+      "context": "      try {\n        // Execute the command\n        const command = `minsky tasks status set ${(args as unknown)!.taskId} ${args.status}`;\n        execSync(command);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 135,
+      "content": "taskId: (args as unknown)!.taskId,",
+      "context": "        return {\n          success: true,\n          taskId: (args as unknown)!.taskId,\n          status: args.status,\n        };",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 139,
+      "content": "log.error(`MCP: Error setting task status for ${(args as unknown)!.taskId} via execSync`, {",
+      "context": "        };\n      } catch (error) {\n        log.error(`MCP: Error setting task status for ${(args as unknown)!.taskId} via execSync`, {\n          originalError: getErrorMessage(error as any),\n          stack: error instanceof Error ? (error as any).stack as any : undefined as any,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/tasks.ts",
+      "line": 164,
+      "content": "return JSON.parse(output as unknown) as unknown;",
+      "context": "\n        // Parse the JSON output\n        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(\"MCP: Error creating task via execSync\", {",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/mcp/tools/session.ts",
+      "line": 20,
+      "content": "return JSON.parse(output as unknown) as unknown;",
+      "context": "\n      // Parse the JSON output\n      return JSON.parse(output as unknown) as unknown;\n    } catch (error) {\n      log.error(\"Error listing sessions\", { error });",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/mcp/tools/session.ts",
+      "line": 39,
+      "content": "const command = `minsky session get ${(args as unknown)!.session} --json`;",
+      "context": "      try {\n        // Execute the command\n        const command = `minsky session get ${(args as unknown)!.session} --json`;\n        const output = execSync(command).toString();\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/session.ts",
+      "line": 43,
+      "content": "return JSON.parse(output as unknown) as unknown;",
+      "context": "\n        // Parse the JSON output\n        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/mcp/tools/session.ts",
+      "line": 45,
+      "content": "log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });",
+      "context": "        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });\n        throw new Error(\n          `Failed to get session ${(args as any)!.session}: ${getErrorMessage(error as any)}`",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/session.ts",
+      "line": 124,
+      "content": "if ((args as unknown)!.session) {",
+      "context": "          command += ` -m \"${args.message}\"`;\n        }\n        if ((args as unknown)!.session) {\n          command += ` --session ${(args as unknown)!.session}`;\n        }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/session.ts",
+      "line": 125,
+      "content": "command += ` --session ${(args as unknown)!.session}`;",
+      "context": "        }\n        if ((args as unknown)!.session) {\n          command += ` --session ${(args as unknown)!.session}`;\n        }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/tools/session.ts",
+      "line": 137,
+      "content": "log.error(\"Error committing changes\", { error, session: (args as unknown)!.session });",
+      "context": "        };\n      } catch (error) {\n        log.error(\"Error committing changes\", { error, session: (args as unknown)!.session });\n        throw new Error(\n          `Failed to commit changes: ${getErrorMessage(error as any)}`",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "src/domain/session/session-db-io.test.ts",
@@ -5062,6 +5377,24 @@
       "reason": "JSON parsing - may need proper type guards"
     },
     {
+      "file": "src/domain/ai/config-service.ts",
+      "line": 46,
+      "content": "provider: provider as unknown,",
+      "context": "      // Create provider config from unified configuration\n      return {\n        provider: provider as unknown,\n        apiKey,\n        baseURL: providerConfig.base_url,",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/domain/ai/config-service.ts",
+      "line": 71,
+      "content": "return (result.resolved.ai as any).default_provider || \"openai\" as unknown;",
+      "context": "    try {\n      const result = await (this.configService as any).loadConfiguration((process as any).cwd());\n      return (result.resolved.ai as any).default_provider || \"openai\" as unknown;\n    } catch (error) {\n      log.error(\"Failed to get default provider\", { error });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
       "file": "src/domain/__tests__/tasks.test.ts",
       "line": 43,
       "content": "backends: [] as unknown,",
@@ -5105,42 +5438,6 @@
       "category": "error-masking",
       "priority": "high",
       "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/workspace/local-workspace-backend.ts",
-      "line": 110,
-      "content": "throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);",
-      "context": "      // Handle file not found\n      if (error instanceof Error && \"code\" in error && (error as any)?.code === \"ENOENT\") {\n        throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);\n      }\n      ",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/workspace/local-workspace-backend.ts",
-      "line": 209,
-      "content": "throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);",
-      "context": "      // Handle file not found\n      if (error instanceof Error && \"code\" in error && (error as any)?.code === \"ENOENT\") {\n        throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);\n      }\n      ",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/workspace/local-workspace-backend.ts",
-      "line": 243,
-      "content": "const entryPath = join(fullPath, entry as unknown);",
-      "context": "      \n      for (const entry of entries) {\n        const entryPath = join(fullPath, entry as unknown);\n        try {\n          const fileInfo = await this.getFileInfo(entryPath, workspaceDir);",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/workspace/local-workspace-backend.ts",
-      "line": 276,
-      "content": "throw new FileNotFoundError(workspaceDir, relativePath || \".\", error as unknown);",
-      "context": "      // Handle directory not found\n      if (error instanceof Error && \"code\" in error && (error as any)?.code === \"ENOENT\") {\n        throw new FileNotFoundError(workspaceDir, relativePath || \".\", error as unknown);\n      }\n      ",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "src/domain/storage/json-file-storage.ts",
@@ -5233,19 +5530,37 @@
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/domain/ai/config-service.ts",
-      "line": 46,
-      "content": "provider: provider as unknown,",
-      "context": "      // Create provider config from unified configuration\n      return {\n        provider: provider as unknown,\n        apiKey,\n        baseURL: providerConfig.base_url,",
+      "file": "src/domain/workspace/local-workspace-backend.ts",
+      "line": 110,
+      "content": "throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);",
+      "context": "      // Handle file not found\n      if (error instanceof Error && \"code\" in error && (error as any)?.code === \"ENOENT\") {\n        throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);\n      }\n      ",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
     },
     {
-      "file": "src/domain/ai/config-service.ts",
-      "line": 71,
-      "content": "return (result.resolved.ai as any).default_provider || \"openai\" as unknown;",
-      "context": "    try {\n      const result = await (this.configService as any).loadConfiguration((process as any).cwd());\n      return (result.resolved.ai as any).default_provider || \"openai\" as unknown;\n    } catch (error) {\n      log.error(\"Failed to get default provider\", { error });",
+      "file": "src/domain/workspace/local-workspace-backend.ts",
+      "line": 209,
+      "content": "throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);",
+      "context": "      // Handle file not found\n      if (error instanceof Error && \"code\" in error && (error as any)?.code === \"ENOENT\") {\n        throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);\n      }\n      ",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/domain/workspace/local-workspace-backend.ts",
+      "line": 243,
+      "content": "const entryPath = join(fullPath, entry as unknown);",
+      "context": "      \n      for (const entry of entries) {\n        const entryPath = join(fullPath, entry as unknown);\n        try {\n          const fileInfo = await this.getFileInfo(entryPath, workspaceDir);",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/domain/workspace/local-workspace-backend.ts",
+      "line": 276,
+      "content": "throw new FileNotFoundError(workspaceDir, relativePath || \".\", error as unknown);",
+      "context": "      // Handle directory not found\n      if (error instanceof Error && \"code\" in error && (error as any)?.code === \"ENOENT\") {\n        throw new FileNotFoundError(workspaceDir, relativePath || \".\", error as unknown);\n      }\n      ",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
@@ -6142,609 +6457,6 @@
       "reason": "Test assertion masking type errors - should be fixed"
     },
     {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 103,
-      "content": "id: (task as unknown)!.id,",
-      "context": "export function toTaskData(task: any): TaskData {\n  return {\n    id: (task as unknown)!.id,\n    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 104,
-      "content": "title: (task as unknown)!.title,",
-      "context": "  return {\n    id: (task as unknown)!.id,\n    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,\n    status: (task as unknown)!.status,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 105,
-      "content": "description: (task as unknown)!.description,",
-      "context": "    id: (task as unknown)!.id,\n    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,\n    status: (task as unknown)!.status,\n    specPath: task!.specPath,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 106,
-      "content": "status: (task as unknown)!.status,",
-      "context": "    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,\n    status: (task as unknown)!.status,\n    specPath: task!.specPath,\n    worklog: task!.worklog,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 120,
-      "content": "id: (taskData as unknown)!.id,",
-      "context": "export function fromTaskData(taskData: TaskData): any {\n  return {\n    id: (taskData as unknown)!.id,\n    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 121,
-      "content": "title: (taskData as unknown)!.title,",
-      "context": "  return {\n    id: (taskData as unknown)!.id,\n    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,\n    status: (taskData as unknown)!.status,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 122,
-      "content": "description: (taskData as unknown)!.description,",
-      "context": "    id: (taskData as unknown)!.id,\n    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,\n    status: (taskData as unknown)!.status,\n    specPath: taskData!.specPath,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 123,
-      "content": "status: (taskData as unknown)!.status,",
-      "context": "    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,\n    status: (taskData as unknown)!.status,\n    specPath: taskData!.specPath,\n    worklog: taskData!.worklog,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 492,
-      "content": "log.cli(output as unknown);",
-      "context": "            }\n\n            log.cli(output as unknown);\n          } else if (result.error) {\n            log.cli(`Failed to load configuration: ${result.error}`);",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 496,
-      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
-      "context": "            log.cli(`Failed to load configuration: ${result.error}`);\n          } else {\n            log.cli(JSON.stringify(result as unknown, null, 2));\n          }\n        },",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 504,
-      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
-      "context": "          // Check if JSON output was requested\n          if (result.json) {\n            log.cli(JSON.stringify(result as unknown, null, 2));\n            return;\n          }",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 519,
-      "content": "log.cli(output as unknown);",
-      "context": "            }\n\n            log.cli(output as unknown);\n          } else if (result.error) {\n            log.cli(`Failed to load configuration: ${result.error}`);",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 523,
-      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
-      "context": "            log.cli(`Failed to load configuration: ${result.error}`);\n          } else {\n            log.cli(JSON.stringify(result as unknown, null, 2));\n          }\n        },",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 600,
-      "content": "const credsObj = creds as unknown;",
-      "context": "    for (const [service, creds] of Object.entries(resolved.credentials)) {\n      if (creds && typeof creds === \"object\") {\n        const credsObj = creds as unknown;\n        const serviceName = service === \"github\" ? \"GitHub\" : service;\n        const source = credsObj.source === \"environment\" ? \"env\" : credsObj.source;",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 676,
-      "content": "output += `    ${index}: ${JSON.stringify(item as unknown)}\\n`;",
-      "context": "      value.forEach((item, index) => {\n        if (typeof item === \"object\" && item !== null) {\n          output += `    ${index}: ${JSON.stringify(item as unknown)}\\n`;\n        } else {\n          output += `    ${index}: ${item}\\n`;",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 726,
-      "content": "} else if (typeof value === \"object\" && !Array.isArray(value as unknown)) {",
-      "context": "      if (value === null || value === undefined) {\n        result.push(`${fullKey}=(null)`);\n      } else if (typeof value === \"object\" && !Array.isArray(value as unknown)) {\n        // Recursively flatten objects\n        result.push(...flatten(value as unknown, fullKey));",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 728,
-      "content": "result.push(...flatten(value as unknown, fullKey));",
-      "context": "      } else if (typeof value === \"object\" && !Array.isArray(value as unknown)) {\n        // Recursively flatten objects\n        result.push(...flatten(value as unknown, fullKey));\n      } else if (Array.isArray(value as unknown)) {\n        if (value.length === 0) {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 729,
-      "content": "} else if (Array.isArray(value as unknown)) {",
-      "context": "        // Recursively flatten objects\n        result.push(...flatten(value as unknown, fullKey));\n      } else if (Array.isArray(value as unknown)) {\n        if (value.length === 0) {\n          result.push(`${fullKey}=(empty array)`);",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 735,
-      "content": "result.push(...flatten(item as unknown, `${fullKey}[${index}]`));",
-      "context": "          value.forEach((item, index) => {\n            if (typeof item === \"object\") {\n              result.push(...flatten(item as unknown, `${fullKey}[${index}]`));\n            } else {\n              result.push(`${fullKey}[${index}]=${item}`);",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 768,
-      "content": "flatten((current as unknown)[key], fullKey);",
-      "context": "        const fullKey = prefix ? `${prefix}.${key}` : key;\n        if (typeof current[key] === \"object\" && current[key] !== null) {\n          flatten((current as unknown)[key], fullKey);\n        } else {\n          flattened[fullKey] = current[key];",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 776,
-      "content": "flatten(obj as unknown);",
-      "context": "  }\n\n  flatten(obj as unknown);\n  return flattened;\n}",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/cli/cli-command-factory.ts",
-      "line": 787,
-      "content": "cliFactory.initialize(config as unknown);",
-      "context": "export function initializeCliCommands(program: Command, config?: Partial<CliFactoryConfig>): void {\n  // Initialize the factory\n  cliFactory.initialize(config as unknown);\n\n  // Setup common customizations",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/schema-bridge.ts",
-      "line": 210,
-      "content": "(shortFlags as unknown)[name]",
-      "context": "      name,\n      param,\n      (shortFlags as unknown)[name]\n    );\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/schema-bridge.ts",
-      "line": 241,
-      "content": "const value = (options as unknown)[optionName];",
-      "context": "  Object.entries(parameters).forEach(([name, param]) => {\n    const optionName = paramNameToFlag(name).replace(/-/g, \"\");\n    const value = (options as unknown)[optionName];\n\n    // If value is present, validate and add to result",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/schema-bridge.ts",
-      "line": 247,
-      "content": "(result as unknown)[name] = param.schema.parse(value as unknown);",
-      "context": "      // Use the schema to validate and transform\n      try {\n        (result as unknown)[name] = param.schema.parse(value as unknown);\n      } catch (error) {\n        // Re-throw with more context",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/schema-bridge.ts",
-      "line": 257,
-      "content": "(result as unknown)[name] = param.defaultValue;",
-      "context": "    } else if (param.defaultValue !== undefined) {\n      // Use default value\n      (result as unknown)[name] = param.defaultValue;\n    }\n  });",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 42,
-      "content": "return JSON.stringify(data as unknown, undefined, 2);",
-      "context": " */\nexport function formatAsJson(data: any): string {\n  return JSON.stringify(data as unknown, undefined, 2);\n}\n",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 62,
-      "content": "return this.formatJson(data as unknown, context as unknown);",
-      "context": "    // Format the response based on the requested format\n    if (format === OutputFormat.JSON) {\n      return this.formatJson(data as unknown, context as unknown);\n    }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 66,
-      "content": "return this.formatText(data as unknown, context as unknown);",
-      "context": "\n    // Default to text format\n    return this.formatText(data as unknown, context as unknown);\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 86,
-      "content": "return data as unknown as object;",
-      "context": "   */\n  formatJson(data: T, context: CommandExecutionContext): object {\n    return data as unknown as object;\n  }\n}",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 194,
-      "content": "output += `${index + 1}. ${this.itemFormatter!(item as unknown)}\\n`;",
-      "context": "    if (this.itemFormatter) {\n      items.forEach((item, index) => {\n        output += `${index + 1}. ${this.itemFormatter!(item as unknown)}\\n`;\n      });\n    } else {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 198,
-      "content": "output += `${index + 1}. ${String(item as unknown)}\\n`;",
-      "context": "    } else {\n      items.forEach((item, index) => {\n        output += `${index + 1}. ${String(item as unknown)}\\n`;\n      });\n    }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 261,
-      "content": "columnWidths[col] = Math.max((columnWidths as unknown)[col], value.length);",
-      "context": "      this.columns.forEach((col) => {\n        const value = String(row[col] || \"\");\n        columnWidths[col] = Math.max((columnWidths as unknown)[col], value.length);\n      });\n    });",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 269,
-      "content": "return header.padEnd((columnWidths as unknown)[col]);",
-      "context": "      .map((col) => {\n        const header = String(this.headers[col] || col);\n        return header.padEnd((columnWidths as unknown)[col]);\n      })\n      .join(\" | \");",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 278,
-      "content": "return \"-\".repeat((columnWidths as unknown)[col]);",
-      "context": "    const separatorRow = this.columns\n      .map((col) => {\n        return \"-\".repeat((columnWidths as unknown)[col]);\n      })\n      .join(\"-|-\");",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 289,
-      "content": "return value.padEnd((columnWidths as unknown)[col]);",
-      "context": "        .map((col) => {\n          const value = String(row[col] || \"\");\n          return value.padEnd((columnWidths as unknown)[col]);\n        })\n        .join(\" | \") as unknown;",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 291,
-      "content": ".join(\" | \") as unknown;",
-      "context": "          return value.padEnd((columnWidths as unknown)[col]);\n        })\n        .join(\" | \") as unknown;\n\n      output += `${dataRow}\\n`;",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/legacy-command-registry.ts",
-      "line": 167,
-      "content": "if (this.commands.has(commandDef.id) && !(options as unknown)!.allowOverwrite) {",
-      "context": "    R = any,\n  >(commandDef: CommandDefinition<T, R>, options: { allowOverwrite?: boolean } = {}): void {\n    if (this.commands.has(commandDef.id) && !(options as unknown)!.allowOverwrite) {\n      throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);\n    }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/legacy-command-registry.ts",
-      "line": 171,
-      "content": "this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);",
-      "context": "    }\n\n    this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/error-handling.ts",
-      "line": 153,
-      "content": "(typeof process.env.NODE_DEBUG === \"string\" && (process.env.NODE_DEBUG as unknown).includes(\"minsky\"))",
-      "context": "      process.env.DEBUG === \"true\" ||\n      process.env.DEBUG === \"1\" ||\n      (typeof process.env.NODE_DEBUG === \"string\" && (process.env.NODE_DEBUG as unknown).includes(\"minsky\"))\n    );\n  }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/error-handling.ts",
-      "line": 169,
-      "content": "const formattedError = SharedErrorHandler.formatError(error as unknown, debug);",
-      "context": "\n    // Format error for structured logging\n    const formattedError = SharedErrorHandler.formatError(error as unknown, debug);\n\n    // Log to appropriate channels based on mode",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/error-handling.ts",
-      "line": 241,
-      "content": "const formattedError = SharedErrorHandler.formatError(error as unknown, debug);",
-      "context": "    if (isStructuredMode()) {\n      // Format error for structured logging\n      const formattedError = SharedErrorHandler.formatError(error as unknown, debug);\n      log.error(\"CLI operation failed\", formattedError);\n    }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/error-handling.ts",
-      "line": 264,
-      "content": "const formattedError = SharedErrorHandler.formatError(error as unknown, debug);",
-      "context": "\n    // Format error for MCP response\n    const formattedError = SharedErrorHandler.formatError(error as unknown, debug);\n\n    // Log error in structured format",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/mcp/integration-example.ts",
-      "line": 83,
-      "content": "log.debug(\"MCP git.commit called with params:\", params as unknown);",
-      "context": "  // In real implementation, this would call the shared command registry\n  handler: async (params: any) => {\n    log.debug(\"MCP git.commit called with params:\", params as unknown);\n    return {\n      success: true,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/mcp/integration-example.ts",
-      "line": 87,
-      "content": "message: (params as unknown)!.message,",
-      "context": "      success: true,\n      commitHash: \"example-hash\",\n      message: (params as unknown)!.message,\n    };\n  },",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/mcp/integration-example.ts",
-      "line": 117,
-      "content": "log.debug(\"MCP tasks.status.get called with params:\", params as unknown);",
-      "context": "  // In real implementation, this would call the shared command registry\n  handler: async (params: any) => {\n    log.debug(\"MCP tasks.status.get called with params:\", params as unknown);\n    return {\n      success: true,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/mcp/integration-example.ts",
-      "line": 120,
-      "content": "taskId: (params as unknown)!.taskId,",
-      "context": "    return {\n      success: true,\n      taskId: (params as unknown)!.taskId,\n      _status: \"TODO\", // Example _status\n    };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/mcp/integration-example.ts",
-      "line": 141,
-      "content": "log.debug(\"MCP session.list called with params:\", params as unknown);",
-      "context": "  // In real implementation, this would call the shared command registry\n  handler: async (params: any) => {\n    log.debug(\"MCP session.list called with params:\", params as unknown);\n    return {\n      success: true,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/mcp/integration-example.ts",
-      "line": 182,
-      "content": "log.debug(\"MCP rules.list called with params:\", params as unknown);",
-      "context": "  // In real implementation, this would call the shared command registry\n  handler: async (params: any) => {\n    log.debug(\"MCP rules.list called with params:\", params as unknown);\n    return {\n      success: true,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 46,
-      "content": "return JSON.parse(output as unknown) as unknown;",
-      "context": "\n        // Parse the JSON output\n        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(\"MCP: Error listing tasks via execSync\", {",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 69,
-      "content": "const command = `minsky tasks get ${(args as unknown)!.taskId} --json`;",
-      "context": "      try {\n        // Execute the command\n        const command = `minsky tasks get ${(args as unknown)!.taskId} --json`;\n        const output = execSync(command).toString();\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 73,
-      "content": "return JSON.parse(output as unknown) as unknown;",
-      "context": "\n        // Parse the JSON output\n        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 75,
-      "content": "log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {",
-      "context": "        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {\n          originalError: getErrorMessage(error as any),\n          stack: error instanceof Error ? (error as any).stack as any : undefined as any,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 96,
-      "content": "const command = `minsky tasks status get ${(args as unknown)!.taskId}`;",
-      "context": "      try {\n        // Execute the command\n        const command = `minsky tasks status get ${(args as unknown)!.taskId}`;\n        const output = execSync(command).toString().trim();\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 101,
-      "content": "taskId: (args as unknown)!.taskId,",
-      "context": "        // Format output\n        return {\n          taskId: (args as unknown)!.taskId,\n          status: output.split(\": \")[1], // Extract the status value\n        };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 105,
-      "content": "log.error(`MCP: Error getting task status for ${(args as unknown)!.taskId} via execSync`, {",
-      "context": "        };\n      } catch (error) {\n        log.error(`MCP: Error getting task status for ${(args as unknown)!.taskId} via execSync`, {\n          originalError: getErrorMessage(error as any),\n          stack: error instanceof Error ? (error as any).stack as any : undefined as any,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 129,
-      "content": "const command = `minsky tasks status set ${(args as unknown)!.taskId} ${args.status}`;",
-      "context": "      try {\n        // Execute the command\n        const command = `minsky tasks status set ${(args as unknown)!.taskId} ${args.status}`;\n        execSync(command);\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 135,
-      "content": "taskId: (args as unknown)!.taskId,",
-      "context": "        return {\n          success: true,\n          taskId: (args as unknown)!.taskId,\n          status: args.status,\n        };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 139,
-      "content": "log.error(`MCP: Error setting task status for ${(args as unknown)!.taskId} via execSync`, {",
-      "context": "        };\n      } catch (error) {\n        log.error(`MCP: Error setting task status for ${(args as unknown)!.taskId} via execSync`, {\n          originalError: getErrorMessage(error as any),\n          stack: error instanceof Error ? (error as any).stack as any : undefined as any,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 164,
-      "content": "return JSON.parse(output as unknown) as unknown;",
-      "context": "\n        // Parse the JSON output\n        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(\"MCP: Error creating task via execSync\", {",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 20,
-      "content": "return JSON.parse(output as unknown) as unknown;",
-      "context": "\n      // Parse the JSON output\n      return JSON.parse(output as unknown) as unknown;\n    } catch (error) {\n      log.error(\"Error listing sessions\", { error });",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 39,
-      "content": "const command = `minsky session get ${(args as unknown)!.session} --json`;",
-      "context": "      try {\n        // Execute the command\n        const command = `minsky session get ${(args as unknown)!.session} --json`;\n        const output = execSync(command).toString();\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 43,
-      "content": "return JSON.parse(output as unknown) as unknown;",
-      "context": "\n        // Parse the JSON output\n        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 45,
-      "content": "log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });",
-      "context": "        return JSON.parse(output as unknown) as unknown;\n      } catch (error) {\n        log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });\n        throw new Error(\n          `Failed to get session ${(args as any)!.session}: ${getErrorMessage(error as any)}`",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 124,
-      "content": "if ((args as unknown)!.session) {",
-      "context": "          command += ` -m \"${args.message}\"`;\n        }\n        if ((args as unknown)!.session) {\n          command += ` --session ${(args as unknown)!.session}`;\n        }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 125,
-      "content": "command += ` --session ${(args as unknown)!.session}`;",
-      "context": "        }\n        if ((args as unknown)!.session) {\n          command += ` --session ${(args as unknown)!.session}`;\n        }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 137,
-      "content": "log.error(\"Error committing changes\", { error, session: (args as unknown)!.session });",
-      "context": "        };\n      } catch (error) {\n        log.error(\"Error committing changes\", { error, session: (args as unknown)!.session });\n        throw new Error(\n          `Failed to commit changes: ${getErrorMessage(error as any)}`",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
       "file": "src/utils/test-utils/index.ts",
       "line": 96,
       "content": "const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;",
@@ -6824,6 +6536,177 @@
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
+    },
+    {
+      "file": "src/types/tasks/taskData.ts",
+      "line": 103,
+      "content": "id: (task as unknown)!.id,",
+      "context": "export function toTaskData(task: any): TaskData {\n  return {\n    id: (task as unknown)!.id,\n    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/types/tasks/taskData.ts",
+      "line": 104,
+      "content": "title: (task as unknown)!.title,",
+      "context": "  return {\n    id: (task as unknown)!.id,\n    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,\n    status: (task as unknown)!.status,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/types/tasks/taskData.ts",
+      "line": 105,
+      "content": "description: (task as unknown)!.description,",
+      "context": "    id: (task as unknown)!.id,\n    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,\n    status: (task as unknown)!.status,\n    specPath: task!.specPath,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/types/tasks/taskData.ts",
+      "line": 106,
+      "content": "status: (task as unknown)!.status,",
+      "context": "    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,\n    status: (task as unknown)!.status,\n    specPath: task!.specPath,\n    worklog: task!.worklog,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/types/tasks/taskData.ts",
+      "line": 120,
+      "content": "id: (taskData as unknown)!.id,",
+      "context": "export function fromTaskData(taskData: TaskData): any {\n  return {\n    id: (taskData as unknown)!.id,\n    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/types/tasks/taskData.ts",
+      "line": 121,
+      "content": "title: (taskData as unknown)!.title,",
+      "context": "  return {\n    id: (taskData as unknown)!.id,\n    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,\n    status: (taskData as unknown)!.status,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/types/tasks/taskData.ts",
+      "line": 122,
+      "content": "description: (taskData as unknown)!.description,",
+      "context": "    id: (taskData as unknown)!.id,\n    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,\n    status: (taskData as unknown)!.status,\n    specPath: taskData!.specPath,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/types/tasks/taskData.ts",
+      "line": 123,
+      "content": "status: (taskData as unknown)!.status,",
+      "context": "    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,\n    status: (taskData as unknown)!.status,\n    specPath: taskData!.specPath,\n    worklog: taskData!.worklog,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "tests/adapters/cli/session.test.ts",
+      "line": 243,
+      "content": "name: undefined as unknown,",
+      "context": "      const result = await updateSessionFromParams(\n        {\n          name: undefined as unknown,\n          noStash: false,\n          noPush: false,",
+      "category": "test-mocking",
+      "priority": "medium",
+      "reason": "Test parameter passing - check if proper types can be used"
+    },
+    {
+      "file": "tests/adapters/cli/session.test.ts",
+      "line": 603,
+      "content": "(gitService as unknown).sessionDb = {",
+      "context": "\n      // Mock sessionDb\n      (gitService as unknown).sessionDb = {\n        getSession: async () => sessionRecord,\n      };",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "tests/adapters/cli/session.test.ts",
+      "line": 608,
+      "content": "(gitService as unknown).getSessionWorkdir = () => testWorkdir;",
+      "context": "\n      // Mock getSessionWorkdir to use our test directory\n      (gitService as unknown).getSessionWorkdir = () => testWorkdir;\n\n      // Mock push method",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "tests/adapters/cli/session.test.ts",
+      "line": 611,
+      "content": "(gitService as unknown).push = async () => ({ workdir: testWorkdir, pushed: true });",
+      "context": "\n      // Mock push method\n      (gitService as unknown).push = async () => ({ workdir: testWorkdir, pushed: true });\n\n      // CRITICAL: Mock execInRepository to capture actual commands from preparePr",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "tests/adapters/cli/session.test.ts",
+      "line": 614,
+      "content": "(gitService as unknown).execInRepository = async (workdir: string, command: string) => {",
+      "context": "\n      // CRITICAL: Mock execInRepository to capture actual commands from preparePr\n      (gitService as unknown).execInRepository = async (workdir: string, command: string) => {\n        const fullCommand = `git -C ${workdir} ${command}`;\n        return (await mockExecAsync(fullCommand)).stdout;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/adapters/cli/utils/error-handler.ts",
+      "line": 26,
+      "content": "(typeof process.env.NODE_DEBUG === \"string\" && (process.env.NODE_DEBUG as unknown).includes(\"minsky\"));",
+      "context": "  process.env.DEBUG === \"true\" ||\n  process.env.DEBUG === \"1\" ||\n  (typeof process.env.NODE_DEBUG === \"string\" && (process.env.NODE_DEBUG as unknown).includes(\"minsky\"));\n\n/**",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/utils/error-handler.ts",
+      "line": 108,
+      "content": "log.error(\"CLI operation failed\", error as unknown);",
+      "context": "    if (error instanceof MinskyError) {\n      // For Minsky errors, we can log with additional context\n      log.error(\"CLI operation failed\", error as unknown);\n    } else {\n      // For other errors, log with basic information",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/utils/error-handler.ts",
+      "line": 136,
+      "content": "log.agent({ message: \"Command result\", result } as unknown);",
+      "context": "    if (isStructuredMode()) {\n      // In structured mode, log to agent logger\n      log.agent({ message: \"Command result\", result } as unknown);\n    } else {\n      // In human mode or when json is explicitly requested, write directly to stdout",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/utils/error-handler.ts",
+      "line": 139,
+      "content": "log.cli(JSON.stringify(result as unknown, undefined, 2));",
+      "context": "    } else {\n      // In human mode or when json is explicitly requested, write directly to stdout\n      log.cli(JSON.stringify(result as unknown, undefined, 2));\n    }\n  } else if (options.formatter) {",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/adapters/cli/utils/error-handler.ts",
+      "line": 142,
+      "content": "options.formatter(result as unknown);",
+      "context": "    }\n  } else if (options.formatter) {\n    options.formatter(result as unknown);\n  } else {\n    log.cli(String(result as unknown));",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/utils/error-handler.ts",
+      "line": 144,
+      "content": "log.cli(String(result as unknown));",
+      "context": "    options.formatter(result as unknown);\n  } else {\n    log.cli(String(result as unknown));\n  }\n}",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "tests/domain/commands/workspace.commands.test.ts",
@@ -7141,130 +7024,148 @@
       "reason": "Test mocking - may be legitimate for test setup"
     },
     {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 243,
-      "content": "name: undefined as unknown,",
-      "context": "      const result = await updateSessionFromParams(\n        {\n          name: undefined as unknown,\n          noStash: false,\n          noPush: false,",
-      "category": "test-mocking",
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 366,
+      "content": "}) as unknown;",
+      "context": "        repo: params!.repo,\n        session: params!.session,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
       "priority": "medium",
-      "reason": "Test parameter passing - check if proper types can be used"
+      "reason": "Needs manual review"
     },
     {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 603,
-      "content": "(gitService as unknown).sessionDb = {",
-      "context": "\n      // Mock sessionDb\n      (gitService as unknown).sessionDb = {\n        getSession: async () => sessionRecord,\n      };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 372,
+      "content": "} as unknown;",
+      "context": "        commitHash: result!.commitHash,\n        message: result!.message,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
     },
     {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 608,
-      "content": "(gitService as unknown).getSessionWorkdir = () => testWorkdir;",
-      "context": "\n      // Mock getSessionWorkdir to use our test directory\n      (gitService as unknown).getSessionWorkdir = () => testWorkdir;\n\n      // Mock push method",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 392,
+      "content": "}) as unknown;",
+      "context": "        force: params!.force,\n        debug: params!.debug,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
     },
     {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 611,
-      "content": "(gitService as unknown).push = async () => ({ workdir: testWorkdir, pushed: true });",
-      "context": "\n      // Mock push method\n      (gitService as unknown).push = async () => ({ workdir: testWorkdir, pushed: true });\n\n      // CRITICAL: Mock execInRepository to capture actual commands from preparePr",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 397,
+      "content": "} as unknown;",
+      "context": "        success: result!.pushed,\n        workdir: result!.workdir,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
     },
     {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 614,
-      "content": "(gitService as unknown).execInRepository = async (workdir: string, command: string) => {",
-      "context": "\n      // CRITICAL: Mock execInRepository to capture actual commands from preparePr\n      (gitService as unknown).execInRepository = async (workdir: string, command: string) => {\n        const fullCommand = `git -C ${workdir} ${command}`;\n        return (await mockExecAsync(fullCommand)).stdout;",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 416,
+      "content": "}) as unknown;",
+      "context": "        session: params!.session,\n        branch: params!.branch,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
     },
     {
-      "file": "src/domain/storage/monitoring/health-monitor.ts",
-      "line": 139,
-      "content": "const storage = StorageBackendFactory.createFromConfig(config as unknown);",
-      "context": "    try {\n      // Create storage backend with timeout\n      const storage = StorageBackendFactory.createFromConfig(config as unknown);\n\n      // Test basic operations with timeout",
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 422,
+      "content": "} as unknown;",
+      "context": "        workdir: result!.workdir,\n        session: result!.session,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 439,
+      "content": "}) as unknown;",
+      "context": "        session: params!.session,\n        name: params!.name,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 445,
+      "content": "} as unknown;",
+      "context": "        workdir: result!.workdir,\n        branch: result!.branch,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 466,
+      "content": "}) as unknown;",
+      "context": "        debug: params!.debug,\n        noStatusUpdate: params!.noStatusUpdate,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 472,
+      "content": "} as unknown;",
+      "context": "        markdown: result!.markdown,\n        statusUpdateResult: result!.statusUpdateResult,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/session.ts",
+      "line": 618,
+      "content": "})) as unknown;",
+      "context": "          repo: params!.repo,\n          json: params!.json,\n        })) as unknown;\n\n        return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/session.ts",
+      "line": 722,
+      "content": "})) as unknown;",
+      "context": "          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,\n          skipConflictCheck: params!.skipConflictCheck,\n        })) as unknown;\n\n        return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
+      "line": 174,
+      "content": "const num = Number(value as unknown);",
+      "context": "  case \"number\":\n    return option.argParser((value) => {\n      const num = Number(value as unknown);\n      if (isNaN(num)) {\n        throw new Error(\"Option requires a number value\");",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
+      "line": 238,
+      "content": "})) as unknown;",
+      "context": "      ...customOptions[name],\n    },\n  })) as unknown;\n}\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
+      "line": 258,
+      "content": "(result as unknown)[paramName] = paramDef.defaultValue;",
+      "context": "      // Use default value if available\n      if (paramDef.defaultValue !== undefined) {\n        (result as unknown)[paramName] = paramDef.defaultValue;\n      }\n      // Skip optional parameters",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/domain/storage/monitoring/health-monitor.ts",
-      "line": 153,
-      "content": "await this.performBackendSpecificChecks(config as unknown, status);",
-      "context": "\n      // Backend-specific health checks\n      await this.performBackendSpecificChecks(config as unknown, status);\n    } catch (error) {\n      status.healthy = false;",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/monitoring/health-monitor.ts",
-      "line": 197,
-      "content": "await this.checkJsonBackendHealth(config as unknown, status);",
-      "context": "    switch (config.backend) {\n    case \"json\":\n      await this.checkJsonBackendHealth(config as unknown, status);\n      break;\n    case \"sqlite\":",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/monitoring/health-monitor.ts",
-      "line": 200,
-      "content": "await this.checkSqliteBackendHealth(config as unknown, status);",
-      "context": "      break;\n    case \"sqlite\":\n      await this.checkSqliteBackendHealth(config as unknown, status);\n      break;\n    case \"postgres\":",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/monitoring/health-monitor.ts",
-      "line": 203,
-      "content": "await this.checkPostgresBackendHealth(config as unknown, status);",
-      "context": "      break;\n    case \"postgres\":\n      await this.checkPostgresBackendHealth(config as unknown, status);\n      break;\n    }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/monitoring/health-monitor.ts",
-      "line": 353,
-      "content": "const recentMetrics = (this.metrics as unknown).slice(-100); // Last 100 operations",
-      "context": "    recentErrors: number;\n    } {\n    const recentMetrics = (this.metrics as unknown).slice(-100); // Last 100 operations\n\n    if (recentMetrics.length === 0) {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/monitoring/health-monitor.ts",
-      "line": 494,
-      "content": "this.metrics = (this.metrics as unknown).slice(-this.MAX_METRICS);",
-      "context": "    // Keep only recent metrics\n    if (this.metrics.length > this.MAX_METRICS) {\n      this.metrics = (this.metrics as unknown).slice(-this.MAX_METRICS);\n    }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/monitoring/health-monitor.ts",
-      "line": 517,
-      "content": "return (this.metrics as unknown).slice(-count);",
-      "context": "   */\n  static getRecentMetrics(count: number = 50): PerformanceMetrics[] {\n    return (this.metrics as unknown).slice(-count);\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/monitoring/health-monitor.ts",
-      "line": 539,
-      "content": "const avgResponse = totalOps > 0 ? (this.metrics as unknown).reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;",
-      "context": "    const totalOps = this.metrics.length;\n    const errors = this.metrics.filter(m => !m.success).length;\n    const avgResponse = totalOps > 0 ? (this.metrics as unknown).reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;\n    const uptime =\n      this.metrics && this.metrics[0]",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
+      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
+      "line": 270,
+      "content": "(result as unknown)[paramName] = parsedValue;",
+      "context": "      try {\n        const parsedValue = paramDef.schema.parse(rawValue);\n        (result as unknown)[paramName] = parsedValue;\n      } catch (error) {\n        // Use user-friendly error formatting for Zod validation errors",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
     },
     {
       "file": "src/domain/storage/backends/json-file-storage.ts",
@@ -7654,202 +7555,85 @@
       "reason": "Needs manual review"
     },
     {
-      "file": "src/adapters/cli/utils/error-handler.ts",
-      "line": 26,
-      "content": "(typeof process.env.NODE_DEBUG === \"string\" && (process.env.NODE_DEBUG as unknown).includes(\"minsky\"));",
-      "context": "  process.env.DEBUG === \"true\" ||\n  process.env.DEBUG === \"1\" ||\n  (typeof process.env.NODE_DEBUG === \"string\" && (process.env.NODE_DEBUG as unknown).includes(\"minsky\"));\n\n/**",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/utils/error-handler.ts",
-      "line": 108,
-      "content": "log.error(\"CLI operation failed\", error as unknown);",
-      "context": "    if (error instanceof MinskyError) {\n      // For Minsky errors, we can log with additional context\n      log.error(\"CLI operation failed\", error as unknown);\n    } else {\n      // For other errors, log with basic information",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/utils/error-handler.ts",
-      "line": 136,
-      "content": "log.agent({ message: \"Command result\", result } as unknown);",
-      "context": "    if (isStructuredMode()) {\n      // In structured mode, log to agent logger\n      log.agent({ message: \"Command result\", result } as unknown);\n    } else {\n      // In human mode or when json is explicitly requested, write directly to stdout",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/utils/error-handler.ts",
+      "file": "src/domain/storage/monitoring/health-monitor.ts",
       "line": 139,
-      "content": "log.cli(JSON.stringify(result as unknown, undefined, 2));",
-      "context": "    } else {\n      // In human mode or when json is explicitly requested, write directly to stdout\n      log.cli(JSON.stringify(result as unknown, undefined, 2));\n    }\n  } else if (options.formatter) {",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/adapters/cli/utils/error-handler.ts",
-      "line": 142,
-      "content": "options.formatter(result as unknown);",
-      "context": "    }\n  } else if (options.formatter) {\n    options.formatter(result as unknown);\n  } else {\n    log.cli(String(result as unknown));",
+      "content": "const storage = StorageBackendFactory.createFromConfig(config as unknown);",
+      "context": "    try {\n      // Create storage backend with timeout\n      const storage = StorageBackendFactory.createFromConfig(config as unknown);\n\n      // Test basic operations with timeout",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/adapters/cli/utils/error-handler.ts",
-      "line": 144,
-      "content": "log.cli(String(result as unknown));",
-      "context": "    options.formatter(result as unknown);\n  } else {\n    log.cli(String(result as unknown));\n  }\n}",
+      "file": "src/domain/storage/monitoring/health-monitor.ts",
+      "line": 153,
+      "content": "await this.performBackendSpecificChecks(config as unknown, status);",
+      "context": "\n      // Backend-specific health checks\n      await this.performBackendSpecificChecks(config as unknown, status);\n    } catch (error) {\n      status.healthy = false;",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
-      "line": 174,
-      "content": "const num = Number(value as unknown);",
-      "context": "  case \"number\":\n    return option.argParser((value) => {\n      const num = Number(value as unknown);\n      if (isNaN(num)) {\n        throw new Error(\"Option requires a number value\");",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
-      "line": 238,
-      "content": "})) as unknown;",
-      "context": "      ...customOptions[name],\n    },\n  })) as unknown;\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
-      "line": 258,
-      "content": "(result as unknown)[paramName] = paramDef.defaultValue;",
-      "context": "      // Use default value if available\n      if (paramDef.defaultValue !== undefined) {\n        (result as unknown)[paramName] = paramDef.defaultValue;\n      }\n      // Skip optional parameters",
+      "file": "src/domain/storage/monitoring/health-monitor.ts",
+      "line": 197,
+      "content": "await this.checkJsonBackendHealth(config as unknown, status);",
+      "context": "    switch (config.backend) {\n    case \"json\":\n      await this.checkJsonBackendHealth(config as unknown, status);\n      break;\n    case \"sqlite\":",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
-      "line": 270,
-      "content": "(result as unknown)[paramName] = parsedValue;",
-      "context": "      try {\n        const parsedValue = paramDef.schema.parse(rawValue);\n        (result as unknown)[paramName] = parsedValue;\n      } catch (error) {\n        // Use user-friendly error formatting for Zod validation errors",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
+      "file": "src/domain/storage/monitoring/health-monitor.ts",
+      "line": 200,
+      "content": "await this.checkSqliteBackendHealth(config as unknown, status);",
+      "context": "      break;\n    case \"sqlite\":\n      await this.checkSqliteBackendHealth(config as unknown, status);\n      break;\n    case \"postgres\":",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 366,
-      "content": "}) as unknown;",
-      "context": "        repo: params!.repo,\n        session: params!.session,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
+      "file": "src/domain/storage/monitoring/health-monitor.ts",
+      "line": 203,
+      "content": "await this.checkPostgresBackendHealth(config as unknown, status);",
+      "context": "      break;\n    case \"postgres\":\n      await this.checkPostgresBackendHealth(config as unknown, status);\n      break;\n    }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 372,
-      "content": "} as unknown;",
-      "context": "        commitHash: result!.commitHash,\n        message: result!.message,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
+      "file": "src/domain/storage/monitoring/health-monitor.ts",
+      "line": 353,
+      "content": "const recentMetrics = (this.metrics as unknown).slice(-100); // Last 100 operations",
+      "context": "    recentErrors: number;\n    } {\n    const recentMetrics = (this.metrics as unknown).slice(-100); // Last 100 operations\n\n    if (recentMetrics.length === 0) {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 392,
-      "content": "}) as unknown;",
-      "context": "        force: params!.force,\n        debug: params!.debug,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
+      "file": "src/domain/storage/monitoring/health-monitor.ts",
+      "line": 494,
+      "content": "this.metrics = (this.metrics as unknown).slice(-this.MAX_METRICS);",
+      "context": "    // Keep only recent metrics\n    if (this.metrics.length > this.MAX_METRICS) {\n      this.metrics = (this.metrics as unknown).slice(-this.MAX_METRICS);\n    }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 397,
-      "content": "} as unknown;",
-      "context": "        success: result!.pushed,\n        workdir: result!.workdir,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
+      "file": "src/domain/storage/monitoring/health-monitor.ts",
+      "line": 517,
+      "content": "return (this.metrics as unknown).slice(-count);",
+      "context": "   */\n  static getRecentMetrics(count: number = 50): PerformanceMetrics[] {\n    return (this.metrics as unknown).slice(-count);\n  }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 416,
-      "content": "}) as unknown;",
-      "context": "        session: params!.session,\n        branch: params!.branch,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 422,
-      "content": "} as unknown;",
-      "context": "        workdir: result!.workdir,\n        session: result!.session,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 439,
-      "content": "}) as unknown;",
-      "context": "        session: params!.session,\n        name: params!.name,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 445,
-      "content": "} as unknown;",
-      "context": "        workdir: result!.workdir,\n        branch: result!.branch,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 466,
-      "content": "}) as unknown;",
-      "context": "        debug: params!.debug,\n        noStatusUpdate: params!.noStatusUpdate,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 472,
-      "content": "} as unknown;",
-      "context": "        markdown: result!.markdown,\n        statusUpdateResult: result!.statusUpdateResult,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/session.ts",
-      "line": 618,
-      "content": "})) as unknown;",
-      "context": "          repo: params!.repo,\n          json: params!.json,\n        })) as unknown;\n\n        return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/session.ts",
-      "line": 722,
-      "content": "})) as unknown;",
-      "context": "          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,\n          skipConflictCheck: params!.skipConflictCheck,\n        })) as unknown;\n\n        return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
+      "file": "src/domain/storage/monitoring/health-monitor.ts",
+      "line": 539,
+      "content": "const avgResponse = totalOps > 0 ? (this.metrics as unknown).reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;",
+      "context": "    const totalOps = this.metrics.length;\n    const errors = this.metrics.filter(m => !m.success).length;\n    const avgResponse = totalOps > 0 ? (this.metrics as unknown).reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;\n    const uptime =\n      this.metrics && this.metrics[0]",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "src/utils/test-utils/compatibility/mock-function.ts",
@@ -7979,10 +7763,10 @@
     }
   ],
   "recommendations": [
-    "🚨 HIGH PRIORITY: 552 assertions are masking type errors and should be fixed immediately",
-    "⚠️  552 assertions are masking type errors - these reduce TypeScript effectiveness",
+    "🚨 HIGH PRIORITY: 531 assertions are masking type errors and should be fixed immediately",
+    "⚠️  531 assertions are masking type errors - these reduce TypeScript effectiveness",
     "🧪 140 assertions in tests - review for proper type alternatives",
-    "🌉 20 assertions for type bridging - consider proper type guards",
+    "🌉 19 assertions for type bridging - consider proper type guards",
     "📋 Start with high priority items, then medium, then low",
     "🔍 Focus on production code before test code",
     "📚 Document any legitimate uses that must remain"

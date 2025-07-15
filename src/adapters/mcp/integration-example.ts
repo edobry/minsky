@@ -80,11 +80,11 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP git.commit called with params:", params as unknown);
+    log.debug("MCP git.commit called with params:", params);
     return {
       success: true,
       commitHash: "example-hash",
-      message: (params as unknown)!.message,
+      message: params.message,
     };
   },
 };
@@ -114,10 +114,10 @@ const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP tasks.status.get called with params:", params as unknown);
+    log.debug("MCP tasks.status.get called with params:", params);
     return {
       success: true,
-      taskId: (params as unknown)!.taskId,
+      taskId: params.taskId,
       _status: "TODO", // Example _status
     };
   },
@@ -138,7 +138,7 @@ const sessionListCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP session.list called with params:", params as unknown);
+    log.debug("MCP session.list called with params:", params);
     return {
       success: true,
       sessions: [
@@ -179,7 +179,7 @@ const rulesListCommandSchema: CommandSchema<any, any> = {
   },
   // In real implementation, this would call the shared command registry
   handler: async (params: any) => {
-    log.debug("MCP rules.list called with params:", params as unknown);
+    log.debug("MCP rules.list called with params:", params);
     return {
       success: true,
       rules: [
