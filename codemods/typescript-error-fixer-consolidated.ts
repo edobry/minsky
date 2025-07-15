@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { CodemodBase, CodemodOptions, ASTUtils } from "./utils/codemod-framework.js";
+
 /**
  * BOUNDARY VALIDATION TEST RESULTS: typescript-error-fixer-consolidated.ts
  * 
@@ -71,9 +73,8 @@
  * Reduces code duplication while maintaining full functionality coverage.
  */
 
-import { Project, SourceFile, Node, SyntaxKind, Type, TypeChecker } from "ts-morph";
-import { readFileSync, writeFileSync } from "fs";
-import { globSync } from "glob";
+import { SourceFile, Node, SyntaxKind, Type, TypeChecker } from "ts-morph";
+// Framework handles file operations
 
 interface ErrorFixResult {
   file: string;
@@ -88,23 +89,14 @@ interface ErrorPattern {
   fixer: (sourceFile: SourceFile, typeChecker: TypeChecker) => number;
 }
 
-class TypeScriptErrorFixer {
-  private project: Project;
+class TypeScriptErrorFixer extends CodemodBase {
   private results: ErrorFixResult[] = [];
 
-  constructor() {
-    this.project = new Project({
-      compilerOptions: {
-        target: 99, // Latest
-        module: 99, // ESNext
-        moduleResolution: 100, // Bundler
-        allowSyntheticDefaultImports: true,
-        esModuleInterop: true,
-        strict: false, // Allow flexible fixing
-        skipLibCheck: true,
-        forceConsistentCasingInFileNames: false,
-        lib: ["ES2022", "DOM"]
-      }
+  constructor(options: CodemodOptions = {}) {
+    super({
+      includePatterns: ["src/**/*.ts", "tests/**/*.ts"],
+      excludePatterns: ["**/*.d.ts", "**/node_modules/**"],
+      ...options
     });
   }
 
@@ -154,6 +146,11 @@ class TypeScriptErrorFixer {
         code: "TS18046",
         description: "Unknown type errors",
         fixer: this.fixTS18046.bind(this)
+      },
+      {
+        code: "TS7006",
+        description: "Implicit any parameter types",
+        fixer: this.fixTS7006.bind(this)
       }
     ];
   }
@@ -345,78 +342,128 @@ class TypeScriptErrorFixer {
     return fixes;
   }
 
-  public async processFiles(pattern: string = "src/**/*.ts"): Promise<void> {
-    const files = globSync(pattern, {
-      ignore: ["**/*.test.ts", "**/*.spec.ts", "**/node_modules/**", "**/*.d.ts"]
-    });
+  private fixTS7006(sourceFile: SourceFile, typeChecker: TypeChecker): number {
+    let fixes = 0;
 
-    console.log(`🔧 Processing ${files.length} TypeScript files for error fixing...`);
-
-    let totalFixes = 0;
-    let processedFiles = 0;
-
-    for (const filePath of files) {
-      try {
-        const sourceFile = this.project.addSourceFileAtPath(filePath);
-        const typeChecker = this.project.getTypeChecker();
-        
-        let fileFixes = 0;
-        const errorPatterns = this.getErrorPatterns();
-
-        for (const pattern of errorPatterns) {
-          try {
-            const fixes = pattern.fixer(sourceFile, typeChecker);
-            if (fixes > 0) {
-              this.results.push({
-                file: filePath,
-                errorType: pattern.code,
-                fixesApplied: fixes,
-                description: pattern.description
-              });
-              fileFixes += fixes;
-              totalFixes += fixes;
-            }
-          } catch (error) {
-            console.error(`Error fixing ${pattern.code} in ${filePath}:`, error);
-          }
+    // Fix implicit any parameters in function declarations
+    const functions = sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration);
+    for (const func of functions) {
+      const parameters = func.getParameters();
+      for (const param of parameters) {
+        if (!param.getTypeNode()) {
+          param.setType("any");
+          fixes++;
         }
-
-        if (fileFixes > 0) {
-          await sourceFile.save();
-          processedFiles++;
-          console.log(`✅ Fixed ${fileFixes} errors in ${filePath}`);
-        }
-
-        // Remove from project to free memory
-        sourceFile.forget();
-
-      } catch (error) {
-        console.error(`Error processing ${filePath}:`, error);
       }
     }
 
-    this.printSummary(totalFixes, processedFiles, files.length);
+    // Fix implicit any parameters in arrow functions
+    const arrowFunctions = sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction);
+    for (const func of arrowFunctions) {
+      const parameters = func.getParameters();
+      for (const param of parameters) {
+        if (!param.getTypeNode()) {
+          param.setType("any");
+          fixes++;
+        }
+      }
+    }
+
+    // Fix implicit any variables
+    const variableDeclarations = sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration);
+    for (const variable of variableDeclarations) {
+      if (!variable.getTypeNode() && !variable.getInitializer()) {
+        variable.setType("any");
+        fixes++;
+      }
+    }
+
+    // Fix implicit any in const declarations with empty arrays
+    const constDeclarations = sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration);
+    for (const constDecl of constDeclarations) {
+      const initializer = constDecl.getInitializer();
+      if (initializer && initializer.getKind() === SyntaxKind.ArrayLiteralExpression) {
+        const arrayLiteral = initializer as any;
+        if (arrayLiteral.getElements().length === 0 && !constDecl.getTypeNode()) {
+          constDecl.setType("any[]");
+          fixes++;
+        }
+      }
+    }
+
+    return fixes;
   }
 
-  private printSummary(totalFixes: number, processedFiles: number, totalFiles: number): void {
-    console.log(`\n🎯 TypeScript Error Fixing Results:`);
-    console.log(`   Files processed: ${processedFiles}/${totalFiles}`);
-    console.log(`   Total fixes applied: ${totalFixes}`);
-    console.log(`   Success rate: ${((processedFiles / totalFiles) * 100).toFixed(1)}%`);
-
-    if (this.results.length > 0) {
-      console.log(`\n📊 Error breakdown:`);
-      const errorSummary: Record<string, number> = {};
+  protected findIssues(): void {
+    const sourceFiles = this.project.getSourceFiles();
+    const typeChecker = this.project.getTypeChecker();
+    
+    sourceFiles.forEach(sourceFile => {
+      this.metrics.filesProcessed++;
+      const errorPatterns = this.getErrorPatterns();
       
-      for (const result of this.results) {
-        errorSummary[result.errorType] = (errorSummary[result.errorType] || 0) + result.fixesApplied;
+      for (const pattern of errorPatterns) {
+        try {
+          // For finding issues, we'll scan and record them without applying fixes
+          const issueCount = this.scanForIssues(sourceFile, typeChecker, pattern);
+          if (issueCount > 0) {
+            this.log(`  Found ${issueCount} ${pattern.code} issues in ${sourceFile.getBaseName()}`);
+          }
+        } catch (error) {
+          this.metrics.errors.push(`Error scanning ${pattern.code} in ${sourceFile.getFilePath()}: ${error}`);
+        }
+      }
+    });
+  }
+
+  protected fixIssues(): void {
+    const sourceFiles = this.project.getSourceFiles();
+    const typeChecker = this.project.getTypeChecker();
+    
+    sourceFiles.forEach(sourceFile => {
+      let fileFixes = 0;
+      const errorPatterns = this.getErrorPatterns();
+
+      for (const pattern of errorPatterns) {
+        try {
+          const fixes = pattern.fixer(sourceFile, typeChecker);
+          if (fixes > 0) {
+            this.results.push({
+              file: sourceFile.getFilePath(),
+              errorType: pattern.code,
+              fixesApplied: fixes,
+              description: pattern.description
+            });
+            fileFixes += fixes;
+            this.recordFix(sourceFile.getFilePath());
+          }
+        } catch (error) {
+          this.metrics.errors.push(`Error fixing ${pattern.code} in ${sourceFile.getFilePath()}: ${error}`);
+        }
       }
 
-      for (const [errorType, count] of Object.entries(errorSummary)) {
-        console.log(`   ${errorType}: ${count} fixes`);
+      if (fileFixes > 0) {
+        this.log(`✅ Fixed ${fileFixes} errors in ${sourceFile.getBaseName()}`);
       }
-    }
+    });
   }
+
+  private scanForIssues(sourceFile: SourceFile, typeChecker: TypeChecker, pattern: ErrorPattern): number {
+    // This is a simplified scanner - in a full implementation, each pattern would have a scanner method
+    // For now, we'll just return 0 as this is primarily for the fixer functionality
+    return 0;
+  }
+
+  public async processFiles(pattern?: string): Promise<void> {
+    if (pattern) {
+      // Override include patterns if a specific pattern is provided
+      this.options.includePatterns = [pattern];
+    }
+    await this.execute();
+    // The base class execute() method already calls generateReport()
+  }
+
+  // Reporting is handled by the base class generateReport() method
 }
 
 // Main execution
