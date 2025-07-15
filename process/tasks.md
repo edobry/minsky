@@ -332,7 +332,7 @@
 
 - [x] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
 
-- [ ] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
+- [+] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
 
 - [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
 
@@ -495,3 +495,5 @@
 - [ ] Implement Stacked PR Workflow for Session Dependencies [#277](process/tasks/277-implement-stacked-pr-workflow-for-session-dependencies.md)
 
 - [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system-for-persistent-learning-and-knowledge-accumulation.md)
+
+- [ ] Cleanup excessive 'as unknown' assertions to improve TypeScript effectiveness [#280](process/tasks/280-cleanup-excessive-as-unknown-assertions-to-improve-typescript-effectiveness.md)

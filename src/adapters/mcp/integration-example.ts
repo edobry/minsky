@@ -42,7 +42,7 @@ import { log } from "../../utils/logger";
 // In a real implementation, this would be imported from the MCP adapter bridge
 const mcpBridge = {
   registerSharedCommands: (categories: any) => {
-    log.debug(`Registering MCP commands for categories: ${(categories as unknown).join(", ")}`);
+    log.debug(`Registering MCP commands for categories: ${categories.join(", ")}`);
     // Implementation would:
     // 1. Get commands from shared registry for the specified categories
     // 2. Create MCP command schemas from them
@@ -220,11 +220,11 @@ export function setupMcpWithSharedCommands(): void {
   registerRulesCommands();
 
   // Bridge the commands to MCP
-  (mcpBridge as unknown).registerSharedCommands([
-    (CommandCategory as unknown).GIT,
-    (CommandCategory as unknown).TASKS,
-    (CommandCategory as unknown).SESSION,
-    (CommandCategory as unknown).RULES,
+  mcpBridge.registerSharedCommands([
+    CommandCategory.GIT,
+    CommandCategory.TASKS,
+    CommandCategory.SESSION,
+    CommandCategory.RULES,
   ]);
 
   log.debug("MCP setup complete with shared commands");

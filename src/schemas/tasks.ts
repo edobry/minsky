@@ -29,9 +29,9 @@ export const taskStatusSchema = z
 /**
  * Schema for task list parameters
  */
-export const taskListParamsSchema = (commonCommandOptionsSchema as unknown).extend({
+export const taskListParamsSchema = commonCommandOptionsSchema.extend({
   filter: z.string().optional().describe("Filter tasks by status or other criteria"),
-  limit: (z.number().optional() as unknown).describe("Limit the number of tasks returned"),
+  limit: z.number().optional().describe("Limit the number of tasks returned"),
   all: flagSchema("Include completed tasks"),
   backend: z
     .string()
@@ -47,12 +47,12 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 /**
  * Schema for task get parameters
  */
-export const taskGetParamsSchema = (commonCommandOptionsSchema as unknown).extend({
-  taskId: (z
+export const taskGetParamsSchema = commonCommandOptionsSchema.extend({
+  taskId: z
     .union([
       taskIdSchema.describe("ID of the task to retrieve"),
       z.array(taskIdSchema).describe("Array of task IDs to retrieve"),
-    ]) as unknown).describe("Task ID or array of task IDs to retrieve"),
+    ]).describe("Task ID or array of task IDs to retrieve"),
   backend: z
     .string()
     .optional()
@@ -67,14 +67,14 @@ export type TaskGetParams = z.infer<typeof taskGetParamsSchema>;
 /**
  * Schema for task status get parameters
  */
-export const taskStatusGetParamsSchema = (z
+export const taskStatusGetParamsSchema = z
   .object({
     taskId: taskIdSchema.describe("ID of the task"),
     backend: z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
-  }) as unknown).merge(commonCommandOptionsSchema);
+  }).merge(commonCommandOptionsSchema);
 
 /**
  * Type for task status get parameters
@@ -84,7 +84,7 @@ export type TaskStatusGetParams = z.infer<typeof taskStatusGetParamsSchema>;
 /**
  * Schema for task status set parameters
  */
-export const taskStatusSetParamsSchema = (z
+export const taskStatusSetParamsSchema = z
   .object({
     taskId: taskIdSchema.describe("ID of the task"),
     status: taskStatusSchema.describe("New status for the task"),
@@ -92,7 +92,7 @@ export const taskStatusSetParamsSchema = (z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
-  }) as unknown).merge(commonCommandOptionsSchema);
+  }).merge(commonCommandOptionsSchema);
 
 /**
  * Type for task status set parameters
@@ -102,7 +102,7 @@ export type TaskStatusSetParams = z.infer<typeof taskStatusSetParamsSchema>;
 /**
  * Schema for task create parameters
  */
-export const taskCreateParamsSchema = (z
+export const taskCreateParamsSchema = z
   .object({
     title: z.string().min(1).describe("Title for the task"),
     description: z.string().optional().describe("Description text for the task"),
@@ -113,15 +113,15 @@ export const taskCreateParamsSchema = (z
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
   })
-  .merge(commonCommandOptionsSchema) as unknown).refine(
-  (data) => {
+  .merge(commonCommandOptionsSchema).refine(
+    (data) => {
     // Either description or descriptionPath must be provided
-    return (data as unknown).description || (data as unknown).descriptionPath as unknown;
-  },
-  {
-    message: "Either --description or --description-path must be provided",
-  }
-);
+      return data.description || data.descriptionPath as unknown;
+    },
+    {
+      message: "Either --description or --description-path must be provided",
+    }
+  );
 
 /**
  * Type for task create parameters
@@ -136,7 +136,7 @@ export type TaskCreateFromTitleAndDescriptionParams = z.infer<typeof taskCreateF
 /**
  * Schema for task create from title and description parameters
  */
-export const taskCreateFromTitleAndDescriptionParamsSchema = (z
+export const taskCreateFromTitleAndDescriptionParamsSchema = z
   .object({
     title: z.string().min(1).describe("Title for the task (required)"),
     description: z.string().optional().describe("Description text for the task"),
@@ -147,15 +147,15 @@ export const taskCreateFromTitleAndDescriptionParamsSchema = (z
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
   })
-  .merge(commonCommandOptionsSchema) as unknown).refine((data) => (data as unknown).description || (data as unknown).descriptionPath, {
-  message: "Either 'description' or 'descriptionPath' must be provided",
-  path: ["description"],
-});
+  .merge(commonCommandOptionsSchema).refine((data) => data.description || data.descriptionPath, {
+    message: "Either 'description' or 'descriptionPath' must be provided",
+    path: ["description"],
+  });
 
 /**
  * Schema for task spec content parameters
  */
-export const taskSpecContentParamsSchema = (z
+export const taskSpecContentParamsSchema = z
   .object({
     taskId: taskIdSchema.describe("ID of the task to retrieve specification _content for"),
     section: z
@@ -166,7 +166,7 @@ export const taskSpecContentParamsSchema = (z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
-  }) as unknown).merge(commonCommandOptionsSchema);
+  }).merge(commonCommandOptionsSchema);
 
 /**
  * Type for task spec content parameters
@@ -176,7 +176,7 @@ export type TaskSpecContentParams = z.infer<typeof taskSpecContentParamsSchema>;
 /**
  * Schema for task delete parameters
  */
-export const taskDeleteParamsSchema = (z
+export const taskDeleteParamsSchema = z
   .object({
     taskId: taskIdSchema.describe("ID of the task to delete"),
     force: flagSchema("Force deletion without confirmation"),
@@ -184,7 +184,7 @@ export const taskDeleteParamsSchema = (z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
-  }) as unknown).merge(commonCommandOptionsSchema);
+  }).merge(commonCommandOptionsSchema);
 
 /**
  * Type for task delete parameters
