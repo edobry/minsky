@@ -4,6 +4,20 @@ import { execSync } from "child_process";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
+// Zod schemas for session data validation
+const SessionSchema = z.object({
+  session: z.string(),
+  repo: z.string().optional(),
+  workdir: z.string().optional(),
+  branch: z.string().optional(),
+  task: z.string().optional(),
+  status: z.string().optional(),
+  created: z.string().optional(),
+  modified: z.string().optional(),
+});
+
+const SessionListSchema = z.array(SessionSchema);
+
 /**
  * Register session-related tools with the MCP server
  * @param commandMapper The command mapper instance
@@ -16,8 +30,10 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       const command = "minsky session list --json";
       const output = execSync(command).toString();
 
-      // Parse the JSON output
-      return JSON.parse(output) as unknown;
+      // Parse and validate the JSON output
+      const parsed = JSON.parse(output);
+      const validated = SessionListSchema.parse(parsed);
+      return validated;
     } catch (error) {
       log.error("Error listing sessions", { error });
       throw new Error(
@@ -29,22 +45,24 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
   // Session get tool
   commandMapper.addSessionCommand(
     "get",
-    "Get details of a specific session",
+    "Get session details",
     z.object({
       _session: z.string().describe("Session identifier"),
     }),
-    async (args: any) => {
+    async (args: { _session: string }) => {
       try {
         // Execute the command
-        const command = `minsky session get ${args!.session} --json`;
+        const command = `minsky session get ${args._session} --json`;
         const output = execSync(command).toString();
 
-        // Parse the JSON output
-        return JSON.parse(output) as Record<string, unknown>;
+        // Parse and validate the JSON output
+        const parsed = JSON.parse(output);
+        const validated = SessionSchema.parse(parsed);
+        return validated;
       } catch (error) {
-        log.error(`Error getting session ${args!.session}`, { error, _session: args!.session });
+        log.error(`Error getting session ${args._session}`, { error, _session: args._session });
         throw new Error(
-          `Failed to get session ${args!.session}: ${getErrorMessage(error as any)}`
+          `Failed to get session ${args._session}: ${getErrorMessage(error as any)}`
         );
       }
     });
@@ -102,27 +120,17 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "Commit changes in a session",
     z.object({
       message: z.string().optional().describe("Commit message"),
-      session: z
-        .string()
-        .optional()
-        .describe("Session to commit changes for (uses current session if not provided)"),
+      session: z.string().optional().describe("Session identifier"),
     }),
-    async (
-      args: z.infer<
-            z.ZodObject<{
-              message: z.ZodOptional<z.ZodString>;
-              session: z.ZodOptional<z.ZodString>;
-            }>
-          >
-    ) => {
+    async (args: { message?: string; session?: string }) => {
       try {
         // Build the command
         let command = "minsky session commit";
         if (args?.message) {
           command += ` -m "${args.message}"`;
         }
-        if ((args as unknown)!.session) {
-          command += ` --session ${(args as unknown)!.session}`;
+        if (args?.session) {
+          command += ` --session ${args.session}`;
         }
 
         // Execute the command
@@ -134,7 +142,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           message: output.trim(),
         };
       } catch (error) {
-        log.error("Error committing changes", { error, session: (args as unknown)!.session });
+        log.error("Error committing changes", { error, session: args?.session });
         throw new Error(
           `Failed to commit changes: ${getErrorMessage(error as any)}`
         );
