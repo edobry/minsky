@@ -98,7 +98,7 @@ export class TaskService {
     const selectedBackend = this.backends.find((b) => b.name === backend);
     if (!selectedBackend) {
       throw new Error(
-        `Backend '${backend}' not found. Available backends: ${(this.backends.map((b) => b.name) as unknown).join(", ")}`
+        `Backend '${backend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
       );
     }
     this.currentBackend = selectedBackend;
@@ -388,7 +388,7 @@ export class TaskService {
    */
   async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
     // Delegate to the current backend
-    return await (this.currentBackend as unknown).deleteTask(id, options as unknown);
+    return await this.currentBackend.deleteTask(id, options);
   }
 
   /**
@@ -502,7 +502,7 @@ export class TaskService {
       await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
 
       // Use the existing createTask method
-      const task = await this.createTask(tempSpecPath, options as unknown);
+      const task = await this.createTask(tempSpecPath, options);
 
       // Clean up the temporary file
       try {
