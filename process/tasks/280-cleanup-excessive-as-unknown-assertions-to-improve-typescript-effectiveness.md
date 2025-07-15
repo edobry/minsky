@@ -66,7 +66,7 @@ This technical debt was identified during Task #276 test suite optimization, whe
 ### Session-First Workflow Implementation
 - **Moved all changes** from main workspace to session workspace following session-first protocol
 - **Work continues** in session workspace: `/Users/edobry/.local/state/minsky/sessions/task#280`
-- **ESLint monitoring** shows 510 remaining 'as unknown' assertions requiring manual fixes
+- **ESLint monitoring** shows **444 remaining 'as unknown' assertions** requiring manual fixes
 - **Systematic approach** being applied to address high-priority assertions first
 
 ### Current Progress
@@ -76,9 +76,13 @@ This technical debt was identified during Task #276 test suite optimization, whe
   - `src/domain/tasks/taskService.ts` - WIP removing 'as unknown' casts from TaskBackend methods
 - **Session branch**: `task#280` with all changes committed and ready for continued work
 
-### Remaining Work
-- **510 'as unknown' assertions** identified by ESLint rule requiring manual fixes
-- **Systematic prioritization** based on ESLint severity levels (Dangerous > Don't cast > Risky)
+### Remaining Work - ESLint Priority Breakdown
+- **444 total 'as unknown' assertions** identified by ESLint rule requiring manual fixes
+- **Priority levels** (highest to lowest):
+  1. **Dangerous (81 assertions)**: Object casting indicating typing issues - define proper interfaces
+  2. **Don't cast (138 assertions)**: Property access casting - use proper type definitions
+  3. **Risky (186 assertions)**: May be unnecessary - replace with proper types/type guards
+  4. **Other (39 assertions)**: Miscellaneous patterns requiring individual assessment
 - **Type-safe alternatives** being implemented using established patterns from prevention measures
 - **Test compatibility** being maintained throughout cleanup process
 
@@ -140,8 +144,10 @@ This technical debt was identified during Task #276 test suite optimization, whe
 - [x] Type safety maintained or improved throughout cleanup
 - [x] Prevention measures in place to avoid regression
 - [x] Code quality and maintainability improved
-- [ ] **Phase 4 Goal**: Reduce remaining 510 assertions to acceptable levels (target: <100)
-- [ ] **All critical and high-risk assertions eliminated**
+- [ ] **Phase 4 Goal**: Reduce remaining 444 assertions to acceptable levels (target: <100, ~77% reduction)
+- [ ] **Priority-based cleanup**: Eliminate all 81 Dangerous assertions (highest priority)
+- [ ] **Property access fixes**: Fix all 138 Don't cast assertions with proper type definitions
+- [ ] **Risk mitigation**: Address 186 Risky assertions with type guards/proper types
 - [ ] **Test suite maintains compatibility with type-safe patterns**
 
 ## Priority
@@ -163,4 +169,10 @@ High - This technical debt is actively hindering development workflow and maskin
 - **Comprehensive guidelines** (`as-unknown-prevention-guidelines.md`) documenting best practices
 - **Session integration** successfully merged with main branch maintaining all improvements
 
-**PHASE 4 IN PROGRESS**: Continuing systematic cleanup of remaining 510 'as unknown' assertions using session-first workflow approach with ESLint-guided prioritization to achieve final cleanup targets.
+**PHASE 4 IN PROGRESS**: Continuing systematic cleanup of remaining 444 'as unknown' assertions using session-first workflow approach with ESLint-guided prioritization:
+- **81 Dangerous assertions** (highest priority) - object casting indicating typing issues
+- **138 Don't cast assertions** - property access casting requiring proper type definitions
+- **186 Risky assertions** - potentially unnecessary, need proper types/type guards
+- **39 Other assertions** - miscellaneous patterns requiring individual assessment
+
+Target: Reduce to <100 assertions (~77% additional reduction) to achieve final cleanup goals.
