@@ -100,7 +100,7 @@ export class JsonFileTaskBackend implements TaskBackend {
           success: false,
           error: result.error,
           filePath: this.storage.getStorageLocation(),
-        } as unknown;
+        };
       }
 
       // Convert state to a tasks.md-like format for compatibility
@@ -299,7 +299,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         error: result.error,
         bytesWritten: result.bytesWritten,
         filePath: this.storage.getStorageLocation(),
-      } as unknown;
+      };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
       return {
