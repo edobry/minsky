@@ -1,8 +1,8 @@
 import { join } from "node:path";
-import { normalizeRepoName } from "../repo-utils";
+import { normalizeRepoName } from "../../repo-utils";
 import { createSessionProvider } from "../../session";
 import { log } from "../../../utils/logger";
-import { createGitService } from "../git";
+import { createGitService } from "../../git";
 import { CloneOptions, CloneResult } from "../types";
 
 /**
@@ -25,7 +25,7 @@ export async function cloneFromParams(params: {
   
   const result = await gitService.clone(options);
   
-  log("Repository cloned successfully", { 
+  log.info("Repository cloned successfully", { 
     url: params.url,
     workdir: result.workdir,
     session: result.session,
