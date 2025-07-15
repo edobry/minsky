@@ -13,14 +13,9 @@ import { registerSessionTools } from "../../adapters/mcp/session";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
-import {
-  isNetworkError,
-  createNetworkError,
-  formatNetworkErrorMessage,
-} from "../../errors/network-errors";
+// Remove network error imports since stdio doesn't have network errors
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
-import { DEFAULT_DEV_PORT } from "../../utils/constants";
 import { exit } from "../../utils/process";
 
 const INSPECTOR_PORT = 5173;
@@ -41,26 +36,14 @@ export function createMCPCommand(): Command {
   const startCommand = new Command("start");
   startCommand.description("Start the MCP server");
   startCommand
-    .option("--stdio", "Use stdio transport (default)")
-    .option("--http-stream", "Use HTTP Stream transport")
-    .option("-p, --port <port>", "Port for HTTP Stream server", DEFAULT_DEV_PORT.toString())
-    .option("-h, --host <host>", "Host for HTTP Stream server", "localhost")
     .option(
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
     )
     .option("--with-inspector", "Launch MCP inspector alongside the server")
-    .option("--inspector-port <port>", "Port for the MCP inspector", INSPECTOR_PORT.toString()).action(async (options) => {
+    .option("--inspector-port <port>", "Port for the MCP inspector", INSPECTOR_PORT.toString())
+    .action(async (options) => {
       try {
-      // Determine transport type based on options
-        let transportType: "stdio" | "sse" | "httpStream" = "stdio";
-        if (options.httpStream) {
-          transportType = "httpStream";
-        }
-
-        // Set port (used for HTTP Stream)
-        const port = parseInt(options.port, 10);
-
         // Validate and prepare repository path if provided
         let projectContext;
         if (options.repo) {
@@ -90,36 +73,24 @@ export function createMCPCommand(): Command {
         }
 
         log.debug("Starting MCP server", {
-          transportType,
-          port,
-          host: options.host,
           repositoryPath: projectContext?.repositoryPath || process.cwd(),
           withInspector: options.withInspector || false,
           inspectorPort: options.inspectorPort,
         });
 
-        // Create server with appropriate options
+        // Create server with stdio transport (official MCP SDK)
         const server = new MinskyMCPServer({
           name: "Minsky MCP Server",
           version: "1.0.0", // TODO: Import from package.json
-          transportType,
           projectContext,
-          sse: {
-            port: 8080, // Default SSE port (not currently used via CLI)
-            host: options.host,
-            path: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
-          },
-          /* TODO: Verify if httpStream is valid property */ httpStream: {
-            port: transportType === "httpStream" ? port : 8080,
-            endpoint: "/mcp",
-          },
         });
 
         // Register tools via adapter-based approach
         const commandMapper = new CommandMapper(
-          server.getFastMCPServer(),
+          server,
           server.getProjectContext()
         );
+
         // Register debug tools first to ensure they're available for debugging
         registerDebugTools(commandMapper);
 
@@ -148,9 +119,9 @@ export function createMCPCommand(): Command {
             const inspectorResult = launchInspector({
               port: inspectorPort,
               openBrowser: true,
-              mcpTransportType: transportType,
-              mcpPort: transportType !== "stdio" ? port : undefined,
-              mcpHost: transportType !== "stdio" ? options.host : undefined,
+              mcpTransportType: "stdio",
+              mcpPort: undefined, // stdio doesn't use ports
+              mcpHost: undefined, // stdio doesn't use hosts
             });
 
             if (inspectorResult.success) {
@@ -166,13 +137,11 @@ export function createMCPCommand(): Command {
           // Only start the server directly if not using inspector
           await server.start();
 
-          log.cli(`Minsky MCP Server started with ${transportType} transport`);
+          log.cli("Minsky MCP Server started with stdio transport");
           if (projectContext) {
             log.cli(`Repository path: ${projectContext.repositoryPath}`);
           }
-          if (transportType !== "stdio") {
-            log.cli(`Listening on ${options.host}:${port}`);
-          }
+          log.cli("Ready to receive MCP requests via stdin/stdout");
         }
 
         log.cli("Press Ctrl+C to stop");
@@ -188,45 +157,21 @@ export function createMCPCommand(): Command {
           exit(0);
         });
       } catch (error) {
-      // Log detailed error info for debugging
+        // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
-          transportType: options.httpStream ? "httpStream" : "stdio",
-          port: options.port,
-          host: options.host,
           withInspector: options.withInspector || false,
           error: getErrorMessage(error as any),
-          stack: error instanceof Error ? (error as any).stack as any : undefined as any,
+          stack: error instanceof Error ? (error as any).stack : undefined,
         });
 
-        // Handle network errors in a user-friendly way
-        if (isNetworkError(error as any)) {
-          const port = parseInt((options as any).port, 10);
-          const networkError = createNetworkError(error as unknown, port, options.host);
-          const isDebug = SharedErrorHandler.isDebugMode();
-
-          // Output user-friendly message with suggestions
-          log.cliError(formatNetworkErrorMessage(networkError, isDebug));
-
-          // Only show stack trace in debug mode
-          if (isDebug && error instanceof Error && (error as any).stack) {
-            log.cliError("\nDebug information:");
-            log.cliError((error as any).stack);
-          }
-        } else {
-        // For other errors, provide a simpler message
-          log.cliError(`Failed to start MCP server: ${getErrorMessage(error as any)}`);
-
-          // Show stack trace only in debug mode
-          if (SharedErrorHandler.isDebugMode() && error instanceof Error && (error as any).stack) {
-            log.cliError("\nDebug information:");
-            log.cliError((error as any).stack);
-          }
-        }
+        // Handle different types of errors for user-friendly messages
+        log.cliError(`Failed to start MCP server: ${getErrorMessage(error as any)}`);
 
         exit(1);
       }
     });
 
   mcpCommand.addCommand(startCommand);
+
   return mcpCommand;
 }

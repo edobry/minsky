@@ -1,24 +1,25 @@
-import { FastMCP } from "fastmcp";
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { getErrorMessage } from "../errors/index";
+import type { MinskyMCPServer, ToolDefinition } from "./server";
 
 /**
  * The CommandMapper class provides utilities for mapping Minsky CLI commands
- * to MCP tools using FastMCP.
+ * to MCP tools using the official MCP SDK.
  */
 export class CommandMapper {
-  private server: FastMCP;
+  private server: MinskyMCPServer;
   private projectContext: ProjectContext | undefined;
   private registeredMethodNames: string[] = [];
 
   /**
    * Create a new CommandMapper
-   * @param server The FastMCP server instance
+   * @param server The MinskyMCPServer instance
    * @param projectContext Optional project context containing repository information
    */
-  constructor(server: FastMCP, projectContext?: ProjectContext) {
+  constructor(server: MinskyMCPServer, projectContext?: ProjectContext) {
     this.server = server;
     this.projectContext = projectContext;
 
@@ -46,10 +47,10 @@ export class CommandMapper {
   }
 
   /**
-   * Normalize method name to ensure compatibility with FastMCP
+   * Normalize method name to ensure compatibility with MCP
    *
    * This handles potential issues in the JSON-RPC method naming conventions
-   * by normalizing the method name to a format FastMCP can reliably process.
+   * by normalizing the method name to a format the MCP protocol can process.
    *
    * @param methodName Original method name
    * @returns Normalized method name
@@ -71,6 +72,31 @@ export class CommandMapper {
   }
 
   /**
+   * Convert Zod schema to JSON Schema for MCP compatibility
+   * @param zodSchema The Zod schema to convert
+   * @returns JSON Schema object
+   */
+  private zodToJsonSchema(zodSchema: z.ZodTypeAny): any {
+    try {
+      return zodToJsonSchema(zodSchema, {
+        name: "ToolParameters",
+        $refStrategy: "none", // Inline all definitions
+      });
+    } catch (error) {
+      log.warn("Failed to convert Zod schema to JSON Schema, using fallback", {
+        error: getErrorMessage(error as any),
+      });
+      
+      // Fallback to a basic object schema
+      return {
+        type: "object",
+        properties: {},
+        additionalProperties: true,
+      };
+    }
+  }
+
+  /**
    * Add a basic command to the server
    * @param command Command definition with name, parameters, description, and execution logic
    */
@@ -83,6 +109,11 @@ export class CommandMapper {
     // Normalize the method name for consistency and compatibility
     const normalizedName = this.normalizeMethodName(command.name);
 
+    // Convert Zod schema to JSON Schema
+    const inputSchema = command.parameters 
+      ? this.zodToJsonSchema(command.parameters)
+      : { type: "object", properties: {}, additionalProperties: false };
+
     // Log the addition of the tool to help with debugging
     log.debug("Registering MCP tool", {
       methodName: normalizedName,
@@ -94,59 +125,73 @@ export class CommandMapper {
     // Keep track of registered method names
     this.registeredMethodNames.push(normalizedName);
 
-    // Register the tool with FastMCP
-    (this.server as unknown).addTool({
+    // Create the tool definition
+    const toolDefinition: ToolDefinition = {
       name: normalizedName,
       description: command.description,
-      parameters: command.parameters || z.object({}),
-      execute: async (args) => {
+      inputSchema,
+      handler: async (args) => {
         try {
-          // If the command might use repository context and no explicit repository is provided,
-          // inject the default repository path from project context
-          if (
-            this.projectContext &&
-            (this.projectContext as unknown).repositoryPath &&
-            args &&
-            typeof args === "object"
-          ) {
-            if (!("repositoryPath" in args) || !args.repositoryPath) {
-              args = {
-                ...args,
-                repositoryPath: (this.projectContext as unknown).repositoryPath,
-              };
-              log.debug(`Using default repository path for command ${normalizedName}`, {
-                repositoryPath: (this.projectContext as unknown).repositoryPath,
-              });
-            }
-          }
-
-          // Log that we're executing the command (helpful for debugging)
           log.debug("Executing MCP command", {
             methodName: normalizedName,
             args,
           });
 
-          const result = await command.execute(args);
-          // If result is a string, return it directly
-          if (typeof result === "string") {
-            return result;
+          // Validate args against Zod schema if provided
+          let validatedArgs = args;
+          if (command.parameters) {
+            try {
+              validatedArgs = command.parameters.parse(args);
+            } catch (validationError) {
+              const errorMessage = getErrorMessage(validationError as any);
+              log.error("Command parameter validation failed", {
+                command: normalizedName,
+                error: errorMessage,
+                args,
+              });
+              throw new Error(`Invalid parameters for command '${normalizedName}': ${errorMessage}`);
+            }
           }
-          // Otherwise, return it as a JSON string for structured data
-          return JSON.stringify(result as unknown, undefined, 2);
+
+          // If the command might use repository context and no explicit repository is provided,
+          // inject the default repository path from project context
+          if (
+            this.projectContext &&
+            this.projectContext.repositoryPath &&
+            validatedArgs &&
+            typeof validatedArgs === "object"
+          ) {
+            if (!("repositoryPath" in validatedArgs) || !validatedArgs.repositoryPath) {
+              validatedArgs = {
+                ...validatedArgs,
+                repositoryPath: this.projectContext.repositoryPath,
+              };
+            }
+          }
+
+          const result = await command.execute(validatedArgs);
+          
+          // Return result directly - the server will handle formatting
+          return result;
         } catch (error) {
           const errorMessage = getErrorMessage(error as any);
           log.error("Error executing MCP command", {
             command: normalizedName,
             error: errorMessage,
             args,
-            stack: error instanceof Error ? (error as any).stack as any : undefined as any,
+            stack: error instanceof Error ? (error as any).stack : undefined,
           });
-          throw error; // Re-throw to let FastMCP handle error presentation
+          
+          // Re-throw to let the MCP server handle error presentation
+          throw error;
         }
       },
-    });
+    };
 
-    // Also register the method with an underscore-based name if it contains dots
+    // Register the tool with the server
+    this.server.addTool(toolDefinition);
+
+    // Also register underscore alias for dot notation compatibility
     // This provides a fallback for JSON-RPC clients that have issues with dot notation
     if (normalizedName.includes(".")) {
       const underscoreName = normalizedName.replace(/\./g, "_");
@@ -161,55 +206,16 @@ export class CommandMapper {
         // Keep track of the alias
         this.registeredMethodNames.push(underscoreName);
 
-        // Register the alias
-        (this.server as unknown).addTool({
+        // Create alias tool definition
+        const aliasToolDefinition: ToolDefinition = {
           name: underscoreName,
           description: `${command.description} (underscore alias)`,
-          parameters: command.parameters || z.object({}),
-          execute: async (args) => {
-            try {
-              log.debug("Executing MCP command via underscore alias", {
-                methodName: underscoreName,
-                originalName: normalizedName,
-                args,
-              });
+          inputSchema,
+          handler: toolDefinition.handler, // Same handler
+        };
 
-              // If the command might use repository context and no explicit repository is provided,
-              // inject the default repository path from project context
-              if (
-                this.projectContext &&
-                (this.projectContext as unknown).repositoryPath &&
-                args &&
-                typeof args === "object"
-              ) {
-                if (!("repositoryPath" in args) || !args.repositoryPath) {
-                  args = {
-                    ...args,
-                    repositoryPath: (this.projectContext as unknown).repositoryPath,
-                  };
-                }
-              }
-
-              const result = await command.execute(args);
-              // If result is a string, return it directly
-              if (typeof result === "string") {
-                return result;
-              }
-              // Otherwise, return it as a JSON string for structured data
-              return JSON.stringify(result as unknown, undefined, 2);
-            } catch (error) {
-              const errorMessage = getErrorMessage(error as any);
-              log.error("Error executing MCP command via underscore alias", {
-                command: underscoreName,
-                originalName: normalizedName,
-                error: errorMessage,
-                args,
-                stack: error instanceof Error ? (error as any).stack as any : undefined as any,
-              });
-              throw error; // Re-throw to let FastMCP handle error presentation
-            }
-          },
-        });
+        // Register the alias
+        this.server.addTool(aliasToolDefinition);
       }
     }
   }
