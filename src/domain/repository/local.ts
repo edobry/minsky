@@ -186,7 +186,7 @@ export class LocalGitBackend implements RepositoryBackend {
   async validate(): Promise<Result> {
     try {
       // If the repo is a local path, check if it has a .git directory
-      if (!(this.repoUrl as unknown).includes("://") && !(this.repoUrl as unknown).includes("@")) {
+      if (!this.repoUrl.includes("://") && !this.repoUrl.includes("@")) {
         const { stdout } = await execAsync(
           `test -d "${this.repoUrl}/.git" && echo "true" || echo "false"`
         );

@@ -184,7 +184,7 @@ export class TaskBackendRouter {
       this.specialWorkspaceManager = await SpecialWorkspaceManager.create(this.repoUrl);
     }
 
-    return (this.specialWorkspaceManager as unknown).getWorkspacePath();
+    return this.specialWorkspaceManager.getWorkspacePath();
   }
 
   /**
@@ -206,7 +206,7 @@ export class TaskBackendRouter {
         this.specialWorkspaceManager = await SpecialWorkspaceManager.create(this.repoUrl);
       }
 
-      return (this.specialWorkspaceManager as unknown).performOperation(operation, callback as unknown);
+      return this.specialWorkspaceManager.performOperation(operation, callback);
     } else {
       // Use current working directory for external backends
       const currentDir = (process as any).cwd();

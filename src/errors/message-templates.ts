@@ -117,7 +117,7 @@ export function buildErrorMessage(template: ErrorTemplate, context?: ContextInfo
   // Add context information if provided
   if (context && context?.length > 0) {
     parts.push("");
-    parts.push(formatContextInfo(context as unknown));
+    parts.push(formatContextInfo(context));
   }
   
   return parts.join("\n");
@@ -144,7 +144,7 @@ export function createResourceNotFoundMessage(
     ]
   };
   
-  return buildErrorMessage(template, context as unknown);
+  return buildErrorMessage(template, context);
 }
 
 /**
@@ -165,7 +165,7 @@ export function createMissingInfoMessage(
     ]
   };
   
-  return buildErrorMessage(template, context as unknown);
+  return buildErrorMessage(template, context);
 }
 
 /**
@@ -189,7 +189,7 @@ export function createValidationErrorMessage(
     ]
   };
   
-  return buildErrorMessage(template, context as unknown);
+  return buildErrorMessage(template, context);
 }
 
 /**
@@ -213,7 +213,7 @@ export function createCommandFailureMessage(
     ]
   };
   
-  return buildErrorMessage(template, context as unknown);
+  return buildErrorMessage(template, context);
 }
 
 /**
@@ -307,7 +307,7 @@ export function createSessionErrorMessage(
     ]
   };
   
-  return buildErrorMessage(template, context as unknown);
+  return buildErrorMessage(template, context);
 }
 
 /**
@@ -317,7 +317,7 @@ export function createSessionNotFoundMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, SessionErrorType.NOT_FOUND, context as unknown);
+  return createSessionErrorMessage(sessionName, SessionErrorType.NOT_FOUND, context);
 }
 
 /**
@@ -327,7 +327,7 @@ export function createSessionExistsMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, SessionErrorType.ALREADY_EXISTS, context as unknown);
+  return createSessionErrorMessage(sessionName, SessionErrorType.ALREADY_EXISTS, context);
 }
 
 /**
@@ -337,7 +337,7 @@ export function createInvalidSessionMessage(
   sessionName: string,
   context?: ContextInfo[]
 ): string {
-  return createSessionErrorMessage(sessionName, SessionErrorType.INVALID, context as unknown);
+  return createSessionErrorMessage(sessionName, SessionErrorType.INVALID, context);
 }
 
 /**
@@ -446,7 +446,7 @@ export function createConfigErrorMessage(
     ]
   };
   
-  return buildErrorMessage(template, context as unknown);
+  return buildErrorMessage(template, context);
 }
 
 /**
