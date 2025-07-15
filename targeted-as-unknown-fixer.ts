@@ -156,11 +156,11 @@ class TargetedAsUnknownFixer {
     console.log(`❌ Errors encountered: ${this.errors.length}`);
 
     if (this.errors.length > 0) {
-      console.log(`\n🚨 Errors:`);
+      console.log("\n🚨 Errors:");
       this.errors.forEach(error => console.log(`  - ${error}`));
     }
 
-    console.log(`\n📋 Pattern breakdown:`);
+    console.log("\n📋 Pattern breakdown:");
     this.safePatterns.forEach(pattern => {
       console.log(`  - ${pattern.name}: ${pattern.riskLevel} risk`);
     });
