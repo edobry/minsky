@@ -45,7 +45,7 @@ describe("CommandMapper", () => {
       name: "test-command",
       description: "Test command description",
       parameters: z.object({ test: z.string() }),
-      execute: async () => "test result",
+      handler: async () => "test result",
     };
 
     commandMapper.addCommand(command);
@@ -56,7 +56,7 @@ describe("CommandMapper", () => {
     expect(firstCall).toBeDefined();
     const toolDefinition = firstCall?.[0] as ToolDefinition;
     expect(toolDefinition).toBeDefined();
-    expect(toolDefinition?.name).toBe("test_command");
+    expect(toolDefinition?.name).toBe("test-command");
     expect(toolDefinition?.description).toBe("Test command description");
     expect(toolDefinition?.inputSchema).toBeDefined();
     expect(typeof toolDefinition?.handler).toBe("function");
