@@ -94,7 +94,7 @@ export class CommandMapper {
     // Keep track of registered method names
     this.registeredMethodNames.push(normalizedName);
 
-        // Register the tool with FastMCP
+    // Register the tool with FastMCP
     (this.server as unknown).addTool({
       name: normalizedName,
       description: command.description,
