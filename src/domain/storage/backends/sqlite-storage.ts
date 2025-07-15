@@ -178,10 +178,10 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const result = await (this.drizzleDb
+      const result = await this.drizzleDb
         .select()
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id)) as unknown).limit(1);
+        .where(eq(sessionsTable.session, id)).limit(1);
 
       return (result[0] as TEntity) || null;
     } catch (error) {
@@ -287,9 +287,9 @@ implements DatabaseStorage<TEntity, TState>
         return existing; // No updates needed
       }
 
-      await (this.drizzleDb
+      await this.drizzleDb
         .update(sessionsTable)
-        .set(updateData) as unknown).where(eq(sessionsTable.session, id));
+        .set(updateData).where(eq(sessionsTable.session, id));
 
       // Return updated entity
       return { ...existing, ...updates };
@@ -305,7 +305,7 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      await (this.drizzleDb.delete(sessionsTable) as unknown).where(eq(sessionsTable.session, id));
+      await this.drizzleDb.delete(sessionsTable).where(eq(sessionsTable.session, id));
 
       // Since Drizzle doesn't return changes count, we'll check if the entity existed
       const entityExists = await this.entityExists(id);
@@ -322,10 +322,10 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const result = await (this.drizzleDb
+      const result = await this.drizzleDb
         .select({ count: sessionsTable.session })
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id)) as unknown).limit(1);
+        .where(eq(sessionsTable.session, id)).limit(1);
 
       return result.length > 0 as unknown;
     } catch (error) {
