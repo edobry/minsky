@@ -58,18 +58,6 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
   } as unknown as DateConstructor;
 
   // Copy all the static methods from the original Date
-<<<<<<< HEAD
-  MockDate.now = () => fixedDateTime;
-  MockDate.parse = originalDate.parse;
-  MockDate.UTC = originalDate.UTC;
-
-  // Replace global Date
-  global.Date = MockDate;
-
-  // Return function to restore the original Date
-  return () => {
-    global.Date = originalDate;
-=======
   if (MockDate) {
     MockDate.now = () => fixedDateTime;
     MockDate.parse = originalDate?.parse;
@@ -85,9 +73,7 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
   return () => {
     if (global) {
       global.Date = originalDate;
-    }
->>>>>>> origin/main
-  };
+    }  };
 }
 
 /**
