@@ -98,7 +98,7 @@ export class MinskyMCPServer {
     try {
       this.projectContext = options.projectContext || createProjectContextFromCwd();
       log.debug("Using project context", {
-        repositoryPath: (this.projectContext as unknown).repositoryPath,
+        repositoryPath: this.projectContext.repositoryPath,
       });
     } catch (error) {
       log.warn(
@@ -117,14 +117,14 @@ export class MinskyMCPServer {
       /* TODO: Verify if transportType is valid property */ transportType: options.transportType || "stdio",
       projectContext: this.projectContext,
       sse: {
-        /* TODO: Verify if endpoint is valid property */ endpoint: options.sse.endpoint || "/sse",
-        port: options.sse.port || 8080,
-        host: options.sse.host || "localhost",
-        path: options.sse.path || "/sse",
+        /* TODO: Verify if endpoint is valid property */ endpoint: options.sse?.endpoint || "/sse",
+        port: options.sse?.port || 8080,
+        host: options.sse?.host || "localhost",
+        path: options.sse?.path || "/sse",
       },
       /* TODO: Verify if httpStream is valid property */ httpStream: {
-        endpoint: options.httpStream.endpoint || "/mcp",
-        port: options.httpStream.port || 8080,
+        endpoint: options.httpStream?.endpoint || "/mcp",
+        port: options.httpStream?.port || 8080,
       },
     };
 
@@ -154,13 +154,55 @@ export class MinskyMCPServer {
     });
 
     // Listen for client connections
-    (this.server as unknown).on("connect", () => {
+    this.server.on("connect", () => {
       log.agent("Client connected to Minsky MCP Server");
     });
 
     // Listen for client disconnections
-    (this.server as unknown).on("disconnect", () => {
+    this.server.on("disconnect", () => {
       log.agent("Client disconnected from Minsky MCP Server");
+    });
+
+    // Add basic resources support to prevent "Method not found" errors
+    this.server.addResource({
+      uri: "minsky://help",
+      name: "Minsky Help",
+      description: "Basic help information for using Minsky MCP server",
+      mimeType: "text/plain",
+      load: async () => {
+        return {
+          text: `Minsky MCP Server Help
+
+Available tools:
+- Use 'tasks.*' commands to manage tasks
+- Use 'session.*' commands to manage development sessions
+- Use 'git.*' commands for git operations
+- Use 'init.*' commands to initialize projects
+- Use 'rules.*' commands to work with project rules
+
+For more information, visit: https://github.com/your-org/minsky
+`,
+          mimeType: "text/plain"
+        };
+      }
+    });
+
+    // Add basic prompts support to prevent "Method not found" errors
+    this.server.addPrompt({
+      name: "minsky_help",
+      description: "Get help with using Minsky MCP server",
+      arguments: [],
+      load: async () => {
+        return {
+          messages: [{
+            role: "user" as const,
+            content: {
+              type: "text" as const,
+              text: "How can I use the Minsky MCP server to manage my AI-assisted development workflow?"
+            }
+          }]
+        };
+      }
     });
 
     // We'll add the debug tool later through the CommandMapper to ensure it gets properly registered
@@ -176,17 +218,18 @@ export class MinskyMCPServer {
       }
 
       if (this.options.transportType === "stdio") {
-        await (this.server as unknown).start({ transportType: "stdio" });
+        await this.server.start({ transportType: "stdio" });
       } else if (this.options.transportType === "sse" && this.options.sse) {
-        await (this.server as unknown).start({
-          transportType: "sse",
-          sse: {
-            endpoint: "/sse", // Endpoint must start with a / character
+        // FastMCP 3.5.0 doesn't support SSE, fall back to httpStream
+        await this.server.start({
+          transportType: "httpStream",
+          httpStream: {
+            endpoint: "/sse", // Keep original endpoint for compatibility
             port: this.options.sse.port || 8080,
           },
         });
       } else if (this.options.transportType === "httpStream" && this.options.httpStream) {
-        await (this.server as unknown).start({
+        await this.server.start({
           transportType: "httpStream",
           httpStream: {
             endpoint: "/mcp", // Updated endpoint to /mcp
@@ -195,7 +238,7 @@ export class MinskyMCPServer {
         });
       } else {
         // Default to stdio if transport type is invalid
-        await (this.server as unknown).start({ transportType: "stdio" });
+        await this.server.start({ transportType: "stdio" });
       }
 
       // Log server started message with structured information for monitoring
@@ -206,9 +249,9 @@ export class MinskyMCPServer {
         // Get the tool names
         const methods = [];
         // @ts-ignore - Accessing a private property for debugging
-        if ((this.server as unknown)._tools) {
+        if ((this.server as any)._tools) {
           // @ts-ignore
-          methods.push(...Object.keys((this.server as unknown)._tools) as unknown);
+          methods.push(...Object.keys((this.server as any)._tools) as unknown);
         }
         log.debug("MCP Server registered methods", {
           methodCount: methods.length,
@@ -246,7 +289,7 @@ export class MinskyMCPServer {
     return this.projectContext;
   }
 
-    /**
+  /**
    * Initialize MCP Inspector compatibility patches
    * This is a workaround for MCP Inspector expecting non-standard schema metadata
    */
