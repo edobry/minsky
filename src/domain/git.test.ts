@@ -28,16 +28,11 @@ setupTestMocks();
  * Creates a type-safe mock for PrTestDependencies
  */
 function createPrTestDependenciesMock(overrides: Partial<PrTestDependencies> = {}): PrTestDependencies {
-  const mockExecAsync = createMock(async () => ({ stdout: "", stderr: "" }));
-  const mockGetSession = createMock(async () => null);
-  const mockGetSessionWorkdir = createMock(() => "/test/workdir");
-  const mockGetSessionByTaskId = createMock(async () => null);
-
   return {
-    execAsync: mockExecAsync as any,
-    getSession: mockGetSession as any,
-    getSessionWorkdir: mockGetSessionWorkdir as any,
-    getSessionByTaskId: mockGetSessionByTaskId as any,
+    execAsync: createMock(async (...args: unknown[]) => ({ stdout: "", stderr: "" })) as any,
+    getSession: createMock(async (...args: unknown[]) => null) as any,
+    getSessionWorkdir: createMock((...args: unknown[]) => "/test/workdir") as any,
+    getSessionByTaskId: createMock(async (...args: unknown[]) => null) as any,
     ...overrides,
   };
 }
@@ -46,20 +41,13 @@ function createPrTestDependenciesMock(overrides: Partial<PrTestDependencies> = {
  * Creates a type-safe mock for ExtendedGitDependencies
  */
 function createExtendedGitDependenciesMock(overrides: Partial<ExtendedGitDependencies> = {}): ExtendedGitDependencies {
-  const mockExecAsync = createMock(async () => ({ stdout: "", stderr: "" }));
-  const mockGetSession = createMock(async () => null);
-  const mockGetSessionWorkdir = createMock(() => "/test/workdir");
-  const mockMkdir = createMock(async () => {});
-  const mockReaddir = createMock(async () => []);
-  const mockAccess = createMock(async () => {});
-
   return {
-    execAsync: mockExecAsync as any,
-    getSession: mockGetSession as any,
-    getSessionWorkdir: mockGetSessionWorkdir as any,
-    mkdir: mockMkdir as any,
-    readdir: mockReaddir as any,
-    access: mockAccess as any,
+    execAsync: createMock(async (...args: unknown[]) => ({ stdout: "", stderr: "" })) as any,
+    getSession: createMock(async (...args: unknown[]) => null) as any,
+    getSessionWorkdir: createMock((...args: unknown[]) => "/test/workdir") as any,
+    mkdir: createMock(async (...args: unknown[]) => {}) as any,
+    readdir: createMock(async (...args: unknown[]) => [] as string[]) as any,
+    access: createMock(async (...args: unknown[]) => {}) as any,
     ...overrides,
   };
 }
