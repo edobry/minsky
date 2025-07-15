@@ -1780,11 +1780,11 @@ Session requested: "${(options as any).session}"
     await this.execInRepository(workdir, `git merge --no-ff ${options.prBranch}`);
 
     // 5. Get the commit hash of the merge
-    const commitHash = ((await this.execInRepository(workdir, "git rev-parse HEAD")) as unknown).trim();
+    const commitHash = (await this.execInRepository(workdir, "git rev-parse HEAD")).trim();
 
     // 6. Get merge date and author
     const mergeDate = new Date().toISOString();
-    const mergedBy = ((await this.execInRepository(workdir, "git config user.name")) as unknown).trim();
+    const mergedBy = (await this.execInRepository(workdir, "git config user.name")).trim();
 
     // 7. Push the merge to the remote
     await this.execInRepository(workdir, `git push origin ${baseBranch}`);
@@ -2230,7 +2230,7 @@ Session requested: "${(options as any).session}"
       repoPath,
       sourceBranch,
       targetBranch,
-      options as unknown
+      options
     );
   }
 
@@ -2250,7 +2250,7 @@ Session requested: "${(options as any).session}"
       repoPath,
       sessionBranch,
       baseBranch,
-      options as unknown
+      options
     );
   }
 }

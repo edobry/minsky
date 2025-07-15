@@ -1,25 +1,25 @@
 # "as unknown" Analysis Report
 
 ## Summary
-- **Total assertions found**: 850
-- **Analysis date**: 2025-07-15T02:36:29.637Z
+- **Total assertions found**: 822
+- **Analysis date**: 2025-07-15T03:41:51.845Z
 
 ## Distribution by Category
-- **suspicious**: 171
-- **error-masking**: 520
-- **test-mocking**: 140
-- **type-bridging**: 19
+- **suspicious**: 164
+- **error-masking**: 504
+- **test-mocking**: 136
+- **type-bridging**: 18
 
 ## Distribution by Priority
-- **medium**: 219
-- **high**: 520
+- **medium**: 207
+- **high**: 504
 - **low**: 111
 
 ## Recommendations
-- 🚨 HIGH PRIORITY: 520 assertions are masking type errors and should be fixed immediately
-- ⚠️  520 assertions are masking type errors - these reduce TypeScript effectiveness
-- 🧪 140 assertions in tests - review for proper type alternatives
-- 🌉 19 assertions for type bridging - consider proper type guards
+- 🚨 HIGH PRIORITY: 504 assertions are masking type errors and should be fixed immediately
+- ⚠️  504 assertions are masking type errors - these reduce TypeScript effectiveness
+- 🧪 136 assertions in tests - review for proper type alternatives
+- 🌉 18 assertions for type bridging - consider proper type guards
 - 📋 Start with high priority items, then medium, then low
 - 🔍 Focus on production code before test code
 - 📚 Document any legitimate uses that must remain
@@ -880,6 +880,71 @@
   this.log("🔧 Applying 'as unknown' transformations...");
   ```
 
+- **src/errors/message-templates.ts:120** - Property access masking - should use proper types
+  ```typescript
+  parts.push(formatContextInfo(context as unknown));
+  ```
+
+- **src/errors/message-templates.ts:299** - Property access masking - should use proper types
+  ```typescript
+  title: (config as unknown)!.title,
+  ```
+
+- **src/errors/message-templates.ts:300** - Property access masking - should use proper types
+  ```typescript
+  description: (config as unknown)!.description,
+  ```
+
+- **src/errors/message-templates.ts:305** - Property access masking - should use proper types
+  ```typescript
+  content: formatCommandSuggestions((config as unknown)!.suggestions)
+  ```
+
+- **src/errors/message-templates.ts:320** - Property access masking - should use proper types
+  ```typescript
+  return createSessionErrorMessage(sessionName, SessionErrorType.NOT_FOUND, context as unknown);
+  ```
+
+- **src/errors/message-templates.ts:330** - Property access masking - should use proper types
+  ```typescript
+  return createSessionErrorMessage(sessionName, SessionErrorType.ALREADY_EXISTS, context as unknown);
+  ```
+
+- **src/errors/message-templates.ts:340** - Property access masking - should use proper types
+  ```typescript
+  return createSessionErrorMessage(sessionName, SessionErrorType.INVALID, context as unknown);
+  ```
+
+- **src/errors/network-errors.test.ts:75** - Test assertion masking type errors - should be fixed
+  ```typescript
+  (eaddrinuseError as unknown)?.code = "EADDRINUSE";
+  ```
+
+- **src/errors/network-errors.test.ts:78** - Test assertion masking type errors - should be fixed
+  ```typescript
+  (eaccessError as unknown)?.code = "EACCES";
+  ```
+
+- **src/errors/network-errors.test.ts:92** - Test assertion masking type errors - should be fixed
+  ```typescript
+  (originalError as unknown)?.code = "EADDRINUSE";
+  ```
+
+- **src/errors/network-errors.test.ts:102** - Test assertion masking type errors - should be fixed
+  ```typescript
+  (originalError as unknown)?.code = "EACCES";
+  ```
+
+- **src/errors/network-errors.test.ts:112** - Test assertion masking type errors - should be fixed
+  ```typescript
+  (originalError as unknown)?.code = "SOMETHING_ELSE";
+  ```
+
+- **src/errors/base-errors.ts:23** - Property access masking - should use proper types
+  ```typescript
+  this.name = (this.constructor as unknown).name;
+  ```
+
 - **src/domain/localGitBackend.ts:144** - Property access masking - should use proper types
   ```typescript
   return (this.cache as unknown).get(
@@ -905,59 +970,9 @@
   (this.cache as unknown).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
   ```
 
-- **src/domain/git.ts:1783** - Property access masking - should use proper types
-  ```typescript
-  const commitHash = ((await this.execInRepository(workdir, "git rev-parse HEAD")) as unknown).trim();
-  ```
-
-- **src/domain/git.ts:1787** - Property access masking - should use proper types
-  ```typescript
-  const mergedBy = ((await this.execInRepository(workdir, "git config user.name")) as unknown).trim();
-  ```
-
 - **src/domain/tasks.ts:531** - Property access masking - should use proper types
   ```typescript
   const updatedContent = matter.stringify(parsed.content, data as unknown);
-  ```
-
-- **src/domain/tasks.ts:677** - Property access masking - should use proper types
-  ```typescript
-  `Backend '${backend}' not found. Available backends: ${(this.backends.map((b) => b.name) as unknown).join(", ")}`
-  ```
-
-- **src/domain/tasks.ts:684** - Property access masking - should use proper types
-  ```typescript
-  return (this.currentBackend as unknown).listTasks(options as unknown);
-  ```
-
-- **src/domain/tasks.ts:688** - Property access masking - should use proper types
-  ```typescript
-  return (this.currentBackend as unknown).getTask(id);
-  ```
-
-- **src/domain/tasks.ts:692** - Property access masking - should use proper types
-  ```typescript
-  return (this.currentBackend as unknown).getTaskStatus(id);
-  ```
-
-- **src/domain/tasks.ts:696** - Property access masking - should use proper types
-  ```typescript
-  return (this.currentBackend as unknown).setTaskStatus(id, status);
-  ```
-
-- **src/domain/tasks.ts:700** - Property access masking - should use proper types
-  ```typescript
-  return (this.currentBackend as unknown).getWorkspacePath();
-  ```
-
-- **src/domain/tasks.ts:704** - Property access masking - should use proper types
-  ```typescript
-  return (this.currentBackend as unknown).createTask(specPath, options as unknown);
-  ```
-
-- **src/domain/tasks.ts:731** - Property access masking - should use proper types
-  ```typescript
-  return (this.currentBackend as unknown).deleteTask(id, options as unknown);
   ```
 
 - **src/domain/repository-uri.ts:98** - Property access masking - should use proper types
@@ -1350,6 +1365,86 @@
   const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
   ```
 
+- **src/utils/logger.ts:209** - Property access masking - should use proper types
+  ```typescript
+  agentLogger.debug(message, context as unknown);
+  ```
+
+- **src/utils/logger.ts:220** - Property access masking - should use proper types
+  ```typescript
+  agentLogger.info(message, context as unknown);
+  ```
+
+- **src/utils/logger.ts:231** - Property access masking - should use proper types
+  ```typescript
+  agentLogger.warn(message, context as unknown);
+  ```
+
+- **src/utils/logger.ts:260** - Property access masking - should use proper types
+  ```typescript
+  programLogger.error(message, context as unknown);
+  ```
+
+- **src/utils/logger.ts:277** - Property access masking - should use proper types
+  ```typescript
+  agentLogger.error(message, context as unknown);
+  ```
+
+- **src/utils/logger.ts:279** - Property access masking - should use proper types
+  ```typescript
+  agentLogger.error(message, context as unknown);
+  ```
+
+- **src/utils/logger.ts:330** - Property access masking - should use proper types
+  ```typescript
+  defaultLogger._internal.programLogger.error("Unhandled error or rejection, exiting.", error as unknown);
+  ```
+
+- **src/utils/type-guards.ts:13** - Property access masking - should use proper types
+  ```typescript
+  * Instead of: (someObject as unknown).property
+  ```
+
+- **src/utils/type-guards.ts:26** - Property access masking - should use proper types
+  ```typescript
+  * Instead of: (someObject as unknown).deep.property
+  ```
+
+- **src/utils/type-guards.ts:44** - Property access masking - should use proper types
+  ```typescript
+  * Instead of: (someObject as unknown).property
+  ```
+
+- **src/utils/type-guards.ts:67** - Property access masking - should use proper types
+  ```typescript
+  * Instead of: (someValue as unknown).length
+  ```
+
+- **src/utils/type-guards.ts:142** - Property access masking - should use proper types
+  ```typescript
+  * Instead of: Number(process.env.VARIABLE as unknown)
+  ```
+
+- **src/utils/type-guards.ts:157** - Property access masking - should use proper types
+  ```typescript
+  * Instead of: Boolean(process.env.VARIABLE as unknown)
+  ```
+
+- **src/utils/type-guards.ts:217** - Property access masking - should use proper types
+  ```typescript
+  * Instead of: (someService as unknown).method()
+  ```
+
+- **src/utils/type-guards.ts:254** - Property access masking - should use proper types
+  ```typescript
+  * Instead of: (options as unknown).property
+  ```
+
+- **src/utils/type-guards.ts:286** - Property access masking - should use proper types
+  ```typescript
+  * Instead of: (someArray as unknown).map(...)
+  ```
+
 - **src/mcp/command-mapper.ts:98** - Property access masking - should use proper types
   ```typescript
   (this.server as unknown).addTool({
@@ -1465,151 +1560,6 @@
   log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);
   ```
 
-- **src/errors/message-templates.ts:120** - Property access masking - should use proper types
-  ```typescript
-  parts.push(formatContextInfo(context as unknown));
-  ```
-
-- **src/errors/message-templates.ts:299** - Property access masking - should use proper types
-  ```typescript
-  title: (config as unknown)!.title,
-  ```
-
-- **src/errors/message-templates.ts:300** - Property access masking - should use proper types
-  ```typescript
-  description: (config as unknown)!.description,
-  ```
-
-- **src/errors/message-templates.ts:305** - Property access masking - should use proper types
-  ```typescript
-  content: formatCommandSuggestions((config as unknown)!.suggestions)
-  ```
-
-- **src/errors/message-templates.ts:320** - Property access masking - should use proper types
-  ```typescript
-  return createSessionErrorMessage(sessionName, SessionErrorType.NOT_FOUND, context as unknown);
-  ```
-
-- **src/errors/message-templates.ts:330** - Property access masking - should use proper types
-  ```typescript
-  return createSessionErrorMessage(sessionName, SessionErrorType.ALREADY_EXISTS, context as unknown);
-  ```
-
-- **src/errors/message-templates.ts:340** - Property access masking - should use proper types
-  ```typescript
-  return createSessionErrorMessage(sessionName, SessionErrorType.INVALID, context as unknown);
-  ```
-
-- **src/errors/network-errors.test.ts:75** - Test assertion masking type errors - should be fixed
-  ```typescript
-  (eaddrinuseError as unknown)?.code = "EADDRINUSE";
-  ```
-
-- **src/errors/network-errors.test.ts:78** - Test assertion masking type errors - should be fixed
-  ```typescript
-  (eaccessError as unknown)?.code = "EACCES";
-  ```
-
-- **src/errors/network-errors.test.ts:92** - Test assertion masking type errors - should be fixed
-  ```typescript
-  (originalError as unknown)?.code = "EADDRINUSE";
-  ```
-
-- **src/errors/network-errors.test.ts:102** - Test assertion masking type errors - should be fixed
-  ```typescript
-  (originalError as unknown)?.code = "EACCES";
-  ```
-
-- **src/errors/network-errors.test.ts:112** - Test assertion masking type errors - should be fixed
-  ```typescript
-  (originalError as unknown)?.code = "SOMETHING_ELSE";
-  ```
-
-- **src/errors/base-errors.ts:23** - Property access masking - should use proper types
-  ```typescript
-  this.name = (this.constructor as unknown).name;
-  ```
-
-- **src/utils/logger.ts:209** - Property access masking - should use proper types
-  ```typescript
-  agentLogger.debug(message, context as unknown);
-  ```
-
-- **src/utils/logger.ts:220** - Property access masking - should use proper types
-  ```typescript
-  agentLogger.info(message, context as unknown);
-  ```
-
-- **src/utils/logger.ts:231** - Property access masking - should use proper types
-  ```typescript
-  agentLogger.warn(message, context as unknown);
-  ```
-
-- **src/utils/logger.ts:260** - Property access masking - should use proper types
-  ```typescript
-  programLogger.error(message, context as unknown);
-  ```
-
-- **src/utils/logger.ts:277** - Property access masking - should use proper types
-  ```typescript
-  agentLogger.error(message, context as unknown);
-  ```
-
-- **src/utils/logger.ts:279** - Property access masking - should use proper types
-  ```typescript
-  agentLogger.error(message, context as unknown);
-  ```
-
-- **src/utils/logger.ts:330** - Property access masking - should use proper types
-  ```typescript
-  defaultLogger._internal.programLogger.error("Unhandled error or rejection, exiting.", error as unknown);
-  ```
-
-- **src/utils/type-guards.ts:13** - Property access masking - should use proper types
-  ```typescript
-  * Instead of: (someObject as unknown).property
-  ```
-
-- **src/utils/type-guards.ts:26** - Property access masking - should use proper types
-  ```typescript
-  * Instead of: (someObject as unknown).deep.property
-  ```
-
-- **src/utils/type-guards.ts:44** - Property access masking - should use proper types
-  ```typescript
-  * Instead of: (someObject as unknown).property
-  ```
-
-- **src/utils/type-guards.ts:67** - Property access masking - should use proper types
-  ```typescript
-  * Instead of: (someValue as unknown).length
-  ```
-
-- **src/utils/type-guards.ts:142** - Property access masking - should use proper types
-  ```typescript
-  * Instead of: Number(process.env.VARIABLE as unknown)
-  ```
-
-- **src/utils/type-guards.ts:157** - Property access masking - should use proper types
-  ```typescript
-  * Instead of: Boolean(process.env.VARIABLE as unknown)
-  ```
-
-- **src/utils/type-guards.ts:217** - Property access masking - should use proper types
-  ```typescript
-  * Instead of: (someService as unknown).method()
-  ```
-
-- **src/utils/type-guards.ts:254** - Property access masking - should use proper types
-  ```typescript
-  * Instead of: (options as unknown).property
-  ```
-
-- **src/utils/type-guards.ts:286** - Property access masking - should use proper types
-  ```typescript
-  * Instead of: (someArray as unknown).map(...)
-  ```
-
 - **src/schemas/error.ts:5** - Property access masking - should use proper types
   ```typescript
   * replacing unsafe `(err as unknown).message` patterns with proper validation.
@@ -1630,9 +1580,144 @@
   const networkError = createNetworkError(error as unknown, port, options.host);
   ```
 
+- **src/adapters/shared/response-formatters.ts:62** - Property access masking - should use proper types
+  ```typescript
+  return this.formatJson(data as unknown, context as unknown);
+  ```
+
+- **src/adapters/shared/response-formatters.ts:66** - Property access masking - should use proper types
+  ```typescript
+  return this.formatText(data as unknown, context as unknown);
+  ```
+
+- **src/adapters/shared/response-formatters.ts:194** - Property access masking - should use proper types
+  ```typescript
+  output += `${index + 1}. ${this.itemFormatter!(item as unknown)}\n`;
+  ```
+
+- **src/adapters/shared/response-formatters.ts:198** - Property access masking - should use proper types
+  ```typescript
+  output += `${index + 1}. ${String(item as unknown)}\n`;
+  ```
+
+- **src/adapters/shared/response-formatters.ts:261** - Property access masking - should use proper types
+  ```typescript
+  columnWidths[col] = Math.max((columnWidths as unknown)[col], value.length);
+  ```
+
+- **src/adapters/shared/response-formatters.ts:269** - Property access masking - should use proper types
+  ```typescript
+  return header.padEnd((columnWidths as unknown)[col]);
+  ```
+
+- **src/adapters/shared/response-formatters.ts:278** - Property access masking - should use proper types
+  ```typescript
+  return "-".repeat((columnWidths as unknown)[col]);
+  ```
+
+- **src/adapters/shared/response-formatters.ts:289** - Property access masking - should use proper types
+  ```typescript
+  return value.padEnd((columnWidths as unknown)[col]);
+  ```
+
+- **src/adapters/shared/response-formatters.ts:291** - Property access masking - should use proper types
+  ```typescript
+  .join(" | ") as unknown;
+  ```
+
+- **src/adapters/shared/legacy-command-registry.ts:171** - Property access masking - should use proper types
+  ```typescript
+  this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);
+  ```
+
+- **src/adapters/shared/error-handling.ts:153** - Property access masking - should use proper types
+  ```typescript
+  (typeof process.env.NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"))
+  ```
+
+- **src/adapters/shared/error-handling.ts:169** - Property access masking - should use proper types
+  ```typescript
+  const formattedError = SharedErrorHandler.formatError(error as unknown, debug);
+  ```
+
+- **src/adapters/shared/error-handling.ts:241** - Property access masking - should use proper types
+  ```typescript
+  const formattedError = SharedErrorHandler.formatError(error as unknown, debug);
+  ```
+
+- **src/adapters/shared/error-handling.ts:264** - Property access masking - should use proper types
+  ```typescript
+  const formattedError = SharedErrorHandler.formatError(error as unknown, debug);
+  ```
+
+- **src/adapters/cli/cli-command-factory.ts:492** - Property access masking - should use proper types
+  ```typescript
+  log.cli(output as unknown);
+  ```
+
+- **src/adapters/cli/cli-command-factory.ts:519** - Property access masking - should use proper types
+  ```typescript
+  log.cli(output as unknown);
+  ```
+
+- **src/adapters/cli/cli-command-factory.ts:726** - Property access masking - should use proper types
+  ```typescript
+  } else if (typeof value === "object" && !Array.isArray(value as unknown)) {
+  ```
+
+- **src/adapters/cli/cli-command-factory.ts:728** - Property access masking - should use proper types
+  ```typescript
+  result.push(...flatten(value as unknown, fullKey));
+  ```
+
+- **src/adapters/cli/cli-command-factory.ts:729** - Property access masking - should use proper types
+  ```typescript
+  } else if (Array.isArray(value as unknown)) {
+  ```
+
+- **src/adapters/cli/cli-command-factory.ts:735** - Property access masking - should use proper types
+  ```typescript
+  result.push(...flatten(item as unknown, `${fullKey}[${index}]`));
+  ```
+
+- **src/adapters/cli/cli-command-factory.ts:787** - Property access masking - should use proper types
+  ```typescript
+  cliFactory.initialize(config as unknown);
+  ```
+
+- **src/domain/session/session-db.test.ts:195** - Test assertion masking type errors - should be fixed
+  ```typescript
+  } as unknown;
+  ```
+
 - **src/domain/ai/config-service.ts:71** - Property access masking - should use proper types
   ```typescript
   return (result.resolved.ai as any).default_provider || "openai" as unknown;
+  ```
+
+- **src/domain/workspace/local-workspace-backend.ts:276** - Property access masking - should use proper types
+  ```typescript
+  throw new FileNotFoundError(workspaceDir, relativePath || ".", error as unknown);
+  ```
+
+- **src/domain/__tests__/tasks.test.ts:43** - Test assertion masking type errors - should be fixed
+  ```typescript
+  backends: [] as unknown,
+  ```
+
+- **src/domain/__tests__/tasks.test.ts:44** - Test assertion masking type errors - should be fixed
+  ```typescript
+  currentBackend: {} as unknown,
+  ```
+
+- **src/domain/__tests__/tasks.test.ts:58** - Test assertion masking type errors - should be fixed
+  ```typescript
+  } as unknown; // Cast to any to avoid TypeScript errors with the deps parameter
+  ```
+
+- **src/domain/__tests__/tasks.test.ts:214** - Test assertion masking type errors - should be fixed
+  ```typescript
+  status: "INVALID-STATUS" as unknown,
   ```
 
 - **src/domain/repository/remote.ts:244** - Property access masking - should use proper types
@@ -1715,9 +1800,24 @@
   const sessions = await (this.sessionDb as unknown).listSessions();
   ```
 
-- **src/domain/session/session-db.test.ts:195** - Test assertion masking type errors - should be fixed
+- **src/domain/storage/json-file-storage.ts:308** - Property access masking - should use proper types
   ```typescript
-  } as unknown;
+  const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
+  ```
+
+- **src/domain/storage/json-file-storage.ts:348** - Property access masking - should use proper types
+  ```typescript
+  const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
+  ```
+
+- **src/domain/storage/database-integrity-checker.ts:248** - Property access masking - should use proper types
+  ```typescript
+  const integrityResult = db.prepare("PRAGMA integrity_check").get() as unknown;
+  ```
+
+- **src/domain/storage/database-integrity-checker.ts:264** - Property access masking - should use proper types
+  ```typescript
+  const sessionCount = db.prepare("SELECT COUNT(*) as count FROM sessions").get() as unknown;
   ```
 
 - **src/domain/tasks/jsonFileTaskBackend.ts:97** - Property access masking - should use proper types
@@ -2025,64 +2125,19 @@
   expect(normalizeTaskId(input as unknown)).toBeNull();
   ```
 
-- **src/domain/storage/json-file-storage.ts:216** - Property access masking - should use proper types
+- **src/utils/test-utils/index.ts:96** - Property access masking - should use proper types
   ```typescript
-  const entity = entities.find((e) => (e as unknown)[this.idField] === id);
+  const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;
   ```
 
-- **src/domain/storage/json-file-storage.ts:268** - Property access masking - should use proper types
+- **src/utils/test-utils/compatibility.test.ts:20** - Test assertion masking type errors - should be fixed
   ```typescript
-  const id = (entity as unknown)[this.idField];
+  const expect = bunExpect as unknown;
   ```
 
-- **src/domain/storage/json-file-storage.ts:269** - Property access masking - should use proper types
+- **src/utils/test-utils/assertions.ts:108** - Property access masking - should use proper types
   ```typescript
-  if (id && entities.some((e) => (e as unknown)[this.idField] === id)) {
-  ```
-
-- **src/domain/storage/json-file-storage.ts:308** - Property access masking - should use proper types
-  ```typescript
-  const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
-  ```
-
-- **src/domain/storage/json-file-storage.ts:348** - Property access masking - should use proper types
-  ```typescript
-  const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
-  ```
-
-- **src/domain/storage/database-integrity-checker.ts:248** - Property access masking - should use proper types
-  ```typescript
-  const integrityResult = db.prepare("PRAGMA integrity_check").get() as unknown;
-  ```
-
-- **src/domain/storage/database-integrity-checker.ts:264** - Property access masking - should use proper types
-  ```typescript
-  const sessionCount = db.prepare("SELECT COUNT(*) as count FROM sessions").get() as unknown;
-  ```
-
-- **src/domain/__tests__/tasks.test.ts:43** - Test assertion masking type errors - should be fixed
-  ```typescript
-  backends: [] as unknown,
-  ```
-
-- **src/domain/__tests__/tasks.test.ts:44** - Test assertion masking type errors - should be fixed
-  ```typescript
-  currentBackend: {} as unknown,
-  ```
-
-- **src/domain/__tests__/tasks.test.ts:58** - Test assertion masking type errors - should be fixed
-  ```typescript
-  } as unknown; // Cast to any to avoid TypeScript errors with the deps parameter
-  ```
-
-- **src/domain/__tests__/tasks.test.ts:214** - Test assertion masking type errors - should be fixed
-  ```typescript
-  status: "INVALID-STATUS" as unknown,
-  ```
-
-- **src/domain/workspace/local-workspace-backend.ts:276** - Property access masking - should use proper types
-  ```typescript
-  throw new FileNotFoundError(workspaceDir, relativePath || ".", error as unknown);
+  expect(part in (current as unknown)).toBeTruthy();
   ```
 
 - **src/mcp/tools/tasks.ts:69** - Property access masking - should use proper types
@@ -2150,141 +2205,6 @@
   log.error("Error committing changes", { error, session: (args as unknown)!.session });
   ```
 
-- **src/utils/test-utils/index.ts:96** - Property access masking - should use proper types
-  ```typescript
-  const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;
-  ```
-
-- **src/utils/test-utils/compatibility.test.ts:20** - Test assertion masking type errors - should be fixed
-  ```typescript
-  const expect = bunExpect as unknown;
-  ```
-
-- **src/utils/test-utils/assertions.ts:108** - Property access masking - should use proper types
-  ```typescript
-  expect(part in (current as unknown)).toBeTruthy();
-  ```
-
-- **src/adapters/cli/cli-command-factory.ts:492** - Property access masking - should use proper types
-  ```typescript
-  log.cli(output as unknown);
-  ```
-
-- **src/adapters/cli/cli-command-factory.ts:519** - Property access masking - should use proper types
-  ```typescript
-  log.cli(output as unknown);
-  ```
-
-- **src/adapters/cli/cli-command-factory.ts:726** - Property access masking - should use proper types
-  ```typescript
-  } else if (typeof value === "object" && !Array.isArray(value as unknown)) {
-  ```
-
-- **src/adapters/cli/cli-command-factory.ts:728** - Property access masking - should use proper types
-  ```typescript
-  result.push(...flatten(value as unknown, fullKey));
-  ```
-
-- **src/adapters/cli/cli-command-factory.ts:729** - Property access masking - should use proper types
-  ```typescript
-  } else if (Array.isArray(value as unknown)) {
-  ```
-
-- **src/adapters/cli/cli-command-factory.ts:735** - Property access masking - should use proper types
-  ```typescript
-  result.push(...flatten(item as unknown, `${fullKey}[${index}]`));
-  ```
-
-- **src/adapters/cli/cli-command-factory.ts:787** - Property access masking - should use proper types
-  ```typescript
-  cliFactory.initialize(config as unknown);
-  ```
-
-- **src/adapters/shared/schema-bridge.ts:247** - Property access masking - should use proper types
-  ```typescript
-  (result as unknown)[name] = param.schema.parse(value as unknown);
-  ```
-
-- **src/adapters/shared/schema-bridge.ts:257** - Property access masking - should use proper types
-  ```typescript
-  (result as unknown)[name] = param.defaultValue;
-  ```
-
-- **src/adapters/shared/response-formatters.ts:62** - Property access masking - should use proper types
-  ```typescript
-  return this.formatJson(data as unknown, context as unknown);
-  ```
-
-- **src/adapters/shared/response-formatters.ts:66** - Property access masking - should use proper types
-  ```typescript
-  return this.formatText(data as unknown, context as unknown);
-  ```
-
-- **src/adapters/shared/response-formatters.ts:194** - Property access masking - should use proper types
-  ```typescript
-  output += `${index + 1}. ${this.itemFormatter!(item as unknown)}\n`;
-  ```
-
-- **src/adapters/shared/response-formatters.ts:198** - Property access masking - should use proper types
-  ```typescript
-  output += `${index + 1}. ${String(item as unknown)}\n`;
-  ```
-
-- **src/adapters/shared/response-formatters.ts:261** - Property access masking - should use proper types
-  ```typescript
-  columnWidths[col] = Math.max((columnWidths as unknown)[col], value.length);
-  ```
-
-- **src/adapters/shared/response-formatters.ts:269** - Property access masking - should use proper types
-  ```typescript
-  return header.padEnd((columnWidths as unknown)[col]);
-  ```
-
-- **src/adapters/shared/response-formatters.ts:278** - Property access masking - should use proper types
-  ```typescript
-  return "-".repeat((columnWidths as unknown)[col]);
-  ```
-
-- **src/adapters/shared/response-formatters.ts:289** - Property access masking - should use proper types
-  ```typescript
-  return value.padEnd((columnWidths as unknown)[col]);
-  ```
-
-- **src/adapters/shared/response-formatters.ts:291** - Property access masking - should use proper types
-  ```typescript
-  .join(" | ") as unknown;
-  ```
-
-- **src/adapters/shared/legacy-command-registry.ts:167** - Property access masking - should use proper types
-  ```typescript
-  if (this.commands.has(commandDef.id) && !(options as unknown)!.allowOverwrite) {
-  ```
-
-- **src/adapters/shared/legacy-command-registry.ts:171** - Property access masking - should use proper types
-  ```typescript
-  this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);
-  ```
-
-- **src/adapters/shared/error-handling.ts:153** - Property access masking - should use proper types
-  ```typescript
-  (typeof process.env.NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"))
-  ```
-
-- **src/adapters/shared/error-handling.ts:169** - Property access masking - should use proper types
-  ```typescript
-  const formattedError = SharedErrorHandler.formatError(error as unknown, debug);
-  ```
-
-- **src/adapters/shared/error-handling.ts:241** - Property access masking - should use proper types
-  ```typescript
-  const formattedError = SharedErrorHandler.formatError(error as unknown, debug);
-  ```
-
-- **src/adapters/shared/error-handling.ts:264** - Property access masking - should use proper types
-  ```typescript
-  const formattedError = SharedErrorHandler.formatError(error as unknown, debug);
-  ```
-
 - **src/types/tasks/taskData.ts:103** - Property access masking - should use proper types
   ```typescript
   id: (task as unknown)!.id,
@@ -2325,54 +2245,59 @@
   status: (taskData as unknown)!.status,
   ```
 
-- **tests/adapters/mcp/session-edit-tools.test.ts:41** - Test assertion masking type errors - should be fixed
+- **src/adapters/cli/utils/error-handler.ts:26** - Property access masking - should use proper types
   ```typescript
-  } as unknown;
+  (typeof process.env.NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"));
   ```
 
-- **src/domain/storage/monitoring/health-monitor.ts:139** - Property access masking - should use proper types
+- **src/adapters/cli/utils/error-handler.ts:108** - Property access masking - should use proper types
   ```typescript
-  const storage = StorageBackendFactory.createFromConfig(config as unknown);
+  log.error("CLI operation failed", error as unknown);
   ```
 
-- **src/domain/storage/monitoring/health-monitor.ts:153** - Property access masking - should use proper types
+- **src/adapters/cli/utils/error-handler.ts:136** - Property access masking - should use proper types
   ```typescript
-  await this.performBackendSpecificChecks(config as unknown, status);
+  log.agent({ message: "Command result", result } as unknown);
   ```
 
-- **src/domain/storage/monitoring/health-monitor.ts:197** - Property access masking - should use proper types
+- **src/adapters/cli/utils/error-handler.ts:142** - Property access masking - should use proper types
   ```typescript
-  await this.checkJsonBackendHealth(config as unknown, status);
+  options.formatter(result as unknown);
   ```
 
-- **src/domain/storage/monitoring/health-monitor.ts:200** - Property access masking - should use proper types
+- **src/adapters/cli/utils/error-handler.ts:144** - Property access masking - should use proper types
   ```typescript
-  await this.checkSqliteBackendHealth(config as unknown, status);
+  log.cli(String(result as unknown));
   ```
 
-- **src/domain/storage/monitoring/health-monitor.ts:203** - Property access masking - should use proper types
+- **src/utils/test-utils/compatibility/mock-function.ts:319** - Property access masking - should use proper types
   ```typescript
-  await this.checkPostgresBackendHealth(config as unknown, status);
+  () => Promise.resolve(value) as unknown as ReturnType<T>
   ```
 
-- **src/domain/storage/monitoring/health-monitor.ts:353** - Property access masking - should use proper types
+- **src/utils/test-utils/compatibility/mock-function.ts:327** - Property access masking - should use proper types
   ```typescript
-  const recentMetrics = (this.metrics as unknown).slice(-100); // Last 100 operations
+  () => Promise.resolve(value) as unknown as ReturnType<T>
   ```
 
-- **src/domain/storage/monitoring/health-monitor.ts:494** - Property access masking - should use proper types
+- **src/utils/test-utils/compatibility/mock-function.ts:335** - Property access masking - should use proper types
   ```typescript
-  this.metrics = (this.metrics as unknown).slice(-this.MAX_METRICS);
+  () => Promise.reject(value) as unknown as ReturnType<T>
   ```
 
-- **src/domain/storage/monitoring/health-monitor.ts:517** - Property access masking - should use proper types
+- **src/utils/test-utils/compatibility/mock-function.ts:343** - Property access masking - should use proper types
   ```typescript
-  return (this.metrics as unknown).slice(-count);
+  () => Promise.reject(value) as unknown as ReturnType<T>
   ```
 
-- **src/domain/storage/monitoring/health-monitor.ts:539** - Property access masking - should use proper types
+- **src/utils/test-utils/compatibility/matchers.ts:118** - Property access masking - should use proper types
   ```typescript
-  const avgResponse = totalOps > 0 ? (this.metrics as unknown).reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
+  return `Any<${(this.expectedType as unknown)?.name || this.expectedType}>`;
+  ```
+
+- **src/utils/test-utils/compatibility/matchers.ts:122** - Property access masking - should use proper types
+  ```typescript
+  return `Any<${(this.expectedType as unknown)?.name || this.expectedType}>`;
   ```
 
 - **src/domain/storage/backends/error-handling.ts:92** - Property access masking - should use proper types
@@ -2530,6 +2455,56 @@
   .where(eq(sessionsTable.session, id)) as unknown).limit(1);
   ```
 
+- **src/adapters/shared/bridges/parameter-mapper.ts:258** - Property access masking - should use proper types
+  ```typescript
+  (result as unknown)[paramName] = paramDef.defaultValue;
+  ```
+
+- **src/domain/storage/monitoring/health-monitor.ts:139** - Property access masking - should use proper types
+  ```typescript
+  const storage = StorageBackendFactory.createFromConfig(config as unknown);
+  ```
+
+- **src/domain/storage/monitoring/health-monitor.ts:153** - Property access masking - should use proper types
+  ```typescript
+  await this.performBackendSpecificChecks(config as unknown, status);
+  ```
+
+- **src/domain/storage/monitoring/health-monitor.ts:197** - Property access masking - should use proper types
+  ```typescript
+  await this.checkJsonBackendHealth(config as unknown, status);
+  ```
+
+- **src/domain/storage/monitoring/health-monitor.ts:200** - Property access masking - should use proper types
+  ```typescript
+  await this.checkSqliteBackendHealth(config as unknown, status);
+  ```
+
+- **src/domain/storage/monitoring/health-monitor.ts:203** - Property access masking - should use proper types
+  ```typescript
+  await this.checkPostgresBackendHealth(config as unknown, status);
+  ```
+
+- **src/domain/storage/monitoring/health-monitor.ts:353** - Property access masking - should use proper types
+  ```typescript
+  const recentMetrics = (this.metrics as unknown).slice(-100); // Last 100 operations
+  ```
+
+- **src/domain/storage/monitoring/health-monitor.ts:494** - Property access masking - should use proper types
+  ```typescript
+  this.metrics = (this.metrics as unknown).slice(-this.MAX_METRICS);
+  ```
+
+- **src/domain/storage/monitoring/health-monitor.ts:517** - Property access masking - should use proper types
+  ```typescript
+  return (this.metrics as unknown).slice(-count);
+  ```
+
+- **src/domain/storage/monitoring/health-monitor.ts:539** - Property access masking - should use proper types
+  ```typescript
+  const avgResponse = totalOps > 0 ? (this.metrics as unknown).reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
+  ```
+
 - **tests/adapters/cli/session.test.ts:603** - Test assertion masking type errors - should be fixed
   ```typescript
   (gitService as unknown).sessionDb = {
@@ -2550,61 +2525,6 @@
   (gitService as unknown).execInRepository = async (workdir: string, command: string) => {
   ```
 
-- **src/utils/test-utils/compatibility/mock-function.ts:319** - Property access masking - should use proper types
-  ```typescript
-  () => Promise.resolve(value) as unknown as ReturnType<T>
-  ```
-
-- **src/utils/test-utils/compatibility/mock-function.ts:327** - Property access masking - should use proper types
-  ```typescript
-  () => Promise.resolve(value) as unknown as ReturnType<T>
-  ```
-
-- **src/utils/test-utils/compatibility/mock-function.ts:335** - Property access masking - should use proper types
-  ```typescript
-  () => Promise.reject(value) as unknown as ReturnType<T>
-  ```
-
-- **src/utils/test-utils/compatibility/mock-function.ts:343** - Property access masking - should use proper types
-  ```typescript
-  () => Promise.reject(value) as unknown as ReturnType<T>
-  ```
-
-- **src/utils/test-utils/compatibility/matchers.ts:118** - Property access masking - should use proper types
-  ```typescript
-  return `Any<${(this.expectedType as unknown)?.name || this.expectedType}>`;
-  ```
-
-- **src/utils/test-utils/compatibility/matchers.ts:122** - Property access masking - should use proper types
-  ```typescript
-  return `Any<${(this.expectedType as unknown)?.name || this.expectedType}>`;
-  ```
-
-- **src/adapters/cli/utils/error-handler.ts:26** - Property access masking - should use proper types
-  ```typescript
-  (typeof process.env.NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"));
-  ```
-
-- **src/adapters/cli/utils/error-handler.ts:108** - Property access masking - should use proper types
-  ```typescript
-  log.error("CLI operation failed", error as unknown);
-  ```
-
-- **src/adapters/cli/utils/error-handler.ts:136** - Property access masking - should use proper types
-  ```typescript
-  log.agent({ message: "Command result", result } as unknown);
-  ```
-
-- **src/adapters/cli/utils/error-handler.ts:142** - Property access masking - should use proper types
-  ```typescript
-  options.formatter(result as unknown);
-  ```
-
-- **src/adapters/cli/utils/error-handler.ts:144** - Property access masking - should use proper types
-  ```typescript
-  log.cli(String(result as unknown));
-  ```
-
 - **tests/domain/commands/workspace.commands.test.ts:115** - Test assertion masking type errors - should be fixed
   ```typescript
   } as unknown;
@@ -2620,13 +2540,13 @@
   } as unknown;
   ```
 
-- **src/adapters/shared/bridges/parameter-mapper.ts:258** - Property access masking - should use proper types
+- **tests/adapters/mcp/session-edit-tools.test.ts:41** - Test assertion masking type errors - should be fixed
   ```typescript
-  (result as unknown)[paramName] = paramDef.defaultValue;
+  } as unknown;
   ```
 
 ## Next Steps
-1. Start with high priority items (520 items)
+1. Start with high priority items (504 items)
 2. Review error-masking assertions first
 3. Fix underlying type issues rather than masking them
 4. Consider proper type guards for legitimate type bridging
