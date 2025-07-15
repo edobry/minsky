@@ -167,11 +167,11 @@ const tasksStatusGetRegistration = {
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
-    const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
+  execute: async (params: { taskId: string; repo?: string; workspace?: string; session?: string; backend?: string }, ctx: CommandExecutionContext) => {
+    const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const status = await getTaskStatusFromParams({
