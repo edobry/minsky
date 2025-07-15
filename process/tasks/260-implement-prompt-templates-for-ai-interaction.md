@@ -41,19 +41,21 @@ Currently, these require manual typing each time, and while Cursor Notepads can 
 
 ### Technical Considerations
 
-1. **Storage**: Where to store templates (config, dedicated file, etc.)
-2. **Variable Sources**: How to populate variables (current session, user input, etc.)
-3. **Integration**: How this fits into the existing Minsky CLI architecture
-4. **User Interface**: Command-line interface for managing templates
+1. **MCP Integration**: Evaluate MCP prompts feature capabilities and integration requirements
+2. **Storage**: Where to store templates (config, dedicated file, etc.)
+3. **Variable Sources**: How to populate variables (current session, user input, etc.)
+4. **Integration**: How this fits into the existing Minsky CLI architecture
+5. **User Interface**: Command-line interface for managing templates
 
 ## Implementation Approach
 
 ### Phase 1: Research and Design
 
 1. Analyze common prompt patterns in existing usage
-2. Design template format and variable substitution system
-3. Plan CLI command structure
-4. Consider integration with existing Minsky commands
+2. **Investigate MCP (Model Context Protocol) prompts feature** for potential integration or as foundation
+3. Design template format and variable substitution system
+4. Plan CLI command structure
+5. Consider integration with existing Minsky commands
 
 ### Phase 2: Core Implementation
 
@@ -135,11 +137,12 @@ minsky templates delete task-continue
 
 ## Research Questions
 
-1. How do other CLI tools handle template systems?
-2. What variable types and sources would be most useful?
-3. Should templates be user-specific or project-specific?
-4. How should template validation and error handling work?
-5. What's the best way to integrate with existing AI interaction patterns?
+1. **How can MCP (Model Context Protocol) prompts feature be leveraged** for this template system?
+2. How do other CLI tools handle template systems?
+3. What variable types and sources would be most useful?
+4. Should templates be user-specific or project-specific?
+5. How should template validation and error handling work?
+6. What's the best way to integrate with existing AI interaction patterns?
 
 ## Dependencies
 
