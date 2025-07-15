@@ -231,19 +231,28 @@ describe("Session CLI Commands", () => {
       mockSessionDB.getSession = async (name: string) =>
         name === sessionName ? sessionRecord : null;
 
+      // Mock getSessionByTaskId to return the session for the task ID
+      mockSessionDB.getSessionByTaskId = async (taskId: string) =>
+        taskId === "#236" ? sessionRecord : null;
+
       // Mock getSessionWorkdir to return a valid path
       mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
 
       // Create the session directory
       await mkdir(sessionPath, { recursive: true });
 
-      // Act: Call updateSessionFromParams without name parameter (tests auto-detection)
+      // Act: Call updateSessionFromParams with task parameter (simplified approach)
       const result = await updateSessionFromParams(
         {
-          name: undefined as unknown,
+          name: undefined,
+          task: "#236", // Provide task ID for session lookup
           noStash: false,
           noPush: false,
           force: true, // Use force to bypass git conflict detection
+          skipConflictCheck: false,
+          autoResolveDeleteConflicts: false,
+          dryRun: false,
+          skipIfAlreadyMerged: false,
         },
         {
           sessionDB: mockSessionDB,
@@ -252,7 +261,7 @@ describe("Session CLI Commands", () => {
         }
       );
 
-      // Assert: Auto-detection should work
+      // Assert: Session should be resolved via task ID
       expect(result.session).toBe(sessionName);
     });
 
