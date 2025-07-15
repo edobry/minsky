@@ -101,7 +101,7 @@ async function normalizeSessionTaskIds(options: {
       }
     }
 
-    log.cli(`\n🎉 Normalization complete!`);
+    log.cli("\n🎉 Normalization complete!");
     log.cli(`  ✅ Successfully normalized: ${successCount} sessions`);
     if (errorCount > 0) {
       log.cli(`  ❌ Failed to normalize: ${errorCount} sessions`);
