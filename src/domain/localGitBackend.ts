@@ -111,7 +111,7 @@ export class LocalGitBackend implements RepositoryBackend {
       await mkdir(dirname(workdir), { recursive: true });
 
       // Clone the repository
-      await this.execGit(["clone", this.config.path, workdir]);
+      await this.execGit(["clone", this.config.path, workdir] as any[]);
 
       // Set the local path
       this.localPath = workdir;

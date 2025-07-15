@@ -14,21 +14,21 @@ import {
   createSpyOn,
   createTestSuite,
   withCleanup,
-} from "../mocking";
+} from "./mocking";
 import {
   createTestDeps,
   createTaskTestDeps,
   createSessionTestDeps,
   createGitTestDeps,
   withMockedDeps,
-} from "../dependencies";
+} from "./dependencies";
 import {
   createTaskData,
   createSessionData,
   createRepositoryData,
   createTaskDataArray,
   createRandomId,
-} from "../factories";
+} from "./factories";
 
 // Create a test suite for managed setup/teardown
 const { beforeEachTest, afterEachTest } = createTestSuite();

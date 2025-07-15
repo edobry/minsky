@@ -10,3 +10,4 @@ export * from "./task-utils";
 export * from "./tempdir";
 export * from "./process";
 export * from "./repo";
+export { compat } from "./test-utils/index";

@@ -145,6 +145,6 @@ export class RepositoryError extends Error {
     public readonly cause?: Error
   ) {
     super(message);
-    this?.name = "RepositoryError";
+    this.name = "RepositoryError";
   }
 }

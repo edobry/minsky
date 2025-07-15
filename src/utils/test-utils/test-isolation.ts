@@ -32,7 +32,7 @@ export class TestDataFactory {
 
   constructor() {
     TestDataFactory.instanceCount++;
-    this?.instanceId = `factory-${TestDataFactory.instanceCount}-${Date.now()}`;
+    this.instanceId = `factory-${TestDataFactory.instanceCount}-${Date.now()}`;
   }
 
   /**

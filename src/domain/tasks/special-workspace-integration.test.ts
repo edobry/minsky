@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { TaskService } from "../taskService";
-import { TaskBackendRouter } from "../task-backend-router";
+import { TaskService } from "./taskService";
+import { TaskBackendRouter } from "./task-backend-router";
 import { join } from "path";
 import { rmSync, mkdirSync } from "fs";
 import { tmpdir } from "os";

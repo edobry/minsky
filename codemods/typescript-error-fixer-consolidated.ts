@@ -207,7 +207,7 @@ class TypeScriptErrorFixer {
       for (let i = 0; i < args.length; i++) {
         const arg = args[i];
         // Add 'any' assertion for problematic arguments
-        if (!arg.getText().includes(" as ") && arg.getText().length > 0) {
+        if (arg && !arg.getText().includes(" as ") && arg.getText().length > 0) {
           arg.replaceWithText(`${arg.getText()} as any`);
           fixes++;
         }

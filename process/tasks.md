@@ -490,10 +490,14 @@
 
 - [x] Store PR Existence in Session Records for Optimized Session Approval [#275](process/tasks/275-store-pr-existence-in-session-records-for-optimized-session-approval.md)
 
-- [+] Optimize test suite quality and pass rate post-isolation [#276](process/tasks/276-optimize-test-suite-quality-and-pass-rate-post-isolation.md)
+- [x] Optimize test suite quality and pass rate post-isolation [#276](process/tasks/276-optimize-test-suite-quality-and-pass-rate-post-isolation.md)
 
 - [ ] Implement Stacked PR Workflow for Session Dependencies [#277](process/tasks/277-implement-stacked-pr-workflow-for-session-dependencies.md)
 
 - [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system-for-persistent-learning-and-knowledge-accumulation.md)
 
 - [ ] Cleanup excessive 'as unknown' assertions to improve TypeScript effectiveness [#280](process/tasks/280-cleanup-excessive-as-unknown-assertions-to-improve-typescript-effectiveness.md)
+
+- [x] Fix systematic verification failures in AI responses [#281](process/tasks/281-fix-systematic-verification-failures-in-ai-responses.md)
+
+- [+] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)

@@ -211,7 +211,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
         result = state.implementation(...args);
       } else {
         // Default implementation returns undefined
-        result = undefined as unknown;
+        result = undefined;
       }
 
       // Track the result
