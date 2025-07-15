@@ -942,6 +942,21 @@ describe("createGitService Factory Function", () => {
 });
 
 describe("Parameter-Based Git Functions", () => {
+  beforeEach(() => {
+    // CRITICAL: Mock GitService methods to prevent real git commands
+    // This fix prevents tests from executing real git commands that pollute the repository
+    spyOn(GitService.prototype, "stageAll").mockImplementation(async (): Promise<void> => {});
+    spyOn(GitService.prototype, "stageModified").mockImplementation(async (): Promise<void> => {});
+    spyOn(GitService.prototype, "commit").mockImplementation(async (): Promise<string> => "mock-commit-hash");
+    spyOn(GitService.prototype, "push").mockImplementation(async (): Promise<void> => {});
+    spyOn(GitService.prototype, "execInRepository").mockImplementation(async (): Promise<string> => "");
+  });
+
+  afterEach(() => {
+    // Restore all mocks
+    mock.restore();
+  });
+
   describe("commitChangesFromParams", () => {
     test("should commit changes with all parameters", async () => {
       const params = {
@@ -1068,7 +1083,7 @@ describe("commitChangesFromParams", () => {
     };
 
     const result = await commitChangesFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.commitHash).toBe("abc123");
     expect(result.message).toBe("test commit message");
@@ -1087,7 +1102,7 @@ describe("commitChangesFromParams", () => {
     };
 
     const result = await commitChangesFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.commitHash).toBe("def456");
     expect(result.message).toBe("simple commit");
@@ -1106,7 +1121,7 @@ describe("commitChangesFromParams", () => {
     };
 
     const result = await commitChangesFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.commitHash).toBe("ghi789");
   });
@@ -1142,7 +1157,7 @@ describe("pushFromParams", () => {
     };
 
     const result = await pushFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.pushed).toBe(true);
     expect(result.workdir).toBe("/test/repo");
@@ -1160,7 +1175,7 @@ describe("pushFromParams", () => {
     };
 
     const result = await pushFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.pushed).toBe(true);
   });
@@ -1176,7 +1191,7 @@ describe("pushFromParams", () => {
     };
 
     const result = await pushFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.pushed).toBe(true);
   });
