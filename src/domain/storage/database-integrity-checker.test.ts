@@ -6,13 +6,13 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { join } from "path";
+import { join, dirname } from "path";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { randomUUID } from "crypto";
 import { Database } from "bun:sqlite";
-import { DatabaseIntegrityChecker } from "../database-integrity-checker";
-import type { StorageBackendType } from "../storage-backend-factory";
-import { log } from "../../../utils/logger";
+import { DatabaseIntegrityChecker } from "./database-integrity-checker";
+import type { StorageBackendType } from "./storage-backend-factory";
+import { log } from "../../utils/logger";
 import { tmpdir } from "os";
 
 // Test data
@@ -49,7 +49,7 @@ describe("DatabaseIntegrityChecker", () => {
     const sequence = ++testSequenceNumber;
     testDirPath = join(
       tmpdir(),
-      "minsky-test", 
+      "minsky-test",
       `integrity-checker-test-${timestamp}-${uuid}-${sequence}`
     );
     testDbPath = join(testDirPath, "test-sessions.db");

@@ -1,0 +1,1041 @@
+[
+  {
+    "file": "src/errors/enhanced-error-templates.ts",
+    "originalCount": 15,
+    "newCount": 10,
+    "fixesApplied": [
+      "Fixed array length access (3 occurrences)",
+      "Fixed array map access (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/errors/network-errors.ts",
+    "originalCount": 4,
+    "newCount": 4,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/errors/message-templates.ts",
+    "originalCount": 45,
+    "newCount": 37,
+    "fixesApplied": [
+      "Fixed array push access (5 occurrences)",
+      "Fixed array map access (3 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/errors/base-errors.ts",
+    "originalCount": 2,
+    "newCount": 2,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/localGitBackend.ts",
+    "originalCount": 34,
+    "newCount": 7,
+    "fixesApplied": [
+      "Fixed config path access (9 occurrences)",
+      "Fixed environment variable access (2 occurrences)",
+      "Fixed array length access (2 occurrences)",
+      "Fixed array push access (3 occurrences)",
+      "Fixed string split access (1 occurrences)",
+      "Fixed string trim access (1 occurrences)",
+      "Fixed undefined type annotation (9 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/git.ts",
+    "originalCount": 188,
+    "newCount": 117,
+    "fixesApplied": [
+      "Fixed session taskId access (3 occurrences)",
+      "Fixed array length access (11 occurrences)",
+      "Fixed array push access (6 occurrences)",
+      "Fixed string split access (4 occurrences)",
+      "Fixed string trim access (45 occurrences)",
+      "Fixed string replace access (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks.ts",
+    "originalCount": 89,
+    "newCount": 63,
+    "fixesApplied": [
+      "Fixed array length access (2 occurrences)",
+      "Fixed array push access (1 occurrences)",
+      "Fixed array find access (3 occurrences)",
+      "Fixed array filter access (1 occurrences)",
+      "Fixed array map access (1 occurrences)",
+      "Fixed string split access (1 occurrences)",
+      "Fixed string trim access (9 occurrences)",
+      "Fixed string replace access (2 occurrences)",
+      "Fixed return null statement (5 occurrences)",
+      "Fixed return undefined statement (1 occurrences)"
+    ],
+    "warnings": [
+      "1 dangerous null as unknown patterns still remain"
+    ]
+  },
+  {
+    "file": "src/domain/repository-uri.ts",
+    "originalCount": 38,
+    "newCount": 36,
+    "fixesApplied": [
+      "Fixed return null statement (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/session.ts",
+    "originalCount": 3,
+    "newCount": 3,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/rules.ts",
+    "originalCount": 111,
+    "newCount": 102,
+    "fixesApplied": [
+      "Fixed array length access (2 occurrences)",
+      "Fixed array push access (1 occurrences)",
+      "Fixed array filter access (1 occurrences)",
+      "Fixed string trim access (3 occurrences)",
+      "Fixed string replace access (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/remoteGitBackend.ts",
+    "originalCount": 19,
+    "newCount": 6,
+    "fixesApplied": [
+      "Fixed array length access (2 occurrences)",
+      "Fixed string split access (1 occurrences)",
+      "Fixed string trim access (1 occurrences)",
+      "Fixed undefined type annotation (9 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/uri-utils.ts",
+    "originalCount": 27,
+    "newCount": 21,
+    "fixesApplied": [
+      "Fixed string trim access (2 occurrences)",
+      "Fixed string replace access (3 occurrences)",
+      "Fixed return undefined statement (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/workspace.ts",
+    "originalCount": 35,
+    "newCount": 20,
+    "fixesApplied": [
+      "Fixed string split access (2 occurrences)",
+      "Fixed string trim access (4 occurrences)",
+      "Fixed return null statement (9 occurrences)"
+    ],
+    "warnings": [
+      "3 dangerous null as unknown patterns still remain"
+    ]
+  },
+  {
+    "file": "src/domain/validationUtils.ts",
+    "originalCount": 4,
+    "newCount": 3,
+    "fixesApplied": [
+      "Fixed return undefined statement (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/init.ts",
+    "originalCount": 25,
+    "newCount": 25,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/repository.ts",
+    "originalCount": 97,
+    "newCount": 90,
+    "fixesApplied": [
+      "Fixed array push access (1 occurrences)",
+      "Fixed array find access (5 occurrences)",
+      "Fixed string trim access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/repo-utils.ts",
+    "originalCount": 10,
+    "newCount": 9,
+    "fixesApplied": [
+      "Fixed string trim access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/schemas/git.ts",
+    "originalCount": 13,
+    "newCount": 13,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/schemas/tasks.ts",
+    "originalCount": 15,
+    "newCount": 15,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/schemas/error.ts",
+    "originalCount": 1,
+    "newCount": 1,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/schemas/session.ts",
+    "originalCount": 32,
+    "newCount": 32,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/schemas/runtime.ts",
+    "originalCount": 1,
+    "newCount": 1,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/schemas/common.ts",
+    "originalCount": 10,
+    "newCount": 9,
+    "fixesApplied": [
+      "Fixed string trim access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/schemas/init.ts",
+    "originalCount": 3,
+    "newCount": 3,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/schemas/session-db-config.ts",
+    "originalCount": 1,
+    "newCount": 1,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/mcp/command-mapper.ts",
+    "originalCount": 31,
+    "newCount": 29,
+    "fixesApplied": [
+      "Fixed string replace access (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/mcp/server.ts",
+    "originalCount": 35,
+    "newCount": 33,
+    "fixesApplied": [
+      "Fixed array length access (1 occurrences)",
+      "Fixed array push access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/mcp/fastmcp-server.ts",
+    "originalCount": 22,
+    "newCount": 22,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/mcp/fastmcp-command-mapper.ts",
+    "originalCount": 7,
+    "newCount": 7,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/mcp/inspector-launcher.ts",
+    "originalCount": 8,
+    "newCount": 8,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/git-exec-enhanced.ts",
+    "originalCount": 18,
+    "newCount": 16,
+    "fixesApplied": [
+      "Fixed array map access (1 occurrences)",
+      "Fixed string split access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/tempdir.ts",
+    "originalCount": 5,
+    "newCount": 1,
+    "fixesApplied": [
+      "Fixed environment variable access (3 occurrences)",
+      "Fixed return null statement (1 occurrences)"
+    ],
+    "warnings": [
+      "1 dangerous null as unknown patterns still remain"
+    ]
+  },
+  {
+    "file": "src/utils/filter-messages.ts",
+    "originalCount": 4,
+    "newCount": 2,
+    "fixesApplied": [
+      "Fixed array push access (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/package-manager.ts",
+    "originalCount": 7,
+    "newCount": 5,
+    "fixesApplied": [
+      "Fixed return undefined statement (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/paths.ts",
+    "originalCount": 7,
+    "newCount": 2,
+    "fixesApplied": [
+      "Fixed environment variable access (5 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/param-schemas.ts",
+    "originalCount": 24,
+    "newCount": 24,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/logger.ts",
+    "originalCount": 63,
+    "newCount": 61,
+    "fixesApplied": [
+      "Fixed environment variable access (1 occurrences)",
+      "Fixed array length access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/rules-helpers.ts",
+    "originalCount": 5,
+    "newCount": 1,
+    "fixesApplied": [
+      "Fixed string split access (1 occurrences)",
+      "Fixed string trim access (2 occurrences)",
+      "Fixed return undefined statement (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/test-utils.ts",
+    "originalCount": 3,
+    "newCount": 3,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/repository-utils.ts",
+    "originalCount": 17,
+    "newCount": 17,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/repo.ts",
+    "originalCount": 1,
+    "newCount": 1,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/zod-error-formatter.ts",
+    "originalCount": 5,
+    "newCount": 5,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/test-helpers.ts",
+    "originalCount": 11,
+    "newCount": 11,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/types/project.ts",
+    "originalCount": 1,
+    "newCount": 1,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/commands/mcp/index.ts",
+    "originalCount": 35,
+    "newCount": 33,
+    "fixesApplied": [
+      "Fixed undefined type annotation (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/commands/config/show.ts",
+    "originalCount": 23,
+    "newCount": 22,
+    "fixesApplied": [
+      "Fixed undefined type annotation (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/commands/config/list.ts",
+    "originalCount": 20,
+    "newCount": 18,
+    "fixesApplied": [
+      "Fixed array map access (1 occurrences)",
+      "Fixed undefined type annotation (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/commands/config/index.ts",
+    "originalCount": 3,
+    "newCount": 3,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/session/session-db.ts",
+    "originalCount": 16,
+    "newCount": 2,
+    "fixesApplied": [
+      "Fixed state.sessions access (4 occurrences)",
+      "Fixed state.sessions wrapper (4 occurrences)",
+      "Fixed session record access (3 occurrences)",
+      "Fixed array splice access (1 occurrences)",
+      "Fixed string replace access (1 occurrences)",
+      "Fixed return null statement (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/session/session-adapter.ts",
+    "originalCount": 5,
+    "newCount": 5,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/session/session-db-io.ts",
+    "originalCount": 1,
+    "newCount": 1,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/session/session-workspace-service.ts",
+    "originalCount": 47,
+    "newCount": 0,
+    "fixesApplied": [
+      "Fixed taskId access (2 occurrences)",
+      "Fixed session property access (4 occurrences)",
+      "Fixed session taskId access (2 occurrences)",
+      "Fixed workspace directory access (14 occurrences)",
+      "Fixed workspace session name access (5 occurrences)",
+      "Fixed array length access (1 occurrences)",
+      "Fixed array find access (1 occurrences)",
+      "Fixed sessionProvider.getSession call (2 occurrences)",
+      "Fixed sessionProvider.listSessions call (1 occurrences)",
+      "Fixed pathResolver.getRelativePathFromSession call (6 occurrences)",
+      "Fixed pathResolver.validateAndResolvePath call (2 occurrences)",
+      "Fixed workspaceBackend.readFile call (1 occurrences)",
+      "Fixed workspaceBackend.writeFile call (1 occurrences)",
+      "Fixed workspaceBackend.deleteFile call (1 occurrences)",
+      "Fixed workspaceBackend.listDirectory call (1 occurrences)",
+      "Fixed workspaceBackend.exists call (1 occurrences)",
+      "Fixed workspaceBackend.createDirectory call (1 occurrences)",
+      "Fixed undefined type annotation (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/session/session-path-resolver.ts",
+    "originalCount": 1,
+    "newCount": 1,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/ai/types.ts",
+    "originalCount": 2,
+    "newCount": 2,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/ai/config-service.ts",
+    "originalCount": 2,
+    "newCount": 2,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/storage/enhanced-storage-backend-factory.ts",
+    "originalCount": 1,
+    "newCount": 1,
+    "fixesApplied": [],
+    "warnings": [
+      "1 dangerous null as unknown patterns still remain"
+    ]
+  },
+  {
+    "file": "src/domain/storage/json-file-storage.ts",
+    "originalCount": 58,
+    "newCount": 49,
+    "fixesApplied": [
+      "Fixed array length access (1 occurrences)",
+      "Fixed array push access (1 occurrences)",
+      "Fixed array find access (3 occurrences)",
+      "Fixed array splice access (1 occurrences)",
+      "Fixed array filter access (1 occurrences)",
+      "Fixed return null statement (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/storage/database-integrity-checker.ts",
+    "originalCount": 2,
+    "newCount": 2,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/repository/index.ts",
+    "originalCount": 35,
+    "newCount": 34,
+    "fixesApplied": [
+      "Fixed string trim access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/repository/remote.ts",
+    "originalCount": 49,
+    "newCount": 35,
+    "fixesApplied": [
+      "Fixed session property access (2 occurrences)",
+      "Fixed environment variable access (2 occurrences)",
+      "Fixed array length access (3 occurrences)",
+      "Fixed array filter access (2 occurrences)",
+      "Fixed string trim access (5 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/repository/local.ts",
+    "originalCount": 31,
+    "newCount": 22,
+    "fixesApplied": [
+      "Fixed environment variable access (2 occurrences)",
+      "Fixed array length access (2 occurrences)",
+      "Fixed array map access (1 occurrences)",
+      "Fixed string trim access (4 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/repository/github.ts",
+    "originalCount": 75,
+    "newCount": 59,
+    "fixesApplied": [
+      "Fixed environment variable access (2 occurrences)",
+      "Fixed array length access (2 occurrences)",
+      "Fixed array push access (2 occurrences)",
+      "Fixed array find access (5 occurrences)",
+      "Fixed array map access (1 occurrences)",
+      "Fixed string trim access (3 occurrences)",
+      "Fixed undefined type annotation (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/workspace/workspace-backend.ts",
+    "originalCount": 4,
+    "newCount": 4,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/workspace/special-workspace-manager.ts",
+    "originalCount": 6,
+    "newCount": 4,
+    "fixesApplied": [
+      "Fixed string trim access (1 occurrences)",
+      "Fixed string replace access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/workspace/local-workspace-backend.ts",
+    "originalCount": 23,
+    "newCount": 14,
+    "fixesApplied": [
+      "Fixed array length access (3 occurrences)",
+      "Fixed array push access (1 occurrences)",
+      "Fixed string split access (1 occurrences)",
+      "Fixed undefined type annotation (4 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/jsonFileTaskBackend.ts",
+    "originalCount": 68,
+    "newCount": 63,
+    "fixesApplied": [
+      "Fixed array length access (1 occurrences)",
+      "Fixed string trim access (4 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/task-backend-router.ts",
+    "originalCount": 29,
+    "newCount": 29,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/taskConstants.ts",
+    "originalCount": 8,
+    "newCount": 4,
+    "fixesApplied": [
+      "Fixed string trim access (1 occurrences)",
+      "Fixed string replace access (1 occurrences)",
+      "Fixed return null statement (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/githubBackendFactory.ts",
+    "originalCount": 10,
+    "newCount": 8,
+    "fixesApplied": [
+      "Fixed return null statement (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/githubBackendConfig.ts",
+    "originalCount": 15,
+    "newCount": 10,
+    "fixesApplied": [
+      "Fixed environment variable access (2 occurrences)",
+      "Fixed return null statement (3 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+    "originalCount": 62,
+    "newCount": 55,
+    "fixesApplied": [
+      "Fixed array length access (2 occurrences)",
+      "Fixed array push access (1 occurrences)",
+      "Fixed array map access (1 occurrences)",
+      "Fixed string split access (1 occurrences)",
+      "Fixed string trim access (1 occurrences)",
+      "Fixed return null statement (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/taskFunctions.ts",
+    "originalCount": 73,
+    "newCount": 46,
+    "fixesApplied": [
+      "Fixed array length access (5 occurrences)",
+      "Fixed array find access (2 occurrences)",
+      "Fixed array map access (1 occurrences)",
+      "Fixed string trim access (10 occurrences)",
+      "Fixed string replace access (4 occurrences)",
+      "Fixed return null statement (5 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/markdownTaskBackend.ts",
+    "originalCount": 21,
+    "newCount": 20,
+    "fixesApplied": [
+      "Fixed array filter access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/taskService.ts",
+    "originalCount": 104,
+    "newCount": 94,
+    "fixesApplied": [
+      "Fixed array length access (1 occurrences)",
+      "Fixed array push access (1 occurrences)",
+      "Fixed string replace access (2 occurrences)",
+      "Fixed return null statement (6 occurrences)"
+    ],
+    "warnings": [
+      "1 dangerous null as unknown patterns still remain"
+    ]
+  },
+  {
+    "file": "src/domain/tasks/utils.ts",
+    "originalCount": 8,
+    "newCount": 5,
+    "fixesApplied": [
+      "Fixed string trim access (1 occurrences)",
+      "Fixed return null statement (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/taskCommands.ts",
+    "originalCount": 114,
+    "newCount": 110,
+    "fixesApplied": [
+      "Fixed array length access (2 occurrences)",
+      "Fixed array find access (1 occurrences)",
+      "Fixed string trim access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/tasks/taskIO.ts",
+    "originalCount": 2,
+    "newCount": 2,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/cli/cli-command-factory.ts",
+    "originalCount": 98,
+    "newCount": 85,
+    "fixesApplied": [
+      "Fixed environment variable access (1 occurrences)",
+      "Fixed array length access (3 occurrences)",
+      "Fixed array push access (8 occurrences)",
+      "Fixed string trim access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/cli/integration-example.ts",
+    "originalCount": 5,
+    "newCount": 5,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/schema-bridge.ts",
+    "originalCount": 21,
+    "newCount": 19,
+    "fixesApplied": [
+      "Fixed array length access (1 occurrences)",
+      "Fixed string replace access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/response-formatters.ts",
+    "originalCount": 24,
+    "newCount": 19,
+    "fixesApplied": [
+      "Fixed array length access (5 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/legacy-command-registry.ts",
+    "originalCount": 6,
+    "newCount": 6,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/error-handling.ts",
+    "originalCount": 31,
+    "newCount": 28,
+    "fixesApplied": [
+      "Fixed environment variable access (3 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/mcp/integration-example.ts",
+    "originalCount": 12,
+    "newCount": 12,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/mcp/session-edit-tools.ts",
+    "originalCount": 30,
+    "newCount": 17,
+    "fixesApplied": [
+      "Fixed array length access (12 occurrences)",
+      "Fixed string split access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/mcp/shared-command-integration.ts",
+    "originalCount": 1,
+    "newCount": 1,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/mcp/tools/tasks.ts",
+    "originalCount": 29,
+    "newCount": 28,
+    "fixesApplied": [
+      "Fixed string split access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/mcp/tools/session.ts",
+    "originalCount": 30,
+    "newCount": 27,
+    "fixesApplied": [
+      "Fixed string trim access (3 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/test-utils/index.ts",
+    "originalCount": 1,
+    "newCount": 1,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/test-utils/assertions.ts",
+    "originalCount": 4,
+    "newCount": 3,
+    "fixesApplied": [
+      "Fixed array length access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/test-utils/mocking.ts",
+    "originalCount": 3,
+    "newCount": 3,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/types/tasks/taskData.ts",
+    "originalCount": 8,
+    "newCount": 8,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/storage/monitoring/health-monitor.ts",
+    "originalCount": 120,
+    "newCount": 107,
+    "fixesApplied": [
+      "Fixed array length access (3 occurrences)",
+      "Fixed array push access (8 occurrences)",
+      "Fixed array filter access (2 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/storage/backends/json-file-storage.ts",
+    "originalCount": 51,
+    "newCount": 40,
+    "fixesApplied": [
+      "Fixed session record access (2 occurrences)",
+      "Fixed taskId access (1 occurrences)",
+      "Fixed session property access (1 occurrences)",
+      "Fixed array splice access (1 occurrences)",
+      "Fixed array filter access (3 occurrences)",
+      "Fixed return null statement (3 occurrences)"
+    ],
+    "warnings": [
+      "1 dangerous null as unknown patterns still remain"
+    ]
+  },
+  {
+    "file": "src/domain/storage/backends/error-handling.ts",
+    "originalCount": 76,
+    "newCount": 75,
+    "fixesApplied": [
+      "Fixed this.name assignment (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/domain/storage/backends/postgres-storage.ts",
+    "originalCount": 41,
+    "newCount": 34,
+    "fixesApplied": [
+      "Fixed state.sessions access (1 occurrences)",
+      "Fixed state.sessions wrapper (1 occurrences)",
+      "Fixed array length access (2 occurrences)",
+      "Fixed array map access (1 occurrences)",
+      "Fixed return null statement (2 occurrences)"
+    ],
+    "warnings": [
+      "1 dangerous null as unknown patterns still remain"
+    ]
+  },
+  {
+    "file": "src/domain/storage/backends/sqlite-storage.ts",
+    "originalCount": 82,
+    "newCount": 67,
+    "fixesApplied": [
+      "Fixed state.sessions access (1 occurrences)",
+      "Fixed session property access (1 occurrences)",
+      "Fixed session taskId access (1 occurrences)",
+      "Fixed environment variable access (3 occurrences)",
+      "Fixed array length access (4 occurrences)",
+      "Fixed array map access (1 occurrences)",
+      "Fixed return null statement (4 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/cli/utils/index.ts",
+    "originalCount": 12,
+    "newCount": 12,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/cli/utils/shared-options.ts",
+    "originalCount": 15,
+    "newCount": 14,
+    "fixesApplied": [
+      "Fixed undefined type annotation (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/cli/utils/error-handler.ts",
+    "originalCount": 23,
+    "newCount": 20,
+    "fixesApplied": [
+      "Fixed environment variable access (3 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/cli/tasks/specCommand.ts",
+    "originalCount": 23,
+    "newCount": 23,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "originalCount": 10,
+    "newCount": 10,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/commands/tasks.ts",
+    "originalCount": 87,
+    "newCount": 87,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/commands/config.ts",
+    "originalCount": 24,
+    "newCount": 23,
+    "fixesApplied": [
+      "Fixed array map access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/commands/session.ts",
+    "originalCount": 2,
+    "newCount": 2,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/commands/rules.ts",
+    "originalCount": 3,
+    "newCount": 3,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/commands/sessiondb.ts",
+    "originalCount": 4,
+    "newCount": 4,
+    "fixesApplied": [],
+    "warnings": []
+  },
+  {
+    "file": "src/adapters/shared/bridges/parameter-mapper.ts",
+    "originalCount": 36,
+    "newCount": 34,
+    "fixesApplied": [
+      "Fixed string split access (1 occurrences)",
+      "Fixed string trim access (1 occurrences)"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "src/utils/test-utils/compatibility/mock-function.ts",
+    "originalCount": 12,
+    "newCount": 12,
+    "fixesApplied": [],
+    "warnings": [
+      "1 dangerous undefined as unknown patterns still remain"
+    ]
+  },
+  {
+    "file": "src/utils/test-utils/compatibility/matchers.ts",
+    "originalCount": 7,
+    "newCount": 7,
+    "fixesApplied": [],
+    "warnings": []
+  }
+]

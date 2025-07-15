@@ -5,11 +5,11 @@ const TEST_VALUE = 123;
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { join } from "path";
-import { TaskService } from "../taskService";
-import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
-import { setupTestCleanup } from "../../../utils/test-utils/cleanup";
-import { setupEnhancedMocking } from "../../../utils/test-utils/enhanced-mocking";
-import { testDataFactory, DatabaseIsolation } from "../../../utils/test-utils/test-isolation";
+import { TaskService } from "./taskService";
+import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { setupTestCleanup } from "../../utils/test-utils/cleanup";
+import { setupEnhancedMocking } from "../../utils/test-utils/enhanced-mocking";
+import { testDataFactory, DatabaseIsolation } from "../../utils/test-utils/test-isolation";
 
 // Set up comprehensive test cleanup and isolation
 const cleanupManager = setupTestCleanup();

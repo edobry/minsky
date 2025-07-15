@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { writeFile, mkdir, rm, readFile } from "fs/promises";
 import { join } from "path";
-import { ValidationError } from "../../errors/index";
+import { ValidationError } from "../errors/index";
 
 describe("sessionPrFromParams bodyPath file reading functionality", () => {
   const testDir = "/tmp/minsky-test-body-path";

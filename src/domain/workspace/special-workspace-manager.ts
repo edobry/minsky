@@ -117,13 +117,13 @@ export class SpecialWorkspaceManager {
           cwd: this!.workspacePath,
         });
 
-        if (!(statusOutput as unknown).trim()) {
+        if (!statusOutput.trim()) {
           log.debug("No changes to commit in special workspace");
           return;
         }
 
         // Commit changes
-        const escapedMessage = (message as unknown).replace(/"/g, "\\\"");
+        const escapedMessage = message.replace(/"/g, "\\\"");
         await execAsync(`git commit -m "${escapedMessage}"`, {
           cwd: this!.workspacePath,
         });
@@ -300,9 +300,9 @@ export class SpecialWorkspaceManager {
    * Acquire a file-based lock
    */
   private async acquireLock(operation: string): Promise<void> {
-    const startTime = (Date as unknown).now();
+    const startTime = Date.now();
 
-    while ((Date as unknown).now() - startTime < this?.lockTimeoutMs) {
+    while (Date.now() - startTime < this?.lockTimeoutMs) {
       try {
         // Check if lock file exists
         if (existsSync(this.lockPath)) {
@@ -310,7 +310,7 @@ export class SpecialWorkspaceManager {
           const lockInfo: LockInfo = JSON.parse(String(lockContent));
 
           // Check if lock is stale
-          if ((Date as unknown).now() - (lockInfo as unknown)?.timestamp > this?.lockTimeoutMs) {
+          if (Date.now() - lockInfo?.timestamp > this?.lockTimeoutMs) {
             log.warn("Removing stale lock", {
               lockPath: this.lockPath,
               lockInfo,

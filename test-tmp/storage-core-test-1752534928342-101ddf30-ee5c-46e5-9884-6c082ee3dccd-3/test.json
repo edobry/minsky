@@ -1,0 +1,11 @@
+{
+  "entities": [
+    {
+      "id": "test3",
+      "name": "To Delete",
+      "value": 99
+    }
+  ],
+  "lastUpdated": "2025-07-14T23:15:28.342Z",
+  "metadata": {}
+}

@@ -40,10 +40,10 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param config Backend configuration
    */
   constructor(config: RepositoryBackendConfig) {
-    const xdgStateHome = (process.env as unknown).XDG_STATE_HOME || join((process.env as unknown).HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
-    (this as unknown).repoUrl = (config as unknown).repoUrl;
-    (this as unknown).repoName = normalizeRepositoryURI((this as unknown).repoUrl);
+    this.repoUrl = config.repoUrl;
+    this.repoName = normalizeRepositoryURI(this.repoUrl);
     this.sessionDb = createSessionProvider();
     this.config = config;
   }
@@ -70,7 +70,7 @@ export class LocalGitBackend implements RepositoryBackend {
    */
   private getSessionWorkdir(session: string): string {
     // Use the new path structure with sessions subdirectory
-    return join(this.baseDir, (this as unknown).repoName, "sessions", session);
+    return join(this.baseDir, this.repoName, "sessions", session);
   }
 
   /**
@@ -82,14 +82,14 @@ export class LocalGitBackend implements RepositoryBackend {
     await this.ensureBaseDir();
 
     // Create the repo/sessions directory structure
-    const sessionsDir = join(this.baseDir, (this as unknown).repoName, "sessions");
+    const sessionsDir = join(this.baseDir, this.repoName, "sessions");
     await mkdir(sessionsDir, { recursive: true });
 
     // Get the workdir with sessions subdirectory
     const workdir = this.getSessionWorkdir(session);
 
     // Clone the repository
-    await execAsync(`git clone ${(this as unknown).repoUrl} ${workdir}`);
+    await execAsync(`git clone ${this.repoUrl} ${workdir}`);
 
     return {
       workdir,
@@ -126,7 +126,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const { stdout: branchOutput } = await execAsync(
       `git -C ${workdir} rev-parse --abbrev-ref HEAD`
     );
-    const branch = (branchOutput as unknown).trim();
+    const branch = branchOutput.trim();
 
     // Get ahead/behind counts
     let ahead = 0;
@@ -135,8 +135,8 @@ export class LocalGitBackend implements RepositoryBackend {
       const { stdout: revListOutput } = await execAsync(
         `git -C ${workdir} rev-list --left-right --count @{upstream}...HEAD`
       );
-      const counts = ((revListOutput as unknown).trim() as unknown).split(/\s+/);
-      if (counts && (counts as unknown).length === 2) {
+      const counts = revListOutput.trim().split(/\s+/);
+      if (counts && counts.length === 2) {
         behind = parseInt(counts[0] || "0", 10);
         ahead = parseInt(counts[1] || "0", 10);
       }
@@ -145,17 +145,17 @@ export class LocalGitBackend implements RepositoryBackend {
     }
 
     const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
-    const dirty = ((statusOutput as unknown).trim() as unknown).length > 0;
-    const modifiedFiles = ((statusOutput
+    const dirty = statusOutput.trim().length > 0;
+    const modifiedFiles = statusOutput
       .trim()
-      .split("\n") as unknown).filter(Boolean) as unknown).map((line: string) => ({
-      status: ((line as unknown).substring(0, 2) as unknown).trim(),
-      file: (line as unknown).substring(3),
-    }));
+      .split("\n").filter(Boolean).map((line: string) => ({
+        status: line.substring(0, 2).trim(),
+        file: line.substring(3),
+      }));
 
     // Get remote information
     const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote`);
-    const remotes = ((remoteOutput.trim() as unknown).split("\n") as unknown).filter(Boolean);
+    const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
     return {
       branch,
@@ -165,8 +165,8 @@ export class LocalGitBackend implements RepositoryBackend {
       remotes,
       workdir,
       modifiedFiles,
-      clean: (modifiedFiles as unknown).length === 0,
-      changes: (modifiedFiles as unknown).map((file) => `M ${(file as unknown).file}`),
+      clean: modifiedFiles.length === 0,
+      changes: modifiedFiles.map((file) => `M ${file.file}`),
     };
   }
 
@@ -188,10 +188,10 @@ export class LocalGitBackend implements RepositoryBackend {
       // If the repo is a local path, check if it has a .git directory
       if (!(this.repoUrl as unknown).includes("://") && !(this.repoUrl as unknown).includes("@")) {
         const { stdout } = await execAsync(
-          `test -d "${(this as unknown).repoUrl}/.git" && echo "true" || echo "false"`
+          `test -d "${this.repoUrl}/.git" && echo "true" || echo "false"`
         );
-        if ((stdout as unknown).trim() !== "true") {
-          throw new Error(`Not a git repository: ${(this as unknown).repoUrl}`);
+        if (stdout.trim() !== "true") {
+          throw new Error(`Not a git repository: ${this.repoUrl}`);
         }
       }
 
@@ -199,7 +199,7 @@ export class LocalGitBackend implements RepositoryBackend {
       // For now, we'll just assume they're valid
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-      return { success: false, message: `Invalid git repository: ${(normalizedError as unknown).message}` };
+      return { success: false, message: `Invalid git repository: ${normalizedError.message}` };
     }
     return { success: true, message: "Repository is valid" };
   }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, jest } from "bun:test";
-import { sessionPrFromParams } from "../session";
-import { MinskyError, ValidationError } from "../../errors/index";
+import { sessionPrFromParams } from "./session";
+import { MinskyError, ValidationError } from "../errors/index";
 
 // Mock dependencies
 const mockGitService = {
@@ -18,15 +18,8 @@ const mockSessionProvider = {
 const mockPreparePrFromParams = jest.fn();
 
 // Mock the preparePrFromParams function
-jest.mock("../git.js", () => ({
-  preparePrFromParams: mockPreparePrFromParams,
-}));
-
-jest.mock("../session.js", () => ({
-  ...jest.requireActual("../session.js"),
-  createGitService: () => mockGitService,
-  createSessionProvider: () => mockSessionProvider,
-}));
+// Note: Using simple mock functions instead of jest.mock for Bun compatibility
+// TODO: Replace with proper Bun mocking patterns if needed
 
 describe("Session PR Refresh Functionality", () => {
   beforeEach(() => {

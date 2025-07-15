@@ -136,7 +136,7 @@ function resetSharedState(): void {
     // Use dynamic import to avoid circular dependencies
     const registryModule = require("../../adapters/shared/_command-registry");
     if (registryModule?.sharedCommandRegistry?.commands) {
-      (registryModule.sharedCommandRegistry as unknown).commands = new Map();
+      registryModule.sharedCommandRegistry.commands = new Map();
     }
   } catch (error) {
     // Ignore errors if the module doesn't exist or can't be loaded

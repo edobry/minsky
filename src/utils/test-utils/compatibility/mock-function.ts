@@ -211,7 +211,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
         result = state.implementation(...args);
       } else {
         // Default implementation returns undefined
-        result = undefined as unknown as ReturnType<T>;
+        result = undefined;
       }
 
       // Track the result
@@ -389,7 +389,7 @@ export function spyOn<T extends object, M extends keyof T>(
   });
 
   // Store the original implementation for restoration
-  (mockFn as unknown).mock.originalImplementation = original;
+  mockFn.mock.originalImplementation = original;
 
   // Replace the method with our mock
   (object as unknown)[method] = mockFn;

@@ -10,10 +10,10 @@ import { join } from "path";
 import { mkdir } from "fs/promises";
 import { rmSync, existsSync } from "fs";
 import { randomUUID } from "crypto";
-import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
-import type { JsonFileTaskBackend } from "../jsonFileTaskBackend";
-import type { TaskData } from "../../../types/tasks/taskData";
-import { log } from "../../../utils/logger";
+import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import type { JsonFileTaskBackend } from "./jsonFileTaskBackend";
+import type { TaskData } from "../../types/tasks/taskData";
+import { log } from "../../utils/logger";
 
 // Test isolation counter
 let testSequenceNumber = 0;
@@ -147,7 +147,11 @@ describe("JsonFileTaskBackend", () => {
         {
           tasks: [{ id: "#004", title: "Test Task 4", status: "TODO" }],
           lastUpdated: new Date().toISOString(),
-          metadata: {},
+          metadata: {
+            storageLocation: "/test/path",
+            backendType: "json-file",
+            workspacePath: "/test/workspace",
+          },
         },
         null,
         2
@@ -164,6 +168,12 @@ describe("JsonFileTaskBackend", () => {
     test("should implement parseTasks", () => {
       const jsonContent = JSON.stringify({
         tasks: [{ id: "#005", title: "Test Task TEST_ARRAY_SIZE", status: "TODO" }],
+        lastUpdated: "2023-01-01T00:00:00.000Z",
+        metadata: {
+          storageLocation: "/test/path",
+          backendType: "json-file",
+          workspacePath: "/test/workspace",
+        },
       });
 
       const tasks = backend.parseTasks(jsonContent);
