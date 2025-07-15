@@ -331,6 +331,10 @@ export class AsUnknownASTFixer extends CodemodBase {
         riskLevel: "high",
         detector: (node: AsExpression, context: string) => {
           const text = node.getText();
+          // Be more conservative - only match simple service patterns, avoid complex imports
+          if (text.includes("await import(") || text.includes("import(") || text.includes("require(")) {
+            return false;
+          }
           return text.includes("this.sessionProvider as unknown") ||
                  text.includes("this.pathResolver as unknown") ||
                  text.includes("this.workspaceBackend as unknown") ||
@@ -349,28 +353,20 @@ export class AsUnknownASTFixer extends CodemodBase {
           let parent = node.getParent();
           if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
             const nextParent = parent.getParent();
-            if (nextParent) {
-              parent = nextParent;
+            if (nextParent && nextParent.getKind() === SyntaxKind.PropertyAccessExpression) {
+              const text = node.getText();
+              
+              // SAFETY CHECK: Skip complex expressions
+              if (text.includes("await import(") || text.includes("import(") || text.includes("require(")) {
+                return false;
+              }
+              
+              // Match patterns like (sessions as unknown).find(), (results as unknown).map()
+              return text.includes("sessions") || text.includes("results") || 
+                     text.includes("items") || text.includes("data") ||
+                     text.includes("array") || text.includes("list");
             }
           }
-          
-          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
-            const propertyAccess = parent as PropertyAccessExpression;
-            const propertyName = propertyAccess.getName();
-            
-            // Check for array methods
-            const arrayMethods = ["find", "push", "length", "filter", "map", "splice", "findIndex"];
-            if (arrayMethods.includes(propertyName)) {
-              return true;
-            }
-            
-            // Check for Object methods
-            const objectMethods = ["keys", "values", "entries"];
-            if (objectMethods.includes(propertyName)) {
-              return true;
-            }
-          }
-          
           return false;
         },
         canAutoFix: true
@@ -641,6 +637,28 @@ export class AsUnknownASTFixer extends CodemodBase {
       // For 'as unknown' expressions, we want to extract the expression part
       // and replace the entire AsExpression with just the expression
       let expression = node.getExpression();
+      const parent = node.getParent();
+      
+      // SAFETY CHECK: Skip complex expressions that would create syntax errors
+      const expressionText = expression.getText();
+      
+      // Skip dynamic imports and await expressions
+      if (expressionText.includes("await import(") || 
+          expressionText.includes("import(") ||
+          expressionText.includes("require(") ||
+          expressionText.includes("process.") ||
+          expressionText.match(/^\d+$/)) { // Skip numeric literals
+        return false;
+      }
+      
+      // Skip numeric expressions with method calls that would create syntax errors
+      // e.g., (port + 3 as unknown).toString() would become port + 3.toString() which is invalid
+      if (expressionText.includes(" + ") && parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+        const grandParent = parent.getParent();
+        if (grandParent && grandParent.getKind() === SyntaxKind.PropertyAccessExpression) {
+          return false;
+        }
+      }
       
       // If the expression is parenthesized, extract the inner expression
       // This handles cases like (state as unknown) -> state instead of (state)
@@ -649,8 +667,13 @@ export class AsUnknownASTFixer extends CodemodBase {
         expression = parenthesizedExpr.getExpression();
       }
       
+      // ADDITIONAL SAFETY: Skip if extracting parentheses would create complex await/async issues
+      const innerText = expression.getText();
+      if (innerText.includes("await") || innerText.includes("import(")) {
+        return false;
+      }
+      
       // Check if the AsExpression itself is parenthesized
-      const parent = node.getParent();
       if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
         // Replace the entire parenthesized expression with just the inner expression
         parent.replaceWithText(expression.getText());

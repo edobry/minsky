@@ -150,7 +150,7 @@ export class SharedErrorHandler {
     return (
       process.env.DEBUG === "true" ||
       process.env.DEBUG === "1" ||
-      (typeof process.env.NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"))
+      (typeof process.env.NODE_DEBUG === "string" && process.env.NODE_DEBUG.includes("minsky"))
     );
   }
 
@@ -166,7 +166,7 @@ export class SharedErrorHandler {
     const normalizedError = ensureError(error as any);
 
     // Format error for structured logging
-    const formattedError = SharedErrorHandler.formatError(error as unknown, debug);
+    const formattedError = SharedErrorHandler.formatError(error, debug);
 
     // Log to appropriate channels based on mode
     if (isStructuredMode()) {
@@ -238,7 +238,7 @@ export class CliErrorHandler implements ErrorHandler {
     // Use structured logging in structured mode
     if (isStructuredMode()) {
       // Format error for structured logging
-      const formattedError = SharedErrorHandler.formatError(error as unknown, debug);
+      const formattedError = SharedErrorHandler.formatError(error, debug);
       log.error("CLI operation failed", formattedError);
     }
 
@@ -261,7 +261,7 @@ export class McpErrorHandler implements ErrorHandler {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
 
     // Format error for MCP response
-    const formattedError = SharedErrorHandler.formatError(error as unknown, debug);
+    const formattedError = SharedErrorHandler.formatError(error, debug);
 
     // Log error in structured format
     log.error("MCP operation failed", formattedError);

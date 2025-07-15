@@ -136,7 +136,7 @@ export class SessionDbHealthMonitor {
 
     try {
       // Create storage backend with timeout
-      const storage = StorageBackendFactory.createFromConfig(config as unknown);
+      const storage = StorageBackendFactory.createFromConfig(config);
 
       // Test basic operations with timeout
       const testPromise = this.testBasicOperations(storage);
@@ -150,7 +150,7 @@ export class SessionDbHealthMonitor {
       status.responseTime = Date.now() - startTime;
 
       // Backend-specific health checks
-      await this.performBackendSpecificChecks(config as unknown, status);
+      await this.performBackendSpecificChecks(config, status);
     } catch (error) {
       status.healthy = false;
       status.responseTime = Date.now() - startTime;
@@ -194,13 +194,13 @@ export class SessionDbHealthMonitor {
   ): Promise<void> {
     switch (config.backend) {
     case "json":
-      await this.checkJsonBackendHealth(config as unknown, status);
+      await this.checkJsonBackendHealth(config, status);
       break;
     case "sqlite":
-      await this.checkSqliteBackendHealth(config as unknown, status);
+      await this.checkSqliteBackendHealth(config, status);
       break;
     case "postgres":
-      await this.checkPostgresBackendHealth(config as unknown, status);
+      await this.checkPostgresBackendHealth(config, status);
       break;
     }
   }
@@ -350,7 +350,7 @@ export class SessionDbHealthMonitor {
     successRate: number;
     recentErrors: number;
     } {
-    const recentMetrics = (this.metrics as unknown).slice(-100); // Last 100 operations
+    const recentMetrics = this.metrics.slice(-100); // Last 100 operations
 
     if (recentMetrics.length === 0) {
       return {
@@ -491,7 +491,7 @@ export class SessionDbHealthMonitor {
 
     // Keep only recent metrics
     if (this.metrics.length > this.MAX_METRICS) {
-      this.metrics = (this.metrics as unknown).slice(-this.MAX_METRICS);
+      this.metrics = this.metrics.slice(-this.MAX_METRICS);
     }
 
     // Log performance issues
@@ -514,7 +514,7 @@ export class SessionDbHealthMonitor {
    * Get recent metrics
    */
   static getRecentMetrics(count: number = 50): PerformanceMetrics[] {
-    return (this.metrics as unknown).slice(-count);
+    return this.metrics.slice(-count);
   }
 
   /**
@@ -536,7 +536,7 @@ export class SessionDbHealthMonitor {
   }> {
     const totalOps = this.metrics.length;
     const errors = this.metrics.filter(m => !m.success).length;
-    const avgResponse = totalOps > 0 ? (this.metrics as unknown).reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
+    const avgResponse = totalOps > 0 ? this.metrics.reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
     const uptime =
       this.metrics && this.metrics[0]
         ? Date.now() - new Date(this.metrics[0].timestamp).getTime()

@@ -94,7 +94,7 @@ export function updateSessionFn(
     return state;
   }
 
-  const { session: _, ...safeUpdates } = updates as unknown;
+  const { session: _, ...safeUpdates } = updates as any;
   const updatedSessions = [...state.sessions];
   updatedSessions[index] = { ...updatedSessions[index], ...safeUpdates };
 
@@ -143,7 +143,7 @@ export function getSessionWorkdirFn(
 ): string | undefined {
   const session = getSessionFn(state, sessionName);
   if (!session) {
-    return null;
+    return undefined;
   }
 
   return getRepoPathFn(state, session);

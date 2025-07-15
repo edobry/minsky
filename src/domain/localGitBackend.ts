@@ -111,7 +111,7 @@ export class LocalGitBackend implements RepositoryBackend {
       await mkdir(dirname(workdir), { recursive: true });
 
       // Clone the repository
-      await this.execGit(["clone", this.config.path, workdir]);
+      await this.execGit(["clone", this.config.path, workdir] as any[]);
 
       // Set the local path
       this.localPath = workdir;
@@ -141,7 +141,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
     const cacheKey = generateRepoKey(this.localPath, "status");
 
-    return (this.cache as unknown).get(
+    return this.cache.get(
       cacheKey,
       async () => {
         try {
@@ -229,7 +229,7 @@ export class LocalGitBackend implements RepositoryBackend {
       await this.execGit(["push", "origin", branchToPush] as any[]);
 
       // Invalidate status cache after pushing
-      (this.cache as unknown).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
+      this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
     } catch (error) {
       throw new RepositoryError(
         `Failed to push branch ${branchToPush}`,
@@ -254,7 +254,7 @@ export class LocalGitBackend implements RepositoryBackend {
       await this.execGit(["pull", "origin", branchToPull] as any[]);
 
       // Invalidate status cache after pulling
-      (this.cache as unknown).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
+      this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
     } catch (error) {
       throw new RepositoryError(
         `Failed to pull branch ${branchToPull}`,
@@ -279,7 +279,7 @@ export class LocalGitBackend implements RepositoryBackend {
       await this.execGit(["checkout", "-b", name] as any[]);
 
       // Invalidate status cache after branch creation
-      (this.cache as unknown).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
+      this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
 
       return {
         workdir: this.localPath!,
@@ -307,7 +307,7 @@ export class LocalGitBackend implements RepositoryBackend {
       await this.execGit(["checkout", branch] as any[]);
 
       // Invalidate status cache after checkout
-      (this.cache as unknown).invalidateByPrefix(generateRepoKey(this.localPath, "status"));
+      this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
     } catch (error) {
       throw new RepositoryError(
         `Failed to checkout branch ${branch}`,

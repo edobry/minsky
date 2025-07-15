@@ -122,8 +122,8 @@ implements DatabaseStorage<TEntity, TState>
       // and possibly other fields like baseDir
       const state = {
         sessions,
-        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky`,
-      };
+        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky` as unknown,
+      } as TState;
 
       return { success: true, data: state };
     } catch (error) {
@@ -143,7 +143,7 @@ implements DatabaseStorage<TEntity, TState>
       const sessions = state.sessions || [];
 
       // Use Drizzle transaction
-      await (this.drizzleDb as unknown).transaction(async (tx) => {
+      await this.drizzleDb.transaction(async (tx) => {
         // Clear existing sessions
         await tx.delete(sessionsTable);
 
@@ -178,12 +178,12 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const result = await (this.drizzleDb
+      const result = await this.drizzleDb
         .select()
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id)) as unknown).limit(1);
+        .where(eq(sessionsTable.session, id)).limit(1);
 
-      return ((result as unknown)[0] as TEntity) || null;
+      return (result[0] as TEntity) || null;
     } catch (error) {
       const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
@@ -287,9 +287,9 @@ implements DatabaseStorage<TEntity, TState>
         return existing; // No updates needed
       }
 
-      await (this.drizzleDb
+      await this.drizzleDb
         .update(sessionsTable)
-        .set(updateData as unknown) as unknown).where(eq(sessionsTable.session, id));
+        .set(updateData).where(eq(sessionsTable.session, id));
 
       // Return updated entity
       return { ...existing, ...updates };
@@ -305,7 +305,7 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      await (this.drizzleDb.delete(sessionsTable) as unknown).where(eq(sessionsTable.session, id));
+      await this.drizzleDb.delete(sessionsTable).where(eq(sessionsTable.session, id));
 
       // Since Drizzle doesn't return changes count, we'll check if the entity existed
       const entityExists = await this.entityExists(id);
@@ -322,10 +322,10 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const result = await (this.drizzleDb
+      const result = await this.drizzleDb
         .select({ count: sessionsTable.session })
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id)) as unknown).limit(1);
+        .where(eq(sessionsTable.session, id)).limit(1);
 
       return result.length > 0 as unknown;
     } catch (error) {

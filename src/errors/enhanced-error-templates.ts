@@ -54,7 +54,7 @@ export function createSessionPrBranchErrorMessage(
     ]
   };
 
-  return buildErrorMessage(template, context as unknown);
+  return buildErrorMessage(template, context);
 }
 
 /**
@@ -115,7 +115,7 @@ export function createTaskIdParsingErrorMessage(
     ]
   };
 
-  return buildErrorMessage(template, context as unknown);
+  return buildErrorMessage(template, context);
 }
 
 /**
@@ -364,7 +364,7 @@ export function createBackendDetectionErrorMessage(
 ): string {
   const backendsList = availableBackends.length > 0 
     ? availableBackends.map(backend => {
-      const requirements = (configurationRequirements as unknown)[backend] || [];
+      const requirements = configurationRequirements[backend] || [];
       const reqText = requirements.length > 0 ? ` (requires: ${requirements.join(", ")})` : "";
       return `• ${backend}${reqText}`;
     }).join("\n")

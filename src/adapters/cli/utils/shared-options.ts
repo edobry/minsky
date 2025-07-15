@@ -147,7 +147,7 @@ export function normalizeRepoOptions(options: RepoOptions): {
   return {
     session: options.session,
     repo: options.repo,
-    workspace: (options as unknown)["upstream-repo"],
+    workspace: options["upstream-repo"],
   };
 }
 
@@ -201,8 +201,8 @@ export function normalizeTaskParams<T extends RepoOptions & OutputOptions & Back
   json?: boolean;
 } {
   return {
-    ...normalizeRepoOptions(options as unknown),
-    ...normalizeOutputOptions(options as unknown),
+    ...normalizeRepoOptions(options),
+    ...normalizeOutputOptions(options),
     backend: options.backend,
   };
 }
@@ -223,8 +223,8 @@ export function normalizeSessionParams<T extends RepoOptions & OutputOptions & T
   json?: boolean;
 } {
   return {
-    ...normalizeRepoOptions(options as unknown),
-    ...normalizeOutputOptions(options as unknown),
-    ...normalizeTaskOptions(options as unknown),
+    ...normalizeRepoOptions(options),
+    ...normalizeOutputOptions(options),
+    ...normalizeTaskOptions(options),
   };
 }
