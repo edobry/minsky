@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document provides comprehensive guidelines for preventing excessive use of 'as unknown' type assertions in TypeScript code. These guidelines are based on the analysis from Task #280, which identified 2,728 'as unknown' assertions and successfully reduced them by 80.6%.
+This document provides comprehensive guidelines for preventing excessive use of 'as unknown' type assertions in TypeScript code. These guidelines are based on the analysis from Task #280, which identified 2,728 'as unknown' assertions and successfully reduced them by 74.7%.
 
 ## Why 'as unknown' is Dangerous
 
@@ -13,6 +13,7 @@ This document provides comprehensive guidelines for preventing excessive use of 
 3. **Create maintenance burden**: Make refactoring and debugging harder
 4. **Indicate design issues**: Usually signal missing or incorrect type definitions
 
+<<<<<<< HEAD
 ## Rules and Best Practices
 
 ### 🚫 NEVER Use 'as unknown' For:
@@ -161,13 +162,145 @@ if (DomainTypeGuards.isSessionLike(obj)) {
 ## ESLint Rule Configuration
 
 The custom ESLint rule `custom/no-excessive-as-unknown` helps prevent these patterns:
+=======
+## Rule: Never Use These Patterns
+
+### ❌ Critical Patterns (Always Forbidden)
+
+```typescript
+// Never cast return values
+function getData(): any {
+  return someData as unknown; // ❌ NEVER
+}
+
+// Never cast null/undefined
+const result = null as unknown; // ❌ NEVER
+const value = undefined as unknown; // ❌ NEVER
+```
+
+### ❌ Dangerous Patterns (Usually Wrong)
+
+```typescript
+// Property access through unknown
+const property = (someObject as unknown).property; // ❌ DANGEROUS
+
+// Method calls through unknown
+const result = (someService as unknown).method(); // ❌ DANGEROUS
+
+// Array operations through unknown
+const length = (someArray as unknown).length; // ❌ DANGEROUS
+const items = (someArray as unknown).map(fn); // ❌ DANGEROUS
+```
+
+## Better Alternatives
+
+### ✅ Use Type Guards Instead
+
+```typescript
+// Instead of: (someValue as unknown).property
+// Use type guards:
+import { hasProperty } from '../utils/type-guards';
+
+if (hasProperty(someValue, 'property')) {
+  const property = someValue.property; // ✅ Type-safe
+}
+```
+
+### ✅ Use Utility Functions
+
+```typescript
+// Instead of: (someObject as unknown).property
+// Use safe property access:
+import { safeGet } from '../utils/type-guards';
+
+const property = safeGet(someObject, 'property'); // ✅ Safe
+```
+
+### ✅ Use Proper Type Definitions
+
+```typescript
+// Instead of: (options as unknown).timeout
+// Define proper interfaces:
+interface Options {
+  timeout?: number;
+  retries?: number;
+}
+
+function processOptions(options: Options) {
+  const timeout = options.timeout || 5000; // ✅ Type-safe
+}
+```
+
+## Specific Use Cases and Solutions
+
+### Environment Variables
+
+```typescript
+// ❌ Bad
+const port = process.env.PORT as unknown as number;
+
+// ✅ Good
+import { EnvUtils } from '../utils/type-guards';
+const port = EnvUtils.getNumber('PORT', 3000);
+```
+
+### JSON Parsing
+
+```typescript
+// ❌ Bad
+const data = JSON.parse(jsonString) as unknown as MyType;
+
+// ✅ Good
+import { JsonUtils } from '../utils/type-guards';
+const data = JsonUtils.safeParse(jsonString, isMyType);
+```
+
+### Service Method Calls
+
+```typescript
+// ❌ Bad
+const result = (someService as unknown).process(data);
+
+// ✅ Good
+import { ServiceUtils } from '../utils/type-guards';
+const result = ServiceUtils.safeCall(someService, 'process', data);
+```
+
+### Configuration Objects
+
+```typescript
+// ❌ Bad
+const setting = (config as unknown).setting;
+
+// ✅ Good
+import { ConfigUtils } from '../utils/type-guards';
+const setting = ConfigUtils.get(config, 'setting', defaultValue);
+```
+
+### Array Operations
+
+```typescript
+// ❌ Bad
+const items = (someArray as unknown).map(fn);
+
+// ✅ Good
+import { ArrayUtils } from '../utils/type-guards';
+const items = ArrayUtils.safeMap(someArray, fn);
+```
+
+## ESLint Integration
+
+The project includes a custom ESLint rule `custom/no-excessive-as-unknown` that detects dangerous patterns:
 
 ```json
 {
   "rules": {
     "custom/no-excessive-as-unknown": ["error", {
       "allowInTests": false,
-      "allowPatterns": ["specific-pattern-regex"],
+      "allowPatterns": [
+        "process\\.env\\[.*\\] as unknown",
+        "import\\(.*\\) as unknown"
+      ],
       "maxAssertionsPerFile": 5
     }]
   }
@@ -233,125 +366,113 @@ const message = (error as unknown).message;
 if (DomainTypeGuards.isErrorLike(error)) {
   const message = error.message;
 }
+=======
+### Rule Severity Levels
+
+- **ERROR**: Critical patterns that should never be used
+- **WARN**: Dangerous patterns that usually indicate typing issues
+- **INFO**: Risky patterns that may be acceptable in some contexts
+
+## When 'as unknown' Might Be Acceptable
+
+### Legitimate Use Cases (Rare)
+
+1. **Type bridging with proper validation**:
+```typescript
+function bridgeTypes<T>(value: unknown, validator: (v: unknown) => v is T): T {
+  if (validator(value)) {
+    return value;
+  }
+  throw new Error('Invalid type');
+}
+```
+
+2. **Low-level library integration**:
+```typescript
+// When interfacing with untyped libraries
+const result = (externalLibrary as unknown as LibraryInterface).method();
+```
+
+3. **Test utilities and mocking**:
+```typescript
+// In test files only
+const mockService = { method: jest.fn() } as unknown as ServiceInterface;
 ```
 
 ## Migration Strategy
 
-### Step 1: Identify Patterns
-Run the analysis tool to identify all 'as unknown' assertions:
+### Step 1: Identify Violations
+
+Run ESLint to find all 'as unknown' violations:
 
 ```bash
-bun run scripts/analyze-as-unknown.ts
+bun run lint
 ```
 
 ### Step 2: Categorize by Risk
-Use the ESLint rule to categorize assertions by severity:
+
+- **Critical**: Fix immediately (return statements, null/undefined)
+- **High**: Fix with proper interfaces and type guards
+- **Medium**: Consider if legitimate or can be improved
+
+### Step 3: Use Automated Tools
+
+Use the AST codemod to automatically fix common patterns:
 
 ```bash
-bun run lint | grep "no-excessive-as-unknown"
+bun run codemods/ast-type-cast-fixer.ts
 ```
 
-### Step 3: Fix Critical Patterns First
-1. **Return statements**: Add proper return types
-2. **Null/undefined**: Remove unnecessary casts
-3. **Property access**: Add type guards or interfaces
+### Step 4: Manual Review
 
-### Step 4: Fix High-Risk Patterns
-1. **Array operations**: Use type guards
-2. **Service calls**: Use safe service utilities
-3. **Object methods**: Add proper interfaces
+Review remaining assertions to ensure they're legitimate or can be improved with proper typing.
 
-### Step 5: Address Medium-Risk Patterns
-1. **Environment variables**: Use safe utilities
-2. **JSON parsing**: Use safe parsing functions
-3. **Module imports**: Add proper type definitions
+## Development Workflow
 
-## Testing Guidelines
+### For New Code
 
-### Acceptable Test Patterns
-```typescript
-// ✅ ACCEPTABLE - Mock objects in tests
-const mockService = {
-  getData: jest.fn().mockResolvedValue('test')
-} as unknown as MyService;
+1. **Never start with 'as unknown'**: Always try proper typing first
+2. **Use type guards**: Import and use utilities from `src/utils/type-guards.ts`
+3. **Define interfaces**: Create proper type definitions for your data structures
+4. **Validate at boundaries**: Use type guards when receiving external data
 
-// ✅ ACCEPTABLE - Test data setup
-const testData = {
-  id: '123',
-  name: 'Test'
-} as unknown as ComplexType;
-```
+### For Existing Code
 
-### Unacceptable Test Patterns
-```typescript
-// ❌ WRONG - Even in tests
-const result = (service as unknown).getData();
-
-// ✅ CORRECT - Use proper mocking
-const mockService = createMockService();
-const result = mockService.getData();
-```
+1. **Run ESLint**: Check for violations before committing
+2. **Fix critical patterns**: Address errors immediately
+3. **Improve gradually**: Replace dangerous patterns with safer alternatives
+4. **Test thoroughly**: Ensure type safety improvements don't break functionality
 
 ## Performance Considerations
 
-### Type Guards vs Assertions
-Type guards provide runtime safety but have performance overhead:
+Using proper type guards and validation has minimal performance impact compared to the debugging and maintenance costs of 'as unknown' assertions:
 
-```typescript
-// Faster but unsafe
-const value = (obj as unknown).property;
+- **Type guards**: Add minimal runtime overhead
+- **Utility functions**: Can be optimized by bundlers
+- **Proper types**: Zero runtime cost, compile-time benefits
 
-// Slightly slower but safe
-const value = hasProperty(obj, 'property') ? obj.property : undefined;
-```
+## Tools and Utilities
 
-### When Performance Matters
-In performance-critical code, consider:
-1. **Proper typing at the source** (best solution)
-2. **One-time type validation** at boundaries
-3. **Assertion functions** for guaranteed types
+### ESLint Rule
 
-## Code Review Checklist
+- Location: `src/eslint-rules/no-excessive-as-unknown.js`
+- Configuration: `eslint.config.js`
+- Provides auto-fixing for simple cases
 
-### For Reviewers:
-- [ ] Are there any 'as unknown' assertions?
-- [ ] Can they be replaced with type guards?
-- [ ] Are proper interfaces defined?
-- [ ] Is the ESLint rule passing?
-- [ ] Are test assertions justified?
+### Type Guards and Utilities
 
-### For Developers:
-- [ ] Did I try proper typing first?
-- [ ] Is this the simplest solution?
-- [ ] Am I masking a real type error?
-- [ ] Could this break at runtime?
-- [ ] Is there a safe utility I can use?
+- Location: `src/utils/type-guards.ts`
+- Provides safe alternatives to 'as unknown'
+- Includes utilities for common use cases
 
-## Tooling
+### AST Codemod
 
-### Available Tools:
-1. **ESLint Rule**: `custom/no-excessive-as-unknown`
-2. **Type Guards**: `src/utils/type-guards.ts`
-3. **Analysis Script**: `scripts/analyze-as-unknown.ts`
-4. **Codemod**: `codemods/ast-type-cast-fixer.ts`
-
-### Integration:
-- Pre-commit hooks catch new violations
-- CI/CD pipeline fails on critical patterns
-- Code review process includes type safety checks
+- Location: `codemods/ast-type-cast-fixer.ts`
+- Automatically fixes common patterns
+- Maintains comprehensive documentation and tests
 
 ## Conclusion
 
-The goal is not to eliminate all 'as unknown' assertions, but to:
-1. **Reduce dangerous patterns** that mask real errors
-2. **Improve type safety** through proper typing
-3. **Maintain code quality** with consistent practices
-4. **Prevent regression** through tooling and guidelines
+The goal is to eliminate dangerous 'as unknown' assertions while maintaining type safety and code quality. By following these guidelines and using the provided tools, you can write more maintainable, type-safe TypeScript code.
 
-By following these guidelines, we can maintain TypeScript's type safety benefits while avoiding the pitfalls of excessive type assertions.
-
-## Further Reading
-
-- [TypeScript Type Guards](https://www.typescriptlang.org/docs/handbook/advanced-types.html#type-guards-and-differentiating-types)
-- [ESLint Custom Rules](https://eslint.org/docs/developer-guide/working-with-rules)
-- [Type Safety Best Practices](https://www.typescriptlang.org/docs/handbook/declaration-files/do-s-and-don-ts.html) 
+Remember: **If you need 'as unknown', there's usually a better way to solve the problem with proper typing.**
