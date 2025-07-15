@@ -278,8 +278,6 @@ _See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specst
 
 _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
 
-### Fixed
-
 - **Task #255: Fix Session Dependency Installation Error**
   - Fixed critical bug where session startup would fail with "null is not an object" error during dependency installation
   - Issue: execSync returns null when stdio is "ignore" but code was calling .toString() on the null value
@@ -1182,3 +1180,8 @@ _See: SpecStory history [2025-01-16_fix-session-get-output](mdc:.specstory/histo
 - Removed redundant bun-test.d.ts (now using bun-types package)
 
 _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/history/2025-06-18_18-00-continue-linter-fixes.md) for linter cleanup progress._
+
+### Fixed
+- Fixed inconsistent task ID format display in session list output
+- Normalized task#244 from displaying `(task: 244)` to `(task: #244)` for consistency
+- Added script `scripts/normalize-session-task-ids.ts` for future task ID format normalization
