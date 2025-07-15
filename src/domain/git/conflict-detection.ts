@@ -10,6 +10,12 @@ import { predictRebaseConflictsImpl } from "./rebase-conflict-prediction";
 import { generateAdvancedResolutionStrategiesImpl } from "./advanced-resolution-strategies";
 import { simulateMergeImpl } from "./merge-simulation";
 import {
+  analyzeConflictFiles,
+  analyzeDeletion,
+  analyzeConflictRegions,
+  analyzeConflictSeverity,
+} from "./conflict-analysis-operations";
+import {
   ConflictPrediction,
   ConflictFile,
   ConflictRegion,
@@ -682,68 +688,7 @@ export class ConflictDetectionService {
   }
 
   private async analyzeConflictFiles(repoPath: string): Promise<ConflictFile[]> {
-    try {
-      const { stdout: statusOutput } = await execAsync(
-        `git -C ${repoPath} status --porcelain`
-      );
-
-      const conflictFiles: ConflictFile[] = [];
-      const lines = statusOutput
-        .trim()
-        .split("\n")
-        .filter((line) => line.trim());
-
-      for (const line of lines) {
-        const status = line.substring(0, 2);
-        const filePath = line.substring(3);
-
-        let fileStatus: FileConflictStatus;
-        let deletionInfo: DeletionInfo | undefined;
-
-        switch (status) {
-        case "UU":
-          fileStatus = FileConflictStatus.MODIFIED_BOTH;
-          break;
-        case "DU":
-          fileStatus = FileConflictStatus.DELETED_BY_US;
-          deletionInfo = await this.analyzeDeletion(repoPath, filePath, "us");
-          break;
-        case "UD":
-          fileStatus = FileConflictStatus.DELETED_BY_THEM;
-          deletionInfo = await this.analyzeDeletion(
-            repoPath,
-            filePath,
-            "them"
-          );
-          break;
-        case "AU":
-          fileStatus = FileConflictStatus.ADDED_BY_US;
-          break;
-        case "UA":
-          fileStatus = FileConflictStatus.ADDED_BY_THEM;
-          break;
-        default:
-          continue; // Skip non-conflict files
-        }
-
-        const conflictRegions =
-          fileStatus === FileConflictStatus.MODIFIED_BOTH
-            ? await this.analyzeConflictRegions(repoPath, filePath)
-            : undefined;
-
-        conflictFiles.push({
-          path: filePath,
-          status: fileStatus,
-          conflictRegions,
-          deletionInfo,
-        });
-      }
-
-      return conflictFiles;
-    } catch (error) {
-      log.error("Error analyzing conflict files", { error, repoPath });
-      throw error;
-    }
+    return analyzeConflictFiles(repoPath);
   }
 
   private async analyzeDeletion(
@@ -751,67 +696,14 @@ export class ConflictDetectionService {
     filePath: string,
     deletedBy: "us" | "them"
   ): Promise<DeletionInfo> {
-    try {
-      // Get the last commit that touched this file
-      const { stdout: lastCommit } = await execAsync(
-        `git -C ${repoPath} log -n 1 --format=%H -- ${filePath}`
-      );
-
-      return {
-        deletedInBranch: deletedBy === "us" ? "session" : "main",
-        modifiedInBranch: deletedBy === "us" ? "main" : "session",
-        lastCommitHash: lastCommit.trim(),
-        canAutoResolve: true, // Deletions are generally auto-resolvable
-      };
-    } catch (error) {
-      log.warn("Could not analyze deletion", { error, filePath });
-      return {
-        deletedInBranch: deletedBy === "us" ? "session" : "main",
-        modifiedInBranch: deletedBy === "us" ? "main" : "session",
-        lastCommitHash: "unknown",
-        canAutoResolve: false,
-      };
-    }
+    return analyzeDeletion(repoPath, filePath, deletedBy);
   }
 
   private async analyzeConflictRegions(
     repoPath: string,
     filePath: string
   ): Promise<ConflictRegion[]> {
-    try {
-      const { stdout: fileContent } = await execAsync(
-        `cat "${repoPath}/${filePath}"`
-      );
-      const lines = fileContent.split("\n");
-
-      const regions: ConflictRegion[] = [];
-      let inConflict = false;
-      let startLine = 0;
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-
-        if (!line) continue;
-
-        if (line.startsWith("<<<<<<<")) {
-          inConflict = true;
-          startLine = i + 1;
-        } else if (line.startsWith(">>>>>>>") && inConflict) {
-          regions.push({
-            startLine,
-            endLine: i + 1,
-            type: "content",
-            description: `Content conflict in lines ${startLine}-${i + 1}`,
-          });
-          inConflict = false;
-        }
-      }
-
-      return regions;
-    } catch (error) {
-      log.warn("Could not analyze conflict regions", { error, filePath });
-      return [];
-    }
+    return analyzeConflictRegions(repoPath, filePath);
   }
 
   private async checkSessionChangesInBase(
@@ -882,60 +774,7 @@ export class ConflictDetectionService {
     conflictType: ConflictType;
     severity: ConflictSeverity;
   } {
-    if (conflictFiles.length === 0) {
-      return {
-        conflictType: ConflictType.NONE,
-        severity: ConflictSeverity.NONE,
-      };
-    }
-
-    const hasContentConflicts = conflictFiles.some(
-      (f) => f.status === FileConflictStatus.MODIFIED_BOTH
-    );
-    const hasDeleteConflicts = conflictFiles.some(
-      (f) =>
-        f.status === FileConflictStatus.DELETED_BY_US ||
-        f.status === FileConflictStatus.DELETED_BY_THEM
-    );
-    const hasRenameConflicts = conflictFiles.some(
-      (f) => f.status === FileConflictStatus.RENAMED
-    );
-
-    let conflictType: ConflictType;
-    let severity: ConflictSeverity;
-
-    if (hasRenameConflicts) {
-      conflictType = ConflictType.RENAME_CONFLICT;
-      severity = ConflictSeverity.MANUAL_COMPLEX;
-    } else if (hasContentConflicts && hasDeleteConflicts) {
-      conflictType = ConflictType.CONTENT_CONFLICT;
-      severity = ConflictSeverity.MANUAL_COMPLEX;
-    } else if (hasDeleteConflicts) {
-      conflictType = ConflictType.DELETE_MODIFY;
-      // Check if all deletions are auto-resolvable
-      const allAutoResolvable = conflictFiles
-        .filter((f) => f.deletionInfo)
-        .every((f) => f.deletionInfo?.canAutoResolve);
-      severity = allAutoResolvable
-        ? ConflictSeverity.AUTO_RESOLVABLE
-        : ConflictSeverity.MANUAL_SIMPLE;
-    } else if (hasContentConflicts) {
-      conflictType = ConflictType.CONTENT_CONFLICT;
-      // Analyze content conflict complexity
-      const totalRegions = conflictFiles.reduce(
-        (sum, f) => sum + (f.conflictRegions?.length || 0),
-        0
-      );
-      severity =
-        totalRegions <= 3
-          ? ConflictSeverity.MANUAL_SIMPLE
-          : ConflictSeverity.MANUAL_COMPLEX;
-    } else {
-      conflictType = ConflictType.CONTENT_CONFLICT;
-      severity = ConflictSeverity.MANUAL_SIMPLE;
-    }
-
-    return { conflictType, severity };
+    return analyzeConflictSeverity(conflictFiles);
   }
 
   private generateResolutionStrategies(
