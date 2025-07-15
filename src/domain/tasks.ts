@@ -674,34 +674,34 @@ export class TaskService {
     const selectedBackend = this.backends.find((b) => b.name === backend);
     if (!selectedBackend) {
       throw new Error(
-        `Backend '${backend}' not found. Available backends: ${(this.backends.map((b) => b.name) as unknown).join(", ")}`
+        `Backend '${backend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
       );
     }
     this.currentBackend = selectedBackend;
   }
 
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
-    return (this.currentBackend as unknown).listTasks(options as unknown);
+    return this.currentBackend.listTasks(options);
   }
 
   async getTask(id: string): Promise<Task | null> {
-    return (this.currentBackend as unknown).getTask(id);
+    return this.currentBackend.getTask(id);
   }
 
   async getTaskStatus(id: string): Promise<string | undefined> {
-    return (this.currentBackend as unknown).getTaskStatus(id);
+    return this.currentBackend.getTaskStatus(id);
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
-    return (this.currentBackend as unknown).setTaskStatus(id, status);
+    return this.currentBackend.setTaskStatus(id, status);
   }
 
   getWorkspacePath(): string {
-    return (this.currentBackend as unknown).getWorkspacePath();
+    return this.currentBackend.getWorkspacePath();
   }
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
-    return (this.currentBackend as unknown).createTask(specPath, options as unknown);
+    return this.currentBackend.createTask(specPath, options);
   }
 
   /**
@@ -728,6 +728,6 @@ export class TaskService {
   }
 
   async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
-    return (this.currentBackend as unknown).deleteTask(id, options as unknown);
+    return this.currentBackend.deleteTask(id, options);
   }
 }
