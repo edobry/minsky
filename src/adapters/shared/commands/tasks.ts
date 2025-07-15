@@ -14,6 +14,7 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
+  type CommandDefinition,
 } from "../command-registry";
 import {
   getTaskStatusFromParams,
@@ -36,7 +37,7 @@ import { TASK_STATUS } from "../../../domain/tasks/taskConstants";
 /**
  * Parameters for tasks status get command
  */
-const tasksStatusGetParams: CommandParameterMap = {
+const tasksStatusGetParams = {
   taskId: {
     schema: z.string(),
     description: "Task identifier",
@@ -54,7 +55,7 @@ const tasksStatusGetParams: CommandParameterMap = {
   },
   session: {
     schema: z.string(),
-    description: "Session identifier",
+    description: "Session name",
     required: false,
   },
   backend: {
@@ -67,28 +68,33 @@ const tasksStatusGetParams: CommandParameterMap = {
     description: "Output in JSON format",
     required: false,
   },
+} as const satisfies CommandParameterMap;
+
+/**
+ * Type for tasks status get parameters
+ */
+type TasksStatusGetParams = {
+  taskId: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+  backend?: string;
+  json?: boolean;
 };
 
 /**
  * Parameters for tasks status set command
  */
-const tasksStatusSetParams: CommandParameterMap = {
+const tasksStatusSetParams = {
   taskId: {
     schema: z.string(),
     description: "Task identifier",
     required: true,
   },
   status: {
-    schema: z.enum([
-      TASK_STATUS.TODO,
-      TASK_STATUS.IN_PROGRESS,
-      TASK_STATUS.IN_REVIEW,
-      TASK_STATUS.DONE,
-      TASK_STATUS.BLOCKED,
-      TASK_STATUS.CLOSED,
-    ]),
+    schema: z.enum(["NEW", "IN_PROGRESS", "BLOCKED", "IN_REVIEW", "DONE", "CANCELLED"]),
     description: "Task status",
-    required: false,
+    required: true,
   },
   repo: {
     schema: z.string(),
@@ -102,7 +108,7 @@ const tasksStatusSetParams: CommandParameterMap = {
   },
   session: {
     schema: z.string(),
-    description: "Session identifier",
+    description: "Session name",
     required: false,
   },
   backend: {
@@ -115,6 +121,19 @@ const tasksStatusSetParams: CommandParameterMap = {
     description: "Output in JSON format",
     required: false,
   },
+} as const satisfies CommandParameterMap;
+
+/**
+ * Type for tasks status set parameters
+ */
+type TasksStatusSetParams = {
+  taskId: string;
+  status: "NEW" | "IN_PROGRESS" | "BLOCKED" | "IN_REVIEW" | "DONE" | "CANCELLED";
+  repo?: string;
+  workspace?: string;
+  session?: string;
+  backend?: string;
+  json?: boolean;
 };
 
 /**
@@ -167,11 +186,11 @@ const tasksStatusGetRegistration = {
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
-    const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
+  execute: async (params: TasksStatusGetParams, ctx: CommandExecutionContext) => {
+    const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const status = await getTaskStatusFromParams({
@@ -195,89 +214,44 @@ const tasksStatusSetRegistration = {
   name: "status set",
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
-  execute: async (params, _ctx: CommandExecutionContext) => {
+  execute: async (params: TasksStatusSetParams, _ctx: CommandExecutionContext) => {
     log.debug("Starting tasks.status.set execution");
-    if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
-    // Normalize and validate task ID first
-    log.debug("About to normalize task ID");
-    const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
+    const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
 
-    // Verify the task exists before prompting for status and get current status
-    // This will throw ResourceNotFoundError if task doesn't exist
-    log.debug("About to get previous status");
-    const previousStatus = await getTaskStatusFromParams({
+    const setTaskStatusParams = {
       taskId: normalizedTaskId,
-      repo: (params as unknown)!.repo,
-      workspace: (params as unknown)!.workspace,
-      session: (params as unknown)!.session,
-      backend: (params as unknown)!.backend,
-    });
-    log.debug("Previous status retrieved successfully");
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+      backend: params.backend,
+    };
 
-    let status = (params as unknown)!.status;
+    const status = params.status;
 
-    // If status is not provided, prompt for it interactively
-    if (!status) {
-      // Check if we're in an interactive environment
-      if (!process.stdout.isTTY) {
-        throw new ValidationError("Status parameter is required in non-interactive mode");
-      }
-
-      // Define the options array for consistency
-      const statusOptions = [
-        { value: TASK_STATUS.TODO, label: "TODO" },
-        { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
-        { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
-        { value: TASK_STATUS.DONE, label: "DONE" },
-        { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
-        { value: TASK_STATUS.CLOSED, label: "CLOSED" },
-      ];
-
-      // Find the index of the current status to pre-select it
-      const currentStatusIndex = statusOptions.findIndex(
-        (option) => option?.value === previousStatus
+    // Validate status is one of the supported values
+    const validStatuses = ["NEW", "IN_PROGRESS", "BLOCKED", "IN_REVIEW", "DONE", "CANCELLED"];
+    if (!validStatuses.includes(status)) {
+      throw new ValidationError(
+        `Invalid status: '${status}'. Must be one of: ${validStatuses.join(", ")}`
       );
-      const initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0; // Default to TODO if current status not found
-
-      // Prompt for status selection
-      const selectedStatus = await select({
-        message: "Select a status:",
-        options: statusOptions,
-        initialValue: currentStatusIndex >= 0 ? previousStatus : TASK_STATUS?.TODO, // Pre-select the current status
-      });
-
-      // Handle cancellation
-      if (isCancel(selectedStatus)) {
-        cancel("Operation cancelled.");
-        return "Operation cancelled by user";
-      }
-
-      // Re-assign status from the interactive prompt
-      status = selectedStatus as string;
     }
-
-    if (!status) throw new ValidationError("Missing required parameter: status");
 
     await setTaskStatusFromParams({
-      taskId: normalizedTaskId,
-      status: status,
-      repo: (params as unknown)!.repo,
-      workspace: (params as unknown)!.workspace,
-      session: (params as unknown)!.session,
-      backend: (params as unknown)!.backend,
+      ...setTaskStatusParams,
+      status,
     });
 
     return {
       success: true,
       taskId: normalizedTaskId,
       status: status,
-      previousStatus: previousStatus,
     };
   },
 };

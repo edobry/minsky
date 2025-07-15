@@ -19,9 +19,50 @@ import {
 } from "../utils/test-utils/assertions";
 import { createGitService } from "./git";
 import { commitChangesFromParams, pushFromParams } from "./git";
+import type { PrTestDependencies, ExtendedGitDependencies } from "./git";
 
 // Set up automatic mock cleanup
 setupTestMocks();
+
+/**
+ * Creates a type-safe mock for PrTestDependencies
+ */
+function createPrTestDependenciesMock(overrides: Partial<PrTestDependencies> = {}): PrTestDependencies {
+  const mockExecAsync = createMock(async () => ({ stdout: "", stderr: "" }));
+  const mockGetSession = createMock(async () => null);
+  const mockGetSessionWorkdir = createMock(() => "/test/workdir");
+  const mockGetSessionByTaskId = createMock(async () => null);
+
+  return {
+    execAsync: mockExecAsync as any,
+    getSession: mockGetSession as any,
+    getSessionWorkdir: mockGetSessionWorkdir as any,
+    getSessionByTaskId: mockGetSessionByTaskId as any,
+    ...overrides,
+  };
+}
+
+/**
+ * Creates a type-safe mock for ExtendedGitDependencies
+ */
+function createExtendedGitDependenciesMock(overrides: Partial<ExtendedGitDependencies> = {}): ExtendedGitDependencies {
+  const mockExecAsync = createMock(async () => ({ stdout: "", stderr: "" }));
+  const mockGetSession = createMock(async () => null);
+  const mockGetSessionWorkdir = createMock(() => "/test/workdir");
+  const mockMkdir = createMock(async () => {});
+  const mockReaddir = createMock(async () => []);
+  const mockAccess = createMock(async () => {});
+
+  return {
+    execAsync: mockExecAsync as any,
+    getSession: mockGetSession as any,
+    getSessionWorkdir: mockGetSessionWorkdir as any,
+    mkdir: mockMkdir as any,
+    readdir: mockReaddir as any,
+    access: mockAccess as any,
+    ...overrides,
+  };
+}
 
 // Mock the logger module to avoid winston dependency issues
 mockModule("../utils/logger", () => ({
@@ -1068,7 +1109,7 @@ describe("commitChangesFromParams", () => {
     };
 
     const result = await commitChangesFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.commitHash).toBe("abc123");
     expect(result.message).toBe("test commit message");
@@ -1087,7 +1128,7 @@ describe("commitChangesFromParams", () => {
     };
 
     const result = await commitChangesFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.commitHash).toBe("def456");
     expect(result.message).toBe("simple commit");
@@ -1106,7 +1147,7 @@ describe("commitChangesFromParams", () => {
     };
 
     const result = await commitChangesFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.commitHash).toBe("ghi789");
   });
@@ -1142,7 +1183,7 @@ describe("pushFromParams", () => {
     };
 
     const result = await pushFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.pushed).toBe(true);
     expect(result.workdir).toBe("/test/repo");
@@ -1160,7 +1201,7 @@ describe("pushFromParams", () => {
     };
 
     const result = await pushFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.pushed).toBe(true);
   });
@@ -1176,7 +1217,7 @@ describe("pushFromParams", () => {
     };
 
     const result = await pushFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.pushed).toBe(true);
   });
