@@ -36,7 +36,7 @@ export function createConfigListCommand(): Command {
               parsed: source.parsed
             }))
           };
-          await Bun.write(Bun.stdout, `${JSON.stringify(output as unknown, undefined, 2)}\n`);
+          await Bun.write(Bun.stdout, `${JSON.stringify(output, undefined, 2)}\n`);
         } else {
           await displayConfigurationSources(resolved, sources);
         }

@@ -95,7 +95,7 @@ export class CommandMapper {
     this.registeredMethodNames.push(normalizedName);
 
     // Register the tool with FastMCP
-    (this.server as unknown).addTool({
+    this.server.addTool({
       name: normalizedName,
       description: command.description,
       parameters: command.parameters || z.object({}),
@@ -105,17 +105,17 @@ export class CommandMapper {
           // inject the default repository path from project context
           if (
             this.projectContext &&
-            (this.projectContext as unknown).repositoryPath &&
+            this.projectContext.repositoryPath &&
             args &&
             typeof args === "object"
           ) {
             if (!("repositoryPath" in args) || !args.repositoryPath) {
               args = {
                 ...args,
-                repositoryPath: (this.projectContext as unknown).repositoryPath,
+                repositoryPath: this.projectContext.repositoryPath,
               };
               log.debug(`Using default repository path for command ${normalizedName}`, {
-                repositoryPath: (this.projectContext as unknown).repositoryPath,
+                repositoryPath: this.projectContext.repositoryPath,
               });
             }
           }
@@ -132,7 +132,7 @@ export class CommandMapper {
             return result;
           }
           // Otherwise, return it as a JSON string for structured data
-          return JSON.stringify(result as unknown, undefined, 2);
+          return JSON.stringify(result, undefined, 2);
         } catch (error) {
           const errorMessage = getErrorMessage(error as any);
           log.error("Error executing MCP command", {
@@ -162,7 +162,7 @@ export class CommandMapper {
         this.registeredMethodNames.push(underscoreName);
 
         // Register the alias
-        (this.server as unknown).addTool({
+        this.server.addTool({
           name: underscoreName,
           description: `${command.description} (underscore alias)`,
           parameters: command.parameters || z.object({}),
@@ -178,14 +178,14 @@ export class CommandMapper {
               // inject the default repository path from project context
               if (
                 this.projectContext &&
-                (this.projectContext as unknown).repositoryPath &&
+                this.projectContext.repositoryPath &&
                 args &&
                 typeof args === "object"
               ) {
                 if (!("repositoryPath" in args) || !args.repositoryPath) {
                   args = {
                     ...args,
-                    repositoryPath: (this.projectContext as unknown).repositoryPath,
+                    repositoryPath: this.projectContext.repositoryPath,
                   };
                 }
               }
@@ -196,7 +196,7 @@ export class CommandMapper {
                 return result;
               }
               // Otherwise, return it as a JSON string for structured data
-              return JSON.stringify(result as unknown, undefined, 2);
+              return JSON.stringify(result, undefined, 2);
             } catch (error) {
               const errorMessage = getErrorMessage(error as any);
               log.error("Error executing MCP command via underscore alias", {

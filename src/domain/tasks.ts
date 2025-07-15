@@ -528,7 +528,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       };
 
       // Serialize the updated frontmatter and content
-      const updatedContent = matter.stringify(parsed.content, data as unknown);
+      const updatedContent = matter.stringify(parsed.content, data);
 
       // Write back to the file
       await fs.writeFile(specFilePath, updatedContent, "utf-8");

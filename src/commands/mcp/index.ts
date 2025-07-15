@@ -199,7 +199,7 @@ export function createMCPCommand(): Command {
         // Handle network errors in a user-friendly way
         if (isNetworkError(error as any)) {
           const port = parseInt((options as any).port, 10);
-          const networkError = createNetworkError(error as unknown, port, options.host);
+          const networkError = createNetworkError(error, port, options.host);
           const isDebug = SharedErrorHandler.isDebugMode();
 
           // Output user-friendly message with suggestions

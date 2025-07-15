@@ -94,12 +94,12 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async getTasksData(): Promise<TaskReadOperationResult> {
     try {
-      const result = await (this.storage as unknown).readState();
+      const result = await this.storage.readState();
       if (!result.success) {
         return {
           success: false,
           error: result.error,
-          filePath: (this.storage as unknown).getStorageLocation(),
+          filePath: this.storage.getStorageLocation(),
         } as unknown;
       }
 
@@ -110,14 +110,14 @@ export class JsonFileTaskBackend implements TaskBackend {
       return {
         success: true,
         content,
-        filePath: (this.storage as unknown).getStorageLocation(),
+        filePath: this.storage.getStorageLocation(),
       };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
         error: typedError,
-        filePath: (this.storage as unknown).getStorageLocation(),
+        filePath: this.storage.getStorageLocation(),
       };
     }
   }
@@ -164,7 +164,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       tasks: tasks,
       lastUpdated: new Date().toISOString(),
       metadata: {
-        storageLocation: (this.storage as unknown).getStorageLocation(),
+        storageLocation: this.storage.getStorageLocation(),
         backendType: this.name,
         workspacePath: this.workspacePath,
       },
@@ -282,30 +282,30 @@ export class JsonFileTaskBackend implements TaskBackend {
         tasks,
         lastUpdated: new Date().toISOString(),
         metadata: {
-          storageLocation: (this.storage as unknown).getStorageLocation(),
+          storageLocation: this.storage.getStorageLocation(),
           backendType: this.name,
           workspacePath: this.workspacePath,
         },
       };
 
       // Initialize storage if needed
-      await (this.storage as unknown).initialize();
+      await this.storage.initialize();
 
       // Write to storage
-      const result = await (this.storage as unknown).writeState(state);
+      const result = await this.storage.writeState(state);
 
       return {
         success: result.success,
         error: result.error,
         bytesWritten: result.bytesWritten,
-        filePath: (this.storage as unknown).getStorageLocation(),
+        filePath: this.storage.getStorageLocation(),
       } as unknown;
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
         error: typedError,
-        filePath: (this.storage as unknown).getStorageLocation(),
+        filePath: this.storage.getStorageLocation(),
       };
     }
   }
@@ -403,8 +403,8 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   async getAllTasks(): Promise<TaskData[]> {
     try {
-      await (this.storage as unknown).initialize();
-      return await (this.storage as unknown).getEntities();
+      await this.storage.initialize();
+      return await this.storage.getEntities();
     } catch (error) {
       log.error("Failed to get all tasks from database", {
         error: getErrorMessage(error as any),
@@ -420,8 +420,8 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   async getTaskById(id: string): Promise<TaskData | null> {
     try {
-      await (this.storage as unknown).initialize();
-      return await (this.storage as unknown).getEntity(id);
+      await this.storage.initialize();
+      return await this.storage.getEntity(id);
     } catch (error) {
       log.error("Failed to get task by ID from database", {
         id,
@@ -438,8 +438,8 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   async createTaskData(task: TaskData): Promise<TaskData> {
     try {
-      await (this.storage as unknown).initialize();
-      return await (this.storage as unknown).createEntity(task);
+      await this.storage.initialize();
+      return await this.storage.createEntity(task);
     } catch (error) {
       log.error("Failed to create task in database", {
         task,
@@ -457,8 +457,8 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   async updateTaskData(id: string, updates: Partial<TaskData>): Promise<TaskData | null> {
     try {
-      await (this.storage as unknown).initialize();
-      return await (this.storage as unknown).updateEntity(id, updates);
+      await this.storage.initialize();
+      return await this.storage.updateEntity(id, updates);
     } catch (error) {
       log.error("Failed to update task in database", {
         id,
@@ -476,8 +476,8 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   async deleteTaskData(id: string): Promise<boolean> {
     try {
-      await (this.storage as unknown).initialize();
-      return await (this.storage as unknown).deleteEntity(id);
+      await this.storage.initialize();
+      return await this.storage.deleteEntity(id);
     } catch (error) {
       log.error("Failed to delete task from database", {
         id,
@@ -492,7 +492,7 @@ export class JsonFileTaskBackend implements TaskBackend {
    * @returns Storage location path
    */
   getStorageLocation(): string {
-    return (this.storage as unknown).getStorageLocation();
+    return this.storage.getStorageLocation();
   }
 
   /**

@@ -489,11 +489,11 @@ export function setupCommonCommandCustomizations(program?: Command): void {
               output += formatFlattenedConfiguration(result.resolved);
             }
 
-            log.cli(output as unknown);
+            log.cli(output);
           } else if (result.error) {
             log.cli(`Failed to load configuration: ${result.error}`);
           } else {
-            log.cli(JSON.stringify(result as unknown, null, 2));
+            log.cli(JSON.stringify(result, null, 2));
           }
         },
       },
@@ -501,7 +501,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         outputFormatter: (result: any) => {
           // Check if JSON output was requested
           if (result.json) {
-            log.cli(JSON.stringify(result as unknown, null, 2));
+            log.cli(JSON.stringify(result, null, 2));
             return;
           }
 
@@ -516,11 +516,11 @@ export function setupCommonCommandCustomizations(program?: Command): void {
               output += formatResolvedConfiguration(result.configuration);
             }
 
-            log.cli(output as unknown);
+            log.cli(output);
           } else if (result.error) {
             log.cli(`Failed to load configuration: ${result.error}`);
           } else {
-            log.cli(JSON.stringify(result as unknown, null, 2));
+            log.cli(JSON.stringify(result, null, 2));
           }
         },
       },
@@ -597,7 +597,7 @@ function formatResolvedConfiguration(resolved: any): string {
     const authServices = [];
     for (const [service, creds] of Object.entries(resolved.credentials)) {
       if (creds && typeof creds === "object") {
-        const credsObj = creds as unknown;
+        const credsObj = creds;
         const serviceName = service === "github" ? "GitHub" : service;
         const source = credsObj.source === "environment" ? "env" : credsObj.source;
         authServices.push(`${serviceName} (${source})`);
@@ -673,7 +673,7 @@ function formatConfigSection(config: Record<string, any>): string {
       output += `  ${key}: (${value.length} items)\n`;
       value.forEach((item, index) => {
         if (typeof item === "object" && item !== null) {
-          output += `    ${index}: ${JSON.stringify(item as unknown)}\n`;
+          output += `    ${index}: ${JSON.stringify(item)}\n`;
         } else {
           output += `    ${index}: ${item}\n`;
         }
@@ -723,16 +723,16 @@ function formatFlattenedConfiguration(resolved: any): string {
 
       if (value === null || value === undefined) {
         result.push(`${fullKey}=(null)`);
-      } else if (typeof value === "object" && !Array.isArray(value as unknown)) {
+      } else if (typeof value === "object" && !Array.isArray(value)) {
         // Recursively flatten objects
-        result.push(...flatten(value as unknown, fullKey));
-      } else if (Array.isArray(value as unknown)) {
+        result.push(...flatten(value, fullKey));
+      } else if (Array.isArray(value)) {
         if (value.length === 0) {
           result.push(`${fullKey}=(empty array)`);
         } else {
           value.forEach((item, index) => {
             if (typeof item === "object") {
-              result.push(...flatten(item as unknown, `${fullKey}[${index}]`));
+              result.push(...flatten(item, `${fullKey}[${index}]`));
             } else {
               result.push(`${fullKey}[${index}]=${item}`);
             }
@@ -765,7 +765,7 @@ function flattenObjectToKeyValue(obj: any): any {
       for (const key of keys) {
         const fullKey = prefix ? `${prefix}.${key}` : key;
         if (typeof current[key] === "object" && current[key] !== null) {
-          flatten((current as unknown)[key], fullKey);
+          flatten(current[key], fullKey);
         } else {
           flattened[fullKey] = current[key];
         }
@@ -773,7 +773,7 @@ function flattenObjectToKeyValue(obj: any): any {
     }
   }
 
-  flatten(obj as unknown);
+  flatten(obj);
   return flattened;
 }
 
@@ -784,7 +784,7 @@ function flattenObjectToKeyValue(obj: any): any {
  */
 export function initializeCliCommands(program: Command, config?: Partial<CliFactoryConfig>): void {
   // Initialize the factory
-  cliFactory.initialize(config as unknown);
+  cliFactory.initialize(config);
 
   // Setup common customizations
   setupCommonCommandCustomizations(program);

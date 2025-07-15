@@ -441,7 +441,7 @@ export class TaskService {
     }
 
     // Otherwise, generate the path using the backend
-    return (this.currentBackend as unknown).getTaskSpecPath(id, task.title);
+    return this.currentBackend.getTaskSpecPath(id, task.title);
   }
 
   /**
@@ -578,7 +578,7 @@ export async function createConfiguredTaskService(
 
   // If backend is explicitly provided, use the original function
   if (backend) {
-    return createTaskService(options as unknown);
+    return createTaskService(options);
   }
 
   try {

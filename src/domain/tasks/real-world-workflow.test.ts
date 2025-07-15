@@ -36,7 +36,7 @@ describe("Real-World Workflow Testing", () => {
       });
 
       // 2. Verify the backend knows its storage location
-      expect((jsonBackend as unknown).getStorageLocation()).toBe(testJsonPath);
+      expect(jsonBackend.getStorageLocation()).toBe(testJsonPath);
 
       // 3. Create some test task data
       const testTasks: TaskData[] = [
@@ -94,7 +94,7 @@ describe("Real-World Workflow Testing", () => {
 
       // Should default to team-shareable location
       const expectedPath = join(testBaseDir, "process", "tasks.json");
-      expect((jsonBackend as unknown).getStorageLocation()).toBe(expectedPath);
+      expect(jsonBackend.getStorageLocation()).toBe(expectedPath);
     });
   });
 

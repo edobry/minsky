@@ -43,7 +43,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         const output = execSync(command).toString();
 
         // Parse the JSON output
-        return JSON.parse(output as unknown) as unknown;
+        return JSON.parse(output) as unknown;
       } catch (error) {
         log.error("MCP: Error listing tasks via execSync", {
           originalError: getErrorMessage(error as any),
@@ -70,7 +70,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         const output = execSync(command).toString();
 
         // Parse the JSON output
-        return JSON.parse(output as unknown) as unknown;
+        return JSON.parse(output) as unknown;
       } catch (error) {
         log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {
           originalError: getErrorMessage(error as any),
@@ -161,7 +161,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         const output = execSync(command).toString();
 
         // Parse the JSON output
-        return JSON.parse(output as unknown) as unknown;
+        return JSON.parse(output) as unknown;
       } catch (error) {
         log.error("MCP: Error creating task via execSync", {
           originalError: getErrorMessage(error as any),

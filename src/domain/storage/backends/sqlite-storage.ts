@@ -143,7 +143,7 @@ implements DatabaseStorage<TEntity, TState>
       const sessions = state.sessions || [];
 
       // Use Drizzle transaction
-      await (this.drizzleDb as unknown).transaction(async (tx) => {
+      await this.drizzleDb.transaction(async (tx) => {
         // Clear existing sessions
         await tx.delete(sessionsTable);
 
@@ -183,7 +183,7 @@ implements DatabaseStorage<TEntity, TState>
         .from(sessionsTable)
         .where(eq(sessionsTable.session, id)) as unknown).limit(1);
 
-      return ((result as unknown)[0] as TEntity) || null;
+      return (result[0] as TEntity) || null;
     } catch (error) {
       const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
@@ -289,7 +289,7 @@ implements DatabaseStorage<TEntity, TState>
 
       await (this.drizzleDb
         .update(sessionsTable)
-        .set(updateData as unknown) as unknown).where(eq(sessionsTable.session, id));
+        .set(updateData) as unknown).where(eq(sessionsTable.session, id));
 
       // Return updated entity
       return { ...existing, ...updates };

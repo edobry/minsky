@@ -171,7 +171,7 @@ function addTypeHandlingToOption(
   switch (schemaType) {
   case "number":
     return option.argParser((value) => {
-      const num = Number(value as unknown);
+      const num = Number(value);
       if (isNaN(num)) {
         throw new Error("Option requires a number value");
       }
@@ -255,7 +255,7 @@ export function normalizeCliParameters(
     if (rawValue === undefined) {
       // Use default value if available
       if (paramDef.defaultValue !== undefined) {
-        (result as unknown)[paramName] = paramDef.defaultValue;
+        result[paramName] = paramDef.defaultValue;
       }
       // Skip optional parameters
       if (!paramDef.required) {
@@ -267,7 +267,7 @@ export function normalizeCliParameters(
       // Parse and validate the value
       try {
         const parsedValue = paramDef.schema.parse(rawValue);
-        (result as unknown)[paramName] = parsedValue;
+        result[paramName] = parsedValue;
       } catch (error) {
         // Use user-friendly error formatting for Zod validation errors
         if (error instanceof z.ZodError) {
