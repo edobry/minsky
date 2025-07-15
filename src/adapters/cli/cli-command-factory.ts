@@ -47,7 +47,7 @@ export interface CliFactoryConfig {
 class CliCommandFactory {
   private initialized = false;
   private config: CliFactoryConfig = {
-    enableDevWarnings: process.env.NODE_ENV !== "production" as unknown,
+    enableDevWarnings: process.env.NODE_ENV !== "production",
     strictValidation: true,
   };
 
@@ -67,7 +67,7 @@ class CliCommandFactory {
    */
   customizeCommand(commandId: ValidCommandId, options: CliCommandOptions): void {
     this.ensureInitialized();
-    cliBridge.registerCommandCustomization(commandId!, options as unknown);
+    cliBridge.registerCommandCustomization(commandId!, options);
   }
 
   /**
@@ -78,7 +78,7 @@ class CliCommandFactory {
    */
   customizeCategory(category: CommandCategory, options: CategoryCommandOptions): void {
     this.ensureInitialized();
-    cliBridge.registerCategoryCustomization(category, options as unknown);
+    cliBridge.registerCategoryCustomization(category, options);
   }
 
   /**
@@ -139,7 +139,7 @@ const cliFactory = new CliCommandFactory();
  * @deprecated Use cliFactory.customizeCommand() instead
  */
 export function customizeCommand(commandId: string, options: CliCommandOptions): void {
-  cliFactory.customizeCommand(commandId!, options as unknown);
+  cliFactory.customizeCommand(commandId!, options);
 }
 
 /**
@@ -150,7 +150,7 @@ export function customizeCategory(
   category: CommandCategory,
   options: CategoryCommandOptions
 ): void {
-  cliFactory.customizeCategory(category, options as unknown);
+  cliFactory.customizeCategory(category, options);
 }
 
 /**
@@ -662,14 +662,14 @@ function formatDetectionCondition(condition: string): string {
   }
 }
 
-function formatConfigSection(config: any): string {
-  if (!config || Object.keys(config as unknown).length === 0) {
+function formatConfigSection(config: Record<string, any>): string {
+  if (!config || Object.keys(config).length === 0) {
     return "  (empty)";
   }
 
   let output = "";
-  for (const [key, value] of Object.entries(config as unknown)) {
-    if (Array.isArray(value as unknown)) {
+  for (const [key, value] of Object.entries(config)) {
+    if (Array.isArray(value)) {
       output += `  ${key}: (${value.length} items)\n`;
       value.forEach((item, index) => {
         if (typeof item === "object" && item !== null) {
