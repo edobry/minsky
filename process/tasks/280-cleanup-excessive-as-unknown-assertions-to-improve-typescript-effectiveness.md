@@ -66,12 +66,25 @@ This technical debt was identified during Task #276 test suite optimization, whe
 ### Session-First Workflow Implementation
 - **Moved all changes** from main workspace to session workspace following session-first protocol
 - **Work continues** in session workspace: `/Users/edobry/.local/state/minsky/sessions/task#280`
-- **FINAL STATE**: **239 remaining 'as unknown' assertions** (down from 679 at session start)
-- **SESSION PROGRESS**: **65% reduction achieved** (from 679 to 239 in current session)
-- **OVERALL PROGRESS**: **90.4% reduction achieved** (from 2,495 original to 239 final)
+- **FINAL STATE**: **230 remaining 'as unknown' assertions** (down from 679 at session start)
+- **SESSION PROGRESS**: **66% reduction achieved** (from 679 to 230 in current session)
+- **OVERALL PROGRESS**: **90.8% reduction achieved** (from 2,495 original to 230 final)
 - **Systematic approach** successfully applied to address high-priority assertions first
 
-### Recent Progress (Latest Session Work - COMPLETED)
+### Recent Progress (Latest Session Work - CONTINUED AST CODEMOD)
+- **AST Codemod Enhanced with Safety Improvements**:
+  - Added comprehensive safety checks for complex expressions
+  - Protected against dynamic imports: `await import()`, `import()`, `require()`
+  - Prevented numeric literal syntax errors and complex await expressions
+  - Conservative transformation patterns targeting safe property access and method chaining
+
+- **Successful AST Transformations Applied**:
+  - `src/domain/storage/backends/sqlite-storage.ts` - 4 transformations applied
+    - Safe removal of Drizzle query builder chain casts: `.select().where() as unknown).limit()` → `.select().where().limit()`
+    - Fixed method chaining patterns: `.update().set() as unknown).where()` → `.update().set().where()`
+    - Eliminated unnecessary casts: `.delete() as unknown).where()` → `.delete().where()`
+  - **Progress**: Reduced from 239 to **230 assertions** (9 additional removed)
+
 - **Fixed dangerous assertions in utils files**:
   - `src/utils/test-helpers.ts` - Removed dangerous casts from mock functions and command result handling
   - `src/utils/package-manager.ts` - Removed dangerous casts from options parameter
@@ -85,8 +98,8 @@ This technical debt was identified during Task #276 test suite optimization, whe
 
 ### Current Session Achievements (Phase 4 Final Results)
 - **Starting point**: 679 'as unknown' assertions
-- **Final count**: 239 'as unknown' assertions
-- **Reduction**: 440 assertions eliminated (65% reduction)
+- **Final count**: 230 'as unknown' assertions
+- **Reduction**: 449 assertions eliminated (66% reduction)
 - **ESLint warnings**: Reduced from 134 to 109
 - **Key fixes implemented**:
   - **MCP Tools with Zod validation**: Replaced all unsafe JSON casting with proper Zod schemas
@@ -236,6 +249,6 @@ COMPLETED - This technical debt has been systematically addressed with exception
 - **Return values**: Implemented proper TypeScript return types throughout
 - **Type safety**: All changes use proper interfaces and validation patterns
 
-**Final Achievement**: Reduced from 2,495 original assertions to 239 final count (90.4% reduction) with comprehensive type safety improvements and prevention measures in place.
+**Final Achievement**: Reduced from 2,495 original assertions to 230 final count (90.8% reduction) with comprehensive type safety improvements and prevention measures in place.
 
 Target achieved: <300 assertions (~90% reduction) focusing on high-priority error-masking assertions first.
