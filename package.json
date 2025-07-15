@@ -12,7 +12,8 @@
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\"",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "test:coverage": "bun test --coverage"
+    "test:coverage": "bun test --coverage",
+    "validate-commit": "bun scripts/validate-commit-message.ts"
   },
   "bin": {
     "minsky": "./src/cli.ts"
