@@ -178,6 +178,19 @@ const tasksSpecParams: CommandParameterMap = {
 };
 
 /**
+ * Type for tasks spec parameters
+ */
+type TasksSpecParams = {
+  taskId: string;
+  section?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+  backend?: string;
+  json?: boolean;
+};
+
+/**
  * Task status get command definition
  */
 const tasksStatusGetRegistration = {
@@ -265,12 +278,12 @@ const tasksSpecRegistration = {
   name: "spec",
   description: "Get task specification content",
   parameters: tasksSpecParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params: TasksSpecParams, ctx: CommandExecutionContext) => {
     try {
-      const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
+      const normalizedTaskId = normalizeTaskId(params.taskId);
       if (!normalizedTaskId) {
         throw new ValidationError(
-          `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+          `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
       const result = await getTaskSpecContentFromParams({
@@ -380,6 +393,18 @@ const tasksGetParams: CommandParameterMap = {
 };
 
 /**
+ * Type for tasks get parameters
+ */
+type TasksGetParams = {
+  taskId: string;
+  backend?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+  json?: boolean;
+};
+
+/**
  * Parameters for tasks create command
  */
 const tasksCreateParams: CommandParameterMap = {
@@ -432,6 +457,21 @@ const tasksCreateParams: CommandParameterMap = {
 };
 
 /**
+ * Type for tasks create parameters
+ */
+type TasksCreateParams = {
+  title: string;
+  description?: string;
+  descriptionPath?: string;
+  force?: boolean;
+  backend?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+  json?: boolean;
+};
+
+/**
  * Tasks commands registration parameters and definitions
  */
 const tasksListRegistration = {
@@ -463,14 +503,14 @@ const tasksGetRegistration = {
   name: "get",
   description: "Get a task by ID",
   parameters: tasksGetParams,
-  execute: async (params, ctx) => {
-    if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
+  execute: async (params: TasksGetParams, ctx: CommandExecutionContext) => {
+    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
     return await getTaskFromParams({
-      taskId: (params as unknown)!.taskId,
-      backend: (params as unknown)!.backend,
-      repo: (params as unknown)!.repo,
-      workspace: (params as unknown)!.workspace,
-      session: (params as unknown)!.session,
+      taskId: params.taskId,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
     });
   },
 };
@@ -484,33 +524,33 @@ const tasksCreateRegistration = {
   name: "create",
   description: "Create a new task with --title and --description",
   parameters: tasksCreateParams,
-  execute: async (params, ctx) => {
+  execute: async (params: TasksCreateParams, ctx: CommandExecutionContext) => {
     // Title is required by schema, but validate it's provided
-    if (!(params as unknown)!.title) {
+    if (!params.title) {
       throw new ValidationError("Title is required");
     }
 
     // Validate that either description or descriptionPath is provided
-    if (!(params as unknown)!.description && !(params as unknown)!.descriptionPath) {
+    if (!params.description && !params.descriptionPath) {
       throw new ValidationError("Either --description or --description-path must be provided");
     }
 
     // Both description and descriptionPath provided is an error
-    if ((params as unknown)!.description && (params as unknown)!.descriptionPath) {
+    if (params.description && params.descriptionPath) {
       throw new ValidationError(
         "Cannot provide both --description and --description-path - use one or the other"
       );
     }
 
     return await createTaskFromTitleAndDescription({
-      title: (params as unknown)!.title,
-      description: (params as unknown)!.description,
-      descriptionPath: (params as unknown)!.descriptionPath,
-      force: (params as unknown)!.force ?? false,
-      backend: (params as unknown)!.backend,
-      repo: (params as unknown)!.repo,
-      workspace: (params as unknown)!.workspace,
-      session: (params as unknown)!.session,
+      title: params.title,
+      description: params.description,
+      descriptionPath: params.descriptionPath,
+      force: params.force ?? false,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
     });
   },
 };
