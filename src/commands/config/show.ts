@@ -36,7 +36,7 @@ export function createConfigShowCommand(): Command {
         await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
         exit(1);
       }
-    }) as unknown;
+    });
 }
 
 async function displayResolvedConfiguration(resolved: any) {
