@@ -30,15 +30,15 @@ export enum LogMode {
  */
 function getLoggerConfig(): LoggerConfig {
   // First try environment variables to avoid early node-config initialization
-  const envMode = process.env.MINSKY_LOG_MODE as LoggerConfig["mode"] | undefined;
-  const envLevel = process.env.LOGLEVEL as LoggerConfig["level"] | undefined;
-  const envAgentLogs = process.env.ENABLE_AGENT_LOGS === "true";
+  const envMode = process.env.MINSKY_LOG_MODE || null;
+  const envLevel = process.env.LOGLEVEL || null;
+  const envAgentLogs = (process.env.ENABLE_AGENT_LOGS as unknown) === "true";
 
   // If we have all config from environment, use it
   if (envMode && envLevel) {
     return {
-      mode: envMode,
-      level: envLevel,
+      mode: envMode as "HUMAN" | "STRUCTURED" | "auto",
+      level: envLevel as "debug" | "info" | "warn" | "error",
       enableAgentLogs: envAgentLogs,
     };
   }
@@ -48,17 +48,21 @@ function getLoggerConfig(): LoggerConfig {
 
   try {
     // Try to get configuration from the config system
+    const configMode = config.has("logger.mode") ? config.get("logger.mode") : null;
+    const configLevel = config.has("logger.level") ? config.get("logger.level") : null;
+    const configAgentLogs = config.has("logger.enableAgentLogs") ? config.get("logger.enableAgentLogs") : null;
+
     loggerConfig = {
-      mode: config.has("logger.mode") ? config.get("logger.mode") : (envMode || "auto"),
-      level: config.has("logger.level") ? config.get("logger.level") : (envLevel || "info"),
-      enableAgentLogs: config.has("logger.enableAgentLogs") ? config.get("logger.enableAgentLogs") : envAgentLogs,
+      mode: (typeof configMode === "string" ? configMode : envMode || "auto") as "HUMAN" | "STRUCTURED" | "auto",
+      level: (typeof configLevel === "string" ? configLevel : envLevel || "info") as "debug" | "info" | "warn" | "error",
+      enableAgentLogs: typeof configAgentLogs === "boolean" ? configAgentLogs : envAgentLogs,
     };
   } catch (error) {
     // Fallback to environment variables if config system is unavailable
     // This ensures the logger works even during early initialization
     loggerConfig = {
-      mode: envMode || "auto",
-      level: envLevel || "info",
+      mode: (envMode || "auto") as "HUMAN" | "STRUCTURED" | "auto",
+      level: (envLevel || "info") as "debug" | "info" | "warn" | "error",
       enableAgentLogs: envAgentLogs,
     };
   }
@@ -139,7 +143,7 @@ export function createLogger(configOverride?: LoggerConfig) {
 
       if (Object.keys(metadata).length > 0) {
         try {
-          log += ` ${JSON.stringify(metadata)}`;
+          log += ` ${JSON.stringify(metadata as unknown)}`;
         } catch (error) {
           // ignore serialization errors for metadata in text logs
         }
@@ -206,7 +210,7 @@ export function createLogger(configOverride?: LoggerConfig) {
       }
       // Otherwise, use agentLogger as normal
       if (context) {
-        agentLogger.debug(message, context);
+        agentLogger.debug(message, context as unknown);
       } else {
         agentLogger.debug(message);
       }
@@ -217,7 +221,7 @@ export function createLogger(configOverride?: LoggerConfig) {
         return;
       }
       if (context) {
-        agentLogger.info(message, context);
+        agentLogger.info(message, context as unknown);
       } else {
         agentLogger.info(message);
       }
@@ -228,7 +232,7 @@ export function createLogger(configOverride?: LoggerConfig) {
         return;
       }
       if (context) {
-        agentLogger.warn(message, context);
+        agentLogger.warn(message, context as unknown);
       } else {
         agentLogger.warn(message);
       }
@@ -251,13 +255,13 @@ export function createLogger(configOverride?: LoggerConfig) {
           (context.originalError || context.stack)
         ) {
           programLogger.error(
-            `${message}: ${context.originalError || JSON.stringify(context)}`
+            `${message}: ${context.originalError || JSON.stringify(context as unknown)}`
           );
           if (context.stack) {
             programLogger.error(context.stack);
           }
         } else {
-          programLogger.error(message, context);
+          programLogger.error(message, context as unknown);
         }
         return;
       }
@@ -274,9 +278,9 @@ export function createLogger(configOverride?: LoggerConfig) {
         context !== null &&
         (context.originalError || context.stack)
       ) {
-        agentLogger.error(message, context);
+        agentLogger.error(message, context as unknown);
       } else {
-        agentLogger.error(message, context);
+        agentLogger.error(message, context as unknown);
       }
     },
     // Program/CLI logs (plain text to stderr)
@@ -327,7 +331,7 @@ export { createLogger as createConfigurableLogger };
 const handleExit = async (error?: Error) => {
   if (error) {
     // Use default logger's internal program logger for unhandled errors that might crash the CLI
-    defaultLogger._internal.programLogger.error("Unhandled error or rejection, exiting.", error);
+    defaultLogger._internal.programLogger.error("Unhandled error or rejection, exiting.", error as unknown);
   }
   // Give logs a moment to flush
   await new Promise((resolve) => setTimeout(resolve, 100));

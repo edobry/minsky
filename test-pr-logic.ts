@@ -5,7 +5,7 @@
  * This tests our core logic without hitting the git preparation step
  */
 
-import { createGitService } from "./src/domain/git.js";
+import { createGitService } from "./src/domain/git";
 
 async function testPrRefreshLogic() {
   console.log("🧪 Testing PR Refresh Logic\n");

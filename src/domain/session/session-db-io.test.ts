@@ -49,13 +49,14 @@ describe("Session DB I/O Functions", () => {
       writeFileSync(testDbPath, JSON.stringify(testData, null, 2));
 
       const result = readSessionDbFile({ dbPath: testDbPath });
-      expect(result).toHaveLength(1);
-      expect(result[0]?.session).toBe("test-session");
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0]?.session).toBe("test-session");
     });
 
     test("should return initialized state when database file doesn't exist", () => {
       const result = readSessionDbFile({ dbPath: join(tempDir, "nonexistent.json") });
-      expect(result).toEqual([]);
+      expect(result.sessions).toEqual([]);
+      expect(result.baseDir).toBeDefined();
     });
 
     // Regression test for Task #166: Fix options.baseDir runtime error
@@ -63,16 +64,22 @@ describe("Session DB I/O Functions", () => {
       // This test covers the specific scenario that caused the runtime error:
       // "undefined is not an object (evaluating 'options.baseDir')"
       expect(() => {
-        const result = readSessionDbFile();
-        expect(Array.isArray(result)).toBe(true);
+        const result = readSessionDbFile(undefined as unknown);
+        expect(result).toHaveProperty("sessions");
+        expect(Array.isArray(result.sessions)).toBe(true);
+        expect(result).toHaveProperty("baseDir");
+        expect(typeof result.baseDir).toBe("string");
       }).not.toThrow();
     });
 
     // Regression test for Task #166: Fix options.baseDir runtime error
     test("should handle null options parameter without throwing runtime error", () => {
       expect(() => {
-        const result = readSessionDbFile();
-        expect(Array.isArray(result)).toBe(true);
+        const result = readSessionDbFile(null as unknown);
+        expect(result).toHaveProperty("sessions");
+        expect(Array.isArray(result.sessions)).toBe(true);
+        expect(result).toHaveProperty("baseDir");
+        expect(typeof result.baseDir).toBe("string");
       }).not.toThrow();
     });
 
@@ -81,7 +88,10 @@ describe("Session DB I/O Functions", () => {
       const options = { dbPath: undefined, baseDir: undefined };
       expect(() => {
         const result = readSessionDbFile(options);
-        expect(Array.isArray(result)).toBe(true);
+        expect(result).toHaveProperty("sessions");
+        expect(Array.isArray(result.sessions)).toBe(true);
+        expect(result).toHaveProperty("baseDir");
+        expect(typeof result.baseDir).toBe("string");
       }).not.toThrow();
     });
   });
@@ -103,12 +113,13 @@ describe("Session DB I/O Functions", () => {
       ];
 
       await writeSessionsToFile(testState.sessions, { dbPath: testDbPath });
+      expect(success).toBe(true);
       expect(existsSync(testDbPath)).toBe(true);
 
       // Verify the written content
       const result = readSessionDbFile({ dbPath: testDbPath });
-      expect(result).toHaveLength(1);
-      expect(result[0]?.session).toBe("test-session");
+      expect(result.sessions).toHaveLength(1);
+      expect(result.sessions[0]?.session).toBe("test-session");
     });
 
     // Regression test for Task #166: Fix options.baseDir runtime error
@@ -117,19 +128,20 @@ describe("Session DB I/O Functions", () => {
         baseDir: tempDir,
       });
 
-      await expect(async () => {
-        await writeSessionsToFile(testState.sessions);
+      // Test that the function doesn't throw when called with undefined options
+      expect(() => {
+        writeSessionsToFile(testState.sessions, undefined as unknown);
       }).not.toThrow();
     });
 
-    // Regression test for Task #166: Fix options.baseDir runtime error  
+    // Regression test for Task #166: Fix options.baseDir runtime error
     test("should handle null options parameter without throwing runtime error", async () => {
       const testState: SessionDbState = initializeSessionDbState({
         baseDir: tempDir,
       });
 
-      await expect(async () => {
-        await writeSessionsToFile(testState.sessions);
+      expect(() => {
+        writeSessionsToFile(testState.sessions, null as unknown);
       }).not.toThrow();
     });
 
@@ -138,13 +150,10 @@ describe("Session DB I/O Functions", () => {
       const testState: SessionDbState = initializeSessionDbState({
         baseDir: tempDir,
       });
+      const options = { dbPath: undefined };
 
-      const options = {
-        dbPath: undefined,
-      };
-
-      await expect(async () => {
-        await writeSessionsToFile(testState.sessions, options);
+      expect(() => {
+        writeSessionsToFile(testState.sessions, options);
       }).not.toThrow();
     });
   });

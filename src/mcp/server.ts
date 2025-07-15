@@ -117,14 +117,14 @@ export class MinskyMCPServer {
       /* TODO: Verify if transportType is valid property */ transportType: options.transportType || "stdio",
       projectContext: this.projectContext,
       sse: {
-        /* TODO: Verify if endpoint is valid property */ endpoint: options.sse.endpoint || "/sse",
-        port: options.sse.port || 8080,
-        host: options.sse.host || "localhost",
-        path: options.sse.path || "/sse",
+        /* TODO: Verify if endpoint is valid property */ endpoint: options.sse?.endpoint || "/sse",
+        port: options.sse?.port || 8080,
+        host: options.sse?.host || "localhost",
+        path: options.sse?.path || "/sse",
       },
       /* TODO: Verify if httpStream is valid property */ httpStream: {
-        endpoint: options.httpStream.endpoint || "/mcp",
-        port: options.httpStream.port || 8080,
+        endpoint: options.httpStream?.endpoint || "/mcp",
+        port: options.httpStream?.port || 8080,
       },
     };
 
@@ -163,6 +163,48 @@ export class MinskyMCPServer {
       log.agent("Client disconnected from Minsky MCP Server");
     });
 
+    // Add basic resources support to prevent "Method not found" errors
+    this.server.addResource({
+      uri: "minsky://help",
+      name: "Minsky Help",
+      description: "Basic help information for using Minsky MCP server",
+      mimeType: "text/plain",
+      load: async () => {
+        return {
+          text: `Minsky MCP Server Help
+
+Available tools:
+- Use 'tasks.*' commands to manage tasks
+- Use 'session.*' commands to manage development sessions
+- Use 'git.*' commands for git operations
+- Use 'init.*' commands to initialize projects
+- Use 'rules.*' commands to work with project rules
+
+For more information, visit: https://github.com/your-org/minsky
+`,
+          mimeType: "text/plain"
+        };
+      }
+    });
+
+    // Add basic prompts support to prevent "Method not found" errors
+    this.server.addPrompt({
+      name: "minsky_help",
+      description: "Get help with using Minsky MCP server",
+      arguments: [],
+      load: async () => {
+        return {
+          messages: [{
+            role: "user" as const,
+            content: {
+              type: "text" as const,
+              text: "How can I use the Minsky MCP server to manage my AI-assisted development workflow?"
+            }
+          }]
+        };
+      }
+    });
+
     // We'll add the debug tool later through the CommandMapper to ensure it gets properly registered
   }
 
@@ -178,10 +220,11 @@ export class MinskyMCPServer {
       if (this.options.transportType === "stdio") {
         await this.server.start({ transportType: "stdio" });
       } else if (this.options.transportType === "sse" && this.options.sse) {
+        // FastMCP 3.5.0 doesn't support SSE, fall back to httpStream
         await this.server.start({
-          transportType: "sse",
-          sse: {
-            endpoint: "/sse", // Endpoint must start with a / character
+          transportType: "httpStream",
+          httpStream: {
+            endpoint: "/sse", // Keep original endpoint for compatibility
             port: this.options.sse.port || 8080,
           },
         });
@@ -206,9 +249,9 @@ export class MinskyMCPServer {
         // Get the tool names
         const methods = [];
         // @ts-ignore - Accessing a private property for debugging
-        if (this.server._tools) {
+        if ((this.server as any)._tools) {
           // @ts-ignore
-          methods.push(...Object.keys((this.server)._tools) as unknown);
+          methods.push(...Object.keys((this.server as any)._tools) as unknown);
         }
         log.debug("MCP Server registered methods", {
           methodCount: methods.length,
@@ -216,7 +259,7 @@ export class MinskyMCPServer {
         });
       } catch (e) {
         log.debug("Could not log MCP server methods", {
-          error: getErrorMessage(e),
+          error: getErrorMessage(e as unknown),
         });
       }
     } catch (error) {
@@ -244,5 +287,18 @@ export class MinskyMCPServer {
    */
   getProjectContext(): ProjectContext {
     return this.projectContext;
+  }
+
+  /**
+   * Initialize MCP Inspector compatibility patches
+   * This is a workaround for MCP Inspector expecting non-standard schema metadata
+   */
+  private async initializeInspectorCompatibility() {
+    // Note: The MCP Inspector expects `~standard.vendor` metadata that is not part
+    // of the official MCP specification. This appears to be a compatibility issue
+    // between FastMCP and the Inspector that needs to be addressed upstream.
+
+    // For now, we log this issue and continue without the metadata
+    log.debug("MCP Inspector compatibility note: Inspector may expect non-standard ~standard.vendor metadata");
   }
 }

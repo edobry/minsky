@@ -1,15 +1,16 @@
-import { execAsync } from "../../utils/exec";
+import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors";
-import { MergeResult } from "./types";
 
-export interface MergeBranchDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+export interface MergeResult {
+  workdir: string;
+  merged: boolean;
+  conflicts: boolean;
 }
 
-/**
- * Merge a branch into the current branch with conflict detection
- */
+export interface MergeBranchDependencies {
+  execAsync: (command: string) => Promise<{ stdout: string; stderr: string }>;
+}
+
 export async function mergeBranchImpl(
   workdir: string,
   branch: string,
@@ -29,7 +30,7 @@ export async function mergeBranchImpl(
       log.debug("Merge completed successfully");
     } catch (err) {
       log.debug("Merge command failed, checking for conflicts", {
-        error: getErrorMessage(err),
+        error: getErrorMessage(err as any),
       });
 
       // Check if there are merge conflicts
@@ -37,7 +38,9 @@ export async function mergeBranchImpl(
       log.debug("Git status after failed merge", { status });
 
       const hasConflicts =
-        status.includes("UU") || status.includes("AA") || status.includes("DD");
+        status.includes("UU") ||
+        status.includes("AA") ||
+        status.includes("DD");
       log.debug("Conflict detection result", {
         hasConflicts,
         statusIncludes: {
@@ -68,10 +71,10 @@ export async function mergeBranchImpl(
     return { workdir, merged, conflicts: false };
   } catch (err) {
     log.error("mergeBranch failed with error", {
-      error: getErrorMessage(err),
+      error: getErrorMessage(err as any),
       workdir,
       branch,
     });
-    throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err)}`);
+    throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err as any)}`);
   }
 } 

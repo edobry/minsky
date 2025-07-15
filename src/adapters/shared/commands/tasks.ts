@@ -14,7 +14,6 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
-  type CommandDefinition,
 } from "../command-registry";
 import {
   getTaskStatusFromParams,
@@ -37,7 +36,7 @@ import { TASK_STATUS } from "../../../domain/tasks/taskConstants";
 /**
  * Parameters for tasks status get command
  */
-const tasksStatusGetParams = {
+const tasksStatusGetParams: CommandParameterMap = {
   taskId: {
     schema: z.string(),
     description: "Task identifier",
@@ -55,7 +54,7 @@ const tasksStatusGetParams = {
   },
   session: {
     schema: z.string(),
-    description: "Session name",
+    description: "Session identifier",
     required: false,
   },
   backend: {
@@ -68,33 +67,28 @@ const tasksStatusGetParams = {
     description: "Output in JSON format",
     required: false,
   },
-} as const satisfies CommandParameterMap;
-
-/**
- * Type for tasks status get parameters
- */
-type TasksStatusGetParams = {
-  taskId: string;
-  repo?: string;
-  workspace?: string;
-  session?: string;
-  backend?: string;
-  json?: boolean;
 };
 
 /**
  * Parameters for tasks status set command
  */
-const tasksStatusSetParams = {
+const tasksStatusSetParams: CommandParameterMap = {
   taskId: {
     schema: z.string(),
     description: "Task identifier",
     required: true,
   },
   status: {
-    schema: z.enum(["NEW", "IN_PROGRESS", "BLOCKED", "IN_REVIEW", "DONE", "CANCELLED"]),
+    schema: z.enum([
+      TASK_STATUS.TODO,
+      TASK_STATUS.IN_PROGRESS,
+      TASK_STATUS.IN_REVIEW,
+      TASK_STATUS.DONE,
+      TASK_STATUS.BLOCKED,
+      TASK_STATUS.CLOSED,
+    ]),
     description: "Task status",
-    required: true,
+    required: false,
   },
   repo: {
     schema: z.string(),
@@ -108,7 +102,7 @@ const tasksStatusSetParams = {
   },
   session: {
     schema: z.string(),
-    description: "Session name",
+    description: "Session identifier",
     required: false,
   },
   backend: {
@@ -121,19 +115,6 @@ const tasksStatusSetParams = {
     description: "Output in JSON format",
     required: false,
   },
-} as const satisfies CommandParameterMap;
-
-/**
- * Type for tasks status set parameters
- */
-type TasksStatusSetParams = {
-  taskId: string;
-  status: "NEW" | "IN_PROGRESS" | "BLOCKED" | "IN_REVIEW" | "DONE" | "CANCELLED";
-  repo?: string;
-  workspace?: string;
-  session?: string;
-  backend?: string;
-  json?: boolean;
 };
 
 /**
@@ -178,19 +159,6 @@ const tasksSpecParams: CommandParameterMap = {
 };
 
 /**
- * Type for tasks spec parameters
- */
-type TasksSpecParams = {
-  taskId: string;
-  section?: string;
-  repo?: string;
-  workspace?: string;
-  session?: string;
-  backend?: string;
-  json?: boolean;
-};
-
-/**
  * Task status get command definition
  */
 const tasksStatusGetRegistration = {
@@ -199,7 +167,7 @@ const tasksStatusGetRegistration = {
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
-  execute: async (params: TasksStatusGetParams, ctx: CommandExecutionContext) => {
+  execute: async (params: { taskId: string; repo?: string; workspace?: string; session?: string; backend?: string }, ctx: CommandExecutionContext) => {
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
@@ -227,44 +195,89 @@ const tasksStatusSetRegistration = {
   name: "status set",
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
-  execute: async (params: TasksStatusSetParams, _ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     log.debug("Starting tasks.status.set execution");
-    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
 
-    const normalizedTaskId = normalizeTaskId(params.taskId);
+    // Normalize and validate task ID first
+    log.debug("About to normalize task ID");
+    const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
 
-    const setTaskStatusParams = {
+    // Verify the task exists before prompting for status and get current status
+    // This will throw ResourceNotFoundError if task doesn't exist
+    log.debug("About to get previous status");
+    const previousStatus = await getTaskStatusFromParams({
       taskId: normalizedTaskId,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
-      backend: params.backend,
-    };
+      repo: (params as unknown)!.repo,
+      workspace: (params as unknown)!.workspace,
+      session: (params as unknown)!.session,
+      backend: (params as unknown)!.backend,
+    });
+    log.debug("Previous status retrieved successfully");
 
-    const status = params.status;
+    let status = (params as unknown)!.status;
 
-    // Validate status is one of the supported values
-    const validStatuses = ["NEW", "IN_PROGRESS", "BLOCKED", "IN_REVIEW", "DONE", "CANCELLED"];
-    if (!validStatuses.includes(status)) {
-      throw new ValidationError(
-        `Invalid status: '${status}'. Must be one of: ${validStatuses.join(", ")}`
+    // If status is not provided, prompt for it interactively
+    if (!status) {
+      // Check if we're in an interactive environment
+      if (!process.stdout.isTTY) {
+        throw new ValidationError("Status parameter is required in non-interactive mode");
+      }
+
+      // Define the options array for consistency
+      const statusOptions = [
+        { value: TASK_STATUS.TODO, label: "TODO" },
+        { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
+        { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
+        { value: TASK_STATUS.DONE, label: "DONE" },
+        { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
+        { value: TASK_STATUS.CLOSED, label: "CLOSED" },
+      ];
+
+      // Find the index of the current status to pre-select it
+      const currentStatusIndex = statusOptions.findIndex(
+        (option) => option?.value === previousStatus
       );
+      const initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0; // Default to TODO if current status not found
+
+      // Prompt for status selection
+      const selectedStatus = await select({
+        message: "Select a status:",
+        options: statusOptions,
+        initialValue: currentStatusIndex >= 0 ? previousStatus : TASK_STATUS?.TODO, // Pre-select the current status
+      });
+
+      // Handle cancellation
+      if (isCancel(selectedStatus)) {
+        cancel("Operation cancelled.");
+        return "Operation cancelled by user";
+      }
+
+      // Re-assign status from the interactive prompt
+      status = selectedStatus as string;
     }
+
+    if (!status) throw new ValidationError("Missing required parameter: status");
 
     await setTaskStatusFromParams({
-      ...setTaskStatusParams,
-      status,
+      taskId: normalizedTaskId,
+      status: status,
+      repo: (params as unknown)!.repo,
+      workspace: (params as unknown)!.workspace,
+      session: (params as unknown)!.session,
+      backend: (params as unknown)!.backend,
     });
 
     return {
       success: true,
       taskId: normalizedTaskId,
       status: status,
+      previousStatus: previousStatus,
     };
   },
 };
@@ -278,12 +291,12 @@ const tasksSpecRegistration = {
   name: "spec",
   description: "Get task specification content",
   parameters: tasksSpecParams,
-  execute: async (params: TasksSpecParams, ctx: CommandExecutionContext) => {
+  execute: async (params, ctx: CommandExecutionContext) => {
     try {
-      const normalizedTaskId = normalizeTaskId(params.taskId);
+      const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
       if (!normalizedTaskId) {
         throw new ValidationError(
-          `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+          `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
       const result = await getTaskSpecContentFromParams({
@@ -357,21 +370,6 @@ const tasksListParams: CommandParameterMap = {
 };
 
 /**
- * Type for tasks list parameters
- */
-type TasksListParams = {
-  filter?: string;
-  status?: "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "BLOCKED" | "CLOSED";
-  limit?: number;
-  all?: boolean;
-  backend?: string;
-  repo?: string;
-  workspace?: string;
-  session?: string;
-  json?: boolean;
-};
-
-/**
  * Parameters for tasks get command
  */
 const tasksGetParams: CommandParameterMap = {
@@ -405,18 +403,6 @@ const tasksGetParams: CommandParameterMap = {
     description: "Output in JSON format",
     required: false,
   },
-};
-
-/**
- * Type for tasks get parameters
- */
-type TasksGetParams = {
-  taskId: string;
-  backend?: string;
-  repo?: string;
-  workspace?: string;
-  session?: string;
-  json?: boolean;
 };
 
 /**
@@ -472,21 +458,6 @@ const tasksCreateParams: CommandParameterMap = {
 };
 
 /**
- * Type for tasks create parameters
- */
-type TasksCreateParams = {
-  title: string;
-  description?: string;
-  descriptionPath?: string;
-  force?: boolean;
-  backend?: string;
-  repo?: string;
-  workspace?: string;
-  session?: string;
-  json?: boolean;
-};
-
-/**
  * Tasks commands registration parameters and definitions
  */
 const tasksListRegistration = {
@@ -495,7 +466,7 @@ const tasksListRegistration = {
   name: "list",
   description: "List tasks with optional filtering",
   parameters: tasksListParams,
-  execute: async (params: TasksListParams, ctx: CommandExecutionContext) => {
+  execute: async (params, ctx) => {
     const { all = false, status, filter, ...rest } = params;
 
     // Use status parameter if provided, otherwise fall back to filter
@@ -518,14 +489,14 @@ const tasksGetRegistration = {
   name: "get",
   description: "Get a task by ID",
   parameters: tasksGetParams,
-  execute: async (params: TasksGetParams, ctx: CommandExecutionContext) => {
-    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+  execute: async (params, ctx) => {
+    if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
     return await getTaskFromParams({
-      taskId: params.taskId,
-      backend: params.backend,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
+      taskId: (params as unknown)!.taskId,
+      backend: (params as unknown)!.backend,
+      repo: (params as unknown)!.repo,
+      workspace: (params as unknown)!.workspace,
+      session: (params as unknown)!.session,
     });
   },
 };
@@ -539,33 +510,33 @@ const tasksCreateRegistration = {
   name: "create",
   description: "Create a new task with --title and --description",
   parameters: tasksCreateParams,
-  execute: async (params: TasksCreateParams, ctx: CommandExecutionContext) => {
+  execute: async (params, ctx) => {
     // Title is required by schema, but validate it's provided
-    if (!params.title) {
+    if (!(params as unknown)!.title) {
       throw new ValidationError("Title is required");
     }
 
     // Validate that either description or descriptionPath is provided
-    if (!params.description && !params.descriptionPath) {
+    if (!(params as unknown)!.description && !(params as unknown)!.descriptionPath) {
       throw new ValidationError("Either --description or --description-path must be provided");
     }
 
     // Both description and descriptionPath provided is an error
-    if (params.description && params.descriptionPath) {
+    if ((params as unknown)!.description && (params as unknown)!.descriptionPath) {
       throw new ValidationError(
         "Cannot provide both --description and --description-path - use one or the other"
       );
     }
 
     return await createTaskFromTitleAndDescription({
-      title: params.title,
-      description: params.description,
-      descriptionPath: params.descriptionPath,
-      force: params.force ?? false,
-      backend: params.backend,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
+      title: (params as unknown)!.title,
+      description: (params as unknown)!.description,
+      descriptionPath: (params as unknown)!.descriptionPath,
+      force: (params as unknown)!.force ?? false,
+      backend: (params as unknown)!.backend,
+      repo: (params as unknown)!.repo,
+      workspace: (params as unknown)!.workspace,
+      session: (params as unknown)!.session,
     });
   },
 };
@@ -613,19 +584,6 @@ const tasksDeleteParams: CommandParameterMap = {
 };
 
 /**
- * Type for tasks delete parameters
- */
-type TasksDeleteParams = {
-  taskId: string;
-  force?: boolean;
-  backend?: string;
-  repo?: string;
-  workspace?: string;
-  session?: string;
-  json?: boolean;
-};
-
-/**
  * Register tasks.delete command
  */
 const tasksDeleteRegistration = {
@@ -634,66 +592,61 @@ const tasksDeleteRegistration = {
   name: "delete",
   description: "Delete a task",
   parameters: tasksDeleteParams,
-  execute: async (params: TasksDeleteParams, ctx: CommandExecutionContext) => {
-    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+  execute: async (params, ctx) => {
+    if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Handle confirmation if force is not set and we're in interactive mode
-    if (!params.force && !params.json) {
+    if (!(params as unknown)!.force && !(params as unknown)!.json) {
       // Get task details for confirmation
       const task = await getTaskFromParams({
-        taskId: params.taskId,
-        backend: params.backend,
-        repo: params.repo,
-        workspace: params.workspace,
-        session: params.session,
+        taskId: (params as unknown)!.taskId,
+        backend: (params as unknown)!.backend,
+        repo: (params as unknown)!.repo,
+        workspace: (params as unknown)!.workspace,
+        session: (params as unknown)!.session,
       });
 
       // Import confirm from @clack/prompts for confirmation
       const { confirm, isCancel } = await import("@clack/prompts");
 
       const shouldDelete = await confirm({
-        message: `Are you sure you want to delete task ${task.id}: "${task.title}"?`,
+        message: `Are you sure you want to delete task ${(task as unknown)!.id}: "${(task as unknown)!.title}"?`,
       });
 
       if (isCancel(shouldDelete) || !shouldDelete) {
         return {
           success: false,
           message: "Task deletion cancelled",
-          taskId: params.taskId,
+          taskId: (params as unknown)!.taskId,
         };
       }
     }
 
     const result = await deleteTaskFromParams({
-      taskId: params.taskId,
-      force: params.force ?? false,
-      backend: params.backend,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
-    });
+      taskId: (params as unknown)!.taskId,
+      force: (params as unknown)!.force ?? false,
+      backend: (params as unknown)!.backend,
+      repo: (params as unknown)!.repo,
+      workspace: (params as unknown)!.workspace,
+      session: (params as unknown)!.session,
+    }) as unknown;
 
-    const message = result.success
-      ? `Task ${result.taskId} deleted successfully`
-      : `Failed to delete task ${result.taskId}`;
+    const message = (result as unknown)!.success
+      ? `Task ${(result as unknown)!.taskId} deleted successfully`
+      : `Failed to delete task ${(result as unknown)!.taskId}`;
 
     // Return different formats based on --json flag
-    if (params.json) {
+    if ((params as unknown)!.json) {
       // Structured output for programmatic use
       return {
-        success: result.success,
-        taskId: result.taskId,
-        task: result.task,
+        success: (result as unknown)!.success,
+        taskId: (result as unknown)!.taskId,
+        task: (result as unknown)!.task,
         message: message,
-      };
+      } as unknown;
     } else {
       // Simple message for user-friendly output
-      return {
-        success: result.success,
-        taskId: result.taskId,
-        task: result.task,
-        message: message,
-      };
+      return message;
     }
   },
 };

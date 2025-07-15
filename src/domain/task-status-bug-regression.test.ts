@@ -4,7 +4,7 @@
  * prevents the "status is not defined" error from recurring.
  */
 
-import { TASK_PARSING_UTILS } from "../tasks/taskConstants";
+import { TASK_PARSING_UTILS } from "./tasks/taskConstants";
 
 describe("Task Status Bug Regression Tests", () => {
   describe("TASK_PARSING_UTILS.getCheckboxFromStatus", () => {

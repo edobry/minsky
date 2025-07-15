@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **MCP Inspector Upgrade**: Upgraded @modelcontextprotocol/inspector from 0.14.3 to 0.16.1
+  - Fixed server command execution to use 'bun run minsky' instead of 'minsky' directly
+  - Resolved StreamableHTTPError and connection issues with new inspector version
+  - Added explicit working directory configuration for proper execution context
+  - Inspector now properly launches Minsky MCP server as subprocess for debugging HTTP Stream and stdio transports
+
 - **Task #181**: Completed configuration system migration to idiomatic node-config implementation (Phase 6)
   - Removed NodeConfigAdapter anti-pattern that was fighting against idiomatic node-config usage
   - Implemented comprehensive Zod validation schemas for all configuration sections
