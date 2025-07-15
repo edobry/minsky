@@ -36,15 +36,15 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     async (args: any) => {
       try {
         // Execute the command
-        const command = `minsky session get ${(args as unknown)!.session} --json`;
+        const command = `minsky session get ${args!.session} --json`;
         const output = execSync(command).toString();
 
         // Parse the JSON output
-        return JSON.parse(output) as unknown;
+        return JSON.parse(output) as Record<string, unknown>;
       } catch (error) {
-        log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });
+        log.error(`Error getting session ${args!.session}`, { error, _session: args!.session });
         throw new Error(
-          `Failed to get session ${(args as any)!.session}: ${getErrorMessage(error as any)}`
+          `Failed to get session ${args!.session}: ${getErrorMessage(error as any)}`
         );
       }
     });
