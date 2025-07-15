@@ -32,7 +32,7 @@ import {
   gitFetchWithTimeout,
   gitMergeWithTimeout,
   gitPushWithTimeout,
-} from "../utils/git-exec-enhanced";
+} from "../utils/git-exec";
 
 const execAsync = promisify(exec);
 

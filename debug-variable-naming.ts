@@ -27,5 +27,5 @@ fixer.processFiles(`${testDir}/**/*.ts`).then(() => {
 
   console.log("\nComparison:");
   console.log("Expected: const result = fetchData();");
-  console.log("Got:      " + fixedCode.split('\n')[1]);
+  console.log(`Got:      ${  fixedCode.split("\n")[1]}`);
 });

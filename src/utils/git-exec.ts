@@ -1,7 +1,7 @@
 /**
- * Enhanced Git Execution Utility with Task 223 Timeout Handling
+ * Git Execution Utility
  * 
- * This module provides git command execution with enhanced error messages and timeout handling
+ * This module provides git command execution with timeout handling and contextual error messages
  * for the specific scenarios identified in Task 223.
  */
 
