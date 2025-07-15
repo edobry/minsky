@@ -172,4 +172,4 @@ export const TASK_PARSING_UTILS = {
   isTaskLike(line: string): boolean {
     return TASK_REGEX_PATTERNS.TASK_LIKE.test(line);
   },
-} as const;
+};
