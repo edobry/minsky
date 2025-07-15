@@ -4,7 +4,7 @@
  * @refactored Uses project utilities instead of raw Bun APIs
  */
 import { describe, expect } from "bun:test";
-import * as schemas from "../param-schemas";
+import * as schemas from "./param-schemas";
 import { z } from "zod";
 import { setupTestMocks } from "../test-utils/mocking";
 // Set up automatic mock cleanup
