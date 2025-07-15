@@ -528,7 +528,7 @@ export async function createTaskFromTitleAndDescription(
       try {
         // Resolve relative paths relative to current working directory
         const filePath = require("path").resolve(validParams.descriptionPath);
-        description = ((await readFile(filePath, "utf-8")) as unknown).toString();
+        description = (await readFile(filePath, "utf-8")) as string;
 
         if (!description.trim()) {
           throw new ValidationError(`Description file is empty: ${validParams.descriptionPath}`);
