@@ -1,6 +1,6 @@
 /**
  * Advanced Resolution Strategies
- *
+ * 
  * Provides advanced conflict resolution strategy generation extracted from ConflictDetectionService
  * for better maintainability and focused responsibility.
  */
@@ -119,4 +119,4 @@ export async function generateAdvancedResolutionStrategiesImpl(
     });
     return [];
   }
-}
+} 

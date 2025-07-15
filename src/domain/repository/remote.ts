@@ -241,11 +241,11 @@ Repository: ${this.repoUrl}
 
       // Check if the URL has a git protocol, or ends with .git
       const isGitUrl =
-        (this.repoUrl as unknown).startsWith("git@") ||
-        (this.repoUrl as unknown).startsWith("git://") ||
-        (this.repoUrl as unknown).startsWith("http://") ||
-        (this.repoUrl as unknown).startsWith("https://") ||
-        (this.repoUrl as unknown).endsWith(".git");
+        this.repoUrl.startsWith("git@") ||
+        this.repoUrl.startsWith("git://") ||
+        this.repoUrl.startsWith("http://") ||
+        this.repoUrl.startsWith("https://") ||
+        this.repoUrl.endsWith(".git");
 
       if (!isGitUrl) {
         return {
@@ -290,7 +290,7 @@ Repository: ${this.repoUrl}
       // 3. Push to remote repository
 
       // This is a more complete implementation that would work with actual repositories
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
 
       if (currentSessions.length === 0) {
@@ -368,7 +368,7 @@ Repository: ${this.repoUrl}
       // 2. Determine the current branch
       // 3. Pull from remote repository
 
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
 
       if (currentSessions.length === 0) {

@@ -1,6 +1,6 @@
 /**
  * Rebase Conflict Prediction
- *
+ * 
  * Provides rebase conflict prediction functionality extracted from ConflictDetectionService
  * for better maintainability and focused responsibility.
  */
@@ -79,7 +79,7 @@ export async function predictRebaseConflictsImpl(
     // Create a temporary branch for simulation
     const tempBranch = `rebase-simulation-${Date.now()}`;
     const conflictingCommits: ConflictingCommit[] = [];
-
+    
     try {
       // Create temp branch from base
       await deps.execAsync(
@@ -92,16 +92,16 @@ export async function predictRebaseConflictsImpl(
           await deps.execAsync(
             `git -C ${repoPath} cherry-pick --no-commit ${commit.sha}`
           );
-
+          
           // No conflict for this commit, clean up and continue
           await deps.execAsync(`git -C ${repoPath} reset --hard HEAD`);
         } catch (cherryPickError) {
           // Cherry-pick failed, analyze conflicts
           const conflictFiles = await deps.analyzeConflictFiles(repoPath);
-
+          
           // Determine complexity based on conflict files
           const complexity = deps.determineCommitComplexity(conflictFiles);
-
+          
           conflictingCommits.push({
             sha: commit.sha,
             message: commit.message,
@@ -159,4 +159,4 @@ export async function predictRebaseConflictsImpl(
     });
     throw error;
   }
-}
+} 

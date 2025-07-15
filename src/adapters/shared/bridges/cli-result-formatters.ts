@@ -41,13 +41,12 @@ export function formatSessionDetails(session: Record<string, any>): void {
 export function formatSessionSummary(session: Record<string, any>): void {
   if (!session) return;
 
-  const sessionId = session.id || "unknown";
-  const sessionName = session.name || "unnamed";
-  const status = session.status || "unknown";
+  const sessionName = session.session || "unknown";
   const taskId = session.taskId ? ` (task: ${session.taskId})` : "";
-  const branchName = session.branchName ? ` [${session.branchName}]` : "";
+  const branchName = session.branch ? ` [${session.branch}]` : "";
 
-  log.cli(`${sessionId}: ${sessionName}${taskId}${branchName} - ${status}`);
+  // Sessions don't have status - that's a task concept
+  log.cli(`${sessionName}${taskId}${branchName}`);
 }
 
 /**
@@ -56,7 +55,7 @@ export function formatSessionSummary(session: Record<string, any>): void {
 export function formatSessionPrDetails(result: Record<string, any>): void {
   if (!result) return;
 
-  const sessionName = result.session?.name || result.sessionName || "Unknown";
+  const sessionName = result.session?.session || result.sessionName || "Unknown";
   const taskId = result.session?.taskId || result.taskId || "";
   const prBranch = result.prBranch || "";
   const prUrl = result.prUrl || "";
@@ -101,7 +100,7 @@ export function formatSessionPrDetails(result: Record<string, any>): void {
 export function formatSessionApprovalDetails(result: Record<string, any>): void {
   if (!result) return;
 
-  const sessionName = result.session?.name || result.sessionName || "Unknown";
+  const sessionName = result.session?.session || result.sessionName || "Unknown";
   const taskId = result.session?.taskId || result.taskId || "";
   const commitHash = result.commitHash || "";
   const mergeDate = result.mergeDate || "";
