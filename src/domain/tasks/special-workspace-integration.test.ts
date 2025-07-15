@@ -43,7 +43,7 @@ describe("Special Workspace Integration", () => {
         workspacePath: tempDir,
         backend: "json-file",
         customBackends: [
-          require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+          require("./jsonFileTaskBackend").createJsonFileTaskBackend({
             name: "json-file",
             workspacePath: tempDir,
             dbFilePath: "/tmp/external-tasks.json"
@@ -56,7 +56,7 @@ describe("Special Workspace Integration", () => {
         workspacePath: tempDir,
         backend: "json-file",
         customBackends: [
-          require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+          require("./jsonFileTaskBackend").createJsonFileTaskBackend({
             name: "json-file",
             workspacePath: tempDir,
             dbFilePath: join(tempDir, "process", "tasks.json")
