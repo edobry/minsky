@@ -6,14 +6,14 @@ describe("Git Commands Import Tests", () => {
     const gitCommands = await import("../index");
     
     // Verify that the main command functions exist
-    expect(typeof gitCommands.cloneRepository).toBe("function");
-    expect(typeof gitCommands.createBranch).toBe("function");
-    expect(typeof gitCommands.commitChanges).toBe("function");
-    expect(typeof gitCommands.pushChanges).toBe("function");
-    expect(typeof gitCommands.mergeChanges).toBe("function");
-    expect(typeof gitCommands.checkoutBranch).toBe("function");
-    expect(typeof gitCommands.rebaseChanges).toBe("function");
-    expect(typeof gitCommands.generatePr).toBe("function");
+    expect(typeof gitCommands.cloneFromParams).toBe("function");
+    expect(typeof gitCommands.branchFromParams).toBe("function");
+    expect(typeof gitCommands.commitChangesFromParams).toBe("function");
+    expect(typeof gitCommands.pushFromParams).toBe("function");
+    expect(typeof gitCommands.mergeFromParams).toBe("function");
+    expect(typeof gitCommands.checkoutFromParams).toBe("function");
+    expect(typeof gitCommands.rebaseFromParams).toBe("function");
+    expect(typeof gitCommands.createPullRequestFromParams).toBe("function");
   });
 
   test("should be able to import git types", async () => {

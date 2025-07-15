@@ -3,7 +3,7 @@ import { normalizeRepoName } from "../repo-utils";
 import { createSessionProvider } from "../../session";
 import { TaskService, TASK_STATUS } from "../tasks";
 import { log } from "../../../utils/logger";
-import { createGitService } from "../git";
+import { createGitService } from "../../git";
 import {
   PrOptions,
   PrResult,

@@ -86,14 +86,14 @@ describe("Special Workspace Integration", () => {
     test("should use explicit dbFilePath when provided", () => {
       const router = TaskBackendRouter.createExternal();
       
-      const backend = require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+      const backend = require("./jsonFileTaskBackend").createJsonFileTaskBackend({
         name: "json-file",
         workspacePath: tempDir,
         dbFilePath: join(tempDir, "custom", "path", "tasks.json")
       });
 
       // Remove the isInTreeBackend method to test auto-detection
-      delete (backend as unknown).isInTreeBackend;
+      delete (backend as any).isInTreeBackend;
       const proto = Object.getPrototypeOf(backend);
       if (proto && typeof proto.isInTreeBackend === "function") {
         delete proto.isInTreeBackend;
@@ -109,14 +109,14 @@ describe("Special Workspace Integration", () => {
     test("should detect team-shareable location correctly", () => {
       const router = TaskBackendRouter.createExternal();
       
-      const backend = require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+      const backend = require("./jsonFileTaskBackend").createJsonFileTaskBackend({
         name: "json-file",
         workspacePath: tempDir,
         dbFilePath: join(tempDir, "process", "tasks.json")
       });
 
       // Remove the isInTreeBackend method to test auto-detection  
-      delete (backend as unknown).isInTreeBackend;
+      delete (backend as any).isInTreeBackend;
       const proto = Object.getPrototypeOf(backend);
       if (proto && typeof proto.isInTreeBackend === "function") {
         delete proto.isInTreeBackend;
@@ -145,7 +145,7 @@ describe("Special Workspace Integration", () => {
     test("should handle missing repository URL for in-tree operations", async () => {
       const router = TaskBackendRouter.createExternal();
       
-      const backend = require("../markdownTaskBackend").createMarkdownTaskBackend({
+      const backend = require("./markdownTaskBackend").createMarkdownTaskBackend({
         name: "markdown",
         workspacePath: tempDir
       });
@@ -164,14 +164,14 @@ describe("Special Workspace Integration", () => {
       const router = TaskBackendRouter.createExternal();
 
       // Old approach: local workspace storage
-      const localBackend = require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+      const localBackend = require("./jsonFileTaskBackend").createJsonFileTaskBackend({
         name: "json-file",
         workspacePath: tempDir,
         dbFilePath: join(tempDir, ".minsky", "tasks.json")
       });
 
       // New approach: centralized team storage
-      const teamBackend = require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+      const teamBackend = require("./jsonFileTaskBackend").createJsonFileTaskBackend({
         name: "json-file", 
         workspacePath: tempDir,
         dbFilePath: join(tempDir, "process", "tasks.json")
@@ -179,7 +179,7 @@ describe("Special Workspace Integration", () => {
 
       // Remove isInTreeBackend methods to test auto-detection
       [localBackend, teamBackend].forEach(backend => {
-        delete (backend as unknown).isInTreeBackend;
+        delete (backend as any).isInTreeBackend;
         const proto = Object.getPrototypeOf(backend);
         if (proto && typeof proto.isInTreeBackend === "function") {
           delete proto.isInTreeBackend;
