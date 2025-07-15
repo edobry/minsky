@@ -6,13 +6,13 @@ import {
 /**
  * Inspects the current session based on workspace context
  */
-export async function inspectSessionFromParams(params: {
+export async function inspectSessionFromParams(_params: {
   json?: boolean;
 }): Promise<Session | null> {
   try {
     const sessionContext = await getCurrentSessionContext();
     return sessionContext;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }

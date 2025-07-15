@@ -1,7 +1,7 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
 import { inspectCurrentSession } from "../inspect-command";
 
-export const inspectSessionSubcommand: CommandExecutionHandler = async (params) => {
+export const _inspectSessionSubcommand: CommandExecutionHandler = async (_params) => {
   try {
     const sessionInfo = await inspectCurrentSession();
     return { 

@@ -36,17 +36,17 @@ export const optionalBoolean = (description: string) =>
 /**
  * Parameter for session name
  */
-export const sessionParam = optionalString(descriptions.SESSION_DESCRIPTION);
+export const _sessionParam = optionalString(descriptions.SESSION_DESCRIPTION);
 
 /**
  * Parameter for repository URI
  */
-export const repoParam = optionalString(descriptions.REPO_DESCRIPTION);
+export const _repoParam = optionalString(descriptions.REPO_DESCRIPTION);
 
 /**
  * Parameter for upstream repository URI
  */
-export const upstreamRepoParam = optionalString(descriptions.UPSTREAM_REPO_DESCRIPTION);
+export const _upstreamRepoParam = optionalString(descriptions.UPSTREAM_REPO_DESCRIPTION);
 
 // ------------------------------------------------------------------
 // Common Parameters - Output Format
@@ -55,12 +55,12 @@ export const upstreamRepoParam = optionalString(descriptions.UPSTREAM_REPO_DESCR
 /**
  * Parameter for JSON output
  */
-export const jsonParam = optionalBoolean(descriptions.JSON_DESCRIPTION);
+export const _jsonParam = optionalBoolean(descriptions.JSON_DESCRIPTION);
 
 /**
  * Parameter for debug output
  */
-export const debugParam = optionalBoolean(descriptions.DEBUG_DESCRIPTION);
+export const _debugParam = optionalBoolean(descriptions.DEBUG_DESCRIPTION);
 
 // ------------------------------------------------------------------
 // Common Parameters - Task
@@ -69,22 +69,22 @@ export const debugParam = optionalBoolean(descriptions.DEBUG_DESCRIPTION);
 /**
  * Parameter for task ID
  */
-export const taskIdParam = optionalString(descriptions.TASK_ID_DESCRIPTION);
+export const _taskIdParam = optionalString(descriptions.TASK_ID_DESCRIPTION);
 
 /**
  * Parameter for task status filter
  */
-export const taskStatusFilterParam = optionalString(descriptions.TASK_STATUS_FILTER_DESCRIPTION);
+export const _taskStatusFilterParam = optionalString(descriptions.TASK_STATUS_FILTER_DESCRIPTION);
 
 /**
  * Parameter for task status
  */
-export const taskStatusParam = requiredString(descriptions.TASK_STATUS_DESCRIPTION);
+export const _taskStatusParam = requiredString(descriptions.TASK_STATUS_DESCRIPTION);
 
 /**
  * Parameter for all tasks inclusion
  */
-export const taskAllParam = optionalBoolean(descriptions.TASK_ALL_DESCRIPTION);
+export const _taskAllParam = optionalBoolean(descriptions.TASK_ALL_DESCRIPTION);
 
 // ------------------------------------------------------------------
 // Common Parameters - Backend
@@ -93,12 +93,12 @@ export const taskAllParam = optionalBoolean(descriptions.TASK_ALL_DESCRIPTION);
 /**
  * Parameter for backend type
  */
-export const backendParam = optionalString(descriptions.BACKEND_DESCRIPTION);
+export const _backendParam = optionalString(descriptions.BACKEND_DESCRIPTION);
 
 /**
  * Parameter for task backend
  */
-export const taskBackendParam = optionalString(descriptions.TASK_BACKEND_DESCRIPTION);
+export const _taskBackendParam = optionalString(descriptions.TASK_BACKEND_DESCRIPTION);
 
 // ------------------------------------------------------------------
 // Common Parameters - Force
@@ -107,12 +107,12 @@ export const taskBackendParam = optionalString(descriptions.TASK_BACKEND_DESCRIP
 /**
  * Parameter for force operation
  */
-export const forceParam = optionalBoolean(descriptions.FORCE_DESCRIPTION);
+export const _forceParam = optionalBoolean(descriptions.FORCE_DESCRIPTION);
 
 /**
  * Parameter for overwrite option
  */
-export const overwriteParam = optionalBoolean(descriptions.OVERWRITE_DESCRIPTION);
+export const _overwriteParam = optionalBoolean(descriptions.OVERWRITE_DESCRIPTION);
 
 // ------------------------------------------------------------------
 // Common Parameters - Git
@@ -121,22 +121,22 @@ export const overwriteParam = optionalBoolean(descriptions.OVERWRITE_DESCRIPTION
 /**
  * Parameter for git remote
  */
-export const remoteParam = optionalString(descriptions.GIT_REMOTE_DESCRIPTION);
+export const _remoteParam = optionalString(descriptions.GIT_REMOTE_DESCRIPTION);
 
 /**
  * Parameter for branch name
  */
-export const branchParam = optionalString(descriptions.GIT_BRANCH_DESCRIPTION);
+export const _branchParam = optionalString(descriptions.GIT_BRANCH_DESCRIPTION);
 
 /**
  * Parameter for git force option
  */
-export const gitForceParam = optionalBoolean(descriptions.GIT_FORCE_DESCRIPTION);
+export const _gitForceParam = optionalBoolean(descriptions.GIT_FORCE_DESCRIPTION);
 
 /**
  * Parameter for no status update option
  */
-export const noStatusUpdateParam = optionalBoolean(descriptions.NO_STATUS_UPDATE_DESCRIPTION);
+export const _noStatusUpdateParam = optionalBoolean(descriptions.NO_STATUS_UPDATE_DESCRIPTION);
 
 // ------------------------------------------------------------------
 // Common Parameters - Rules
@@ -145,24 +145,24 @@ export const noStatusUpdateParam = optionalBoolean(descriptions.NO_STATUS_UPDATE
 /**
  * Parameter for rule content
  */
-export const ruleContentParam = optionalString(descriptions.RULE_CONTENT_DESCRIPTION);
+export const _ruleContentParam = optionalString(descriptions.RULE_CONTENT_DESCRIPTION);
 
 /**
  * Parameter for rule description
  */
-export const ruleDescriptionParam = optionalString(descriptions.RULE_DESCRIPTION_DESCRIPTION);
+export const _ruleDescriptionParam = optionalString(descriptions.RULE_DESCRIPTION_DESCRIPTION);
 
 /**
  * Parameter for rule name
  */
-export const ruleNameParam = optionalString(descriptions.RULE_NAME_DESCRIPTION);
+export const _ruleNameParam = optionalString(descriptions.RULE_NAME_DESCRIPTION);
 
 /**
  * Parameter for rule format
  */
-export const ruleFormatParam = optionalString(descriptions.RULE_FORMAT_DESCRIPTION);
+export const _ruleFormatParam = optionalString(descriptions.RULE_FORMAT_DESCRIPTION);
 
 /**
  * Parameter for rule tags
  */
-export const ruleTagsParam = optionalString(descriptions.RULE_TAGS_DESCRIPTION);
+export const _ruleTagsParam = optionalString(descriptions.RULE_TAGS_DESCRIPTION);

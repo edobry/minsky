@@ -1,0 +1,778 @@
+[0m[1mbun test [0m[2mv1.2.15 (df017990)[0m
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 0
+Total transformations: 3
+Processing time: 16ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747703-7ou42ddk1/src/test.ts: 3 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747730-g6q75gdfp/src/test.ts: 2 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 0
+Export statements fixed: 3
+Total transformations: 3
+Processing time: 3ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747734-tiphn8pd7/src/test.ts: 3 exports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 3ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747749-pajhu35dd/src/test.ts: 2 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 3 files to process
+💾 Saving changes...
+✅ Saved 3 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 3
+Files modified: 3
+Import statements fixed: 2
+Export statements fixed: 1
+Total transformations: 3
+Processing time: 12ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747753-ik80u5qkh/src/app.ts: 1 imports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747753-ik80u5qkh/src/components/Button.ts: 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747753-ik80u5qkh/src/utils/index.ts: 1 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 1
+Total transformations: 3
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747767-69qq1ysgg/src/test.ts: 2 imports, 1 exports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 1
+Export statements fixed: 1
+Total transformations: 2
+Processing time: 1ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747771-stmwahwwi/src/test.ts: 1 imports, 1 exports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 3ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 3ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 3
+Total transformations: 6
+Processing time: 3ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747791-x1jbs5hxk/src/complex.ts: 3 imports, 3 exports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 2ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 0 files to process
+💾 Saving changes...
+✅ Saved 0 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 0
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 0 files to process
+💾 Saving changes...
+✅ Saved 0 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 0
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 0ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 10 files to process
+💾 Saving changes...
+✅ Saved 10 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 10
+Files modified: 10
+Import statements fixed: 10
+Export statements fixed: 10
+Total transformations: 20
+Processing time: 7ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747805-v63unbv51/src/file0.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747805-v63unbv51/src/file1.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747805-v63unbv51/src/file2.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747805-v63unbv51/src/file3.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747805-v63unbv51/src/file4.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747805-v63unbv51/src/file5.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747805-v63unbv51/src/file6.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747805-v63unbv51/src/file7.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747805-v63unbv51/src/file8.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747805-v63unbv51/src/file9.ts: 1 imports, 1 exports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747815-ozreriarv/src/test.ts: 2 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 0
+Total transformations: 3
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747819-1zxgm64wn/src/typescript.ts: 3 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 1ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747822-4jt1ds4eh/src/component.tsx: 2 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 1ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747826-p5infuy10/src/bun-example.ts: 2 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 0
+Total transformations: 3
+Processing time: 3ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1752601747830-feaonbd5r/src/nested/deep/component.ts: 3 imports
+
+✅ Import extension fixing completed!
+{"level":"error","message":"Invalid repository path: /definitely/does/not/exist/path/12345","timestamp":"2025-07-15T17:49:07.838Z"}
+{"level":"error","message":"Failed to install dependencies: Installation failed","timestamp":"2025-07-15T17:49:07.842Z"}
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 1 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-sogp7m/test.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 1
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 1 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-RBu7Dt/test.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 1
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 2 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-zfEwGm/test.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 2
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 2 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 2 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-zvGaDG/mixed.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 2
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 2 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 1 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-xi2OCj/complex-syntax.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 1
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🔧 Processing 1 TypeScript files for error fixing...
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2345: 1 fixes
+   TS18048: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+   TS2353: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+   TS2353: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2345: 1 fixes
+   TS18048: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-parameters: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🧹 Processing 1 TypeScript files for unused element cleanup...
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🧹 Processing 1 TypeScript files for unused element cleanup...
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 4
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 2 fixes
+   unused-parameters: 2 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 2 fixes
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-parameters: 1 fixes
+{"level":"warn","message":"Failed to determine JSON backend file path, defaulting to in-tree","timestamp":"2025-07-15T17:49:10.701Z"}
+{"error":{"code":"ENOENT","errno":-2,"path":"/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/config-test-1752601750706/process/tasks.md","syscall":"open"},"level":"error","message":"Failed to read tasks file: /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/config-test-1752601750706/process/tasks.md","timestamp":"2025-07-15T17:49:10.707Z"}
+{"error":"JSON Parse error: Unexpected identifier \"invalid\"","level":"error","message":"Failed to parse GitHub issues data","timestamp":"2025-07-15T17:49:10.712Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T17:49:10.797Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T17:49:10.801Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T17:49:10.801Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T17:49:10.804Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T17:49:10.806Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:todo","timestamp":"2025-07-15T17:49:10.807Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T17:49:10.810Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T17:49:10.811Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T17:49:10.811Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T17:49:10.814Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:todo","timestamp":"2025-07-15T17:49:10.815Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T17:49:10.840Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T17:49:10.849Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T17:49:10.853Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T17:49:10.853Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T17:49:10.853Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T17:49:10.854Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:in-progress","timestamp":"2025-07-15T17:49:10.855Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T17:49:10.856Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T17:49:10.858Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T17:49:10.861Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-progress","timestamp":"2025-07-15T17:49:10.864Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T17:49:10.886Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T17:49:10.891Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T17:49:10.894Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T17:49:10.896Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T17:49:10.902Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:in-review","timestamp":"2025-07-15T17:49:10.909Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T17:49:10.909Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T17:49:10.909Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T17:49:10.923Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T17:49:10.924Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T17:49:10.938Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T17:49:10.938Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T17:49:10.947Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T17:49:10.951Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T17:49:10.955Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:done","timestamp":"2025-07-15T17:49:10.958Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T17:49:10.958Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T17:49:10.966Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T17:49:10.970Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T17:49:10.974Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:in-review","timestamp":"2025-07-15T17:49:10.977Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T17:49:10.982Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T17:49:10.993Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T17:49:10.997Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T17:49:10.997Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T17:49:11.015Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T17:49:11.019Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T17:49:11.021Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:blocked","timestamp":"2025-07-15T17:49:11.021Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T17:49:11.023Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:done","timestamp":"2025-07-15T17:49:11.023Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T17:49:11.023Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T17:49:11.036Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T17:49:11.037Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T17:49:11.047Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T17:49:11.056Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T17:49:11.057Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: custom:closed","timestamp":"2025-07-15T17:49:11.061Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T17:49:11.061Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T17:49:11.066Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:blocked","timestamp":"2025-07-15T17:49:11.073Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T17:49:11.077Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T17:49:11.099Z"}
+{"error":"Bad credentials - https://docs.github.com/rest","level":"error","message":"Failed to create GitHub label: minsky:closed","timestamp":"2025-07-15T17:49:11.118Z"}

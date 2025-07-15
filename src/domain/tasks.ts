@@ -1,4 +1,4 @@
-const COMMIT_HASH_SHORT_LENGTH = 7;
+const _COMMIT_HASH_SHORT_LENGTH = 7;
 
 /**
  * Task operations for the Minsky CLI
@@ -201,7 +201,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     const idNum = canonicalId.startsWith("#") ? canonicalId.slice(1) : canonicalId;
 
     const content = String(await fs.readFile(this.filePath, "utf-8"));
-    const newStatusChar = TASK_STATUS_CHECKBOX[status];
+    const _newStatusChar = TASK_STATUS_CHECKBOX[status];
     const lines = content.toString().split("\n");
     let inCodeBlock = false;
     const updatedLines = lines.map((line) => {
@@ -237,7 +237,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         if (matchingFile) {
           return getTaskSpecRelativePath(taskId, matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""), this.workspacePath);
         }
-      } catch (err) {
+      } catch (_err) {
         // Directory doesn't exist or can't be read
       }
       return undefined;
@@ -546,7 +546,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
   }
 
-  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
+  async deleteTask(id: string, _options: DeleteTaskOptions = {}): Promise<boolean> {
     const task = await this.getTask(id);
     if (!task) {
       return false;
@@ -640,12 +640,12 @@ export class GitHubTaskBackend implements TaskBackend {
     return this.workspacePath;
   }
 
-  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
+  async createTask(_specPath: string, _options: CreateTaskOptions = {}): Promise<Task> {
     // Implementation needed
     throw new Error("Method not implemented");
   }
 
-  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
+  async deleteTask(_id: string, _options: DeleteTaskOptions = {}): Promise<boolean> {
     // Implementation needed
     throw new Error("Method not implemented");
   }

@@ -167,7 +167,7 @@ const tasksStatusGetRegistration = {
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
@@ -243,7 +243,7 @@ const tasksStatusSetRegistration = {
       const currentStatusIndex = statusOptions.findIndex(
         (option) => option?.value === previousStatus
       );
-      const initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0; // Default to TODO if current status not found
+      const _initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0; // Default to TODO if current status not found
 
       // Prompt for status selection
       const selectedStatus = await select({
@@ -291,7 +291,7 @@ const tasksSpecRegistration = {
   name: "spec",
   description: "Get task specification content",
   parameters: tasksSpecParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     try {
       const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
       if (!normalizedTaskId) {
@@ -466,7 +466,7 @@ const tasksListRegistration = {
   name: "list",
   description: "List tasks with optional filtering",
   parameters: tasksListParams,
-  execute: async (params, ctx) => {
+  execute: async (params, _ctx) => {
     const { all = false, status, filter, ...rest } = params;
 
     // Use status parameter if provided, otherwise fall back to filter
@@ -489,7 +489,7 @@ const tasksGetRegistration = {
   name: "get",
   description: "Get a task by ID",
   parameters: tasksGetParams,
-  execute: async (params, ctx) => {
+  execute: async (params, _ctx) => {
     if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
     return await getTaskFromParams({
       taskId: (params as unknown)!.taskId,
@@ -510,7 +510,7 @@ const tasksCreateRegistration = {
   name: "create",
   description: "Create a new task with --title and --description",
   parameters: tasksCreateParams,
-  execute: async (params, ctx) => {
+  execute: async (params, _ctx) => {
     // Title is required by schema, but validate it's provided
     if (!(params as unknown)!.title) {
       throw new ValidationError("Title is required");
@@ -592,7 +592,7 @@ const tasksDeleteRegistration = {
   name: "delete",
   description: "Delete a task",
   parameters: tasksDeleteParams,
-  execute: async (params, ctx) => {
+  execute: async (params, _ctx) => {
     if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Handle confirmation if force is not set and we're in interactive mode

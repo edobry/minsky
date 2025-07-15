@@ -415,7 +415,7 @@ export class SessionDbHealthMonitor {
   private static generateRecommendations(
     backendHealth: HealthStatus,
     performance: { averageResponseTime: number; successRate: number; recentErrors: number },
-    storage: Record<string, any>
+    _storage: Record<string, any>
   ): string[] {
     const recommendations: string[] = [];
 

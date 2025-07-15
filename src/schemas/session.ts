@@ -13,7 +13,7 @@ import {
 /**
  * Schema for a session record
  */
-export const sessionRecordSchema = z.object({
+export const _sessionRecordSchema = z.object({
   session: sessionNameSchema.describe("Unique name of the session"),
   repoUrl: z.string().describe("URL of the repository"),
   repoName: z.string().describe("Normalized name of the repository"),

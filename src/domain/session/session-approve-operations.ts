@@ -146,7 +146,7 @@ export async function approveSessionImpl(
           await deps.gitService.execInRepository(workingDirectory, `git show-ref --verify --quiet refs/heads/${prBranch}`);
           // PR branch exists, continue with normal flow
           log.debug(`PR branch ${prBranch} exists, continuing with normal flow`);
-        } catch (branchError) {
+        } catch (_branchError) {
           // PR branch doesn't exist and task is already DONE - session is complete
           log.debug(`Session ${sessionNameToUse} is already complete: task ${taskId} is DONE and PR branch ${prBranch} doesn't exist`);
 
@@ -173,7 +173,7 @@ export async function approveSessionImpl(
       } else {
         log.debug(`Task ${taskId} is not DONE (status: ${currentStatus}), continuing with normal flow`);
       }
-    } catch (statusError) {
+    } catch (_statusError) {
       // If we can't check the status, continue with normal flow
       log.debug(`Could not check task status for ${taskId}, continuing with normal approval flow`);
     }
@@ -197,7 +197,7 @@ export async function approveSessionImpl(
       await deps.gitService.execInRepository(workingDirectory, `git show-ref --verify --quiet refs/heads/${prBranch}`);
 
       // Get the commit hash of the PR branch
-      const prBranchCommitHash = (
+      const _prBranchCommitHash = (
         await deps.gitService.execInRepository(workingDirectory, `git rev-parse ${prBranch}`)
       ).trim();
 

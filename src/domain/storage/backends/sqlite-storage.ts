@@ -172,7 +172,7 @@ implements DatabaseStorage<TEntity, TState>
     }
   }
 
-  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<TEntity | null> {
+  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<TEntity | null> {
     if (!this.drizzleDb) {
       return null;
     }

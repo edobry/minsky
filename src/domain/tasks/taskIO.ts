@@ -1,4 +1,4 @@
-const COMMIT_HASH_SHORT_LENGTH = 7;
+const _COMMIT_HASH_SHORT_LENGTH = 7;
 
 /**
  * Task I/O operations module
@@ -245,7 +245,7 @@ export function getTaskSpecFilePath(
 export function getTaskSpecRelativePath(
   taskId: string,
   title: string,
-  workspacePath: string
+  _workspacePath: string
 ): string {
   const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
   const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");

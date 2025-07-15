@@ -306,7 +306,7 @@ export class CliCommandBridge {
    * Extract raw parameters from CLI inputs
    */
   private extractRawParameters(
-    parameters: Record<string, any>,
+    _parameters: Record<string, any>,
     options: Record<string, any>,
     positionalArgs: any[],
     mappings: ParameterMapping[]
@@ -326,7 +326,7 @@ export class CliCommandBridge {
   /**
    * Get default formatter for a command with type safety
    */
-  private getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
+  private getDefaultFormatter(_commandDef: SharedCommand): (result: any) => void {
     return (result: any) => {
       if (typeof result === "object") {
         console.log(JSON.stringify(result, null, 2));
@@ -378,7 +378,7 @@ export class CliCommandBridge {
   /**
    * Git command formatters
    */
-  private getGitFormatter(commandId: string): (result: any) => void {
+  private getGitFormatter(_commandId: string): (result: any) => void {
     return (result: any) => console.log(result.output || JSON.stringify(result, null, 2));
   }
 
@@ -465,4 +465,4 @@ export function createCliBridge(registry?: SharedCommandRegistry): CliCommandBri
 /**
  * Default CLI bridge instance
  */
-export const cliBridge = createCliBridge(); 
+export const _cliBridge = createCliBridge(); 
