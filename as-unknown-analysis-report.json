@@ -2605,6 +2605,33 @@
       "reason": "Needs manual review"
     },
     {
+      "file": "src/errors/message-templates.ts",
+      "line": 299,
+      "content": "title: (config as unknown)!.title,",
+      "context": "  const config = templates[errorType];\n  const template: ErrorTemplate = {\n    title: (config as unknown)!.title,\n    description: (config as unknown)!.description,\n    sections: [",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/errors/message-templates.ts",
+      "line": 300,
+      "content": "description: (config as unknown)!.description,",
+      "context": "  const template: ErrorTemplate = {\n    title: (config as unknown)!.title,\n    description: (config as unknown)!.description,\n    sections: [\n      {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/errors/message-templates.ts",
+      "line": 305,
+      "content": "content: formatCommandSuggestions((config as unknown)!.suggestions)",
+      "context": "        title: \"What you can do:\",\n        emoji: ErrorEmojis.SUGGESTION,\n        content: formatCommandSuggestions((config as unknown)!.suggestions)\n      }\n    ]",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
       "file": "src/domain/repository-uri.ts",
       "line": 98,
       "content": "(components as unknown)!.repo = repo;",
@@ -3694,31 +3721,40 @@
       "reason": "Test mocking - may be legitimate for test setup"
     },
     {
-      "file": "src/errors/message-templates.ts",
-      "line": 299,
-      "content": "title: (config as unknown)!.title,",
-      "context": "  const config = templates[errorType];\n  const template: ErrorTemplate = {\n    title: (config as unknown)!.title,\n    description: (config as unknown)!.description,\n    sections: [",
+      "file": "src/mcp/server.ts",
+      "line": 211,
+      "content": "methods.push(...Object.keys((this.server)._tools) as unknown);",
+      "context": "        if (this.server._tools) {\n          // @ts-ignore\n          methods.push(...Object.keys((this.server)._tools) as unknown);\n        }\n        log.debug(\"MCP Server registered methods\", {",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/errors/message-templates.ts",
-      "line": 300,
-      "content": "description: (config as unknown)!.description,",
-      "context": "  const template: ErrorTemplate = {\n    title: (config as unknown)!.title,\n    description: (config as unknown)!.description,\n    sections: [\n      {",
+      "file": "src/mcp/inspector-launcher.ts",
+      "line": 101,
+      "content": "SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server",
+      "context": "      ...(process as any).env,\n      CLIENT_PORT: (port as any).toString(),\n      SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server\n    };\n",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/errors/message-templates.ts",
-      "line": 305,
-      "content": "content: formatCommandSuggestions((config as unknown)!.suggestions)",
-      "context": "        title: \"What you can do:\",\n        emoji: ErrorEmojis.SUGGESTION,\n        content: formatCommandSuggestions((config as unknown)!.suggestions)\n      }\n    ]",
+      "file": "src/mcp/inspector-launcher.ts",
+      "line": 149,
+      "content": "log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);",
+      "context": "\n    inspectorProcess.stderr.on(\"data\", (data) => {\n      log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);\n    });\n",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/command-mapper.test.ts",
+      "line": 31,
+      "content": "commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);",
+      "context": "    } as ProjectContext;\n\n    commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);\n  });\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
     },
     {
       "file": "src/utils/test-utils.ts",
@@ -3892,51 +3928,6 @@
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/mcp/server.ts",
-      "line": 211,
-      "content": "methods.push(...Object.keys((this.server)._tools) as unknown);",
-      "context": "        if (this.server._tools) {\n          // @ts-ignore\n          methods.push(...Object.keys((this.server)._tools) as unknown);\n        }\n        log.debug(\"MCP Server registered methods\", {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/inspector-launcher.ts",
-      "line": 101,
-      "content": "SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server",
-      "context": "      ...(process as any).env,\n      CLIENT_PORT: (port as any).toString(),\n      SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server\n    };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/inspector-launcher.ts",
-      "line": 149,
-      "content": "log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);",
-      "context": "\n    inspectorProcess.stderr.on(\"data\", (data) => {\n      log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);\n    });\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/command-mapper.test.ts",
-      "line": 31,
-      "content": "commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);",
-      "context": "    } as ProjectContext;\n\n    commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);\n  });\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/types/project.ts",
-      "line": 55,
-      "content": "throw new Error(errorMessage as unknown);",
-      "context": "    const errorMessage = `Invalid repository path: ${normalizedPath}`;\n    log.error(errorMessage);\n    throw new Error(errorMessage as unknown);\n  }\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
       "file": "src/schemas/tasks.ts",
       "line": 119,
       "content": "return data.description || data.descriptionPath as unknown;",
@@ -3973,6 +3964,69 @@
       "reason": "Property access masking - should use proper types"
     },
     {
+      "file": "src/types/project.ts",
+      "line": 55,
+      "content": "throw new Error(errorMessage as unknown);",
+      "context": "    const errorMessage = `Invalid repository path: ${normalizedPath}`;\n    log.error(errorMessage);\n    throw new Error(errorMessage as unknown);\n  }\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/commands/mcp/index.ts",
+      "line": 164,
+      "content": "}) as unknown;",
+      "context": "              mcpPort: transportType !== \"stdio\" ? port : undefined,\n              mcpHost: transportType !== \"stdio\" ? options.host : undefined,\n            }) as unknown;\n\n            if (inspectorResult.success) {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/commands/config/show.ts",
+      "line": 39,
+      "content": "}) as unknown;",
+      "context": "        exit(1);\n      }\n    }) as unknown;\n}\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/commands/config/list.ts",
+      "line": 47,
+      "content": "}) as unknown;",
+      "context": "        exit(1);\n      }\n    }) as unknown;\n}\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 86,
+      "content": "return data as unknown as object;",
+      "context": "   */\n  formatJson(data: T, context: CommandExecutionContext): object {\n    return data as unknown as object;\n  }\n}",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/response-formatters.ts",
+      "line": 291,
+      "content": ".join(\" | \") as unknown;",
+      "context": "          return value.padEnd(columnWidths[col]);\n        })\n        .join(\" | \") as unknown;\n\n      output += `${dataRow}\\n`;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/legacy-command-registry.ts",
+      "line": 171,
+      "content": "this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);",
+      "context": "    }\n\n    this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);\n  }\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
       "file": "src/domain/session/session-db.test.ts",
       "line": 195,
       "content": "} as unknown;",
@@ -3989,33 +4043,6 @@
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/storage/json-file-storage.ts",
-      "line": 452,
-      "content": "return new JsonFileStorage<T, S>(options as unknown);",
-      "context": "  options: JsonFileStorageOptions<S>\n): DatabaseStorage<T, S> {\n  return new JsonFileStorage<T, S>(options as unknown);\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/storage/database-integrity-checker.ts",
-      "line": 248,
-      "content": "const integrityResult = db.prepare(\"PRAGMA integrity_check\").get() as unknown;",
-      "context": "        try {\n          // Check database integrity\n          const integrityResult = db.prepare(\"PRAGMA integrity_check\").get() as unknown;\n          if (integrityResult?.integrity_check !== \"ok\") {\n            result.isValid = false;",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/database-integrity-checker.ts",
-      "line": 264,
-      "content": "const sessionCount = db.prepare(\"SELECT COUNT(*) as count FROM sessions\").get() as unknown;",
-      "context": "          // Check session count\n          try {\n            const sessionCount = db.prepare(\"SELECT COUNT(*) as count FROM sessions\").get() as unknown;\n            if (sessionCount?.count === 0) {\n              result.warnings.push(\"Database is empty - no sessions found\");",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "src/domain/__tests__/tasks.test.ts",
@@ -4061,6 +4088,33 @@
       "category": "error-masking",
       "priority": "high",
       "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/domain/storage/json-file-storage.ts",
+      "line": 452,
+      "content": "return new JsonFileStorage<T, S>(options as unknown);",
+      "context": "  options: JsonFileStorageOptions<S>\n): DatabaseStorage<T, S> {\n  return new JsonFileStorage<T, S>(options as unknown);\n}\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/domain/storage/database-integrity-checker.ts",
+      "line": 248,
+      "content": "const integrityResult = db.prepare(\"PRAGMA integrity_check\").get() as unknown;",
+      "context": "        try {\n          // Check database integrity\n          const integrityResult = db.prepare(\"PRAGMA integrity_check\").get() as unknown;\n          if (integrityResult?.integrity_check !== \"ok\") {\n            result.isValid = false;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/domain/storage/database-integrity-checker.ts",
+      "line": 264,
+      "content": "const sessionCount = db.prepare(\"SELECT COUNT(*) as count FROM sessions\").get() as unknown;",
+      "context": "          // Check session count\n          try {\n            const sessionCount = db.prepare(\"SELECT COUNT(*) as count FROM sessions\").get() as unknown;\n            if (sessionCount?.count === 0) {\n              result.warnings.push(\"Database is empty - no sessions found\");",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "src/domain/workspace/local-workspace-backend.ts",
@@ -4324,123 +4378,6 @@
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/commands/mcp/index.ts",
-      "line": 164,
-      "content": "}) as unknown;",
-      "context": "              mcpPort: transportType !== \"stdio\" ? port : undefined,\n              mcpHost: transportType !== \"stdio\" ? options.host : undefined,\n            }) as unknown;\n\n            if (inspectorResult.success) {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/commands/config/show.ts",
-      "line": 39,
-      "content": "}) as unknown;",
-      "context": "        exit(1);\n      }\n    }) as unknown;\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/commands/config/list.ts",
-      "line": 47,
-      "content": "}) as unknown;",
-      "context": "        exit(1);\n      }\n    }) as unknown;\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/utils/test-utils/index.ts",
-      "line": 96,
-      "content": "const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;",
-      "context": "    \n    // Create a wrapper function that behaves like the mock but has our methods\n    const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;\n    \n    // Copy mock properties and bind methods to original mock",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-utils/mocking.test.ts",
-      "line": 13,
-      "content": "expect((mockFn as unknown)(\"World\")).toBe(\"Hello, World!\");",
-      "context": "\n    // Should work as a function\n    expect((mockFn as unknown)(\"World\")).toBe(\"Hello, World!\");\n\n    // Should track calls",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/utils/test-utils/mocking.test.ts",
-      "line": 24,
-      "content": "expect((mockFn as unknown)()).toBeUndefined();",
-      "context": "    const mockFn = createMock();\n\n    expect((mockFn as unknown)()).toBeUndefined();\n    expect(mockFn.mock.calls.length).toBe(1);\n  });",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/utils/test-utils/assertions.ts",
-      "line": 108,
-      "content": "expect(part in (current as unknown)).toBeTruthy();",
-      "context": "    expect(current).toBeDefined();\n    expect(typeof current === \"object\" || Array.isArray(current)).toBeTruthy();\n    expect(part in (current as unknown)).toBeTruthy();\n    current = current[part];\n  }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-utils/assertions.ts",
-      "line": 162,
-      "content": "} as unknown;",
-      "context": "    // Could potentially extend expect with custom matchers here in the future\n    return testFn.apply(this, args);\n  } as unknown;\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/utils/test-utils/mocking.ts",
-      "line": 52,
-      "content": "return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;",
-      "context": "export function mockFunction<T extends (...args: unknown[]) => any>(implementation?: T) {\n  // Cast to unknown first to avoid TypeScript errors\n  return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/utils/test-utils/mocking.ts",
-      "line": 463,
-      "content": "const base = { ...implementations } as unknown;",
-      "context": "export function createPartialMock<T extends object>(implementations: Partial<T> = {}): T {\n  // Create a base object with the provided implementations\n  const base = { ...implementations } as unknown;\n\n  // Create a proxy that will handle method calls",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 86,
-      "content": "return data as unknown as object;",
-      "context": "   */\n  formatJson(data: T, context: CommandExecutionContext): object {\n    return data as unknown as object;\n  }\n}",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/response-formatters.ts",
-      "line": 291,
-      "content": ".join(\" | \") as unknown;",
-      "context": "          return value.padEnd(columnWidths[col]);\n        })\n        .join(\" | \") as unknown;\n\n      output += `${dataRow}\\n`;",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/legacy-command-registry.ts",
-      "line": 171,
-      "content": "this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);",
-      "context": "    }\n\n    this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
       "file": "src/mcp/tools/tasks.ts",
       "line": 46,
       "content": "return JSON.parse(output) as unknown;",
@@ -4603,6 +4540,69 @@
       "reason": "Property access masking - should use proper types"
     },
     {
+      "file": "src/utils/test-utils/index.ts",
+      "line": 96,
+      "content": "const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;",
+      "context": "    \n    // Create a wrapper function that behaves like the mock but has our methods\n    const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;\n    \n    // Copy mock properties and bind methods to original mock",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/utils/test-utils/mocking.test.ts",
+      "line": 13,
+      "content": "expect((mockFn as unknown)(\"World\")).toBe(\"Hello, World!\");",
+      "context": "\n    // Should work as a function\n    expect((mockFn as unknown)(\"World\")).toBe(\"Hello, World!\");\n\n    // Should track calls",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/utils/test-utils/mocking.test.ts",
+      "line": 24,
+      "content": "expect((mockFn as unknown)()).toBeUndefined();",
+      "context": "    const mockFn = createMock();\n\n    expect((mockFn as unknown)()).toBeUndefined();\n    expect(mockFn.mock.calls.length).toBe(1);\n  });",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/utils/test-utils/assertions.ts",
+      "line": 108,
+      "content": "expect(part in (current as unknown)).toBeTruthy();",
+      "context": "    expect(current).toBeDefined();\n    expect(typeof current === \"object\" || Array.isArray(current)).toBeTruthy();\n    expect(part in (current as unknown)).toBeTruthy();\n    current = current[part];\n  }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/utils/test-utils/assertions.ts",
+      "line": 162,
+      "content": "} as unknown;",
+      "context": "    // Could potentially extend expect with custom matchers here in the future\n    return testFn.apply(this, args);\n  } as unknown;\n}\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/utils/test-utils/mocking.ts",
+      "line": 52,
+      "content": "return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;",
+      "context": "export function mockFunction<T extends (...args: unknown[]) => any>(implementation?: T) {\n  // Cast to unknown first to avoid TypeScript errors\n  return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;\n}\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/utils/test-utils/mocking.ts",
+      "line": 463,
+      "content": "const base = { ...implementations } as unknown;",
+      "context": "export function createPartialMock<T extends object>(implementations: Partial<T> = {}): T {\n  // Create a base object with the provided implementations\n  const base = { ...implementations } as unknown;\n\n  // Create a proxy that will handle method calls",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
       "file": "src/types/tasks/taskData.ts",
       "line": 103,
       "content": "id: (task as unknown)!.id,",
@@ -4670,6 +4670,15 @@
       "line": 123,
       "content": "status: (taskData as unknown)!.status,",
       "context": "    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,\n    status: (taskData as unknown)!.status,\n    specPath: taskData!.specPath,\n    worklog: taskData!.worklog,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/utils/error-handler.ts",
+      "line": 136,
+      "content": "log.agent({ message: \"Command result\", result } as unknown);",
+      "context": "    if (isStructuredMode()) {\n      // In structured mode, log to agent logger\n      log.agent({ message: \"Command result\", result } as unknown);\n    } else {\n      // In human mode or when json is explicitly requested, write directly to stdout",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
@@ -4819,91 +4828,109 @@
       "reason": "Test mocking - may be legitimate for test setup"
     },
     {
-      "file": "src/utils/test-utils/compatibility/mock-function.ts",
-      "line": 319,
-      "content": "() => Promise.resolve(value) as unknown as ReturnType<T>",
-      "context": "    // Use a cast to suppress TypeScript errors since the return types don\"t match\n    return mockFn.mockImplementation(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-utils/compatibility/mock-function.ts",
-      "line": 320,
-      "content": ") as unknown;",
-      "context": "    return mockFn.mockImplementation(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };\n",
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 366,
+      "content": "}) as unknown;",
+      "context": "        repo: params!.repo,\n        session: params!.session,\n      }) as unknown;\n\n      return {",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
     },
     {
-      "file": "src/utils/test-utils/compatibility/mock-function.ts",
-      "line": 327,
-      "content": "() => Promise.resolve(value) as unknown as ReturnType<T>",
-      "context": "    // Use a cast to suppress TypeScript errors since the return types don\"t match\n    return mockFn.mockImplementationOnce(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-utils/compatibility/mock-function.ts",
-      "line": 328,
-      "content": ") as unknown;",
-      "context": "    return mockFn.mockImplementationOnce(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };\n",
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 372,
+      "content": "} as unknown;",
+      "context": "        commitHash: result!.commitHash,\n        message: result!.message,\n      } as unknown;\n    },\n  });",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
     },
     {
-      "file": "src/utils/test-utils/compatibility/mock-function.ts",
-      "line": 335,
-      "content": "() => Promise.reject(value) as unknown as ReturnType<T>",
-      "context": "    // Use a cast to suppress TypeScript errors since the return types don\"t match\n    return mockFn.mockImplementation(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-utils/compatibility/mock-function.ts",
-      "line": 336,
-      "content": ") as unknown;",
-      "context": "    return mockFn.mockImplementation(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };\n",
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 392,
+      "content": "}) as unknown;",
+      "context": "        force: params!.force,\n        debug: params!.debug,\n      }) as unknown;\n\n      return {",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
     },
     {
-      "file": "src/utils/test-utils/compatibility/mock-function.ts",
-      "line": 343,
-      "content": "() => Promise.reject(value) as unknown as ReturnType<T>",
-      "context": "    // Use a cast to suppress TypeScript errors since the return types don\"t match\n    return mockFn.mockImplementationOnce(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/utils/test-utils/compatibility/mock-function.ts",
-      "line": 344,
-      "content": ") as unknown;",
-      "context": "    return mockFn.mockImplementationOnce(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };\n",
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 397,
+      "content": "} as unknown;",
+      "context": "        success: result!.pushed,\n        workdir: result!.workdir,\n      } as unknown;\n    },\n  });",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
     },
     {
-      "file": "src/utils/test-utils/compatibility/mock-function.ts",
-      "line": 421,
-      "content": "const mockedModule = { ...module } as unknown;",
-      "context": " */\nexport function autoMockModule<T extends object>(module: T): T {\n  const mockedModule = { ...module } as unknown;\n\n  // Recursively replace all functions with mocks",
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 416,
+      "content": "}) as unknown;",
+      "context": "        session: params!.session,\n        branch: params!.branch,\n      }) as unknown;\n\n      return {",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
     },
     {
-      "file": "src/utils/test-utils/compatibility/matchers.ts",
-      "line": 398,
-      "content": "if (!(key in (expectObj as unknown))) {",
-      "context": "  // Add each matcher to the expect object\n  for (const [key, value] of Object.entries(asymmetricMatchers)) {\n    if (!(key in (expectObj as unknown))) {\n      expectObj[key] = value;\n    }",
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 422,
+      "content": "} as unknown;",
+      "context": "        workdir: result!.workdir,\n        session: result!.session,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 439,
+      "content": "}) as unknown;",
+      "context": "        session: params!.session,\n        name: params!.name,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 445,
+      "content": "} as unknown;",
+      "context": "        workdir: result!.workdir,\n        branch: result!.branch,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 466,
+      "content": "}) as unknown;",
+      "context": "        debug: params!.debug,\n        noStatusUpdate: params!.noStatusUpdate,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 472,
+      "content": "} as unknown;",
+      "context": "        markdown: result!.markdown,\n        statusUpdateResult: result!.statusUpdateResult,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/session.ts",
+      "line": 618,
+      "content": "})) as unknown;",
+      "context": "          repo: params!.repo,\n          json: params!.json,\n        })) as unknown;\n\n        return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/session.ts",
+      "line": 722,
+      "content": "})) as unknown;",
+      "context": "          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,\n          skipConflictCheck: params!.skipConflictCheck,\n        })) as unknown;\n\n        return {",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
@@ -4952,6 +4979,186 @@
       "category": "error-masking",
       "priority": "high",
       "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
+      "line": 238,
+      "content": "})) as unknown;",
+      "context": "      ...customOptions[name],\n    },\n  })) as unknown;\n}\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 28,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "      // Arrange\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Override environment variables for testing",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 49,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "      // Arrange\n      const repoPath = \"/Users/test/projects/non-session-repo\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Act",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 66,
+      "content": "const result = await isSessionWorkspace(repoPath, execAsyncMock as unknown);",
+      "context": "\n      // Act\n      const result = await isSessionWorkspace(repoPath, execAsyncMock as unknown);\n\n      // Assert",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 75,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "      // Arrange\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Override environment variables for testing",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 99,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "      // Arrange\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Set up environment for testing",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 115,
+      "content": "} as unknown;",
+      "context": "          createdAt: new Date().toISOString(),\n        }),\n      } as unknown;\n\n      try {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 136,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "      // Arrange\n      const repoPath = \"/Users/test/projects/non-session-repo\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Act",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 148,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "      // Arrange\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/unknown-session\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Set up environment for testing",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 174,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "      // Arrange\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Set up environment for testing",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 189,
+      "content": "} as unknown;",
+      "context": "          createdAt: new Date().toISOString(),\n        }),\n      } as unknown;\n\n      try {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 209,
+      "content": "const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;",
+      "context": "      // Arrange\n      const sessionPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;\n\n      // Set up environment for testing",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 225,
+      "content": "} as unknown;",
+      "context": "          createdAt: new Date().toISOString(),\n        }),\n      } as unknown;\n\n      try {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 242,
+      "content": "const execAsyncMock = mockGitRootExecAsync(notSessionPath) as unknown;",
+      "context": "      // Arrange\n      const notSessionPath = \"/Users/test/projects/non-session\";\n      const execAsyncMock = mockGitRootExecAsync(notSessionPath) as unknown;\n\n      // Act",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 253,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "    test(\"getCurrentSession returns null when repo path does not exist\", async () => {\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      const result = await getCurrentSession(repoPath, execAsyncMock);",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 261,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "    test(\"getCurrentSession returns null when repoUrl is not found\", async () => {\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      const result = await getCurrentSession(repoPath, execAsyncMock);",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 269,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "    test(\"getCurrentSession returns null when session data doesn't match file structure\", async () => {\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      const result = await getCurrentSession(repoPath, execAsyncMock);",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 277,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "    test(\"getCurrentSession returns null when session doesn't exist\", async () => {\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/unknown-session\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      const result = await getCurrentSession(repoPath, execAsyncMock);",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 285,
+      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
+      "context": "    test(\"getCurrentSession returns session info when valid\", async () => {\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      const result = await getCurrentSession(repoPath, execAsyncMock);",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/domain/commands/workspace.commands.test.ts",
+      "line": 370,
+      "content": "const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;",
+      "context": "      const testPath = `${sessionPath}/some/nested/path`;\n\n      const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;\n\n      const result = await getSessionFromWorkspace(testPath, execAsyncMock);",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
     },
     {
       "file": "src/domain/storage/backends/error-handling.ts",
@@ -5161,298 +5368,91 @@
       "reason": "Needs manual review"
     },
     {
-      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
-      "line": 238,
-      "content": "})) as unknown;",
-      "context": "      ...customOptions[name],\n    },\n  })) as unknown;\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/cli/utils/error-handler.ts",
-      "line": 136,
-      "content": "log.agent({ message: \"Command result\", result } as unknown);",
-      "context": "    if (isStructuredMode()) {\n      // In structured mode, log to agent logger\n      log.agent({ message: \"Command result\", result } as unknown);\n    } else {\n      // In human mode or when json is explicitly requested, write directly to stdout",
+      "file": "src/utils/test-utils/compatibility/mock-function.ts",
+      "line": 319,
+      "content": "() => Promise.resolve(value) as unknown as ReturnType<T>",
+      "context": "    // Use a cast to suppress TypeScript errors since the return types don\"t match\n    return mockFn.mockImplementation(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 28,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "      // Arrange\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Override environment variables for testing",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
+      "file": "src/utils/test-utils/compatibility/mock-function.ts",
+      "line": 320,
+      "content": ") as unknown;",
+      "context": "    return mockFn.mockImplementation(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
     },
     {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 49,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "      // Arrange\n      const repoPath = \"/Users/test/projects/non-session-repo\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Act",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 66,
-      "content": "const result = await isSessionWorkspace(repoPath, execAsyncMock as unknown);",
-      "context": "\n      // Act\n      const result = await isSessionWorkspace(repoPath, execAsyncMock as unknown);\n\n      // Assert",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 75,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "      // Arrange\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Override environment variables for testing",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 99,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "      // Arrange\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Set up environment for testing",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 115,
-      "content": "} as unknown;",
-      "context": "          createdAt: new Date().toISOString(),\n        }),\n      } as unknown;\n\n      try {",
+      "file": "src/utils/test-utils/compatibility/mock-function.ts",
+      "line": 327,
+      "content": "() => Promise.resolve(value) as unknown as ReturnType<T>",
+      "context": "    // Use a cast to suppress TypeScript errors since the return types don\"t match\n    return mockFn.mockImplementationOnce(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };",
       "category": "error-masking",
       "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
+      "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 136,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "      // Arrange\n      const repoPath = \"/Users/test/projects/non-session-repo\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Act",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
+      "file": "src/utils/test-utils/compatibility/mock-function.ts",
+      "line": 328,
+      "content": ") as unknown;",
+      "context": "    return mockFn.mockImplementationOnce(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
     },
     {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 148,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "      // Arrange\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/unknown-session\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Set up environment for testing",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 174,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "      // Arrange\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      // Set up environment for testing",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 189,
-      "content": "} as unknown;",
-      "context": "          createdAt: new Date().toISOString(),\n        }),\n      } as unknown;\n\n      try {",
+      "file": "src/utils/test-utils/compatibility/mock-function.ts",
+      "line": 335,
+      "content": "() => Promise.reject(value) as unknown as ReturnType<T>",
+      "context": "    // Use a cast to suppress TypeScript errors since the return types don\"t match\n    return mockFn.mockImplementation(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };",
       "category": "error-masking",
       "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
+      "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 209,
-      "content": "const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;",
-      "context": "      // Arrange\n      const sessionPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;\n\n      // Set up environment for testing",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
+      "file": "src/utils/test-utils/compatibility/mock-function.ts",
+      "line": 336,
+      "content": ") as unknown;",
+      "context": "    return mockFn.mockImplementation(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
     },
     {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 225,
-      "content": "} as unknown;",
-      "context": "          createdAt: new Date().toISOString(),\n        }),\n      } as unknown;\n\n      try {",
+      "file": "src/utils/test-utils/compatibility/mock-function.ts",
+      "line": 343,
+      "content": "() => Promise.reject(value) as unknown as ReturnType<T>",
+      "context": "    // Use a cast to suppress TypeScript errors since the return types don\"t match\n    return mockFn.mockImplementationOnce(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };",
       "category": "error-masking",
       "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
+      "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 242,
-      "content": "const execAsyncMock = mockGitRootExecAsync(notSessionPath) as unknown;",
-      "context": "      // Arrange\n      const notSessionPath = \"/Users/test/projects/non-session\";\n      const execAsyncMock = mockGitRootExecAsync(notSessionPath) as unknown;\n\n      // Act",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 253,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "    test(\"getCurrentSession returns null when repo path does not exist\", async () => {\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      const result = await getCurrentSession(repoPath, execAsyncMock);",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 261,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "    test(\"getCurrentSession returns null when repoUrl is not found\", async () => {\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      const result = await getCurrentSession(repoPath, execAsyncMock);",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 269,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "    test(\"getCurrentSession returns null when session data doesn't match file structure\", async () => {\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      const result = await getCurrentSession(repoPath, execAsyncMock);",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 277,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "    test(\"getCurrentSession returns null when session doesn't exist\", async () => {\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/unknown-session\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      const result = await getCurrentSession(repoPath, execAsyncMock);",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 285,
-      "content": "const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;",
-      "context": "    test(\"getCurrentSession returns session info when valid\", async () => {\n      const repoPath = \"/Users/test/.local/state/minsky/sessions/session-name\";\n      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;\n\n      const result = await getCurrentSession(repoPath, execAsyncMock);",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/domain/commands/workspace.commands.test.ts",
-      "line": 370,
-      "content": "const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;",
-      "context": "      const testPath = `${sessionPath}/some/nested/path`;\n\n      const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;\n\n      const result = await getSessionFromWorkspace(testPath, execAsyncMock);",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 366,
-      "content": "}) as unknown;",
-      "context": "        repo: params!.repo,\n        session: params!.session,\n      }) as unknown;\n\n      return {",
+      "file": "src/utils/test-utils/compatibility/mock-function.ts",
+      "line": 344,
+      "content": ") as unknown;",
+      "context": "    return mockFn.mockImplementationOnce(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    ) as unknown;\n  };\n",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
     },
     {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 372,
-      "content": "} as unknown;",
-      "context": "        commitHash: result!.commitHash,\n        message: result!.message,\n      } as unknown;\n    },\n  });",
+      "file": "src/utils/test-utils/compatibility/mock-function.ts",
+      "line": 421,
+      "content": "const mockedModule = { ...module } as unknown;",
+      "context": " */\nexport function autoMockModule<T extends object>(module: T): T {\n  const mockedModule = { ...module } as unknown;\n\n  // Recursively replace all functions with mocks",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
     },
     {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 392,
-      "content": "}) as unknown;",
-      "context": "        force: params!.force,\n        debug: params!.debug,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 397,
-      "content": "} as unknown;",
-      "context": "        success: result!.pushed,\n        workdir: result!.workdir,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 416,
-      "content": "}) as unknown;",
-      "context": "        session: params!.session,\n        branch: params!.branch,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 422,
-      "content": "} as unknown;",
-      "context": "        workdir: result!.workdir,\n        session: result!.session,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 439,
-      "content": "}) as unknown;",
-      "context": "        session: params!.session,\n        name: params!.name,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 445,
-      "content": "} as unknown;",
-      "context": "        workdir: result!.workdir,\n        branch: result!.branch,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 466,
-      "content": "}) as unknown;",
-      "context": "        debug: params!.debug,\n        noStatusUpdate: params!.noStatusUpdate,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 472,
-      "content": "} as unknown;",
-      "context": "        markdown: result!.markdown,\n        statusUpdateResult: result!.statusUpdateResult,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/session.ts",
-      "line": 618,
-      "content": "})) as unknown;",
-      "context": "          repo: params!.repo,\n          json: params!.json,\n        })) as unknown;\n\n        return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/session.ts",
-      "line": 722,
-      "content": "})) as unknown;",
-      "context": "          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,\n          skipConflictCheck: params!.skipConflictCheck,\n        })) as unknown;\n\n        return {",
+      "file": "src/utils/test-utils/compatibility/matchers.ts",
+      "line": 398,
+      "content": "if (!(key in (expectObj as unknown))) {",
+      "context": "  // Add each matcher to the expect object\n  for (const [key, value] of Object.entries(asymmetricMatchers)) {\n    if (!(key in (expectObj as unknown))) {\n      expectObj[key] = value;\n    }",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"

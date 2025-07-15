@@ -2,7 +2,7 @@
 
 ## Summary
 - **Total assertions found**: 605
-- **Analysis date**: 2025-07-15T03:47:30.867Z
+- **Analysis date**: 2025-07-15T03:56:16.073Z
 
 ## Distribution by Category
 - **suspicious**: 138
@@ -1005,6 +1005,21 @@
   this.log("🔧 Applying 'as unknown' transformations...");
   ```
 
+- **src/errors/message-templates.ts:299** - Property access masking - should use proper types
+  ```typescript
+  title: (config as unknown)!.title,
+  ```
+
+- **src/errors/message-templates.ts:300** - Property access masking - should use proper types
+  ```typescript
+  description: (config as unknown)!.description,
+  ```
+
+- **src/errors/message-templates.ts:305** - Property access masking - should use proper types
+  ```typescript
+  content: formatCommandSuggestions((config as unknown)!.suggestions)
+  ```
+
 - **src/domain/repository-uri.ts:98** - Property access masking - should use proper types
   ```typescript
   (components as unknown)!.repo = repo;
@@ -1350,19 +1365,19 @@
   const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
   ```
 
-- **src/errors/message-templates.ts:299** - Property access masking - should use proper types
+- **src/mcp/server.ts:211** - Property access masking - should use proper types
   ```typescript
-  title: (config as unknown)!.title,
+  methods.push(...Object.keys((this.server)._tools) as unknown);
   ```
 
-- **src/errors/message-templates.ts:300** - Property access masking - should use proper types
+- **src/mcp/inspector-launcher.ts:101** - Property access masking - should use proper types
   ```typescript
-  description: (config as unknown)!.description,
+  SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server
   ```
 
-- **src/errors/message-templates.ts:305** - Property access masking - should use proper types
+- **src/mcp/inspector-launcher.ts:149** - Property access masking - should use proper types
   ```typescript
-  content: formatCommandSuggestions((config as unknown)!.suggestions)
+  log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);
   ```
 
 - **src/utils/type-guards.ts:13** - Property access masking - should use proper types
@@ -1410,21 +1425,6 @@
   * Instead of: (someArray as unknown).map(...)
   ```
 
-- **src/mcp/server.ts:211** - Property access masking - should use proper types
-  ```typescript
-  methods.push(...Object.keys((this.server)._tools) as unknown);
-  ```
-
-- **src/mcp/inspector-launcher.ts:101** - Property access masking - should use proper types
-  ```typescript
-  SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server
-  ```
-
-- **src/mcp/inspector-launcher.ts:149** - Property access masking - should use proper types
-  ```typescript
-  log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);
-  ```
-
 - **src/schemas/error.ts:5** - Property access masking - should use proper types
   ```typescript
   * replacing unsafe `(err as unknown).message` patterns with proper validation.
@@ -1440,19 +1440,19 @@
   * replacing unsafe `(config as unknown)` patterns with proper validation.
   ```
 
+- **src/adapters/shared/response-formatters.ts:291** - Property access masking - should use proper types
+  ```typescript
+  .join(" | ") as unknown;
+  ```
+
+- **src/adapters/shared/legacy-command-registry.ts:171** - Property access masking - should use proper types
+  ```typescript
+  this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);
+  ```
+
 - **src/domain/session/session-db.test.ts:195** - Test assertion masking type errors - should be fixed
   ```typescript
   } as unknown;
-  ```
-
-- **src/domain/storage/database-integrity-checker.ts:248** - Property access masking - should use proper types
-  ```typescript
-  const integrityResult = db.prepare("PRAGMA integrity_check").get() as unknown;
-  ```
-
-- **src/domain/storage/database-integrity-checker.ts:264** - Property access masking - should use proper types
-  ```typescript
-  const sessionCount = db.prepare("SELECT COUNT(*) as count FROM sessions").get() as unknown;
   ```
 
 - **src/domain/__tests__/tasks.test.ts:43** - Test assertion masking type errors - should be fixed
@@ -1473,6 +1473,16 @@
 - **src/domain/__tests__/tasks.test.ts:214** - Test assertion masking type errors - should be fixed
   ```typescript
   status: "INVALID-STATUS" as unknown,
+  ```
+
+- **src/domain/storage/database-integrity-checker.ts:248** - Property access masking - should use proper types
+  ```typescript
+  const integrityResult = db.prepare("PRAGMA integrity_check").get() as unknown;
+  ```
+
+- **src/domain/storage/database-integrity-checker.ts:264** - Property access masking - should use proper types
+  ```typescript
+  const sessionCount = db.prepare("SELECT COUNT(*) as count FROM sessions").get() as unknown;
   ```
 
 - **src/domain/workspace/local-workspace-backend.ts:276** - Property access masking - should use proper types
@@ -1545,26 +1555,6 @@
   const taskIdNum = taskId!.startsWith("#") ? (taskId as unknown)!.slice(1) : taskId;
   ```
 
-- **src/utils/test-utils/index.ts:96** - Property access masking - should use proper types
-  ```typescript
-  const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;
-  ```
-
-- **src/utils/test-utils/assertions.ts:108** - Property access masking - should use proper types
-  ```typescript
-  expect(part in (current as unknown)).toBeTruthy();
-  ```
-
-- **src/adapters/shared/response-formatters.ts:291** - Property access masking - should use proper types
-  ```typescript
-  .join(" | ") as unknown;
-  ```
-
-- **src/adapters/shared/legacy-command-registry.ts:171** - Property access masking - should use proper types
-  ```typescript
-  this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);
-  ```
-
 - **src/mcp/tools/tasks.ts:69** - Property access masking - should use proper types
   ```typescript
   const command = `minsky tasks get ${(args as unknown)!.taskId} --json`;
@@ -1630,6 +1620,16 @@
   log.error("Error committing changes", { error, session: (args as unknown)!.session });
   ```
 
+- **src/utils/test-utils/index.ts:96** - Property access masking - should use proper types
+  ```typescript
+  const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;
+  ```
+
+- **src/utils/test-utils/assertions.ts:108** - Property access masking - should use proper types
+  ```typescript
+  expect(part in (current as unknown)).toBeTruthy();
+  ```
+
 - **src/types/tasks/taskData.ts:103** - Property access masking - should use proper types
   ```typescript
   id: (task as unknown)!.id,
@@ -1670,29 +1670,14 @@
   status: (taskData as unknown)!.status,
   ```
 
+- **src/adapters/cli/utils/error-handler.ts:136** - Property access masking - should use proper types
+  ```typescript
+  log.agent({ message: "Command result", result } as unknown);
+  ```
+
 - **tests/adapters/mcp/session-edit-tools.test.ts:41** - Test assertion masking type errors - should be fixed
   ```typescript
   } as unknown;
-  ```
-
-- **src/utils/test-utils/compatibility/mock-function.ts:319** - Property access masking - should use proper types
-  ```typescript
-  () => Promise.resolve(value) as unknown as ReturnType<T>
-  ```
-
-- **src/utils/test-utils/compatibility/mock-function.ts:327** - Property access masking - should use proper types
-  ```typescript
-  () => Promise.resolve(value) as unknown as ReturnType<T>
-  ```
-
-- **src/utils/test-utils/compatibility/mock-function.ts:335** - Property access masking - should use proper types
-  ```typescript
-  () => Promise.reject(value) as unknown as ReturnType<T>
-  ```
-
-- **src/utils/test-utils/compatibility/mock-function.ts:343** - Property access masking - should use proper types
-  ```typescript
-  () => Promise.reject(value) as unknown as ReturnType<T>
   ```
 
 - **tests/adapters/cli/session.test.ts:603** - Test assertion masking type errors - should be fixed
@@ -1713,6 +1698,21 @@
 - **tests/adapters/cli/session.test.ts:614** - Test assertion masking type errors - should be fixed
   ```typescript
   (gitService as unknown).execInRepository = async (workdir: string, command: string) => {
+  ```
+
+- **tests/domain/commands/workspace.commands.test.ts:115** - Test assertion masking type errors - should be fixed
+  ```typescript
+  } as unknown;
+  ```
+
+- **tests/domain/commands/workspace.commands.test.ts:189** - Test assertion masking type errors - should be fixed
+  ```typescript
+  } as unknown;
+  ```
+
+- **tests/domain/commands/workspace.commands.test.ts:225** - Test assertion masking type errors - should be fixed
+  ```typescript
+  } as unknown;
   ```
 
 - **src/domain/storage/backends/error-handling.ts:574** - Property access masking - should use proper types
@@ -1785,24 +1785,24 @@
   .where(eq(sessionsTable.session, id)) as unknown).limit(1);
   ```
 
-- **src/adapters/cli/utils/error-handler.ts:136** - Property access masking - should use proper types
+- **src/utils/test-utils/compatibility/mock-function.ts:319** - Property access masking - should use proper types
   ```typescript
-  log.agent({ message: "Command result", result } as unknown);
+  () => Promise.resolve(value) as unknown as ReturnType<T>
   ```
 
-- **tests/domain/commands/workspace.commands.test.ts:115** - Test assertion masking type errors - should be fixed
+- **src/utils/test-utils/compatibility/mock-function.ts:327** - Property access masking - should use proper types
   ```typescript
-  } as unknown;
+  () => Promise.resolve(value) as unknown as ReturnType<T>
   ```
 
-- **tests/domain/commands/workspace.commands.test.ts:189** - Test assertion masking type errors - should be fixed
+- **src/utils/test-utils/compatibility/mock-function.ts:335** - Property access masking - should use proper types
   ```typescript
-  } as unknown;
+  () => Promise.reject(value) as unknown as ReturnType<T>
   ```
 
-- **tests/domain/commands/workspace.commands.test.ts:225** - Test assertion masking type errors - should be fixed
+- **src/utils/test-utils/compatibility/mock-function.ts:343** - Property access masking - should use proper types
   ```typescript
-  } as unknown;
+  () => Promise.reject(value) as unknown as ReturnType<T>
   ```
 
 ## Next Steps
