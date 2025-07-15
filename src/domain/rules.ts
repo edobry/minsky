@@ -14,7 +14,7 @@ const matter = grayMatterNamespace.default || grayMatterNamespace;
 // Create a custom stringify function that doesn't add unnecessary quotes
 function customMatterStringify(content: string, data: any): string {
   // Use js-yaml's dump function directly with options to control quoting behavior
-  let yamlStr = jsYaml.dump(data as unknown, {
+  let yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
     quotingType: "\"", // Use double quotes when necessary
@@ -189,7 +189,7 @@ export class RuleService {
           if (options.debug) {
             log.debug("Successfully parsed frontmatter", {
               filePath,
-              dataKeys: Object.keys(data as unknown) as unknown,
+              dataKeys: Object.keys(data),
               contentLength: ruleContent.length,
             });
           }
@@ -204,7 +204,7 @@ export class RuleService {
             content: ruleContent.trim(),
             format: requestedFormat,
             path: filePath,
-          } as unknown;
+          };
         } catch (error) {
           // FIXED: Gracefully handle errors in frontmatter parsing
           // This allows rules with invalid YAML frontmatter to still be loaded and used
@@ -277,7 +277,7 @@ export class RuleService {
           if (options.debug) {
             log.debug("Successfully parsed frontmatter in alternative format", {
               filePath,
-              dataKeys: Object.keys(data as unknown) as unknown,
+              dataKeys: Object.keys(data),
               contentLength: ruleContent.length,
             });
           }
@@ -300,7 +300,7 @@ export class RuleService {
               format: originalFormat, // Return actual format, not requested format
               path: filePath,
               formatNote: `Rule found in '${originalFormat}' format but '${requestedFormat}' was requested. Format conversion is not supported yet.`,
-            } as unknown;
+            };
           }
 
           // Otherwise just return the rule as found
@@ -314,7 +314,7 @@ export class RuleService {
             content: ruleContent.trim(),
             format,
             path: filePath,
-          } as unknown;
+          };
         } catch (error) {
           // FIXED: Gracefully handle errors in frontmatter parsing for alternative formats
           if (options.debug) {

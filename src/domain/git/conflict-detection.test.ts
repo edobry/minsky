@@ -7,13 +7,15 @@
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { 
-  ConflictDetectionService, 
+  ConflictDetectionService
+} from "./conflict-detection";
+import {
   ConflictType, 
   ConflictSeverity, 
   FileConflictStatus,
   type ConflictPrediction,
   type BranchDivergenceAnalysis
-} from "./conflict-detection";
+} from "./conflict-detection-types";
 
 // Mock execAsync
 const mockExecAsync = mock(() => Promise.resolve({ stdout: "", stderr: "" }));

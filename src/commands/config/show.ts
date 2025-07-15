@@ -36,7 +36,7 @@ export function createConfigShowCommand(): Command {
         await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
         exit(1);
       }
-    }) as unknown;
+    });
 }
 
 async function displayResolvedConfiguration(resolved: any) {
@@ -62,7 +62,7 @@ async function displayResolvedConfiguration(resolved: any) {
     for (const [service, creds] of Object.entries(resolved.credentials)) {
       if (creds && typeof creds === "object") {
         await Bun.write(Bun.stdout, `  ${service}:\n`);
-        const credsObj = creds as unknown;
+        const credsObj = creds;
         if (credsObj.source) {
           await Bun.write(Bun.stdout, `    Source: ${credsObj.source}\n`);
         }

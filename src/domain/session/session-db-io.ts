@@ -32,7 +32,7 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionRe
     }
 
     const data = readFileSync(dbPath, "utf8") as string;
-    const sessions = JSON.parse(data as unknown);
+    const sessions = JSON.parse(data);
 
     return sessions;
   } catch (error) {

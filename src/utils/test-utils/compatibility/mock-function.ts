@@ -392,7 +392,7 @@ export function spyOn<T extends object, M extends keyof T>(
   mockFn.mock.originalImplementation = original;
 
   // Replace the method with our mock
-  (object as unknown)[method] = mockFn;
+  object[method] = mockFn;
 
   return mockFn;
 }

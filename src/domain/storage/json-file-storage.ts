@@ -165,7 +165,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       // Validate state before serialization to prevent circular references
       if (state === null || state === undefined) {
-        throw new Error("Cannot serialize null or undefined state" as unknown);
+        throw new Error("Cannot serialize null or undefined state");
       }
 
       // Serialize state to JSON with error handling for circular references
@@ -213,7 +213,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
     const state = result.data;
     const entities = this.getEntitiesFromState(state);
-    const entity = entities.find((e) => (e as unknown)[this.idField] === id);
+    const entity = entities.find((e) => (e as any)[this.idField] === id);
 
     return entity || null;
   }
@@ -238,8 +238,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
     // Filter entities based on query options
     return entities.filter((entity) => {
-      for (const [key, value] of Object.entries(options as unknown)) {
-        if ((entity as unknown)[key] !== value) {
+      for (const [key, value] of Object.entries(options)) {
+        if ((entity as any)[key] !== value) {
           return false;
         }
       }
@@ -265,8 +265,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Check if entity with this ID already exists
-      const id = (entity as unknown)[this.idField];
-      if (id && entities.some((e) => (e as unknown)[this.idField] === id)) {
+      const id = (entity as any)[this.idField];
+      if (id && entities.some((e) => (e as any)[this.idField] === id)) {
         throw new Error(`Entity with ID ${id} already exists`);
       }
 
@@ -305,7 +305,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
+      const index = entities.findIndex((e) => e[this.idField] === id);
       if (index === -1) {
         return null;
       }
@@ -345,7 +345,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
+      const index = entities.findIndex((e) => e[this.idField] === id);
       if (index === -1) {
         return false;
       }
