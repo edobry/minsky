@@ -19,7 +19,7 @@ export function mockMkdirSync(path: string, _options?: { recursive?: boolean }):
   virtualFS.set(path, { isDirectory: true });
 
   // If recursive, create parent directories
-  if ((_options as unknown)!.recursive) {
+  if (_options?.recursive) {
     let parent = dirname(path);
     while (parent && parent !== "." && parent !== "/") {
       virtualFS.set(parent, { isDirectory: true });
@@ -41,7 +41,7 @@ export function mockRmSync(
   log.debug(`[MOCK] Removing ${path}`);
 
   // If recursive, remove all children first
-  if ((_options as unknown)!.recursive) {
+  if (_options?.recursive) {
     const children = Array.from(virtualFS.keys()).filter((key) => key.startsWith(`${path}/`));
     for (const child of children) {
       virtualFS.delete(child);
