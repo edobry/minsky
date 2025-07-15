@@ -357,6 +357,21 @@ const tasksListParams: CommandParameterMap = {
 };
 
 /**
+ * Type for tasks list parameters
+ */
+type TasksListParams = {
+  filter?: string;
+  status?: "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "BLOCKED" | "CLOSED";
+  limit?: number;
+  all?: boolean;
+  backend?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+  json?: boolean;
+};
+
+/**
  * Parameters for tasks get command
  */
 const tasksGetParams: CommandParameterMap = {
@@ -480,7 +495,7 @@ const tasksListRegistration = {
   name: "list",
   description: "List tasks with optional filtering",
   parameters: tasksListParams,
-  execute: async (params, ctx) => {
+  execute: async (params: TasksListParams, ctx: CommandExecutionContext) => {
     const { all = false, status, filter, ...rest } = params;
 
     // Use status parameter if provided, otherwise fall back to filter
@@ -598,6 +613,19 @@ const tasksDeleteParams: CommandParameterMap = {
 };
 
 /**
+ * Type for tasks delete parameters
+ */
+type TasksDeleteParams = {
+  taskId: string;
+  force?: boolean;
+  backend?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+  json?: boolean;
+};
+
+/**
  * Register tasks.delete command
  */
 const tasksDeleteRegistration = {
@@ -606,43 +634,43 @@ const tasksDeleteRegistration = {
   name: "delete",
   description: "Delete a task",
   parameters: tasksDeleteParams,
-  execute: async (params, ctx) => {
-    if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
+  execute: async (params: TasksDeleteParams, ctx: CommandExecutionContext) => {
+    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Handle confirmation if force is not set and we're in interactive mode
-    if (!(params as unknown)!.force && !(params as unknown)!.json) {
+    if (!params.force && !params.json) {
       // Get task details for confirmation
       const task = await getTaskFromParams({
-        taskId: (params as unknown)!.taskId,
-        backend: (params as unknown)!.backend,
-        repo: (params as unknown)!.repo,
-        workspace: (params as unknown)!.workspace,
-        session: (params as unknown)!.session,
+        taskId: params.taskId,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
       });
 
       // Import confirm from @clack/prompts for confirmation
       const { confirm, isCancel } = await import("@clack/prompts");
 
       const shouldDelete = await confirm({
-        message: `Are you sure you want to delete task ${(task as unknown)!.id}: "${(task as unknown)!.title}"?`,
+        message: `Are you sure you want to delete task ${task.id}: "${task.title}"?`,
       });
 
       if (isCancel(shouldDelete) || !shouldDelete) {
         return {
           success: false,
           message: "Task deletion cancelled",
-          taskId: (params as unknown)!.taskId,
+          taskId: params.taskId,
         };
       }
     }
 
     const result = await deleteTaskFromParams({
-      taskId: (params as unknown)!.taskId,
-      force: (params as unknown)!.force ?? false,
-      backend: (params as unknown)!.backend,
-      repo: (params as unknown)!.repo,
-      workspace: (params as unknown)!.workspace,
-      session: (params as unknown)!.session,
+      taskId: params.taskId,
+      force: params.force ?? false,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
     }) as unknown;
 
     const message = (result as unknown)!.success
