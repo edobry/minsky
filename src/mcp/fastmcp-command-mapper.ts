@@ -78,8 +78,8 @@ export class FastMCPCommandMapper {
    */
   addCommand(command: { name: string; description: string; inputSchema?: any }): void {
     (this.server as unknown).addTool({
-      name: (command as unknown).name,
-      description: (command as unknown).description,
+      name: command.name,
+      description: command.description,
       parameters: command?.inputSchema || z.object({}),
       execute: async () => ({ success: true }),
     });

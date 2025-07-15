@@ -96,7 +96,7 @@ export class MinskyMCPServer {
   constructor(options: MinskyMCPServerOptions = {}) {
     // Store the project context or create a default one
     try {
-      this.projectContext = (options as unknown).projectContext || createProjectContextFromCwd();
+      this.projectContext = options.projectContext || createProjectContextFromCwd();
       log.debug("Using project context", {
         repositoryPath: (this.projectContext as unknown).repositoryPath,
       });
@@ -112,24 +112,24 @@ export class MinskyMCPServer {
     }
 
     this.options = {
-      name: (options as unknown).name || "Minsky MCP Server",
-      version: (options as unknown).version || "1.0.0", // Should be dynamically pulled from package.json
-      /* TODO: Verify if transportType is valid property */ transportType: (options as unknown).transportType || "stdio",
+      name: options.name || "Minsky MCP Server",
+      version: options.version || "1.0.0", // Should be dynamically pulled from package.json
+      /* TODO: Verify if transportType is valid property */ transportType: options.transportType || "stdio",
       projectContext: this.projectContext,
       sse: {
-        /* TODO: Verify if endpoint is valid property */ endpoint: (options.sse as unknown).endpoint || "/sse",
-        port: (options.sse as unknown).port || 8080,
-        host: (options.sse as unknown).host || "localhost",
-        path: (options.sse as unknown).path || "/sse",
+        /* TODO: Verify if endpoint is valid property */ endpoint: options.sse.endpoint || "/sse",
+        port: options.sse.port || 8080,
+        host: options.sse.host || "localhost",
+        path: options.sse.path || "/sse",
       },
       /* TODO: Verify if httpStream is valid property */ httpStream: {
-        endpoint: (options.httpStream as unknown).endpoint || "/mcp",
-        port: (options.httpStream as unknown).port || 8080,
+        endpoint: options.httpStream.endpoint || "/mcp",
+        port: options.httpStream.port || 8080,
       },
     };
 
     // Ensure name and version are not undefined for FastMCP
-    const serverName = (this.options as unknown).name || "Minsky MCP Server";
+    const serverName = this.options.name || "Minsky MCP Server";
     // Use a valid semver format for the version string
     const serverVersion = "1.0.0"; // Hard-coded to meet FastMCP's version type requirement
 
@@ -138,7 +138,7 @@ export class MinskyMCPServer {
       version: serverVersion,
       ping: {
         // Enable pings for network transports, disable for stdio
-        enabled: (this.options as unknown).transportType !== "stdio",
+        enabled: this.options.transportType !== "stdio",
         intervalMs: 5000,
       },
       // Instructions for LLMs on how to use the Minsky MCP server
@@ -171,26 +171,26 @@ export class MinskyMCPServer {
    */
   async start(): Promise<void> {
     try {
-      if (!(this.options as unknown).transportType) {
-        (this.options as unknown).transportType = "stdio";
+      if (!this.options.transportType) {
+        this.options.transportType = "stdio";
       }
 
-      if ((this.options as unknown).transportType === "stdio") {
+      if (this.options.transportType === "stdio") {
         await (this.server as unknown).start({ transportType: "stdio" });
-      } else if ((this.options as unknown).transportType === "sse" && (this.options as unknown).sse) {
+      } else if (this.options.transportType === "sse" && this.options.sse) {
         await (this.server as unknown).start({
           transportType: "sse",
           sse: {
             endpoint: "/sse", // Endpoint must start with a / character
-            port: (this.options.sse as unknown).port || 8080,
+            port: this.options.sse.port || 8080,
           },
         });
-      } else if ((this.options as unknown).transportType === "httpStream" && (this.options as unknown).httpStream) {
+      } else if (this.options.transportType === "httpStream" && this.options.httpStream) {
         await (this.server as unknown).start({
           transportType: "httpStream",
           httpStream: {
             endpoint: "/mcp", // Updated endpoint to /mcp
-            port: (this.options.httpStream as unknown).port || 8080,
+            port: this.options.httpStream.port || 8080,
           },
         });
       } else {
@@ -208,10 +208,10 @@ export class MinskyMCPServer {
         // @ts-ignore - Accessing a private property for debugging
         if ((this.server as unknown)._tools) {
           // @ts-ignore
-          (methods as unknown).push(...(Object as unknown).keys((this.server as unknown)._tools) as unknown);
+          methods.push(...Object.keys((this.server as unknown)._tools) as unknown);
         }
         log.debug("MCP Server registered methods", {
-          methodCount: (methods as unknown).length,
+          methodCount: methods.length,
           methods,
         });
       } catch (e) {

@@ -12,12 +12,12 @@ export const initParamsSchema = z.object({
   session: z.string().optional(),
   backend: z.string().optional(),
   ruleFormat: z.string().optional(),
-  mcp: (z.union([z.string(), z.boolean()]) as unknown).optional(),
+  mcp: z.union([z.string(), z.boolean()]).optional(),
   mcpTransport: z.string().optional(),
   mcpPort: z.string().optional(),
   mcpHost: z.string().optional(),
-  mcpOnly: (z.boolean() as unknown).optional(),
-  overwrite: (z.boolean() as unknown).optional(),
+  mcpOnly: z.boolean().optional(),
+  overwrite: z.boolean().optional(),
   workspacePath: z.string().optional(),
 });
 

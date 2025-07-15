@@ -405,7 +405,7 @@ export function registerAsymmetricMatchers(expectObj: unknown): void {
  * Check if an object is an asymmetric matcher
  */
 export function isAsymmetricMatcher(obj: unknown): obj is AsymmetricMatcher {
-  return obj !== null && typeof obj === "object" && typeof (obj as unknown).asymmetricMatch === "function";
+  return obj !== null && typeof obj === "object" && typeof obj.asymmetricMatch === "function";
 }
 
 // Export a function to extend the global expect with asymmetric matchers
@@ -417,13 +417,13 @@ export function setupAsymmetricMatchers(): void {
     registerAsymmetricMatchers(bun.expect);
 
     // Override the equality comparison for assertions
-    const originalEquals = (bun.expect as unknown).equals;
+    const originalEquals = bun.expect.equals;
     if (originalEquals) {
       // Save original
       const originalEqualsFn = originalEquals;
 
       // Override with matcher-aware version
-      (bun.expect as unknown).equals = (a: unknown, b: any): boolean => {
+      bun.expect.equals = (a: unknown, b: any): boolean => {
         // Check if either value is an asymmetric matcher
         if (isAsymmetricMatcher(a)) {
           return a.asymmetricMatch(b);

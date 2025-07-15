@@ -7,6 +7,9 @@
  */
 
 import type { SessionProviderInterface, SessionRecord } from "../session";
+
+// Re-export the interface for use in extracted modules
+export type { SessionProviderInterface };
 import { createStorageBackendWithIntegrity, type StorageConfig, type StorageResult } from "../storage/storage-backend-factory";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
@@ -209,4 +212,16 @@ export class SessionDbAdapter implements SessionProviderInterface {
       warnings: this.storageWarnings,
     };
   }
+}
+
+/**
+ * Creates a default SessionProvider implementation
+ * This factory function provides a consistent way to get a session provider with optional customization
+ */
+export function createSessionProvider(options?: {
+  dbPath?: string;
+  useNewBackend?: boolean;
+}): SessionProviderInterface {
+  // Always use the new configuration-based backend
+  return new SessionDbAdapter();
 }
