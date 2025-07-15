@@ -17,7 +17,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       const output = execSync(command).toString();
 
       // Parse the JSON output
-      return JSON.parse(output as unknown) as unknown;
+      return JSON.parse(output) as unknown;
     } catch (error) {
       log.error("Error listing sessions", { error });
       throw new Error(
@@ -40,7 +40,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         const output = execSync(command).toString();
 
         // Parse the JSON output
-        return JSON.parse(output as unknown) as unknown;
+        return JSON.parse(output) as unknown;
       } catch (error) {
         log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });
         throw new Error(

@@ -112,7 +112,7 @@ export class GitHubBackend implements RepositoryBackend {
 
     try {
       // Use GitService's clone method to delegate credential handling to Git
-      const result = await (this.gitService as unknown).clone({
+      const result = await this.gitService.clone({
         repoUrl: this.repoUrl,
         session,
       });
@@ -185,7 +185,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async getStatus(): Promise<RepositoryStatus> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -196,7 +196,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const workdir = this.getSessionWorkdir(repoSession.session);
 
       // Use GitService to get repository status
-      const gitStatus = await (this.gitService as unknown).getStatus(workdir);
+      const gitStatus = await this.gitService.getStatus(workdir);
 
       // Get additional information directly
       const { stdout: branchOutput } = await execAsync(
@@ -292,7 +292,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
     // If no session is provided, find one for this repository
     try {
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const repoSession = sessions.find((s) => s.repoName === this.repoName);
 
       if (repoSession) {
@@ -378,7 +378,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async push(): Promise<Result> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -421,7 +421,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async pull(): Promise<Result> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -435,7 +435,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService for pulling changes
-      const pullResult = await (this.gitService as unknown).pullLatest(workdir);
+      const pullResult = await this.gitService.pullLatest(workdir);
 
       return {
         success: true,
@@ -461,7 +461,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async checkout(branch: string): Promise<void> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {

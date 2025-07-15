@@ -23,7 +23,7 @@ import { exit } from "../../../utils/process";
 export const isDebugMode = (): boolean =>
   process.env.DEBUG === "true" ||
   process.env.DEBUG === "1" ||
-  (typeof process.env.NODE_DEBUG === "string" && (process.env.NODE_DEBUG as unknown).includes("minsky"));
+  (typeof process.env.NODE_DEBUG === "string" && process.env.NODE_DEBUG.includes("minsky"));
 
 /**
  * Handles CLI command errors with consistent formatting
@@ -105,7 +105,7 @@ export function handleCliError(error: any): never {
   if (isStructuredMode()) {
     if (error instanceof MinskyError) {
       // For Minsky errors, we can log with additional context
-      log.error("CLI operation failed", error as unknown);
+      log.error("CLI operation failed", error);
     } else {
       // For other errors, log with basic information
       log.error("CLI operation failed", {
@@ -136,11 +136,11 @@ export function outputResult<T>(
       log.agent({ message: "Command result", result } as unknown);
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
-      log.cli(JSON.stringify(result as unknown, undefined, 2));
+      log.cli(JSON.stringify(result, undefined, 2));
     }
   } else if (options.formatter) {
-    options.formatter(result as unknown);
+    options.formatter(result);
   } else {
-    log.cli(String(result as unknown));
+    log.cli(String(result));
   }
 }

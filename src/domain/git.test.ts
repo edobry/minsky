@@ -948,7 +948,7 @@ describe("createGitService Factory Function", () => {
 
   test("should handle null options parameter without throwing runtime error", () => {
     expect(() => {
-      createGitService(null as unknown as { baseDir?: string });
+      createGitService(null as { baseDir?: string });
     }).not.toThrow();
   });
 

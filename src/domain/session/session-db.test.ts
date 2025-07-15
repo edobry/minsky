@@ -64,7 +64,7 @@ describe("SessionDB Functional Implementation", () => {
       // This test covers the specific scenario that caused the runtime error:
       // "undefined is not an object (evaluating 'options.baseDir')"
       expect(() => {
-        const state = initializeSessionDbState(undefined as unknown);
+        const state = initializeSessionDbState(undefined);
         expect(state).toHaveProperty("sessions");
         expect(state.sessions).toEqual([]);
         expect(state).toHaveProperty("baseDir");
@@ -76,7 +76,7 @@ describe("SessionDB Functional Implementation", () => {
     it("should handle null options parameter without throwing runtime error", () => {
       // Additional edge case to ensure robustness
       expect(() => {
-        const state = initializeSessionDbState(null as unknown);
+        const state = initializeSessionDbState(null);
         expect(state).toHaveProperty("sessions");
         expect(state.sessions).toEqual([]);
         expect(state).toHaveProperty("baseDir");
@@ -235,7 +235,7 @@ describe("SessionDB Functional Implementation", () => {
 
     it("should throw error for invalid input", () => {
       const state = createTestState();
-      expect(() => getRepoPathFn(state, null as unknown)).toThrow("Session record is required");
+      expect(() => getRepoPathFn(state, null)).toThrow("Session record is required");
     });
   });
 

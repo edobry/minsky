@@ -95,26 +95,26 @@ describe("sessionReviewFromParams", () => {
     // Reset mocks before each test
     for (const mockFn of Object.values(mockSessionDB)) {
       if (typeof mockFn === "function" && "mockReset" in mockFn) {
-        (mockFn as unknown).mockReset();
+        mockFn.mockReset();
       }
     }
 
     for (const mockFn of Object.values(mockGitService)) {
       if (typeof mockFn === "function" && "mockReset" in mockFn) {
-        (mockFn as unknown).mockReset();
+        mockFn.mockReset();
       }
     }
 
     for (const mockFn of Object.values(mockTaskService)) {
       if (typeof mockFn === "function" && "mockReset" in mockFn) {
-        (mockFn as unknown).mockReset();
+        mockFn.mockReset();
       }
     }
 
-    (mockGetCurrentSession as unknown).mockReset();
+    mockGetCurrentSession.mockReset();
 
     // Restore mock implementations after reset
-    (mockSessionDB.getSession as unknown).mockImplementation(() => ({
+    mockSessionDB.getSession.mockImplementation(() => ({
       session: "testSession",
       taskId: "#TEST_VALUE",
       repoName: "test-repo",
@@ -123,7 +123,7 @@ describe("sessionReviewFromParams", () => {
       createdAt: new Date().toISOString(),
     }));
 
-    (mockSessionDB.getSessionByTaskId as unknown).mockImplementation(() => ({
+    mockSessionDB.getSessionByTaskId.mockImplementation(() => ({
       session: "task#TEST_VALUE",
       taskId: "#TEST_VALUE",
       repoName: "test-repo",
@@ -132,14 +132,14 @@ describe("sessionReviewFromParams", () => {
       createdAt: new Date().toISOString(),
     }));
 
-    (mockSessionDB.getSessionWorkdir as unknown).mockImplementation(() => "/fake/path/to/session");
-    (mockSessionDB.listSessions as unknown).mockImplementation(() => []);
-    (mockSessionDB.addSession as unknown).mockImplementation(() => Promise.resolve());
-    (mockSessionDB.updateSession as unknown).mockImplementation(() => Promise.resolve());
-    (mockSessionDB.deleteSession as unknown).mockImplementation(() => Promise.resolve(true));
-    (mockSessionDB.getRepoPath as unknown).mockImplementation(() => "/fake/path/to/repo");
+    mockSessionDB.getSessionWorkdir.mockImplementation(() => "/fake/path/to/session");
+    mockSessionDB.listSessions.mockImplementation(() => []);
+    mockSessionDB.addSession.mockImplementation(() => Promise.resolve());
+    mockSessionDB.updateSession.mockImplementation(() => Promise.resolve());
+    mockSessionDB.deleteSession.mockImplementation(() => Promise.resolve(true));
+    mockSessionDB.getRepoPath.mockImplementation(() => "/fake/path/to/repo");
 
-    (mockGitService.execInRepository as unknown).mockImplementation((_path: unknown) => {
+    mockGitService.execInRepository.mockImplementation((_path: unknown) => {
       if (command.includes("git ls-remote")) {
         return "refs/heads/pr/testSession";
       }
@@ -155,11 +155,11 @@ describe("sessionReviewFromParams", () => {
       return "";
     });
 
-    (mockTaskService.getTaskSpecData as unknown).mockImplementation(() =>
+    mockTaskService.getTaskSpecData.mockImplementation(() =>
       Promise.resolve("# Task Specification\n\nThis is a test task")
     );
-    (mockWorkspaceUtils.isSessionWorkspace as unknown).mockImplementation(() => Promise.resolve(false));
-    (mockGetCurrentSession as unknown).mockImplementation(() => Promise.resolve("testSession"));
+    mockWorkspaceUtils.isSessionWorkspace.mockImplementation(() => Promise.resolve(false));
+    mockGetCurrentSession.mockImplementation(() => Promise.resolve("testSession"));
   });
 
   test("gets review info by session name", async () => {
@@ -178,10 +178,10 @@ describe("sessionReviewFromParams", () => {
     });
     expect(result.diff).toBe("diff --git a/file.txt b/file.txt\n+new line\n-old line");
 
-    expect((mockSessionDB.getSession as unknown).mock.calls.length).toBe(1);
-    expect((mockSessionDB.getSession as unknown).mock.calls[0][0]).toBe("testSession");
-    expect((mockSessionDB.getSessionWorkdir as unknown).mock.calls.length).toBe(1);
-    expect((mockSessionDB.getSessionWorkdir as unknown).mock.calls[0][0]).toBe("testSession");
+    expect(mockSessionDB.getSession.mock.calls.length).toBe(1);
+    expect(mockSessionDB.getSession.mock.calls[0][0]).toBe("testSession");
+    expect(mockSessionDB.getSessionWorkdir.mock.calls.length).toBe(1);
+    expect(mockSessionDB.getSessionWorkdir.mock.calls[0][0]).toBe("testSession");
   });
 
   test("gets review info by task ID", async () => {
@@ -189,8 +189,8 @@ describe("sessionReviewFromParams", () => {
 
     expect(result._session).toBe("task#TEST_VALUE");
     expect(result.taskId).toBe("#TEST_VALUE");
-    expect((mockSessionDB.getSessionByTaskId as unknown).mock.calls.length).toBe(1);
-    expect((mockSessionDB.getSessionByTaskId as unknown).mock.calls[0][0]).toBe("#TEST_VALUE");
+    expect(mockSessionDB.getSessionByTaskId.mock.calls.length).toBe(1);
+    expect(mockSessionDB.getSessionByTaskId.mock.calls[0][0]).toBe("#TEST_VALUE");
   });
 
   test("auto-detects current session when no parameters provided", async () => {
@@ -201,13 +201,13 @@ describe("sessionReviewFromParams", () => {
   });
 
   test("throws error when no session can be determined", async () => {
-    (mockGetCurrentSession as unknown).mockImplementationOnce(() => Promise.resolve(null));
+    mockGetCurrentSession.mockImplementationOnce(() => Promise.resolve(null));
 
     await expect(sessionReviewFromParams({}, deps)).rejects.toThrow(ValidationError);
   });
 
   test("throws error when session not found", async () => {
-    (mockSessionDB.getSession as unknown).mockImplementationOnce(() => null);
+    mockSessionDB.getSession.mockImplementationOnce(() => null);
 
     await expect(sessionReviewFromParams({ _session: "nonexistent" }, deps)).rejects.toThrow(
       ResourceNotFoundError

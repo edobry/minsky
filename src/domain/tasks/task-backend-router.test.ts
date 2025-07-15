@@ -67,7 +67,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Remove the isInTreeBackend method to test auto-detection
-      delete (markdownBackend as unknown).isInTreeBackend;
+      delete markdownBackend.isInTreeBackend;
       // Also delete from prototype if needed
       const proto = Object.getPrototypeOf(markdownBackend);
       if (proto && typeof proto.isInTreeBackend === "function") {
@@ -75,7 +75,7 @@ describe("TaskBackendRouter", () => {
       }
 
       // Verify it's actually deleted
-      expect(typeof (markdownBackend as unknown).isInTreeBackend).toBe("undefined");
+      expect(typeof markdownBackend.isInTreeBackend).toBe("undefined");
 
       const routingInfo = router.getBackendRoutingInfo(markdownBackend);
 
@@ -93,7 +93,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Remove the isInTreeBackend method to test auto-detection
-      delete (jsonBackend as unknown).isInTreeBackend;
+      delete jsonBackend.isInTreeBackend;
       // Also delete from prototype if needed
       const proto = Object.getPrototypeOf(jsonBackend);
       if (proto && typeof proto.isInTreeBackend === "function") {
@@ -101,7 +101,7 @@ describe("TaskBackendRouter", () => {
       }
 
       // Verify it's actually deleted
-      expect(typeof (jsonBackend as unknown).isInTreeBackend).toBe("undefined");
+      expect(typeof jsonBackend.isInTreeBackend).toBe("undefined");
 
       const routingInfo = router.getBackendRoutingInfo(jsonBackend);
 
@@ -119,7 +119,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Remove the isInTreeBackend method to test auto-detection
-      delete (jsonBackend as unknown).isInTreeBackend;
+      delete jsonBackend.isInTreeBackend;
       // Also delete from prototype if needed
       const proto = Object.getPrototypeOf(jsonBackend);
       if (proto && typeof proto.isInTreeBackend === "function") {
@@ -127,7 +127,7 @@ describe("TaskBackendRouter", () => {
       }
 
       // Verify it's actually deleted
-      expect(typeof (jsonBackend as unknown).isInTreeBackend).toBe("undefined");
+      expect(typeof jsonBackend.isInTreeBackend).toBe("undefined");
 
       const routingInfo = router.getBackendRoutingInfo(jsonBackend);
 
@@ -145,7 +145,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Remove the isInTreeBackend method to test auto-detection
-      delete (jsonBackend as unknown).isInTreeBackend;
+      delete jsonBackend.isInTreeBackend;
       // Also delete from prototype if needed
       const proto = Object.getPrototypeOf(jsonBackend);
       if (proto && typeof proto.isInTreeBackend === "function") {
@@ -153,7 +153,7 @@ describe("TaskBackendRouter", () => {
       }
 
       // Verify it's actually deleted
-      expect(typeof (jsonBackend as unknown).isInTreeBackend).toBe("undefined");
+      expect(typeof jsonBackend.isInTreeBackend).toBe("undefined");
 
       const routingInfo = router.getBackendRoutingInfo(jsonBackend);
 
@@ -173,7 +173,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Mock the isInTreeBackend method to return true
-      (backend as unknown).isInTreeBackend = () => true;
+      backend.isInTreeBackend = () => true;
 
       const routingInfo = router.getBackendRoutingInfo(backend);
 
@@ -190,7 +190,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Mock the isInTreeBackend method to return false
-      (backend as unknown).isInTreeBackend = () => false;
+      backend.isInTreeBackend = () => false;
 
       const routingInfo = router.getBackendRoutingInfo(backend);
 
@@ -223,7 +223,7 @@ describe("TaskBackendRouter", () => {
       });
 
       // Remove the isInTreeBackend method to use auto-detection
-      delete (backend as unknown).isInTreeBackend;
+      delete backend.isInTreeBackend;
       // Also delete from prototype if needed
       const proto = Object.getPrototypeOf(backend);
       if (proto && typeof proto.isInTreeBackend === "function") {

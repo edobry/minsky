@@ -62,7 +62,7 @@ async function displayResolvedConfiguration(resolved: any) {
     for (const [service, creds] of Object.entries(resolved.credentials)) {
       if (creds && typeof creds === "object") {
         await Bun.write(Bun.stdout, `  ${service}:\n`);
-        const credsObj = creds as unknown;
+        const credsObj = creds;
         if (credsObj.source) {
           await Bun.write(Bun.stdout, `    Source: ${credsObj.source}\n`);
         }

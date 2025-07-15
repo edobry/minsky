@@ -98,7 +98,7 @@ export class MinskyMCPServer {
     try {
       this.projectContext = options.projectContext || createProjectContextFromCwd();
       log.debug("Using project context", {
-        repositoryPath: (this.projectContext as unknown).repositoryPath,
+        repositoryPath: this.projectContext.repositoryPath,
       });
     } catch (error) {
       log.warn(
@@ -154,12 +154,12 @@ export class MinskyMCPServer {
     });
 
     // Listen for client connections
-    (this.server as unknown).on("connect", () => {
+    this.server.on("connect", () => {
       log.agent("Client connected to Minsky MCP Server");
     });
 
     // Listen for client disconnections
-    (this.server as unknown).on("disconnect", () => {
+    this.server.on("disconnect", () => {
       log.agent("Client disconnected from Minsky MCP Server");
     });
 
@@ -176,9 +176,9 @@ export class MinskyMCPServer {
       }
 
       if (this.options.transportType === "stdio") {
-        await (this.server as unknown).start({ transportType: "stdio" });
+        await this.server.start({ transportType: "stdio" });
       } else if (this.options.transportType === "sse" && this.options.sse) {
-        await (this.server as unknown).start({
+        await this.server.start({
           transportType: "sse",
           sse: {
             endpoint: "/sse", // Endpoint must start with a / character
@@ -186,7 +186,7 @@ export class MinskyMCPServer {
           },
         });
       } else if (this.options.transportType === "httpStream" && this.options.httpStream) {
-        await (this.server as unknown).start({
+        await this.server.start({
           transportType: "httpStream",
           httpStream: {
             endpoint: "/mcp", // Updated endpoint to /mcp
@@ -195,7 +195,7 @@ export class MinskyMCPServer {
         });
       } else {
         // Default to stdio if transport type is invalid
-        await (this.server as unknown).start({ transportType: "stdio" });
+        await this.server.start({ transportType: "stdio" });
       }
 
       // Log server started message with structured information for monitoring
@@ -206,7 +206,7 @@ export class MinskyMCPServer {
         // Get the tool names
         const methods = [];
         // @ts-ignore - Accessing a private property for debugging
-        if ((this.server as unknown)._tools) {
+        if (this.server._tools) {
           // @ts-ignore
           methods.push(...Object.keys((this.server)._tools) as unknown);
         }
@@ -216,7 +216,7 @@ export class MinskyMCPServer {
         });
       } catch (e) {
         log.debug("Could not log MCP server methods", {
-          error: getErrorMessage(e as unknown),
+          error: getErrorMessage(e),
         });
       }
     } catch (error) {

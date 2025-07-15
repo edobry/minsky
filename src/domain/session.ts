@@ -1152,7 +1152,7 @@ export async function sessionPrFromParams(
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") {
       // Extract the validation error message
-      const zodError = error as unknown;
+      const zodError = error;
       const message = zodError.errors?.[0]?.message || "Invalid parameters";
       throw new ValidationError(message);
     }

@@ -195,7 +195,7 @@ export function validateRepositoryUri(
   options: UriOptions = DEFAULT_URI_OPTIONS
 ): boolean {
   // This will throw if validation fails
-  normalizeRepositoryUri(uri, options as unknown);
+  normalizeRepositoryUri(uri, options);
   return true;
 }
 

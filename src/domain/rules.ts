@@ -14,7 +14,7 @@ const matter = grayMatterNamespace.default || grayMatterNamespace;
 // Create a custom stringify function that doesn't add unnecessary quotes
 function customMatterStringify(content: string, data: any): string {
   // Use js-yaml's dump function directly with options to control quoting behavior
-  let yamlStr = jsYaml.dump(data as unknown, {
+  let yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
     quotingType: "\"", // Use double quotes when necessary

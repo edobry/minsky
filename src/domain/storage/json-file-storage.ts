@@ -305,7 +305,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
+      const index = entities.findIndex((e) => e[this.idField] === id);
       if (index === -1) {
         return null;
       }
@@ -345,7 +345,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
+      const index = entities.findIndex((e) => e[this.idField] === id);
       if (index === -1) {
         return false;
       }
