@@ -238,7 +238,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
     // Filter entities based on query options
     return entities.filter((entity) => {
-      for (const [key, value] of Object.entries(options as unknown)) {
+      for (const [key, value] of Object.entries(options)) {
         if ((entity as unknown)[key] !== value) {
           return false;
         }

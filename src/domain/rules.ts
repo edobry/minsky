@@ -189,7 +189,7 @@ export class RuleService {
           if (options.debug) {
             log.debug("Successfully parsed frontmatter", {
               filePath,
-              dataKeys: Object.keys(data as unknown) as unknown,
+              dataKeys: Object.keys(data) as unknown,
               contentLength: ruleContent.length,
             });
           }
@@ -277,7 +277,7 @@ export class RuleService {
           if (options.debug) {
             log.debug("Successfully parsed frontmatter in alternative format", {
               filePath,
-              dataKeys: Object.keys(data as unknown) as unknown,
+              dataKeys: Object.keys(data) as unknown,
               contentLength: ruleContent.length,
             });
           }
