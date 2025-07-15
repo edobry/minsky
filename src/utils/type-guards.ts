@@ -124,7 +124,7 @@ export function assertDefined<T>(value: T | null | undefined, message?: string):
 /**
  * Environment variable utilities to avoid 'as unknown' with process.env
  */
-export const EnvUtils = {
+export const _EnvUtils = {
   /**
    * Get environment variable as string
    *
@@ -186,7 +186,7 @@ export const EnvUtils = {
  * Instead of: JSON.parse(someString as unknown)
  * Use: JsonUtils.safeParse(someString)
  */
-export const JsonUtils = {
+export const _JsonUtils = {
   /**
    * Safely parse JSON with type checking
    */
@@ -217,7 +217,7 @@ export const JsonUtils = {
  * Instead of: (someService as unknown).method()
  * Use: ServiceUtils.safeCall(someService, 'method')
  */
-export const ServiceUtils = {
+export const _ServiceUtils = {
   /**
    * Safely call a method on a service
    */
@@ -254,7 +254,7 @@ export const ServiceUtils = {
  * Instead of: (options as unknown).property
  * Use: ConfigUtils.get(options, 'property')
  */
-export const ConfigUtils = {
+export const _ConfigUtils = {
   /**
    * Safely get configuration value with type checking
    */
@@ -286,7 +286,7 @@ export const ConfigUtils = {
  * Instead of: (someArray as unknown).map(...)
  * Use: ArrayUtils.safeMap(someArray, ...)
  */
-export const ArrayUtils = {
+export const _ArrayUtils = {
   /**
    * Safely map over an array
    */

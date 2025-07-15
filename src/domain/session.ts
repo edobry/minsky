@@ -407,7 +407,7 @@ export async function approveSessionFromParams(
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
-export function createSessionProvider(options?: {
+export function createSessionProvider(_options?: {
   dbPath?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {

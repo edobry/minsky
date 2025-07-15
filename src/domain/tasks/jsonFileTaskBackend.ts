@@ -1,5 +1,5 @@
 const SIZE_6 = 6;
-const TEST_VALUE = 123;
+const _TEST_VALUE = 123;
 
 /**
  * JsonFileTaskBackend implementation
@@ -241,7 +241,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     await this.updateTaskData(id, { status: status as TaskStatus });
   }
 
-  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+  async createTask(specPath: string, _options?: CreateTaskOptions): Promise<Task> {
     // Read and parse the task specification
     const specDataResult = await this.getTaskSpecData(specPath);
     if (!specDataResult.success) {
@@ -338,7 +338,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     }
   }
 
-  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
+  async deleteTask(id: string, _options: DeleteTaskOptions = {}): Promise<boolean> {
     const normalizedId = id.startsWith("#") ? id : `#${id}`;
 
     try {

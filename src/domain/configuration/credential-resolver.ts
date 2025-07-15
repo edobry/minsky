@@ -138,4 +138,4 @@ export class DefaultCredentialResolver implements CredentialResolver {
 }
 
 // Export singleton instance
-export const credentialResolver = new DefaultCredentialResolver(); 
+export const _credentialResolver = new DefaultCredentialResolver(); 

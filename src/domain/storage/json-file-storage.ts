@@ -205,7 +205,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to the entity or null if not found
    */
-  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<T | null> {
+  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<T | null> {
     const result = await this.readState();
     if (!result.success || !result.data) {
       return null;

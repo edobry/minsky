@@ -343,7 +343,7 @@ export async function createRepositoryBackend(
         };
       },
 
-      push: async (branch?: string): Promise<void> => {
+      push: async (_branch?: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
         const sessions = await sessionDb.listSessions();
@@ -363,7 +363,7 @@ export async function createRepositoryBackend(
         });
       },
 
-      pull: async (branch?: string): Promise<void> => {
+      pull: async (_branch?: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
         const sessions = await sessionDb.listSessions();

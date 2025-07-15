@@ -119,7 +119,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
   }
 
-  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+  async createTask(specPath: string, _options?: CreateTaskOptions): Promise<Task> {
     // Read and parse the spec file
     const specResult = await this.getTaskSpecData(specPath);
     if (!specResult.success || !specResult.content) {
@@ -171,7 +171,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     return newTask;
   }
 
-  async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
+  async deleteTask(id: string, _options?: DeleteTaskOptions): Promise<boolean> {
     try {
       // Get all tasks first
       const tasksResult = await this.getTasksData();

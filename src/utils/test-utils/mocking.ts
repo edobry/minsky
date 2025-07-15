@@ -1,5 +1,4 @@
-const TEST_VALUE = 123;
-
+const _TEST_VALUE = 123;
 /**
  * Centralized test mocking utilities for consistent test patterns across the codebase.
  * These utilities encapsulate Bun's testing mocking patterns for easier and consistent mocking.
@@ -14,9 +13,7 @@ const TEST_VALUE = 123;
  * @module mocking
  */
 import { mock, afterEach } from "bun:test"; // Import mock from bun:test
-
 type MockFnType = <T extends (...args: unknown[]) => any>(implementation?: T) => any;
-
 // Define a MockFunction type to replace jest.Mock
 export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
   (...args: TArgs): TReturn;
@@ -32,7 +29,6 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
   mockResolvedValue: <U>(value: unknown) => MockFunction<Promise<U>, TArgs>;
   mockRejectedValue: (_reason: unknown) => MockFunction<Promise<never>, TArgs>;
 }
-
 /**
  * Creates a type-safe mock function with tracking capabilities.
  * This is a more strongly typed version of createMock.
@@ -51,7 +47,6 @@ export function mockFunction<T extends (...args: unknown[]) => any>(implementati
   // Cast to unknown first to avoid TypeScript errors
   return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
 }
-
 /**
  * Creates a mock function with type safety and tracking capabilities.
  * This is a wrapper around Bun's mock function with improved TypeScript support.
@@ -81,7 +76,6 @@ export function createMock<T extends (...args: unknown[]) => any>(implementation
   // Use Bun's mock directly instead of trying to access mock.fn
   return implementation ? mock(implementation) : mock(() => {});
 }
-
 /**
  * Mock a module with a factory function.
  *
@@ -92,7 +86,6 @@ export function createMock<T extends (...args: unknown[]) => any>(implementation
 export function mockModule(_modulePath: string, factory: () => any): void {
   mock.module(_modulePath, factory); // Use mock.module for module mocking
 }
-
 /**
  * Sets up test mocks with automatic cleanup in afterEach hook.
  * Ensures mocks are properly restored after each test to prevent test pollution.
@@ -120,12 +113,10 @@ export function setupTestMocks(): void {
   // Cleanup all mocks after each test
   afterEach(() => {
     mock.restore(); // Use mock.restore() as it's documented to handle mock.module
-
     // Clean up shared state that persists between tests
     resetSharedState();
   });
 }
-
 /**
  * Resets shared state that can leak between tests.
  * This includes singletons like command registries that accumulate state.
@@ -142,7 +133,6 @@ function resetSharedState(): void {
     // Ignore errors if the module doesn't exist or can't be loaded
     // This ensures tests can run even if the command registry isn't available
   }
-
   try {
     // Reset CLI bridge state if it exists
     const cliBridgeModule = require("../../adapters/shared/bridges/cli-bridge");
@@ -159,7 +149,6 @@ function resetSharedState(): void {
   } catch (error) {
     // Ignore errors if the module doesn't exist
   }
-
   try {
     // Reset error handler state if it exists
     const errorHandlerModule = require("../../adapters/shared/error-handling");
@@ -170,7 +159,6 @@ function resetSharedState(): void {
   } catch (error) {
     // Ignore errors if the module doesn't exist
   }
-
   try {
     // Reset global invocation counter from mock compatibility layer
     const compatModule = require("./compatibility/mock-function");
@@ -180,7 +168,6 @@ function resetSharedState(): void {
   } catch (error) {
     // Ignore errors if the module doesn't exist
   }
-
   try {
     // Reset Jest-like globals if they exist
     const jestCompatModule = require("./compatibility/index");
@@ -190,7 +177,6 @@ function resetSharedState(): void {
   } catch (error) {
     // Ignore errors if the module doesn't exist
   }
-
   try {
     // Reset any global test state
     if (typeof global !== "undefined") {
@@ -205,7 +191,6 @@ function resetSharedState(): void {
     // Ignore errors if the module doesn't exist
   }
 }
-
 /**
  * Creates a mock object with all specified methods mocked.
  * Each method will be a full mock function created with createMock().
@@ -252,7 +237,6 @@ export function createMockObject<T extends string>(
     {} as Record<T, ReturnType<typeof createMock>>
   );
 }
-
 /**
  * Creates a mock implementation for child_process.execSync that responds based on command patterns.
  * This is especially useful for testing CLI commands that shell out to other processes.
@@ -293,7 +277,6 @@ export function createMockExecSync(
     return "";
   });
 }
-
 /**
  * Creates a mock filesystem with basic operations (existsSync, readFileSync, writeFileSync).
  * This is useful for tests that need to interact with files without touching the real filesystem.
@@ -346,7 +329,6 @@ export function createMockExecSync(
 export function createMockFileSystem(initialFiles: Record<string, string> = {}) {
   const files = new Map<string, string>();
   const directories = new Set<string>();
-
   // Initialize with provided files
   Object.entries(String(initialFiles)).forEach(([path, content]) => {
     files.set(String(path), String(content));
@@ -356,7 +338,6 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       directories.add(parts.slice(0, i).join("/"));
     }
   });
-
   const mockFs = {
     // Sync methods
     existsSync: createMock((path: unknown) => files.has(String(path)) || directories.has(String(path))),
@@ -396,7 +377,6 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
         }
       }
     }),
-
     // Async methods (fs/promises)
     readFile: createMock(async (path: unknown) => {
       if (!files.has(path as string)) {
@@ -423,15 +403,12 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
         }
       }
     }),
-
     // Access the internal state for validation in tests
     files: files,
     directories: directories,
   };
-
   return mockFs;
 }
-
 /**
  * Creates a partial mock of an interface with custom implementations.
  * This is useful for creating test doubles that implement interfaces
@@ -461,7 +438,6 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
 export function createPartialMock<T extends object>(implementations: Partial<T> = {}): T {
   // Create a base object with the provided implementations
   const base = { ...implementations } as unknown;
-
   // Create a proxy that will handle method calls
   return new Proxy(base, {
     get: (target, prop: string | symbol) => {
@@ -469,19 +445,16 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
       if (prop in target) {
         return target[prop];
       }
-
       // For methods that don't exist, create a mock function
       if (typeof prop === "string") {
         const mockFn = createMock();
         target[prop] = mockFn;
         return mockFn;
       }
-
       return undefined;
     },
   }) as T;
 }
-
 /**
  * Mocks a readonly property on an object.
  * This is useful for testing code that uses getters or Object.defineProperty.
@@ -513,7 +486,6 @@ export function mockReadonlyProperty<T extends object, K extends keyof T>(
     get: () => mockValue,
   });
 }
-
 /**
  * Creates a spy on an object method.
  * Similar to Jest's spyOn, but using Bun's mock functionality.
@@ -536,30 +508,23 @@ export function createSpyOn<T extends object, M extends keyof T>(
   method: M
 ): ReturnType<typeof mock> {
   const original = obj[method];
-
   if (typeof original !== "function") {
     throw new Error(`Cannot spy on ${String(method)} because it is not a function`);
   }
-
   // Create a mock function that calls the original
   const mockFn = mock((...args: unknown[]) => {
     return (original as Function).apply(obj, args);
   });
-
   // Replace the original method with our mock
-  // @ts-expect-error - We've already verified this is a function
   obj[method] = mockFn;
-
   // Return the mock function for assertions
   return mockFn;
 }
-
 /**
  * Represents a test context that manages resources and cleanup.
  */
 export class TestContext {
   private cleanupFns: (() => void | Promise<void>)[] = [];
-
   /**
    * Registers a cleanup function to be run during teardown.
    * @param fn - The cleanup function to register
@@ -567,7 +532,6 @@ export class TestContext {
   registerCleanup(fn: () => void | Promise<void>): void {
     this.cleanupFns.push(fn);
   }
-
   /**
    * Runs all registered cleanup functions.
    */
@@ -583,10 +547,8 @@ export class TestContext {
     this.cleanupFns = [];
   }
 }
-
 // Global test context instance
 let currentTestContext: TestContext | null = null;
-
 /**
  * Creates a test suite with managed setup and teardown.
  * This provides functions to use in beforeEach and afterEach hooks.
@@ -618,7 +580,6 @@ export function createTestSuite() {
     beforeEachTest: () => {
       currentTestContext = new TestContext();
     },
-
     /**
      * Runs cleanup for the current test context.
      * Use this in afterEach hooks.
@@ -631,7 +592,6 @@ export function createTestSuite() {
     },
   };
 }
-
 /**
  * Registers a cleanup function to run after the current test.
  * This ensures resources are properly released even if the test fails.
@@ -660,7 +620,6 @@ export function withCleanup(cleanupFn: () => void | Promise<void>): void {
   }
   currentTestContext.registerCleanup(cleanupFn);
 }
-
 /**
  * Creates a spy on an object method.
  * This is a wrapper around createSpyOn for Jest-like compatibility.

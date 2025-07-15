@@ -253,7 +253,7 @@ sharedCommandRegistry.registerCommand({
   name: "check",
   description: "Check database integrity and detect issues",
   parameters: sessiondbCheckCommandParams,
-  async execute(params: any, context: CommandExecutionContext) {
+  async execute(params: any, _context: CommandExecutionContext) {
     const { file, backend, fix, report } = params;
 
     try {

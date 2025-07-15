@@ -182,7 +182,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   /**
    * Get all sessions that match the query options
    */
-  async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
+  async getEntities(_options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
     try {
       const results = await (this.drizzle.select() as unknown).from(postgresSessions);
       return results.map(fromPostgresSelect);

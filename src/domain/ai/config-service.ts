@@ -59,7 +59,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     }
   }
 
-  async setProviderConfig(provider: string, config: AIProviderConfig): Promise<void> {
+  async setProviderConfig(_provider: string, _config: AIProviderConfig): Promise<void> {
     // Note: For now, we don't implement writing config back to files
     // This would be a future enhancement to modify YAML config files
     throw new Error("Setting provider config is not yet implemented");
@@ -75,7 +75,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     }
   }
 
-  async setDefaultProvider(provider: string): Promise<void> {
+  async setDefaultProvider(_provider: string): Promise<void> {
     // Note: For now, we don't implement writing config back to files
     throw new Error("Setting default provider is not yet implemented");
   }

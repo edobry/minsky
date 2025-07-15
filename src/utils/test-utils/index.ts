@@ -81,7 +81,7 @@ export function setupCompleteTestEnvironment() {
 // Simple module registry for tracking mocked modules
 const mockModuleRegistry = new Map<string, any>();
 
-export const compat = {
+export const _compat = {
   setupTestCompat: () => {
     // No-op for basic compatibility
   },

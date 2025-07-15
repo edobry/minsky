@@ -247,7 +247,7 @@ export class DefaultConfigValidator implements ConfigValidator {
   private validateAIProviderConfig(
     providerConfig: any,
     errors: ValidationError[],
-    warnings: ValidationWarning[],
+    _warnings: ValidationWarning[],
     fieldPrefix: string
   ): void {
     // Validate temperature

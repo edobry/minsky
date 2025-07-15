@@ -49,7 +49,7 @@ export const postgresSessionDbConfigSchema = sessionDbConfigSchema.extend({
 /**
  * Union of all session database configurations
  */
-export const sessionDbConfigUnionSchema = z.union([
+export const _sessionDbConfigUnionSchema = z.union([
   jsonSessionDbConfigSchema,
   sqliteSessionDbConfigSchema,
   postgresSessionDbConfigSchema,

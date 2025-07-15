@@ -638,7 +638,7 @@ You need to specify one of these options to identify the target repository:
   private async findBaseBranch(
     workdir: string,
     branch: string,
-    options: PrOptions,
+    _options: PrOptions,
     deps: PrDependencies
   ): Promise<string> {
     // Try to get the remote HEAD branch
@@ -1289,7 +1289,7 @@ You need to specify one of these options to identify the target repository:
    */
   private async determineTaskId(
     options: PrOptions,
-    workdir: string,
+    _workdir: string,
     branch: string,
     deps: PrDependencies
   ): Promise<string | undefined> {

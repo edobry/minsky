@@ -1369,7 +1369,7 @@ export class ConflictDetectionService {
 
   private generateUserGuidance(
     conflictType: ConflictType,
-    severity: ConflictSeverity,
+    _severity: ConflictSeverity,
     conflictFiles: ConflictFile[]
   ): string {
     switch (conflictType) {

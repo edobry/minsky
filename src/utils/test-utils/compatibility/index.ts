@@ -1,4 +1,4 @@
-const TEST_VALUE = 123;
+const _TEST_VALUE = 123;
 
 /**
  * Jest/Vitest Test Compatibility Layer for Bun
@@ -49,7 +49,7 @@ export interface JestGlobal {
 }
 
 // Create a Jest-like global object
-export const jest: JestGlobal = createJestModuleMocking();
+export const _jest: JestGlobal = createJestModuleMocking();
 
 /**
  * Sets up the entire compatibility layer for a test file.

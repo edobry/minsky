@@ -11,7 +11,7 @@ import {
  * Using proper dependency injection for better testability
  */
 export async function listSessionsFromParams(
-  params: SessionListParams,
+  _params: SessionListParams,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
   }
