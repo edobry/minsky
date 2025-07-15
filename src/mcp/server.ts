@@ -245,4 +245,17 @@ export class MinskyMCPServer {
   getProjectContext(): ProjectContext {
     return this.projectContext;
   }
+
+    /**
+   * Initialize MCP Inspector compatibility patches
+   * This is a workaround for MCP Inspector expecting non-standard schema metadata
+   */
+  private async initializeInspectorCompatibility() {
+    // Note: The MCP Inspector expects `~standard.vendor` metadata that is not part
+    // of the official MCP specification. This appears to be a compatibility issue
+    // between FastMCP and the Inspector that needs to be addressed upstream.
+
+    // For now, we log this issue and continue without the metadata
+    log.debug("MCP Inspector compatibility note: Inspector may expect non-standard ~standard.vendor metadata");
+  }
 }
