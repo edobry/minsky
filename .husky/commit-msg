@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Validate commit message format and prevent placeholder messages
+bun scripts/validate-commit-message.ts "$1"
