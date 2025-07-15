@@ -23,7 +23,7 @@ import { createProjectContext } from "../../types/project";
 import { DEFAULT_DEV_PORT } from "../../utils/constants";
 import { exit } from "../../utils/process";
 
-const INSPECTOR_PORT = 3001;
+const INSPECTOR_PORT = 5173;
 
 // Import adapter-based tool registrations
 // import { registerSessionFileTools } from "../../adapters/mcp/session-files";
@@ -133,28 +133,18 @@ export function createMCPCommand(): Command {
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);
 
-        // Start the server
-        await server.start();
-
-        log.cli(`Minsky MCP Server started with ${transportType} transport`);
-        if (projectContext) {
-          log.cli(`Repository path: ${projectContext.repositoryPath}`);
-        }
-        if (transportType !== "stdio") {
-          log.cli(`Listening on ${options.host}:${port}`);
-        }
-
-        // Launch inspector if requested
+        // Launch inspector if requested (inspector will start its own server instance)
         if (options.withInspector) {
-        // Check if inspector is available
+          // Check if inspector is available
           if (!isInspectorAvailable()) {
             log.cliError(
               "MCP Inspector not found. Please install it with: bun add -d @modelcontextprotocol/inspector"
             );
+            exit(1);
           } else {
             const inspectorPort = parseInt(options.inspectorPort, 10);
 
-            // Launch the inspector
+            // Launch the inspector with the server command
             const inspectorResult = launchInspector({
               port: inspectorPort,
               openBrowser: true,
@@ -166,10 +156,22 @@ export function createMCPCommand(): Command {
             if (inspectorResult.success) {
               log.cli(`MCP Inspector started on port ${inspectorPort}`);
               log.cli(`Open your browser at ${inspectorResult.url} to access the inspector`);
+              log.cli("The inspector will start its own MCP server instance");
             } else {
               log.cliError(`Failed to start MCP Inspector: ${inspectorResult.error}`);
-              log.cliError("The MCP server will continue running without the inspector.");
+              exit(1);
             }
+          }
+        } else {
+          // Only start the server directly if not using inspector
+          await server.start();
+
+          log.cli(`Minsky MCP Server started with ${transportType} transport`);
+          if (projectContext) {
+            log.cli(`Repository path: ${projectContext.repositoryPath}`);
+          }
+          if (transportType !== "stdio") {
+            log.cli(`Listening on ${options.host}:${port}`);
           }
         }
 
