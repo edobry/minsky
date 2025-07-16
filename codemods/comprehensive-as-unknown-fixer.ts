@@ -1,0 +1,546 @@
+#!/usr/bin/env bun
+
+/**
+ * Comprehensive 'as unknown' Assertion Fixer for Task #280
+ * 
+ * A single, extensible codemod following codemod-development-standards:
+ * - Test-driven development with comprehensive coverage
+ * - Structure-aware AST manipulation using ts-morph
+ * - Comprehensive documentation and reporting
+ * - Iteratively enhanced with discovered patterns
+ * 
+ * Patterns Handled:
+ * 1. Session Object Property Access: (sessionProvider as unknown)!.method
+ * 2. Dynamic Import Patterns: ((await import("module")) as unknown).Class
+ * 3. Config Object Patterns: (config as unknown).property
+ * 4. Error Handling Patterns: (error as unknown).property
+ * 5. Provider/Service Patterns: (serviceProvider as unknown).method
+ * 6. Redundant Cast Patterns: (value as unknown) as Type
+ * 7. Promise Return Patterns: Promise.resolve(value) as unknown
+ * 8. Simple Variable Patterns: (variable as unknown)
+ */
+
+import { Project, SourceFile, SyntaxKind, AsExpression, Node } from "ts-morph";
+import { writeFileSync } from "fs";
+import { glob } from "glob";
+
+export interface TransformationResult {
+  pattern: string;
+  before: string;
+  after: string;
+  line: number;
+  file: string;
+}
+
+export interface PatternFixResult {
+  transformations: TransformationResult[];
+  success: boolean;
+  errors: string[];
+}
+
+export interface ComprehensiveReport {
+  timestamp: string;
+  totalFiles: number;
+  filesModified: number;
+  totalTransformations: number;
+  patternBreakdown: Record<string, number>;
+  transformations: TransformationResult[];
+  errors: string[];
+}
+
+export class ComprehensiveAsUnknownFixer {
+  private project: Project;
+  private transformations: TransformationResult[] = [];
+  private errors: string[] = [];
+
+  constructor(project?: Project) {
+    this.project = project || new Project({
+      tsConfigFilePath: "./tsconfig.json",
+    });
+  }
+
+  /**
+   * Main entry point - fixes all patterns across the codebase
+   */
+  public async fixAllFiles(): Promise<ComprehensiveReport> {
+    console.log("🔧 Starting comprehensive 'as unknown' fixes...");
+    
+    const files = await glob("src/**/*.ts", { 
+      ignore: ["**/*.test.ts", "**/*.spec.ts", "**/node_modules/**", "**/*.d.ts"] 
+    });
+    
+    let filesModified = 0;
+    for (const filePath of files) {
+      try {
+        const sourceFile = this.project.addSourceFileAtPath(filePath);
+        const initialTransformationCount = this.transformations.length;
+        
+        this.fixAllPatterns(sourceFile);
+        
+        if (this.transformations.length > initialTransformationCount) {
+          filesModified++;
+        }
+      } catch (error) {
+        this.errors.push(`Failed to process ${filePath}: ${error}`);
+      }
+    }
+    
+    await this.project.save();
+    return this.generateReport(files.length, filesModified);
+  }
+
+  /**
+   * Fixes all patterns in a single source file
+   */
+  public fixAllPatterns(sourceFile: SourceFile): TransformationResult[] {
+    const initialCount = this.transformations.length;
+    
+    // Apply all pattern fixes in order of safety/specificity
+    this.fixSessionObjectPatterns(sourceFile);
+    this.fixDynamicImportPatterns(sourceFile);
+    this.fixConfigObjectPatterns(sourceFile);
+    this.fixErrorHandlingPatterns(sourceFile);
+    this.fixProviderServicePatterns(sourceFile);
+    this.fixRedundantCastPatterns(sourceFile);
+    this.fixPromiseReturnPatterns(sourceFile);
+    this.fixSimpleVariablePatterns(sourceFile);
+    
+    return this.transformations.slice(initialCount);
+  }
+
+  /**
+   * Pattern 1: Session Object Property Access with Non-Null Assertion
+   * Fixes: (sessionProvider as unknown)!.method → sessionProvider.method
+   */
+  public fixSessionObjectPatterns(sourceFile: SourceFile): TransformationResult[] {
+    const initialCount = this.transformations.length;
+    
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isPropertyAccessExpression(node)) {
+        const expression = node.getExpression();
+        
+        // Look for: (sessionXxx as unknown)!
+        if (Node.isNonNullExpression(expression)) {
+          const innerExpr = expression.getExpression();
+          if (Node.isAsExpression(innerExpr)) {
+            const variable = innerExpr.getExpression();
+            const typeNode = innerExpr.getTypeNode();
+            
+            if (Node.isIdentifier(variable) && 
+                typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+              
+              const varName = variable.getText();
+              if (this.isSessionObjectName(varName)) {
+                const before = node.getText();
+                const propertyName = node.getName();
+                const after = `${varName}.${propertyName}`;
+                
+                this.recordTransformation({
+                  pattern: "session-object-non-null",
+                  before,
+                  after,
+                  line: node.getStartLineNumber(),
+                  file: sourceFile.getFilePath()
+                });
+                
+                // Replace the entire property access: (sessionXxx as unknown)!.prop → sessionXxx.prop
+                node.replaceWithText(after);
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    return this.transformations.slice(initialCount);
+  }
+
+  /**
+   * Pattern 2: Dynamic Import Patterns
+   * Fixes: ((await import("./module")) as unknown).Class → (await import("./module")).Class
+   * Only for relative imports (safe)
+   */
+  public fixDynamicImportPatterns(sourceFile: SourceFile): TransformationResult[] {
+    const initialCount = this.transformations.length;
+    
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isPropertyAccessExpression(node)) {
+        const expression = node.getExpression();
+        
+        if (Node.isAsExpression(expression)) {
+          const innerExpr = expression.getExpression();
+          const typeNode = expression.getTypeNode();
+          
+          if (Node.isAwaitExpression(innerExpr) && 
+              typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+            
+            const awaitedExpr = innerExpr.getExpression();
+            if (Node.isCallExpression(awaitedExpr)) {
+              const callExpr = awaitedExpr.getExpression();
+              if (Node.isIdentifier(callExpr) && callExpr.getText() === "import") {
+                
+                const args = awaitedExpr.getArguments();
+                if (args.length === 1 && Node.isStringLiteral(args[0])) {
+                  const importPath = args[0].getLiteralValue();
+                  
+                  // Only fix relative imports (safer)
+                  if (importPath.startsWith("./") || importPath.startsWith("../")) {
+                    const before = node.getText();
+                    const propertyName = node.getName();
+                    const after = `${innerExpr.getText()}.${propertyName}`;
+                    
+                    this.recordTransformation({
+                      pattern: "dynamic-import-relative",
+                      before,
+                      after,
+                      line: node.getStartLineNumber(),
+                      file: sourceFile.getFilePath()
+                    });
+                    
+                    node.replaceWithText(after);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    return this.transformations.slice(initialCount);
+  }
+
+  /**
+   * Pattern 3: Config Object Patterns
+   * Fixes: (config as unknown).property → config.property
+   */
+  public fixConfigObjectPatterns(sourceFile: SourceFile): TransformationResult[] {
+    const initialCount = this.transformations.length;
+    
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isPropertyAccessExpression(node)) {
+        const expression = node.getExpression();
+        
+        if (Node.isAsExpression(expression)) {
+          const variable = expression.getExpression();
+          const typeNode = expression.getTypeNode();
+          
+          if (Node.isIdentifier(variable) && 
+              typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+            
+            const varName = variable.getText();
+            if (this.isConfigObjectName(varName)) {
+              const before = node.getText();
+              const propertyName = node.getName();
+              const after = `${varName}.${propertyName}`;
+              
+              this.recordTransformation({
+                pattern: "config-object-cast",
+                before,
+                after,
+                line: node.getStartLineNumber(),
+                file: sourceFile.getFilePath()
+              });
+              
+              node.replaceWithText(after);
+            }
+          }
+        }
+      }
+    });
+    
+    return this.transformations.slice(initialCount);
+  }
+
+  /**
+   * Pattern 4: Error Handling Patterns
+   * Fixes: (error as unknown).property → error.property
+   */
+  public fixErrorHandlingPatterns(sourceFile: SourceFile): TransformationResult[] {
+    const initialCount = this.transformations.length;
+    
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isPropertyAccessExpression(node)) {
+        const expression = node.getExpression();
+        
+        if (Node.isAsExpression(expression)) {
+          const variable = expression.getExpression();
+          const typeNode = expression.getTypeNode();
+          
+          if (Node.isIdentifier(variable) && 
+              typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+            
+            const varName = variable.getText();
+            if (this.isErrorObjectName(varName)) {
+              const before = node.getText();
+              const propertyName = node.getName();
+              const after = `${varName}.${propertyName}`;
+              
+              this.recordTransformation({
+                pattern: "error-object-cast",
+                before,
+                after,
+                line: node.getStartLineNumber(),
+                file: sourceFile.getFilePath()
+              });
+              
+              node.replaceWithText(after);
+            }
+          }
+        }
+      }
+    });
+    
+    return this.transformations.slice(initialCount);
+  }
+
+  /**
+   * Pattern 5: Provider/Service Patterns
+   * Fixes: (serviceProvider as unknown).method → serviceProvider.method
+   */
+  public fixProviderServicePatterns(sourceFile: SourceFile): TransformationResult[] {
+    const initialCount = this.transformations.length;
+    
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isPropertyAccessExpression(node)) {
+        const expression = node.getExpression();
+        
+        if (Node.isAsExpression(expression)) {
+          const variable = expression.getExpression();
+          const typeNode = expression.getTypeNode();
+          
+          if (Node.isIdentifier(variable) && 
+              typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+            
+            const varName = variable.getText();
+            if (this.isProviderServiceName(varName)) {
+              const before = node.getText();
+              const propertyName = node.getName();
+              const after = `${varName}.${propertyName}`;
+              
+              this.recordTransformation({
+                pattern: "provider-service-cast",
+                before,
+                after,
+                line: node.getStartLineNumber(),
+                file: sourceFile.getFilePath()
+              });
+              
+              node.replaceWithText(after);
+            }
+          }
+        }
+      }
+    });
+    
+    return this.transformations.slice(initialCount);
+  }
+
+  /**
+   * Pattern 6: Redundant Cast Patterns
+   * Fixes: (value as unknown) as Type → value as Type
+   */
+  public fixRedundantCastPatterns(sourceFile: SourceFile): TransformationResult[] {
+    const initialCount = this.transformations.length;
+    
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isAsExpression(node)) {
+        const expression = node.getExpression();
+        
+        // Look for: (variable as unknown) as Type
+        if (Node.isAsExpression(expression)) {
+          const innerVariable = expression.getExpression();
+          const innerType = expression.getTypeNode();
+          
+          if (Node.isIdentifier(innerVariable) && 
+              innerType?.getKind() === SyntaxKind.UnknownKeyword) {
+            
+            const varName = innerVariable.getText();
+            const outerType = node.getTypeNode();
+            const before = node.getText();
+            const after = `${varName} as ${outerType?.getText()}`;
+            
+            this.recordTransformation({
+              pattern: "redundant-cast",
+              before,
+              after,
+              line: node.getStartLineNumber(),
+              file: sourceFile.getFilePath()
+            });
+            
+            // Replace with: variable as Type
+            node.replaceWithText(after);
+          }
+        }
+      }
+    });
+    
+    return this.transformations.slice(initialCount);
+  }
+
+  /**
+   * Pattern 7: Promise Return Patterns
+   * Fixes: Promise.resolve(value) as unknown → Promise.resolve(value)
+   */
+  public fixPromiseReturnPatterns(sourceFile: SourceFile): TransformationResult[] {
+    const initialCount = this.transformations.length;
+    
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isAsExpression(node)) {
+        const expression = node.getExpression();
+        const typeNode = node.getTypeNode();
+        
+        if (typeNode?.getKind() === SyntaxKind.UnknownKeyword &&
+            Node.isCallExpression(expression)) {
+          
+          const callExpr = expression.getExpression();
+          if (Node.isPropertyAccessExpression(callExpr)) {
+            const obj = callExpr.getExpression();
+            const method = callExpr.getName();
+            
+            if (Node.isIdentifier(obj) && obj.getText() === "Promise" &&
+                (method === "resolve" || method === "reject")) {
+              
+              const before = node.getText();
+              const after = expression.getText();
+              
+              this.recordTransformation({
+                pattern: "promise-return-cast",
+                before,
+                after,
+                line: node.getStartLineNumber(),
+                file: sourceFile.getFilePath()
+              });
+              
+              node.replaceWithText(after);
+            }
+          }
+        }
+      }
+    });
+    
+    return this.transformations.slice(initialCount);
+  }
+
+  /**
+   * Pattern 8: Simple Variable Patterns
+   * Fixes: (variable as unknown) → variable (for simple cases)
+   */
+  public fixSimpleVariablePatterns(sourceFile: SourceFile): TransformationResult[] {
+    const initialCount = this.transformations.length;
+    
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isAsExpression(node)) {
+        const expression = node.getExpression();
+        const typeNode = node.getTypeNode();
+        
+        if (Node.isIdentifier(expression) && 
+            typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+          
+          const varName = expression.getText();
+          
+          // Only fix simple variable names in safe contexts
+          if (this.isSimpleVariableName(varName) && this.isSafeContext(node)) {
+            const before = node.getText();
+            const after = varName;
+            
+            this.recordTransformation({
+              pattern: "simple-variable-cast",
+              before,
+              after,
+              line: node.getStartLineNumber(),
+              file: sourceFile.getFilePath()
+            });
+            
+            node.replaceWithText(varName);
+          }
+        }
+      }
+    });
+    
+    return this.transformations.slice(initialCount);
+  }
+
+  // Helper methods for pattern recognition
+  private isSessionObjectName(name: string): boolean {
+    return /^(session|sessionProvider|sessionRecord|sessionInfo|sessionDb|sessionService)$/i.test(name);
+  }
+
+  private isConfigObjectName(name: string): boolean {
+    return /^(config|options|settings|params|props)$/i.test(name);
+  }
+
+  private isErrorObjectName(name: string): boolean {
+    return /^(error|err|e|exception)$/i.test(name);
+  }
+
+  private isProviderServiceName(name: string): boolean {
+    return /^[a-zA-Z_$][a-zA-Z0-9_$]*(Provider|Service|Backend|Manager|Handler)$/i.test(name);
+  }
+
+  private isSimpleVariableName(name: string): boolean {
+    return /^(result|data|value|item|element|current|task|output|response)$/i.test(name);
+  }
+
+  private isSafeContext(node: Node): boolean {
+    // Check if we're in a simple assignment or return context
+    const parent = node.getParent();
+    return Node.isVariableDeclaration(parent) || 
+           Node.isReturnStatement(parent) ||
+           Node.isCallExpression(parent);
+  }
+
+  private recordTransformation(transformation: TransformationResult): void {
+    this.transformations.push(transformation);
+  }
+
+  private generateReport(totalFiles: number, filesModified: number): ComprehensiveReport {
+    const patternBreakdown: Record<string, number> = {};
+    this.transformations.forEach(t => {
+      patternBreakdown[t.pattern] = (patternBreakdown[t.pattern] || 0) + 1;
+    });
+
+    const report: ComprehensiveReport = {
+      timestamp: new Date().toISOString(),
+      totalFiles,
+      filesModified,
+      totalTransformations: this.transformations.length,
+      patternBreakdown,
+      transformations: this.transformations,
+      errors: this.errors
+    };
+
+    const reportPath = "comprehensive-as-unknown-report.json";
+    writeFileSync(reportPath, JSON.stringify(report, null, 2));
+
+    console.log(`\n✅ Comprehensive 'as unknown' fixes completed!`);
+    console.log(`📊 Total transformations: ${this.transformations.length}`);
+    console.log(`📁 Files modified: ${filesModified}/${totalFiles}`);
+    console.log(`📋 Pattern breakdown:`);
+    
+    Object.entries(patternBreakdown).forEach(([pattern, count]) => {
+      console.log(`   ${pattern}: ${count}`);
+    });
+    
+    if (this.errors.length > 0) {
+      console.log(`⚠️  Errors: ${this.errors.length}`);
+      this.errors.forEach(error => console.log(`   ${error}`));
+    }
+    
+    console.log(`📄 Full report: ${reportPath}`);
+
+    return report;
+  }
+}
+
+// CLI execution
+async function main() {
+  if (import.meta.main) {
+    const fixer = new ComprehensiveAsUnknownFixer();
+    await fixer.fixAllFiles();
+  }
+}
+
+if (import.meta.main) {
+  main().catch(console.error);
+} 
