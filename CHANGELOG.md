@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Includes phased implementation plan with testing strategy
   - Maintains backward compatibility with existing workflows
 
+### Fixed
+
+- **Module Resolution Errors**: Implemented directory-structure-aware import path fixing
+  - Created comprehensive test suite using actual directory structure analysis
+  - Built directory-aware codemod using path.relative() instead of pattern matching
+  - Achieved 100% success rate with 138 import fixes across 70 files (vs 85% with pattern-based)
+  - Fixed module resolution errors by correcting import paths based on actual filesystem structure
+  - Resolved export/import naming mismatches in session command modules
+  - Command `minsky tasks status set 116` now works correctly without module resolution errors
+  - Updated codemod-development-standards.mdc with key learnings about structure-aware transformations
+
+_See: SpecStory history for directory-structure-aware import path fixing session for module resolution improvements._
+
 ### Changed
 
 - **MCP Inspector Upgrade**: Upgraded @modelcontextprotocol/inspector from 0.14.3 to 0.16.1

@@ -1,27 +1,27 @@
-import type { SessionStartParams } from "../../schemas/session";
+import type { SessionStartParams } from "../../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
 import { TaskService } from "../../tasks";
 import { normalizeRepoName, resolveRepoPath } from "../../repo-utils";
 import { createTaskFromDescription } from "../../templates/session-templates";
-import { installDependencies } from "../../utils/package-manager";
-import { log } from "../../utils/logger";
-import { 
-  Session, 
+import { installDependencies } from "../../../utils/package-manager";
+import { log } from "../../../utils/logger";
+import {
+  Session,
   SessionRecord,
-  SessionCreateDependencies 
+  SessionCreateDependencies
 } from "../types";
-import { 
-  MinskyError, 
+import {
+  MinskyError,
   ValidationError,
-} from "../../errors/index";
+} from "../../../errors";
 import * as WorkspaceUtils from "../../workspace";
 
 /**
  * Starts a new session based on parameters
  * Using proper dependency injection for better testability
  */
-export async function startSessionFromParams(
+export async function sessionStart(
   params: SessionStartParams,
   depsInput?: SessionCreateDependencies
 ): Promise<Session> {
@@ -64,12 +64,12 @@ export async function startSessionFromParams(
       if (!quiet) {
         log.info("Creating task from description...");
       }
-      
+
       taskId = await createTaskFromDescription(description, {
         taskService: deps.taskService,
         noStatusUpdate,
       });
-      
+
       if (!quiet) {
         log.info(`Created task: ${taskId}`);
       }
@@ -87,7 +87,7 @@ export async function startSessionFromParams(
 
     // Clone repository and create session workspace
     const workdir = deps.workspaceUtils.getSessionWorkdir(name);
-    
+
     const cloneResult = await deps.gitService.clone({
       repoUrl: repoPath,
       workdir,
@@ -100,7 +100,7 @@ export async function startSessionFromParams(
       if (!quiet) {
         log.info("Installing dependencies...");
       }
-      
+
       await installDependencies(workdir, {
         packageManager,
         skipIfExists: true,
@@ -128,4 +128,4 @@ export async function startSessionFromParams(
     }
     throw error;
   }
-} 
+}
