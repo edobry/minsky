@@ -241,65 +241,11 @@ export class TaskService {
   /**
    * Create a new task
    * @param specPath Task specification path
-   * @param spec Task specification data
    * @param options Create options
    * @returns Promise resolving to the created task
    */
-  async createTask(
-    specPath: string,
-    spec: any, // Assuming TaskSpecData is a type defined elsewhere or not needed here
-    options?: CreateTaskOptions
-  ): Promise<TaskData> {
-    // First, save the spec to the file system
-    const taskId = spec.id; // Assuming taskId is available from the spec
-    const newSpecPath = this.currentBackend.getTaskSpecPath(taskId, spec.title);
-
-    // Save the spec
-    const specContent = this.currentBackend.formatTaskSpec(spec);
-    const saveSpecResult = await this.currentBackend.saveTaskSpecData(
-      newSpecPath,
-      specContent
-    );
-
-    if (!saveSpecResult.success) {
-      throw new Error(`Failed to save task spec: ${saveSpecResult.error?.message}`);
-    }
-
-    // Get existing tasks to determine new ID
-    const tasks = await this.getAllTasks();
-    const maxId = tasks.reduce((max, task) => {
-      const id = parseInt(task.id.slice(1), 10);
-      return id > max ? id : max;
-    }, 0);
-
-    const newId = `#${maxId + 1}`;
-
-    const newTask: TaskData = {
-      id: newId,
-      title: spec.title,
-      description: spec.description,
-      status: "TODO",
-      specPath: this.currentBackend.getTaskSpecPath(newId, spec.title),
-    };
-
-    // Add the new task to the list
-    const tasksResult = await this.currentBackend.getTasksData();
-    if (!tasksResult.success) {
-      throw new Error(`Failed to get tasks: ${tasksResult.error?.message}`);
-    }
-    const updatedTasks = this.currentBackend.parseTasks(tasksResult.content);
-
-    updatedTasks.push(newTask);
-
-    // Save the updated tasks
-    const updatedContent = this.currentBackend.formatTasks(updatedTasks);
-    const saveResult = await this.currentBackend.saveTasksData(updatedContent);
-
-    if (!saveResult.success) {
-      throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
-    }
-
-    return newTask;
+  async createTask(specPath: string, options?: CreateTaskOptions): Promise<TaskData> {
+    return this.currentBackend.createTask(specPath, options);
   }
 
   /**
