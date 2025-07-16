@@ -233,20 +233,27 @@ export function createSessionErrorMessage(
   errorType: SessionErrorType,
   context?: ContextInfo[]
 ): string {
-  const templates = {
+  // Define the template structure type
+  type SessionTemplate = {
+    title: string;
+    description: string;
+    suggestions: CommandSuggestion[];
+  };
+
+  const templates: Record<SessionErrorType, SessionTemplate> = {
     not_found: {
       title: `${ErrorEmojis.NOT_FOUND} Session "${sessionName}" Not Found`,
       description: "The session you're trying to access doesn't exist.",
       suggestions: [
         {
-          description: "List all available sessions",
-          command: "minsky sessions list",
-          emoji: ErrorEmojis.LIST
-        },
-        {
           description: "Create a new session",
           command: `minsky session start "${sessionName}"`,
           emoji: ErrorEmojis.CREATE
+        },
+        {
+          description: "List available sessions",
+          command: "minsky sessions list",
+          emoji: ErrorEmojis.INFO
         },
         {
           description: "Check session details",
@@ -296,13 +303,13 @@ export function createSessionErrorMessage(
   
   const config = templates[errorType];
   const template: ErrorTemplate = {
-    title: (config as unknown)!.title,
-    description: (config as unknown)!.description,
+    title: config.title,
+    description: config.description,
     sections: [
       {
         title: "What you can do:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions((config as unknown)!.suggestions)
+        content: formatCommandSuggestions(config.suggestions)
       }
     ]
   };

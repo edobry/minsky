@@ -166,7 +166,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     });
 
     inspectorProcess.stderr.on("data", (data) => {
-      log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);
+      log.error(`MCP Inspector stderr: ${data.toString()}`);
     });
 
     inspectorProcess.on("exit", (code, signal) => {

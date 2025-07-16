@@ -251,7 +251,7 @@ For more information, visit: https://github.com/your-org/minsky
         // @ts-ignore - Accessing a private property for debugging
         if ((this.server as any)._tools) {
           // @ts-ignore
-          methods.push(...Object.keys((this.server as any)._tools) as unknown);
+          methods.push(...Object.keys((this.server as any)._tools));
         }
         log.debug("MCP Server registered methods", {
           methodCount: methods.length,

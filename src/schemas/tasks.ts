@@ -116,7 +116,7 @@ export const taskCreateParamsSchema = z
   .merge(commonCommandOptionsSchema).refine(
     (data) => {
     // Either description or descriptionPath must be provided
-      return data.description || data.descriptionPath as unknown;
+      return data.description || data.descriptionPath;
     },
     {
       message: "Either --description or --description-path must be provided",

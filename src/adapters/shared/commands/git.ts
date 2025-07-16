@@ -363,13 +363,13 @@ export function registerGitCommands(): void {
         noStage: params!.noStage,
         repo: params!.repo,
         session: params!.session,
-      }) as unknown;
+      });
 
       return {
         success: true,
         commitHash: result!.commitHash,
         message: result!.message,
-      } as unknown;
+      };
     },
   });
 
@@ -389,12 +389,12 @@ export function registerGitCommands(): void {
         remote: params!.remote,
         force: params!.force,
         debug: params!.debug,
-      }) as unknown;
+      });
 
       return {
         success: result!.pushed,
         workdir: result!.workdir,
-      } as unknown;
+      };
     },
   });
 
@@ -413,13 +413,13 @@ export function registerGitCommands(): void {
         workdir: params!.destination || ".",
         session: params!.session,
         branch: params!.branch,
-      }) as unknown;
+      });
 
       return {
         success: true,
         workdir: result!.workdir,
         session: result!.session,
-      } as unknown;
+      };
     },
   });
 
@@ -436,13 +436,13 @@ export function registerGitCommands(): void {
       const result = await branchFromParams({
         session: params!.session,
         name: params!.name,
-      }) as unknown;
+      });
 
       return {
         success: true,
         workdir: result!.workdir,
         branch: result!.branch,
-      } as unknown;
+      };
     },
   });
 
@@ -463,13 +463,13 @@ export function registerGitCommands(): void {
         taskId: params!.task,
         debug: params!.debug,
         noStatusUpdate: params!.noStatusUpdate,
-      }) as unknown;
+      });
 
       return {
         success: true,
         markdown: result!.markdown,
         statusUpdateResult: result!.statusUpdateResult,
-      } as unknown;
+      };
     },
   });
 

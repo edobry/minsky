@@ -186,7 +186,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       });
 
       // Convert issues to a format that can be parsed by parseTasks
-      const issueData = JSON.stringify(issues) as unknown;
+      const issueData = JSON.stringify(issues);
 
       return {
         success: true,
@@ -227,9 +227,9 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       const response = await this.octokit.rest.issues.listForRepo({
         owner: this.owner,
         repo: this.repo,
-        labels: Object.values(this.statusLabels).join(",") as unknown,
+        labels: Object.values(this.statusLabels).join(","),
         state: "all",
-      }) as unknown;
+      });
 
       const issue = response.data.find((issue) => {
         // Look for issue with matching task ID in title or body
@@ -352,7 +352,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
 
     // Add GitHub-specific metadata if available
     if (metadata.githubIssue) {
-      const githubIssue = metadata.githubIssue as unknown;
+      const githubIssue = metadata.githubIssue;
       content += "## GitHub Issue\n";
       content += `- Issue: #${githubIssue.number}\n`;
       content += `- URL: ${githubIssue.html_url}\n`;

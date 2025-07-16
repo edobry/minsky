@@ -1,0 +1,22 @@
+{
+  "timestamp": "2025-07-16T19:00:44.915Z",
+  "totalTransformations": 5,
+  "filesModified": 2,
+  "transformations": [
+    {
+      "file": "src/utils/test-utils/assertions.ts",
+      "fixes": 1,
+      "patterns": [
+        "Remove unnecessary current cast (1x)"
+      ]
+    },
+    {
+      "file": "src/utils/test-utils/compatibility/mock-function.ts",
+      "fixes": 4,
+      "patterns": [
+        "Remove unnecessary Promise.resolve cast (2x)",
+        "Remove unnecessary Promise.reject cast (2x)"
+      ]
+    }
+  ]
+}
