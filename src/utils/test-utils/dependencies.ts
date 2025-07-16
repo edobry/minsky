@@ -569,7 +569,7 @@ export function createMockTaskService(
 
     getBackendForTask: options.getBackendForTask || (() => Promise.resolve("markdown")),
 
-    createTaskFromTitleAndDescription: options.createTaskFromTitleAndDescription || ((_title: string, _description: string, _options?: CreateTaskOptions) => 
+    createTaskFromTitleAndDescription: options.createTaskFromTitleAndDescription || ((title: string, description: string, options?: CreateTaskOptions) =>
       Promise.resolve({
         id: "#test-from-title",
         title: "Test Task",

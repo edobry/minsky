@@ -3,16 +3,16 @@ import { RuleService } from "./rules";
 import type { RuleFormat } from "./rules";
 import { promises as fs } from "fs";
 import path from "path";
+import { tmpdir } from "os";
 import matter from "gray-matter";
 import { log } from "../utils/logger";
 import { getErrorMessage } from "../errors";
 // Removed unused constant COMMIT_HASH_SHORT_LENGTH
 
 describe("RuleService", () => {
-  const testDir = path.join(import.meta.dir, "../..", "test-rules-tmp");
-  const cursorRulesDir = path.join(testDir, ".cursor", "rules");
-  const genericRulesDir = path.join(testDir, ".ai", "rules");
-
+  let testDir: string;
+  let cursorRulesDir: string;
+  let genericRulesDir: string;
   let ruleService: RuleService;
 
   // Helper function to create a rule file
@@ -31,6 +31,11 @@ describe("RuleService", () => {
   }
 
   beforeEach(async () => {
+    // Create a unique temporary directory for each test run
+    testDir = await fs.mkdtemp(path.join(tmpdir(), "minsky-rules-test-"));
+    cursorRulesDir = path.join(testDir, ".cursor", "rules");
+    genericRulesDir = path.join(testDir, ".ai", "rules");
+
     // Create test directories
     await fs.mkdir(cursorRulesDir, { recursive: true });
     await fs.mkdir(genericRulesDir, { recursive: true });

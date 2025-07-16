@@ -1,38 +1,43 @@
 import { join, dirname } from "node:path";
-import { mkdir } from "node:fs/promises";
-import { promisify } from "node:util";
-import { exec } from "node:child_process";
+import { normalizeRepoName } from "../repo-utils";
+import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
-import { MinskyError, getErrorMessage } from "../../errors";
 
-const execAsync = promisify(exec);
-
+/**
+ * Options for clone operations
+ */
 export interface CloneOptions {
   repoUrl: string;
-  workdir: string;
+  workdir: string; // Explicit path where to clone, provided by caller
   session?: string;
   branch?: string;
 }
 
+/**
+ * Result of clone operations
+ */
 export interface CloneResult {
   workdir: string;
   session: string;
 }
 
+/**
+ * Dependencies for clone operations
+ */
 export interface CloneDependencies {
-  mkdir: (path: string, options?: any) => Promise<void>;
-  execAsync: (command: string) => Promise<{ stdout: string; stderr: string }>;
-  access: (path: string) => Promise<void>;
+  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+  mkdir: (path: string, options?: { recursive?: boolean }) => Promise<void>;
   readdir: (path: string) => Promise<string[]>;
-  rm: (path: string, options?: any) => Promise<void>;
+  access: (path: string) => Promise<void>;
+  rm: (path: string, options?: { recursive?: boolean; force?: boolean }) => Promise<void>;
+  generateSessionId: () => string;
 }
 
-export async function cloneRepository(
-  options: CloneOptions,
-  deps: CloneDependencies,
-  generateSessionId: () => string
-): Promise<CloneResult> {
-  const session = options.session || generateSessionId();
+/**
+ * Clone a repository and set up a session workspace
+ */
+export async function cloneImpl(options: CloneOptions, deps: CloneDependencies): Promise<CloneResult> {
+  const session = options.session || deps.generateSessionId();
   const workdir = options.workdir;
 
   log.debug("Clone operation starting", {
@@ -45,21 +50,21 @@ export async function cloneRepository(
     // Validate repo URL
     if (!options.repoUrl || options.repoUrl.trim() === "") {
       log.error("Invalid repository URL", { repoUrl: options.repoUrl });
-      throw new MinskyError("Repository URL is required for cloning");
+      throw new Error("Repository URL is required for cloning");
     }
 
     // Clone the repository with verbose logging FIRST
     log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
     const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
-    try {
-      // Create session directory structure ONLY when ready to clone
-      // This ensures no orphaned directories if validation fails
-      await deps.mkdir(dirname(workdir), { recursive: true });
-      log.debug("Session parent directory created", { parentDir: dirname(workdir) });
 
+    // Ensure parent directory exists
+    await deps.mkdir(dirname(workdir), { recursive: true });
+    log.debug("Session parent directory created", { parentDir: dirname(workdir) });
+
+    try {
       const { stdout, stderr } = await deps.execAsync(cloneCmd);
       log.debug("git clone succeeded", {
-        stdout: stdout.trim().substring(0, 200)
+        stdout: stdout.trim().substring(0, 200),
       });
     } catch (cloneErr) {
       log.error("git clone command failed", {
@@ -99,7 +104,7 @@ export async function cloneRepository(
       } catch (err) {
         log.warn("Could not read clone directory", {
           workdir,
-          error: getErrorMessage(err),
+          error: getErrorMessage(err as any),
         });
       }
     } catch (accessErr) {
@@ -107,7 +112,7 @@ export async function cloneRepository(
         workdir,
         error: getErrorMessage(accessErr),
       });
-      throw new MinskyError("Git repository was not properly cloned: .git directory not found");
+      throw new Error("Git repository was not properly cloned: .git directory not found");
     }
 
     return {
@@ -116,11 +121,11 @@ export async function cloneRepository(
     };
   } catch (error) {
     log.error("Error during git clone", {
-      error: getErrorMessage(error),
+      error: getErrorMessage(error as any),
       stack: error instanceof Error ? error.stack : undefined,
       repoUrl: options.repoUrl,
       workdir,
     });
-    throw new MinskyError(`Failed to clone git repository: ${getErrorMessage(error)}`);
+    throw new Error(`Failed to clone git repository: ${getErrorMessage(error as any)}`);
   }
 } 

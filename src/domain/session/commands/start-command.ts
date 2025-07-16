@@ -21,7 +21,7 @@ import * as WorkspaceUtils from "../../workspace";
  * Starts a new session based on parameters
  * Using proper dependency injection for better testability
  */
-export async function startSessionFromParams(
+export async function sessionStart(
   params: SessionStartParams,
   depsInput?: SessionCreateDependencies
 ): Promise<Session> {

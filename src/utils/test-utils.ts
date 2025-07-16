@@ -39,7 +39,7 @@ export const createTempTestDir: (prefix?: string) => string | undefined = create
 export function setupConsoleSpy() {
   const consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
   const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
-  const processExitSpy = spyOn(process, "exit" as unknown).mockImplementation(() => { throw new Error("process.exit called"); });
+  const processExitSpy = spyOn(process, "exit" as any).mockImplementation(() => { throw new Error("process.exit called"); });
 
   return { consoleLogSpy, consoleErrorSpy, processExitSpy };
 }
@@ -55,25 +55,19 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
   // Create a complete mock DateConstructor
   const MockDate = function () {
     return new originalDate(fixedDate);
-  } as unknown as DateConstructor as unknown;
+  } as unknown as DateConstructor;
 
   // Copy all the static methods from the original Date
-  if (MockDate) {
-    MockDate.now = () => fixedDateTime;
-    MockDate.parse = originalDate?.parse;
-    MockDate.UTC = originalDate?.UTC;
-  }
+  MockDate.now = () => fixedDateTime;
+  MockDate.parse = originalDate.parse;
+  MockDate.UTC = originalDate.UTC;
 
   // Replace global Date
-  if (global) {
-    global.Date = MockDate;
-  }
+  global.Date = MockDate;
 
   // Return function to restore the original Date
   return () => {
-    if (global) {
-      global.Date = originalDate;
-    }
+    global.Date = originalDate;
   };
 }
 
