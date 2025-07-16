@@ -8,7 +8,7 @@ import {
 import { 
   ResourceNotFoundError, 
   ValidationError,
-} from "../../../../errors";
+} from "../../../errors/index";
 
 /**
  * Gets session directory based on parameters
