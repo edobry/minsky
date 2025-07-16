@@ -1,47 +1,6 @@
 {
-  "timestamp": "2025-07-16T19:02:36.148Z",
-  "totalTransformations": 26,
-  "filesModified": 5,
-  "transformations": [
-    {
-      "file": "src/domain/workspace.ts",
-      "fixes": 10,
-      "patterns": [
-        "Remove sessionProvider cast with non-null assertion (1x)",
-        "Remove sessionRecord cast with non-null assertion (3x)",
-        "Remove sessionInfo cast with non-null assertion (5x)",
-        "Remove sessionDb cast with non-null assertion (1x)"
-      ]
-    },
-    {
-      "file": "src/domain/repository.ts",
-      "fixes": 7,
-      "patterns": [
-        "Remove dynamic import cast for relative modules (7x)"
-      ]
-    },
-    {
-      "file": "src/schemas/error.ts",
-      "fixes": 1,
-      "patterns": [
-        "Remove err object cast (1x)"
-      ]
-    },
-    {
-      "file": "src/schemas/runtime.ts",
-      "fixes": 1,
-      "patterns": [
-        "Remove simple object property cast (1x)"
-      ]
-    },
-    {
-      "file": "src/utils/type-guards.ts",
-      "fixes": 7,
-      "patterns": [
-        "Remove options object cast (1x)",
-        "Remove service object cast (1x)",
-        "Remove simple object property cast (5x)"
-      ]
-    }
-  ]
+  "timestamp": "2025-07-16T19:07:46.886Z",
+  "totalTransformations": 0,
+  "filesModified": 0,
+  "transformations": []
 }
