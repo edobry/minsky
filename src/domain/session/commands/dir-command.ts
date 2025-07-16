@@ -1,4 +1,4 @@
-import type { SessionDirParams } from "../../schemas/session";
+import type { SessionDirParams } from "../../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { 
@@ -8,7 +8,7 @@ import {
 import { 
   ResourceNotFoundError, 
   ValidationError,
-} from "../../errors/index";
+} from "../../../errors/index";
 
 /**
  * Gets session directory based on parameters

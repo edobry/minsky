@@ -1,18 +1,26 @@
 import { getCurrentSessionContext } from "../../workspace";
-import { 
+import {
   Session,
 } from "../types";
 
 /**
  * Inspects the current session based on workspace context
  */
-export async function inspectSessionFromParams(_params: {
+export async function sessionInspect(params: {
   json?: boolean;
-}): Promise<Session | null> {
+} = {}): Promise<Session | null> {
   try {
     const sessionContext = await getCurrentSessionContext();
-    return sessionContext;
-  } catch (_error) {
+    if (!sessionContext) {
+      return null;
+    }
+
+    // Transform the sessionContext to match Session interface
+    return {
+      session: sessionContext.sessionId,
+      taskId: sessionContext.taskId,
+    };
+  } catch (error) {
     return null;
   }
 }
@@ -21,5 +29,5 @@ export async function inspectSessionFromParams(_params: {
  * Inspects the current session - simpler interface for subcommands
  */
 export async function inspectCurrentSession(): Promise<Session | null> {
-  return inspectSessionFromParams({});
-} 
+  return sessionInspect({});
+}

@@ -1,12 +1,12 @@
 /**
  * Enhanced Test Utilities for Improved Test Isolation and Reliability
- * 
+ *
  * This module provides comprehensive testing utilities including:
  * - Enhanced cleanup management
  * - Advanced mock filesystem and module mocking
  * - Test data isolation and factories
  * - Cross-test contamination prevention
- * 
+ *
  * @module test-utils
  */
 
@@ -39,6 +39,25 @@ export {
 // Original utilities (avoid conflicts)
 export { createMockFileSystem, setupTestMocks } from "./mocking";
 
+// Dependency injection utilities and individual service mock factories
+export {
+  createTestDeps,
+  createTaskTestDeps,
+  createSessionTestDeps,
+  createGitTestDeps,
+  createMockRepositoryBackend,
+  withMockedDeps,
+  createDeepTestDeps,
+  createPartialTestDeps,
+  // Individual service mock factories
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+  type MockSessionProviderOptions,
+  type MockGitServiceOptions,
+  type MockTaskServiceOptions
+} from "./dependencies";
+
 // Import the functions for use in setupCompleteTestEnvironment
 import { setupTestCleanup } from "./cleanup";
 import { setupEnhancedMocking, validateMockIsolation } from "./enhanced-mocking";
@@ -51,7 +70,7 @@ import { createMock } from "./mocking";
 export function setupCompleteTestEnvironment() {
   const cleanup = setupTestCleanup();
   const mocking = setupEnhancedMocking();
-  
+
   return {
     cleanup,
     mocking,
@@ -59,7 +78,7 @@ export function setupCompleteTestEnvironment() {
     validateIsolation: () => {
       const mockIsolation = validateMockIsolation();
       const cleanupStats = cleanup.getCleanupStats();
-      
+
       return {
         isIsolated: mockIsolation.isIsolated && cleanupStats.itemCount === 0,
         issues: [
@@ -85,16 +104,16 @@ export const _compat = {
   setupTestCompat: () => {
     // No-op for basic compatibility
   },
-  
+
   createCompatMock: (implementation?: (...args: any[]) => any) => {
     const mockFn = createMock(implementation);
-    
+
     // Store the original implementation for "once" functionality
     let originalImplementation = implementation;
-    
+
     // Create a wrapper function that behaves like the mock but has our methods
     const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;
-    
+
     // Copy mock properties and bind methods to original mock
     compatMock.mock = mockFn.mock;
     compatMock.mockImplementation = (newImpl: (...args: any[]) => any) => {
@@ -104,14 +123,14 @@ export const _compat = {
     compatMock.mockReturnValue = mockFn.mockReturnValue.bind(mockFn);
     compatMock.mockResolvedValue = mockFn.mockResolvedValue.bind(mockFn);
     compatMock.mockRejectedValue = mockFn.mockRejectedValue.bind(mockFn);
-    
+
     // Add Jest-style methods
     compatMock.mockClear = () => {
       mockFn.mock.calls.length = 0;
       mockFn.mock.results.length = 0;
       return compatMock;
     };
-    
+
     compatMock.mockReset = () => {
       mockFn.mock.calls.length = 0;
       mockFn.mock.results.length = 0;
@@ -119,10 +138,10 @@ export const _compat = {
       mockFn.mockImplementation(() => undefined);
       return compatMock;
     };
-    
+
     compatMock.mockImplementationOnce = (fn: (...args: any[]) => any) => {
       let used = false;
-      
+
       // Create a wrapper that uses the once function, then reverts
       const onceWrapper = (...args: any[]) => {
         if (!used) {
@@ -132,24 +151,24 @@ export const _compat = {
         // Revert to original behavior after first use
         return originalImplementation ? originalImplementation(...args) : undefined;
       };
-      
+
       mockFn.mockImplementation(onceWrapper);
       return compatMock;
     };
-    
+
     compatMock.mockReturnValueOnce = (value: any) => {
       return compatMock.mockImplementationOnce(() => value);
     };
-    
+
     return compatMock;
   },
-  
+
   asymmetricMatchers: {
     anything: () => ({
       asymmetricMatch: (actual: any) => actual !== null && actual !== undefined,
       toString: () => "anything()"
     }),
-    
+
     any: (constructor: any) => ({
       asymmetricMatch: (actual: any) => {
         if (constructor === String) return typeof actual === "string";
@@ -161,13 +180,13 @@ export const _compat = {
       },
       toString: () => `any(${constructor.name})`
     }),
-    
+
     stringContaining: (substring: string) => ({
-      asymmetricMatch: (actual: any) => 
+      asymmetricMatch: (actual: any) =>
         typeof actual === "string" && actual.includes(substring),
       toString: () => `stringContaining(${substring})`
     }),
-    
+
     objectContaining: (obj: any) => ({
       asymmetricMatch: (actual: any) => {
         if (typeof actual !== "object" || actual === null) return false;
@@ -175,18 +194,18 @@ export const _compat = {
           if (!(key in actual)) return false;
           const expectedValue = obj[key];
           const actualValue = actual[key];
-          
+
           // Handle nested asymmetric matchers
           if (expectedValue && typeof expectedValue === "object" && expectedValue.asymmetricMatch) {
             return expectedValue.asymmetricMatch(actualValue);
           }
-          
+
           return actualValue === expectedValue;
         });
       },
       toString: () => `objectContaining(${JSON.stringify(obj)})`
     }),
-    
+
     arrayContaining: (arr: any[]) => ({
       asymmetricMatch: (actual: any) => {
         if (!Array.isArray(actual)) return false;
@@ -195,7 +214,7 @@ export const _compat = {
       toString: () => `arrayContaining(${JSON.stringify(arr)})`
     })
   },
-  
+
   // Jest-style module mocking
   jest: {
     mock: (modulePath: string, factory: () => any) => {
@@ -204,7 +223,7 @@ export const _compat = {
       return mockedModule;
     }
   },
-  
+
   // Mock a specific function in a module
   mockModuleFunction: (modulePath: string, functionName: string, implementation: (...args: any[]) => any) => {
     let module = mockModuleRegistry.get(modulePath) || {};
@@ -212,14 +231,14 @@ export const _compat = {
     mockModuleRegistry.set(modulePath, module);
     return implementation;
   },
-  
+
   // Mock an entire module
   mockModule: (modulePath: string, factory: () => any) => {
     const mockedModule = factory();
     mockModuleRegistry.set(modulePath, mockedModule);
     return mockedModule;
   },
-  
+
   // Get a mocked module (for compatibility)
   getMockModule: (modulePath: string) => {
     return mockModuleRegistry.get(modulePath) || {};

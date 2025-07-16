@@ -218,11 +218,26 @@ export class TaskService {
   /**
    * Get task status
    * @param id Task ID
-   * @returns Promise resolving to task status or undefined if not found
+   * @returns Promise resolving to the task status or null if not found
    */
-  async getTaskStatus(id: string): Promise<string | undefined> {
+  async getTaskStatus(id: string): Promise<string | null> {
     const task = await this.getTask(id);
-    return task?.status;
+    return task ? task.status : null;
+  }
+
+  /**
+   * Set task status (alias for updateTaskStatus for backward compatibility)
+   * @param id Task ID
+   * @param status New status
+   * @returns Promise resolving to void
+   */
+  async setTaskStatus(id: string, status: string): Promise<void> {
+    // Validate status first
+    if (!isValidTaskStatus(status)) {
+      throw new Error(`Status must be one of: ${TASK_STATUS_VALUES.join(", ")}`);
+    }
+
+    await this.updateTaskStatus(id, status);
   }
 
   /**

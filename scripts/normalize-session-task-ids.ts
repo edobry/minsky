@@ -40,7 +40,7 @@ async function normalizeSessionTaskIds(options: {
 
   for (const session of allSessions) {
     if (session.taskId) {
-      // Check if task ID needs normalization (doesn't start with #)
+      // Check if task ID needs normalization (does not start with #)
       if (!session.taskId.startsWith("#")) {
         const normalizedTaskId = `#${session.taskId}`;
 
