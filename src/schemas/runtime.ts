@@ -2,7 +2,7 @@
  * Runtime Environment Schema Definitions
  * 
  * This module provides Zod schemas for validating runtime environment APIs,
- * replacing unsafe `(Bun as unknown).argv` patterns with proper validation.
+ * replacing unsafe `Bun.argv` patterns with proper validation.
  */
 
 import { z } from "zod";
