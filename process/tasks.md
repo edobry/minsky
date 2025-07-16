@@ -16,9 +16,9 @@
 
 - [x] Add `git commit` Command to Stage and Commit Changes [#009](process/tasks/009-add-git-commit-command-to-stage-and-commit-changes.md)
 
-- [x] Enhance `git pr` Command to Create GitHub PRs and Update Task Status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
+- [x] ~~Enhance `git pr` Command to Create GitHub PRs and Update Task Status~~ (Command removed - functionality moved to `session pr`) [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
 
-- [x] Fix `git pr` Command and Add Proper Tests [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
+- [x] ~~Fix `git pr` Command and Add Proper Tests~~ (Command removed - functionality moved to `session pr`) [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 
 - [x] Add `session update` Command [#012](process/tasks/012-add-session-update-command.md)
 
@@ -34,7 +34,7 @@
 
 - [x] Implement Test Suite Improvements [#019](process/tasks/019-implement-test-suite-improvements.md)
 
-- [x] Add `--task` option to `git pr` command [#020](process/tasks/020-add-task-option-to-git-pr-command.md)
+- [x] ~~Add `--task` option to `git pr` command~~ (Command removed - functionality moved to `session pr`) [#020](process/tasks/020-add-task-option-to-git-pr-command.md)
 
 - [x] Refactor Large Methods in GitService [#021](process/tasks/021-refactor-large-methods-in-gitservice.md)
 
