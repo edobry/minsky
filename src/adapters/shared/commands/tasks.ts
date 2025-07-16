@@ -674,11 +674,11 @@ const tasksDeleteRegistration = {
       repo: params.repo,
       workspace: params.workspace,
       session: params.session,
-    }) as unknown;
+    });
 
-    const message = (result as unknown as { success: boolean; taskId: string; task?: any }).success
-      ? `Task ${(result as unknown as { taskId: string }).taskId} deleted successfully`
-      : `Failed to delete task ${(result as unknown as { taskId: string }).taskId}`;
+    const message = (result).success
+      ? `Task ${(result).taskId} deleted successfully`
+      : `Failed to delete task ${(result).taskId}`;
 
     // Return different formats based on --json flag
     if ((params as unknown as TasksDeleteParams).json) {
@@ -688,7 +688,7 @@ const tasksDeleteRegistration = {
         taskId: (result as unknown as { taskId: string }).taskId,
         task: (result as unknown as { task?: any }).task,
         message: message,
-      } as unknown;
+      };
     } else {
       // Simple message for user-friendly output
       return message;

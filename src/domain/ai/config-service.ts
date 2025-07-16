@@ -52,7 +52,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
         models: providerConfig.models || [],
         maxTokens: providerConfig.max_tokens,
         temperature: providerConfig.temperature,
-      } as AIProviderConfig;
+      };
     } catch (error) {
       log.debug(`Failed to get provider config for ${provider}`, { error });
       return null;

@@ -241,7 +241,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       const result = await (this.drizzle
         .delete(postgresSessions) as unknown).where(eq(postgresSessions.session, id));
 
-      return result.rowCount !== null && result.rowCount > 0 as unknown;
+      return result.rowCount !== null && result.rowCount > 0;
     } catch (error) {
       log.error("Failed to delete session from PostgreSQL:", error);
       return false;
@@ -258,7 +258,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         .from(postgresSessions)
         .where(eq(postgresSessions.session, id)) as unknown).limit(1);
 
-      return result.length > 0 as unknown;
+      return result.length > 0;
     } catch (error) {
       log.error("Failed to check session existence in PostgreSQL:", error);
       return false;

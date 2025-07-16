@@ -49,7 +49,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  */
 export function mockFunction<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Cast to unknown first to avoid TypeScript errors
-  return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
+  return createMock(implementation) as unknown;
 }
 
 /**

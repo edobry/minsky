@@ -316,32 +316,32 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   mockFn.mockResolvedValue = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementation(
-      () => Promise.resolve(value) as unknown as ReturnType<T>
-    ) as unknown;
+      () => Promise.resolve(value) as ReturnType<T>
+    );
   };
 
   // Add mockResolvedValueOnce method
   mockFn.mockResolvedValueOnce = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementationOnce(
-      () => Promise.resolve(value) as unknown as ReturnType<T>
-    ) as unknown;
+      () => Promise.resolve(value) as ReturnType<T>
+    );
   };
 
   // Add mockRejectedValue method
   mockFn.mockRejectedValue = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementation(
-      () => Promise.reject(value) as unknown as ReturnType<T>
-    ) as unknown;
+      () => Promise.reject(value) as ReturnType<T>
+    );
   };
 
   // Add mockRejectedValueOnce method
   mockFn.mockRejectedValueOnce = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementationOnce(
-      () => Promise.reject(value) as unknown as ReturnType<T>
-    ) as unknown;
+      () => Promise.reject(value) as ReturnType<T>
+    );
   };
 
   // If there"s an initial implementation, set it
@@ -418,7 +418,7 @@ export function resetAllMocks(): void {
  * @returns An auto-mocked version of the module
  */
 export function autoMockModule<T extends object>(module: T): T {
-  const mockedModule = { ...module } as unknown;
+  const mockedModule = { ...module };
 
   // Recursively replace all functions with mocks
   for (const key in mockedModule) {

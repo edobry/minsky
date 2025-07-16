@@ -123,7 +123,7 @@ implements DatabaseStorage<TEntity, TState>
       const state = {
         sessions,
         baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky` as unknown,
-      } as TState;
+      };
 
       return { success: true, data: state };
     } catch (error) {
@@ -224,7 +224,7 @@ implements DatabaseStorage<TEntity, TState>
 
         // Apply WHERE conditions if any exist
         if (conditions.length > 0) {
-          query = query.where(and(...conditions)) as unknown;
+          query = query.where(and(...conditions));
         }
       }
 
@@ -327,7 +327,7 @@ implements DatabaseStorage<TEntity, TState>
         .from(sessionsTable)
         .where(eq(sessionsTable.session, id)).limit(1);
 
-      return result.length > 0 as unknown;
+      return result.length > 0;
     } catch (error) {
       log.error("Failed to check entity existence in SQLite", { error, id });
       return false;

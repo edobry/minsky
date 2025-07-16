@@ -95,7 +95,7 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
     if (!normalizedInfo.isLocal) {
       const { owner, repo } = extractRepositoryInfo(uri);
       components.owner = owner;
-      (components as unknown)!.repo = repo;
+      components.repo = repo;
 
       // For URLs, also extract host
       if (components?.type === RepositoryURIType?.HTTPS) {
@@ -142,7 +142,7 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
 export function normalizeRepositoryURI(uri: string): string {
   try {
     const result = normalizeRepositoryUri(uri, { validateLocalExists: false });
-    return (result as unknown)!.name as unknown;
+    return result.name;
   } catch (error) {
     // Fallback to simple basename normalization (filesystem-safe)
     return `local-${basename(uri)}`;
@@ -180,10 +180,29 @@ export function validateRepositoryURI(uri: string): URIValidationResult {
 export function convertRepositoryURI(uri: string, targetType: RepositoryURIType): string | undefined {
   try {
     // Map our RepositoryURIType to UriFormat
-    const targetFormat = targetType as unknown as UriFormat;
+    const targetFormat = targetType as unknown;
     return convertRepositoryUri(uri, targetFormat);
   } catch (error) {
-    return null;
+    return undefined;
+  }
+}
+
+/**
+ * Expand a shorthand repository reference to a full URI
+ *
+ * @param shorthand GitHub shorthand (e.g., "owner/repo")
+ * @param format Target format ("https" or "ssh")
+ * @returns Expanded URI or undefined if conversion fails
+ */
+export function expandShorthandRepositoryURI(
+  shorthand: string,
+  format: "https" | "ssh" = "https"
+): string | undefined {
+  try {
+    const targetFormat = format === "https" ? UriFormat?.HTTPS : UriFormat?.SSH;
+    return convertRepositoryUri(shorthand, targetFormat);
+  } catch (error) {
+    return undefined;
   }
 }
 
@@ -216,25 +235,6 @@ export function getRepositoryName(uri: string): string {
   } catch (error) {
     // Fallback to basename for local paths
     return basename(uri);
-  }
-}
-
-/**
- * Convert a GitHub shorthand notation to a full URI
- *
- * @param shorthand GitHub shorthand (org/repo)
- * @param format Target format (https or ssh)
- * @returns Full repository URI
- */
-export function expandGitHubShorthand(
-  shorthand: string,
-  format: "https" | "ssh" = "https"
-): string | undefined {
-  try {
-    const targetFormat = format === "https" ? UriFormat?.HTTPS : UriFormat?.SSH;
-    return convertRepositoryUri(shorthand, targetFormat);
-  } catch (error) {
-    return null;
   }
 }
 
