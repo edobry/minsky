@@ -15,15 +15,15 @@ import {
   type CommandExecutionContext,
 } from "../../shared/command-registry";
 import {
-  getSessionFromParams,
-  listSessionsFromParams,
-  startSessionFromParams,
-  deleteSessionFromParams,
-  getSessionDirFromParams,
-  updateSessionFromParams,
-  approveSessionFromParams,
-  sessionPrFromParams,
-  inspectSessionFromParams,
+  sessionGet,
+  sessionList,
+  sessionStart,
+  sessionDelete,
+  sessionDir,
+  sessionUpdate,
+  sessionApprove,
+  sessionPr,
+  sessionInspect,
 } from "../../../domain/session";
 import { log } from "../../../utils/logger";
 import { MinskyError } from "../../../errors/index";
@@ -91,7 +91,7 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.get command", { params, context });
 
       try {
-        const session = await getSessionFromParams({
+        const session = await sessionGet({
           name: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -384,7 +384,7 @@ Example:
       }
 
       try {
-        const result = (await sessionPrFromParams({
+        const result = (await sessionPr({
           title: params!.title,
           body: params!.body,
           bodyPath: params!.bodyPath,
