@@ -1,4 +1,4 @@
-import { MINUTE_IN_SECONDS } from "/constants";
+import { MINUTE_IN_SECONDS } from "../utils/constants";
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
