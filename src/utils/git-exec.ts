@@ -165,7 +165,7 @@ function analyzeConflictTypes(
 export async function gitCloneWithTimeout(
   repoUrl: string,
   targetDir: string,
-  options: Omit<GitExecOptions, "workdir"> = {}
+  options: GitExecOptions = {}
 ): Promise<GitExecResult> {
   return execGitWithTimeout(
     "clone",
@@ -173,7 +173,7 @@ export async function gitCloneWithTimeout(
     {
       ...options,
       context: [
-        ...(options as unknown)!.context || [],
+        ...options.context || [],
         { label: "Repository URL", value: repoUrl },
         { label: "Target directory", value: targetDir }
       ]
@@ -193,7 +193,7 @@ export async function gitFetchWithTimeout(
     {
       ...options,
       context: [
-        ...(options as unknown)!.context || [],
+        ...options.context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -213,7 +213,7 @@ export async function gitPushWithTimeout(
     {
       ...options,
       context: [
-        ...(options as unknown)!.context || [],
+        ...options.context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -233,7 +233,7 @@ export async function gitPullWithTimeout(
     {
       ...options,
       context: [
-        ...(options as unknown)!.context || [],
+        ...options.context || [],
         { label: "Remote", value: remote },
         ...(branch ? [{ label: "Branch", value: branch }] : [])
       ]
@@ -251,7 +251,7 @@ export async function gitMergeWithTimeout(
     {
       ...options,
       context: [
-        ...(options as unknown)!.context || [],
+        ...options.context || [],
         { label: "Branch to merge", value: branch }
       ]
     }

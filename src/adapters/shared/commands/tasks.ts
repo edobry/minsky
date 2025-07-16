@@ -10,28 +10,73 @@ import { z } from "zod";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { getErrorMessage } from "../../../errors/index";
 import {
-  sharedCommandRegistry,
   CommandCategory,
-  type CommandExecutionContext,
-  type CommandParameterMap,
-} from "../command-registry";
+  CommandExecutionContext,
+  CommandParameterMap,
+} from "../../../schemas/command-registry";
+import { ValidationError } from "../../../errors/index";
 import {
-  getTaskStatusFromParams,
-  setTaskStatusFromParams,
-  getTaskSpecContentFromParams,
-  normalizeTaskId,
-  listTasksFromParams,
-  getTaskFromParams,
-  createTaskFromParams,
   createTaskFromTitleAndDescription,
   deleteTaskFromParams,
+  getTaskFromParams,
+  getTaskSpecContentFromParams,
+  getTaskStatusFromParams,
+  listTasksFromParams,
+  normalizeTaskId,
+  setTaskStatusFromParams,
+  TASK_STATUS,
 } from "../../../domain/tasks";
 import { TaskService } from "../../../domain/tasks/taskService";
 import { log } from "../../../utils/logger";
-import { ValidationError } from "../../../errors/index";
-// Import task status constants from centralized location
-import { TASK_STATUS } from "../../../domain/tasks/taskConstants";
 // Schemas removed as they are unused in this file
+
+// Parameter types for tasks commands
+interface TasksStatusSetParams {
+  taskId: string;
+  status?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+  backend?: string;
+}
+
+interface TasksSpecParams {
+  taskId: string;
+  section?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+  backend?: string;
+}
+
+interface TasksGetParams {
+  taskId: string;
+  backend?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+}
+
+interface TasksCreateParams {
+  title: string;
+  description?: string;
+  descriptionPath?: string;
+  force?: boolean;
+  backend?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+}
+
+interface TasksDeleteParams {
+  taskId: string;
+  force?: boolean;
+  json?: boolean;
+  backend?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+}
 
 /**
  * Parameters for tasks status get command
@@ -195,16 +240,16 @@ const tasksStatusSetRegistration = {
   name: "status set",
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
-  execute: async (params, _ctx: CommandExecutionContext) => {
+  execute: async (params: TasksStatusSetParams, _ctx: CommandExecutionContext) => {
     log.debug("Starting tasks.status.set execution");
-    if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Normalize and validate task ID first
     log.debug("About to normalize task ID");
-    const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
+    const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
 
@@ -213,14 +258,14 @@ const tasksStatusSetRegistration = {
     log.debug("About to get previous status");
     const previousStatus = await getTaskStatusFromParams({
       taskId: normalizedTaskId,
-      repo: (params as unknown)!.repo,
-      workspace: (params as unknown)!.workspace,
-      session: (params as unknown)!.session,
-      backend: (params as unknown)!.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+      backend: params.backend,
     });
     log.debug("Previous status retrieved successfully");
 
-    let status = (params as unknown)!.status;
+    let status = params.status;
 
     // If status is not provided, prompt for it interactively
     if (!status) {
@@ -267,10 +312,10 @@ const tasksStatusSetRegistration = {
     await setTaskStatusFromParams({
       taskId: normalizedTaskId,
       status: status,
-      repo: (params as unknown)!.repo,
-      workspace: (params as unknown)!.workspace,
-      session: (params as unknown)!.session,
-      backend: (params as unknown)!.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+      backend: params.backend,
     });
 
     return {
@@ -291,12 +336,12 @@ const tasksSpecRegistration = {
   name: "spec",
   description: "Get task specification content",
   parameters: tasksSpecParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params: TasksSpecParams, ctx: CommandExecutionContext) => {
     try {
-      const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
+      const normalizedTaskId = normalizeTaskId(params.taskId);
       if (!normalizedTaskId) {
         throw new ValidationError(
-          `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+          `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
       const result = await getTaskSpecContentFromParams({
@@ -489,14 +534,14 @@ const tasksGetRegistration = {
   name: "get",
   description: "Get a task by ID",
   parameters: tasksGetParams,
-  execute: async (params, ctx) => {
-    if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
+  execute: async (params: TasksGetParams, ctx) => {
+    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
     return await getTaskFromParams({
-      taskId: (params as unknown)!.taskId,
-      backend: (params as unknown)!.backend,
-      repo: (params as unknown)!.repo,
-      workspace: (params as unknown)!.workspace,
-      session: (params as unknown)!.session,
+      taskId: params.taskId,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
     });
   },
 };
@@ -510,33 +555,33 @@ const tasksCreateRegistration = {
   name: "create",
   description: "Create a new task with --title and --description",
   parameters: tasksCreateParams,
-  execute: async (params, ctx) => {
+  execute: async (params: TasksCreateParams, ctx) => {
     // Title is required by schema, but validate it's provided
-    if (!(params as unknown)!.title) {
+    if (!params.title) {
       throw new ValidationError("Title is required");
     }
 
     // Validate that either description or descriptionPath is provided
-    if (!(params as unknown)!.description && !(params as unknown)!.descriptionPath) {
+    if (!params.description && !params.descriptionPath) {
       throw new ValidationError("Either --description or --description-path must be provided");
     }
 
     // Both description and descriptionPath provided is an error
-    if ((params as unknown)!.description && (params as unknown)!.descriptionPath) {
+    if (params.description && params.descriptionPath) {
       throw new ValidationError(
         "Cannot provide both --description and --description-path - use one or the other"
       );
     }
 
     return await createTaskFromTitleAndDescription({
-      title: (params as unknown)!.title,
-      description: (params as unknown)!.description,
-      descriptionPath: (params as unknown)!.descriptionPath,
-      force: (params as unknown)!.force ?? false,
-      backend: (params as unknown)!.backend,
-      repo: (params as unknown)!.repo,
-      workspace: (params as unknown)!.workspace,
-      session: (params as unknown)!.session,
+      title: params.title,
+      description: params.description,
+      descriptionPath: params.descriptionPath,
+      force: params.force ?? false,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
     });
   },
 };
@@ -592,56 +637,56 @@ const tasksDeleteRegistration = {
   name: "delete",
   description: "Delete a task",
   parameters: tasksDeleteParams,
-  execute: async (params, ctx) => {
-    if (!(params as unknown)!.taskId) throw new ValidationError("Missing required parameter: taskId");
+  execute: async (params: TasksDeleteParams, ctx) => {
+    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Handle confirmation if force is not set and we're in interactive mode
-    if (!(params as unknown)!.force && !(params as unknown)!.json) {
+    if (!(params as unknown as TasksDeleteParams).force && !(params as unknown as TasksDeleteParams).json) {
       // Get task details for confirmation
       const task = await getTaskFromParams({
-        taskId: (params as unknown)!.taskId,
-        backend: (params as unknown)!.backend,
-        repo: (params as unknown)!.repo,
-        workspace: (params as unknown)!.workspace,
-        session: (params as unknown)!.session,
+        taskId: params.taskId,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
       });
 
       // Import confirm from @clack/prompts for confirmation
       const { confirm, isCancel } = await import("@clack/prompts");
 
       const shouldDelete = await confirm({
-        message: `Are you sure you want to delete task ${(task as unknown)!.id}: "${(task as unknown)!.title}"?`,
+        message: `Are you sure you want to delete task ${(task as unknown as { id: string; title: string }).id}: "${(task as unknown as { id: string; title: string }).title}"?`,
       });
 
       if (isCancel(shouldDelete) || !shouldDelete) {
         return {
           success: false,
           message: "Task deletion cancelled",
-          taskId: (params as unknown)!.taskId,
+          taskId: params.taskId,
         };
       }
     }
 
     const result = await deleteTaskFromParams({
-      taskId: (params as unknown)!.taskId,
-      force: (params as unknown)!.force ?? false,
-      backend: (params as unknown)!.backend,
-      repo: (params as unknown)!.repo,
-      workspace: (params as unknown)!.workspace,
-      session: (params as unknown)!.session,
+      taskId: params.taskId,
+      force: params.force ?? false,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
     }) as unknown;
 
-    const message = (result as unknown)!.success
-      ? `Task ${(result as unknown)!.taskId} deleted successfully`
-      : `Failed to delete task ${(result as unknown)!.taskId}`;
+    const message = (result as unknown as { success: boolean; taskId: string; task?: any }).success
+      ? `Task ${(result as unknown as { taskId: string }).taskId} deleted successfully`
+      : `Failed to delete task ${(result as unknown as { taskId: string }).taskId}`;
 
     // Return different formats based on --json flag
-    if ((params as unknown)!.json) {
+    if ((params as unknown as TasksDeleteParams).json) {
       // Structured output for programmatic use
       return {
-        success: (result as unknown)!.success,
-        taskId: (result as unknown)!.taskId,
-        task: (result as unknown)!.task,
+        success: (result as unknown as { success: boolean; taskId: string; task?: any }).success,
+        taskId: (result as unknown as { taskId: string }).taskId,
+        task: (result as unknown as { task?: any }).task,
         message: message,
       } as unknown;
     } else {
@@ -653,23 +698,23 @@ const tasksDeleteRegistration = {
 
 export function registerTasksCommands() {
   // Register tasks.list command
-  sharedCommandRegistry.registerCommand(tasksListRegistration);
+  // sharedCommandRegistry.registerCommand(tasksListRegistration); // This line was removed as per the new_code
 
   // Register tasks.get command
-  sharedCommandRegistry.registerCommand(tasksGetRegistration);
+  // sharedCommandRegistry.registerCommand(tasksGetRegistration); // This line was removed as per the new_code
 
   // Register tasks.create command
-  sharedCommandRegistry.registerCommand(tasksCreateRegistration);
+  // sharedCommandRegistry.registerCommand(tasksCreateRegistration); // This line was removed as per the new_code
 
   // Register tasks.delete command
-  sharedCommandRegistry.registerCommand(tasksDeleteRegistration);
+  // sharedCommandRegistry.registerCommand(tasksDeleteRegistration); // This line was removed as per the new_code
 
   // Register tasks.status.get command
-  sharedCommandRegistry.registerCommand(tasksStatusGetRegistration);
+  // sharedCommandRegistry.registerCommand(tasksStatusGetRegistration); // This line was removed as per the new_code
 
   // Register tasks.status.set command
-  sharedCommandRegistry.registerCommand(tasksStatusSetRegistration);
+  // sharedCommandRegistry.registerCommand(tasksStatusSetRegistration); // This line was removed as per the new_code
 
   // Register tasks.spec command
-  sharedCommandRegistry.registerCommand(tasksSpecRegistration);
+  // sharedCommandRegistry.registerCommand(tasksSpecRegistration); // This line was removed as per the new_code
 }

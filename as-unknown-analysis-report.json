@@ -1,15 +1,15 @@
 {
-  "totalCount": 605,
+  "totalCount": 596,
   "byCategory": {
-    "suspicious": 138,
-    "error-masking": 356,
-    "test-mocking": 104,
+    "suspicious": 135,
+    "error-masking": 362,
+    "test-mocking": 92,
     "type-bridging": 7
   },
   "byPriority": {
-    "medium": 166,
-    "high": 356,
-    "low": 83
+    "medium": 167,
+    "high": 362,
+    "low": 67
   },
   "matches": [
     {
@@ -2390,25 +2390,25 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 334,
+      "line": 338,
       "content": "return text.includes(\"this.sessionProvider as unknown\") ||",
-      "context": "        detector: (node: AsExpression, context: string) => {\n          const text = node.getText();\n          return text.includes(\"this.sessionProvider as unknown\") ||\n                 text.includes(\"this.pathResolver as unknown\") ||\n                 text.includes(\"this.workspaceBackend as unknown\") ||",
+      "context": "            return false;\n          }\n          return text.includes(\"this.sessionProvider as unknown\") ||\n                 text.includes(\"this.pathResolver as unknown\") ||\n                 text.includes(\"this.workspaceBackend as unknown\") ||",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 335,
+      "line": 339,
       "content": "text.includes(\"this.pathResolver as unknown\") ||",
-      "context": "          const text = node.getText();\n          return text.includes(\"this.sessionProvider as unknown\") ||\n                 text.includes(\"this.pathResolver as unknown\") ||\n                 text.includes(\"this.workspaceBackend as unknown\") ||\n                 text.includes(\"this.config as unknown\");",
+      "context": "          }\n          return text.includes(\"this.sessionProvider as unknown\") ||\n                 text.includes(\"this.pathResolver as unknown\") ||\n                 text.includes(\"this.workspaceBackend as unknown\") ||\n                 text.includes(\"this.config as unknown\");",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 336,
+      "line": 340,
       "content": "text.includes(\"this.workspaceBackend as unknown\") ||",
       "context": "          return text.includes(\"this.sessionProvider as unknown\") ||\n                 text.includes(\"this.pathResolver as unknown\") ||\n                 text.includes(\"this.workspaceBackend as unknown\") ||\n                 text.includes(\"this.config as unknown\");\n        },",
       "category": "error-masking",
@@ -2417,7 +2417,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 337,
+      "line": 341,
       "content": "text.includes(\"this.config as unknown\");",
       "context": "                 text.includes(\"this.pathResolver as unknown\") ||\n                 text.includes(\"this.workspaceBackend as unknown\") ||\n                 text.includes(\"this.config as unknown\");\n        },\n        canAutoFix: true",
       "category": "error-masking",
@@ -2426,7 +2426,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 345,
+      "line": 349,
       "content": "description: \"Remove 'as unknown' from array/object method calls\",",
       "context": "      {\n        name: \"Array/Object Method Access\",\n        description: \"Remove 'as unknown' from array/object method calls\",\n        riskLevel: \"high\",\n        detector: (node: AsExpression, context: string) => {",
       "category": "suspicious",
@@ -2435,7 +2435,16 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 382,
+      "line": 364,
+      "content": "// Match patterns like (sessions as unknown).find(), (results as unknown).map()",
+      "context": "              }\n              \n              // Match patterns like (sessions as unknown).find(), (results as unknown).map()\n              return text.includes(\"sessions\") || text.includes(\"results\") || \n                     text.includes(\"items\") || text.includes(\"data\") ||",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/ast-type-cast-fixer.ts",
+      "line": 378,
       "content": "description: \"Remove 'as unknown' from this context property access\",",
       "context": "      {\n        name: \"This Context Access\",\n        description: \"Remove 'as unknown' from this context property access\",\n        riskLevel: \"high\",\n        detector: (node: AsExpression, context: string) => {",
       "category": "suspicious",
@@ -2444,7 +2453,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 386,
+      "line": 382,
       "content": "return text.includes(\"this as unknown\");",
       "context": "        detector: (node: AsExpression, context: string) => {\n          const text = node.getText();\n          return text.includes(\"this as unknown\");\n        },\n        canAutoFix: true",
       "category": "error-masking",
@@ -2453,7 +2462,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 394,
+      "line": 390,
       "content": "description: \"Remove 'as unknown' from process.env access\",",
       "context": "      {\n        name: \"Environment Variable Access\",\n        description: \"Remove 'as unknown' from process.env access\",\n        riskLevel: \"medium\",\n        detector: (node: AsExpression, context: string) => {",
       "category": "suspicious",
@@ -2462,7 +2471,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 398,
+      "line": 394,
       "content": "return text.includes(\"process.env as unknown\");",
       "context": "        detector: (node: AsExpression, context: string) => {\n          const text = node.getText();\n          return text.includes(\"process.env as unknown\");\n        },\n        canAutoFix: true",
       "category": "error-masking",
@@ -2471,7 +2480,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 406,
+      "line": 402,
       "content": "description: \"Remove 'as unknown' from method calls on external objects\",",
       "context": "      {\n        name: \"External Object Method Calls\",\n        description: \"Remove 'as unknown' from method calls on external objects\",\n        riskLevel: \"high\",\n        detector: (node: AsExpression, context: string) => {",
       "category": "suspicious",
@@ -2480,7 +2489,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 420,
+      "line": 416,
       "content": "// Match patterns like (format as unknown).timestamp(), (z.string() as unknown).optional()",
       "context": "          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {\n            const text = node.getText();\n            // Match patterns like (format as unknown).timestamp(), (z.string() as unknown).optional()\n            return text.includes(\"format\") || text.includes(\"z.\") || text.includes(\"Date\") || \n                   text.includes(\"Math\") || text.includes(\"JSON\") || text.includes(\"Object\") ||",
       "category": "error-masking",
@@ -2489,7 +2498,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 433,
+      "line": 429,
       "content": "description: \"Remove 'as unknown' from property access on constants\",",
       "context": "      {\n        name: \"Constant Property Access\",\n        description: \"Remove 'as unknown' from property access on constants\",\n        riskLevel: \"high\",\n        detector: (node: AsExpression, context: string) => {",
       "category": "suspicious",
@@ -2498,7 +2507,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 447,
+      "line": 443,
       "content": "// Match patterns like (descriptions as unknown).SESSION_DESCRIPTION",
       "context": "          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {\n            const text = node.getText();\n            // Match patterns like (descriptions as unknown).SESSION_DESCRIPTION\n            return text.includes(\"descriptions\") || text.includes(\"constants\") || \n                   text.includes(\"config\") || text.includes(\"options\") || text.includes(\"params\");",
       "category": "error-masking",
@@ -2507,7 +2516,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 459,
+      "line": 455,
       "content": "description: \"Remove 'as unknown' from object property access\",",
       "context": "      {\n        name: \"Object Property Access\",\n        description: \"Remove 'as unknown' from object property access\",\n        riskLevel: \"high\",\n        detector: (node: AsExpression, context: string) => {",
       "category": "suspicious",
@@ -2516,7 +2525,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 473,
+      "line": 469,
       "content": "// Match patterns like (logInfo as unknown).message, (result as unknown).status",
       "context": "          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {\n            const text = node.getText();\n            // Match patterns like (logInfo as unknown).message, (result as unknown).status\n            return !text.includes(\"process.env\") && // Already handled above\n                   !text.includes(\"format\") && // Already handled above",
       "category": "error-masking",
@@ -2525,7 +2534,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 488,
+      "line": 484,
       "content": "this.log(\"🔍 Analyzing 'as unknown' assertions...\");",
       "context": "\n  protected findIssues(): void {\n    this.log(\"🔍 Analyzing 'as unknown' assertions...\");\n    \n    const sourceFiles = this.project.getSourceFiles();",
       "category": "error-masking",
@@ -2534,7 +2543,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 502,
+      "line": 498,
       "content": "// Check if it's 'as unknown'",
       "context": "          const typeNode = asExpression.getType();\n          \n          // Check if it's 'as unknown'\n          if (asExpression.getText().includes(\"as unknown\")) {\n            this.analyzeAsUnknownExpression(asExpression, filePath);",
       "category": "suspicious",
@@ -2543,7 +2552,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 503,
+      "line": 499,
       "content": "if (asExpression.getText().includes(\"as unknown\")) {",
       "context": "          \n          // Check if it's 'as unknown'\n          if (asExpression.getText().includes(\"as unknown\")) {\n            this.analyzeAsUnknownExpression(asExpression, filePath);\n          }",
       "category": "error-masking",
@@ -2552,7 +2561,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 510,
+      "line": 506,
       "content": "this.log(`📊 Found ${this.asUnknownIssues.length} 'as unknown' assertions`);",
       "context": "    }\n\n    this.log(`📊 Found ${this.asUnknownIssues.length} 'as unknown' assertions`);\n    this.metrics.issuesFound = this.asUnknownIssues.length;\n  }",
       "category": "error-masking",
@@ -2561,7 +2570,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 528,
+      "line": 524,
       "content": "description: \"Unmatched 'as unknown' pattern - needs manual review\",",
       "context": "        line,\n        column,\n        description: \"Unmatched 'as unknown' pattern - needs manual review\",\n        context,\n        type: \"as_unknown_unmatched\",",
       "category": "suspicious",
@@ -2570,7 +2579,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 552,
+      "line": 548,
       "content": "suggestedFix: \"Extract expression from 'as unknown' assertion\"",
       "context": "      transformationType: this.getTransformationType(pattern.name),\n      canAutoFix: pattern.canAutoFix,\n      suggestedFix: \"Extract expression from 'as unknown' assertion\"\n    });\n  }",
       "category": "suspicious",
@@ -2579,7 +2588,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 575,
+      "line": 571,
       "content": "this.log(\"🔧 Applying 'as unknown' transformations...\");",
       "context": "\n  protected fixIssues(): void {\n    this.log(\"🔧 Applying 'as unknown' transformations...\");\n    \n    const autoFixableIssues = this.asUnknownIssues.filter(issue => issue.canAutoFix);",
       "category": "error-masking",
@@ -2588,7 +2597,7 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 641,
+      "line": 637,
       "content": "// For 'as unknown' expressions, we want to extract the expression part",
       "context": "  private transformAsExpression(node: AsExpression, pattern: TransformationPattern): boolean {\n    try {\n      // For 'as unknown' expressions, we want to extract the expression part\n      // and replace the entire AsExpression with just the expression\n      let expression = node.getExpression();",
       "category": "suspicious",
@@ -2597,7 +2606,16 @@
     },
     {
       "file": "codemods/ast-type-cast-fixer.ts",
-      "line": 646,
+      "line": 655,
+      "content": "// e.g., (port + 3 as unknown).toString() would become port + 3.toString() which is invalid",
+      "context": "      \n      // Skip numeric expressions with method calls that would create syntax errors\n      // e.g., (port + 3 as unknown).toString() would become port + 3.toString() which is invalid\n      if (expressionText.includes(\" + \") && parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {\n        const grandParent = parent.getParent();",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/ast-type-cast-fixer.ts",
+      "line": 664,
       "content": "// This handles cases like (state as unknown) -> state instead of (state)",
       "context": "      \n      // If the expression is parenthesized, extract the inner expression\n      // This handles cases like (state as unknown) -> state instead of (state)\n      if (expression.getKind() === SyntaxKind.ParenthesizedExpression) {\n        const parenthesizedExpr = expression as ParenthesizedExpression;",
       "category": "suspicious",
@@ -2632,6 +2650,96 @@
       "reason": "Property access masking - should use proper types"
     },
     {
+      "file": "src/mcp/server.ts",
+      "line": 254,
+      "content": "methods.push(...Object.keys((this.server as any)._tools) as unknown);",
+      "context": "        if ((this.server as any)._tools) {\n          // @ts-ignore\n          methods.push(...Object.keys((this.server as any)._tools) as unknown);\n        }\n        log.debug(\"MCP Server registered methods\", {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/server.ts",
+      "line": 262,
+      "content": "error: getErrorMessage(e as unknown),",
+      "context": "      } catch (e) {\n        log.debug(\"Could not log MCP server methods\", {\n          error: getErrorMessage(e as unknown),\n        });\n      }",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/mcp/inspector-launcher.ts",
+      "line": 169,
+      "content": "log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);",
+      "context": "\n    inspectorProcess.stderr.on(\"data\", (data) => {\n      log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);\n    });\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/mcp/command-mapper.test.ts",
+      "line": 31,
+      "content": "commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);",
+      "context": "    } as ProjectContext;\n\n    commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);\n  });\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/schemas/tasks.ts",
+      "line": 119,
+      "content": "return data.description || data.descriptionPath as unknown;",
+      "context": "    (data) => {\n    // Either description or descriptionPath must be provided\n      return data.description || data.descriptionPath as unknown;\n    },\n    {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/schemas/error.ts",
+      "line": 5,
+      "content": "* replacing unsafe `(err as unknown).message` patterns with proper validation.",
+      "context": " * \n * This module provides Zod schemas for validating error objects throughout the codebase,\n * replacing unsafe `(err as unknown).message` patterns with proper validation.\n */\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/schemas/runtime.ts",
+      "line": 5,
+      "content": "* replacing unsafe `(Bun as unknown).argv` patterns with proper validation.",
+      "context": " * \n * This module provides Zod schemas for validating runtime environment APIs,\n * replacing unsafe `(Bun as unknown).argv` patterns with proper validation.\n */\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/schemas/session-db-config.ts",
+      "line": 5,
+      "content": "* replacing unsafe `(config as unknown)` patterns with proper validation.",
+      "context": " * \n * This module provides Zod schemas for validating session database configuration,\n * replacing unsafe `(config as unknown)` patterns with proper validation.\n */\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/domain/git.ts",
+      "line": 969,
+      "content": "options as unknown",
+      "context": "      sourceBranch,\n      targetBranch,\n      options as unknown\n    );\n  }",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/domain/git.ts",
+      "line": 989,
+      "content": "options as unknown",
+      "context": "      sessionBranch,\n      baseBranch,\n      options as unknown\n    );\n  }",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
       "file": "src/domain/repository-uri.ts",
       "line": 98,
       "content": "(components as unknown)!.repo = repo;",
@@ -2659,586 +2767,19 @@
       "reason": "Needs manual review"
     },
     {
-      "file": "src/domain/git.test.ts",
-      "line": 203,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        getSession: createMock(() =>\n          Promise.resolve({",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 210,
-      "content": ") as unknown,",
-      "context": "            repoUrl: \"https://github.com/user/repo.git\",\n          })\n        ) as unknown,\n        getSessionWorkdir: createMock(() => \"/test/repo/sessions/test-session\") as unknown,\n      };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 211,
-      "content": "getSessionWorkdir: createMock(() => \"/test/repo/sessions/test-session\") as unknown,",
-      "context": "          })\n        ) as unknown,\n        getSessionWorkdir: createMock(() => \"/test/repo/sessions/test-session\") as unknown,\n      };\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 226,
-      "content": "execAsync: createMock() as unknown,",
-      "context": "    test(\"should handle missing session in PR workflow\", async () => {\n      const mockDeps = {\n        execAsync: createMock() as unknown,\n        getSession: createMock(() => Promise.resolve(null)) as unknown,\n        getSessionWorkdir: createMock() as unknown,",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 227,
-      "content": "getSession: createMock(() => Promise.resolve(null)) as unknown,",
-      "context": "      const mockDeps = {\n        execAsync: createMock() as unknown,\n        getSession: createMock(() => Promise.resolve(null)) as unknown,\n        getSessionWorkdir: createMock() as unknown,\n      };",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 228,
-      "content": "getSessionWorkdir: createMock() as unknown,",
-      "context": "        execAsync: createMock() as unknown,\n        getSession: createMock(() => Promise.resolve(null)) as unknown,\n        getSessionWorkdir: createMock() as unknown,\n      };\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 267,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        getSession: createMock(() =>\n          Promise.resolve({",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 274,
-      "content": ") as unknown,",
-      "context": "            repoUrl: \"https://github.com/user/repo.git\",\n          })\n        ) as unknown,\n        getSessionWorkdir: createMock(() => \"/test/repo/sessions/task-143-session\") as unknown,\n        getSessionByTaskId: createMock(() =>",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 275,
-      "content": "getSessionWorkdir: createMock(() => \"/test/repo/sessions/task-143-session\") as unknown,",
-      "context": "          })\n        ) as unknown,\n        getSessionWorkdir: createMock(() => \"/test/repo/sessions/task-143-session\") as unknown,\n        getSessionByTaskId: createMock(() =>\n          Promise.resolve({",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 283,
-      "content": ") as unknown,",
-      "context": "            taskId: \"143\",\n          })\n        ) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 301,
-      "content": "execAsync: createMock() as unknown,",
-      "context": "    test(\"should throw error when taskId has no associated session\", async () => {\n      const mockDeps = {\n        execAsync: createMock() as unknown,\n        getSession: createMock() as unknown,\n        getSessionWorkdir: createMock() as unknown,",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 302,
-      "content": "getSession: createMock() as unknown,",
-      "context": "      const mockDeps = {\n        execAsync: createMock() as unknown,\n        getSession: createMock() as unknown,\n        getSessionWorkdir: createMock() as unknown,\n        getSessionByTaskId: createMock(() => Promise.resolve(null)) as unknown,",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 303,
-      "content": "getSessionWorkdir: createMock() as unknown,",
-      "context": "        execAsync: createMock() as unknown,\n        getSession: createMock() as unknown,\n        getSessionWorkdir: createMock() as unknown,\n        getSessionByTaskId: createMock(() => Promise.resolve(null)) as unknown,\n      };",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 304,
-      "content": "getSessionByTaskId: createMock(() => Promise.resolve(null)) as unknown,",
-      "context": "        getSession: createMock() as unknown,\n        getSessionWorkdir: createMock() as unknown,\n        getSessionByTaskId: createMock(() => Promise.resolve(null)) as unknown,\n      };\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 318,
-      "content": "execAsync: createMock() as unknown,",
-      "context": "    test(\"should throw error when getSessionByTaskId dependency is not available\", async () => {\n      const mockDeps = {\n        execAsync: createMock() as unknown,\n        getSession: createMock() as unknown,\n        getSessionWorkdir: createMock() as unknown,",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 319,
-      "content": "getSession: createMock() as unknown,",
-      "context": "      const mockDeps = {\n        execAsync: createMock() as unknown,\n        getSession: createMock() as unknown,\n        getSessionWorkdir: createMock() as unknown,\n        // getSessionByTaskId is intentionally omitted",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 320,
-      "content": "getSessionWorkdir: createMock() as unknown,",
-      "context": "        execAsync: createMock() as unknown,\n        getSession: createMock() as unknown,\n        getSessionWorkdir: createMock() as unknown,\n        // getSessionByTaskId is intentionally omitted\n      };",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 360,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        getSession: createMock(() =>\n          Promise.resolve({",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 367,
-      "content": ") as unknown,",
-      "context": "            repoUrl: \"https://github.com/user/repo.git\",\n          })\n        ) as unknown,\n        getSessionWorkdir: createMock(() => \"/test/repo/sessions/direct-session\") as unknown,\n        getSessionByTaskId: createMock() as unknown,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 368,
-      "content": "getSessionWorkdir: createMock(() => \"/test/repo/sessions/direct-session\") as unknown,",
-      "context": "          })\n        ) as unknown,\n        getSessionWorkdir: createMock(() => \"/test/repo/sessions/direct-session\") as unknown,\n        getSessionByTaskId: createMock() as unknown,\n      };",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 369,
-      "content": "getSessionByTaskId: createMock() as unknown,",
-      "context": "        ) as unknown,\n        getSessionWorkdir: createMock(() => \"/test/repo/sessions/direct-session\") as unknown,\n        getSessionByTaskId: createMock() as unknown,\n      };\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 402,
-      "content": "}) as unknown,",
-      "context": "          // Fail other git commands to test error handling\n          throw new Error(\"git: command not found\");\n        }) as unknown,\n        getSession: createMock(() =>\n          Promise.resolve({",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 408,
-      "content": ") as unknown,",
-      "context": "            repoName: \"test-repo\",\n          })\n        ) as unknown,\n        getSessionWorkdir: createMock(() => \"/test/repo\") as unknown,\n      };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 409,
-      "content": "getSessionWorkdir: createMock(() => \"/test/repo\") as unknown,",
-      "context": "          })\n        ) as unknown,\n        getSessionWorkdir: createMock(() => \"/test/repo\") as unknown,\n      };\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 439,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 464,
-      "content": "})) as unknown,",
-      "context": "            stdout: testCase.output,\n            stderr: \"\",\n          })) as unknown,\n        };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 477,
-      "content": "})) as unknown,",
-      "context": "          stdout: \"Invalid git output\",\n          stderr: \"\",\n        })) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 491,
-      "content": "}) as unknown,",
-      "context": "          expect(cmd).toContain(\"--amend\");\n          return { stdout: \"[main def456] Amended commit\\n 1 file changed\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 514,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 532,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 552,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 569,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 595,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 623,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 642,
-      "content": "}) as unknown,",
-      "context": "          expect(command.includes(\"git -C /test/repo add\")).toBe(true);\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 661,
-      "content": "}) as unknown,",
-      "context": "          capturedCommand = command;\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 687,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 706,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 726,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 745,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        mkdir: createMock(async () => {}) as unknown,\n        readdir: createMock(async () => {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 746,
-      "content": "mkdir: createMock(async () => {}) as unknown,",
-      "context": "          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        mkdir: createMock(async () => {}) as unknown,\n        readdir: createMock(async () => {\n          throw new Error(\"ENOENT: no such file or directory\"); // Directory doesn't exist",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 749,
-      "content": "}) as unknown,",
-      "context": "        readdir: createMock(async () => {\n          throw new Error(\"ENOENT: no such file or directory\"); // Directory doesn't exist\n        }) as unknown,\n        access: createMock(async () => {}) as unknown, // .git directory exists\n      };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 750,
-      "content": "access: createMock(async () => {}) as unknown, // .git directory exists",
-      "context": "          throw new Error(\"ENOENT: no such file or directory\"); // Directory doesn't exist\n        }) as unknown,\n        access: createMock(async () => {}) as unknown, // .git directory exists\n      };\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 769,
-      "content": "execAsync: createMock() as unknown,",
-      "context": "    test(\"should handle clone with empty repository URL validation\", async () => {\n      const mockDeps = {\n        execAsync: createMock() as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock() as unknown,",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 770,
-      "content": "mkdir: createMock() as unknown,",
-      "context": "      const mockDeps = {\n        execAsync: createMock() as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock() as unknown,\n        access: createMock() as unknown,",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 771,
-      "content": "readdir: createMock() as unknown,",
-      "context": "        execAsync: createMock() as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock() as unknown,\n        access: createMock() as unknown,\n      };",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 772,
-      "content": "access: createMock() as unknown,",
-      "context": "        mkdir: createMock() as unknown,\n        readdir: createMock() as unknown,\n        access: createMock() as unknown,\n      };\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 793,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock(async () => [\"existing-file.txt\"]) as unknown, // Directory exists and not empty",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 794,
-      "content": "mkdir: createMock() as unknown,",
-      "context": "          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock(async () => [\"existing-file.txt\"]) as unknown, // Directory exists and not empty\n        access: createMock() as unknown,",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 795,
-      "content": "readdir: createMock(async () => [\"existing-file.txt\"]) as unknown, // Directory exists and not empty",
-      "context": "        }) as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock(async () => [\"existing-file.txt\"]) as unknown, // Directory exists and not empty\n        access: createMock() as unknown,\n      };",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 796,
-      "content": "access: createMock() as unknown,",
-      "context": "        mkdir: createMock() as unknown,\n        readdir: createMock(async () => [\"existing-file.txt\"]) as unknown, // Directory exists and not empty\n        access: createMock() as unknown,\n      };\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 821,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock(async () => {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 822,
-      "content": "mkdir: createMock() as unknown,",
-      "context": "          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock(async () => {\n          throw new Error(\"ENOENT\");",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 825,
-      "content": "}) as unknown,",
-      "context": "        readdir: createMock(async () => {\n          throw new Error(\"ENOENT\");\n        }) as unknown,\n        access: createMock() as unknown,\n      };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 826,
-      "content": "access: createMock() as unknown,",
-      "context": "          throw new Error(\"ENOENT\");\n        }) as unknown,\n        access: createMock() as unknown,\n      };\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 847,
-      "content": "}) as unknown,",
-      "context": "          }\n          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock(async () => {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 848,
-      "content": "mkdir: createMock() as unknown,",
-      "context": "          return { stdout: \"\", stderr: \"\" };\n        }) as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock(async () => {\n          throw new Error(\"ENOENT\");",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 851,
-      "content": "}) as unknown,",
-      "context": "        readdir: createMock(async () => {\n          throw new Error(\"ENOENT\");\n        }) as unknown,\n        access: createMock(async () => {\n          throw new Error(\"ENOENT: .git directory not found\"); // Clone verification fails",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 854,
-      "content": "}) as unknown,",
-      "context": "        access: createMock(async () => {\n          throw new Error(\"ENOENT: .git directory not found\"); // Clone verification fails\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 870,
-      "content": "execAsync: createMock(async () => ({ stdout: \"Cloning...\", stderr: \"\" })) as unknown,",
-      "context": "    test(\"should handle clone with local repository normalization\", async () => {\n      const mockDeps = {\n        execAsync: createMock(async () => ({ stdout: \"Cloning...\", stderr: \"\" })) as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock(async () => {",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 871,
-      "content": "mkdir: createMock() as unknown,",
-      "context": "      const mockDeps = {\n        execAsync: createMock(async () => ({ stdout: \"Cloning...\", stderr: \"\" })) as unknown,\n        mkdir: createMock() as unknown,\n        readdir: createMock(async () => {\n          throw new Error(\"ENOENT\");",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 874,
-      "content": "}) as unknown,",
-      "context": "        readdir: createMock(async () => {\n          throw new Error(\"ENOENT\");\n        }) as unknown,\n        access: createMock() as unknown,\n      };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 875,
-      "content": "access: createMock() as unknown,",
-      "context": "          throw new Error(\"ENOENT\");\n        }) as unknown,\n        access: createMock() as unknown,\n      };\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/git.test.ts",
-      "line": 896,
-      "content": "}) as unknown,",
-      "context": "        execAsync: createMock(async () => {\n          throw new Error(\"fatal: not a git repository\");\n        }) as unknown,\n      };\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
+      "file": "src/domain/session.ts",
+      "line": 1155,
+      "content": "const zodError = error as unknown;",
+      "context": "    if (error instanceof Error && error.name === \"ZodError\") {\n      // Extract the validation error message\n      const zodError = error as unknown;\n      const message = zodError.errors?.[0]?.message || \"Invalid parameters\";\n      throw new ValidationError(message);",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
     },
     {
       "file": "src/domain/prepared-merge-commit-workflow.test.ts",
       "line": 213,
-      "content": "(require(\"../git.js\") as unknown).preparePrFromParams = mockPreparePrFromParams;",
-      "context": "      // Replace the preparePrFromParams function\n      const originalPreparePr = require(\"../git.js\").preparePrFromParams;\n      (require(\"../git.js\") as unknown).preparePrFromParams = mockPreparePrFromParams;\n\n      try {",
+      "content": "(require(\"./git\") as unknown).preparePrFromParams = mockPreparePrFromParams;",
+      "context": "      // Replace the preparePrFromParams function\n      const originalPreparePr = require(\"./git\").preparePrFromParams;\n      (require(\"./git\") as unknown).preparePrFromParams = mockPreparePrFromParams;\n\n      try {",
       "category": "test-mocking",
       "priority": "low",
       "reason": "Test mocking - may be legitimate for test setup"
@@ -3246,56 +2787,11 @@
     {
       "file": "src/domain/prepared-merge-commit-workflow.test.ts",
       "line": 240,
-      "content": "(require(\"../git.js\") as unknown).preparePrFromParams = originalPreparePr;",
-      "context": "      } finally {\n        // Restore original function\n        (require(\"../git.js\") as unknown).preparePrFromParams = originalPreparePr;\n      }\n    });",
+      "content": "(require(\"./git\") as unknown).preparePrFromParams = originalPreparePr;",
+      "context": "      } finally {\n        // Restore original function\n        (require(\"./git\") as unknown).preparePrFromParams = originalPreparePr;\n      }\n    });",
       "category": "error-masking",
       "priority": "high",
       "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/rules.ts",
-      "line": 192,
-      "content": "dataKeys: Object.keys(data) as unknown,",
-      "context": "            log.debug(\"Successfully parsed frontmatter\", {\n              filePath,\n              dataKeys: Object.keys(data) as unknown,\n              contentLength: ruleContent.length,\n            });",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/rules.ts",
-      "line": 207,
-      "content": "} as unknown;",
-      "context": "            format: requestedFormat,\n            path: filePath,\n          } as unknown;\n        } catch (error) {\n          // FIXED: Gracefully handle errors in frontmatter parsing",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/rules.ts",
-      "line": 280,
-      "content": "dataKeys: Object.keys(data) as unknown,",
-      "context": "            log.debug(\"Successfully parsed frontmatter in alternative format\", {\n              filePath,\n              dataKeys: Object.keys(data) as unknown,\n              contentLength: ruleContent.length,\n            });",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/rules.ts",
-      "line": 303,
-      "content": "} as unknown;",
-      "context": "              path: filePath,\n              formatNote: `Rule found in '${originalFormat}' format but '${requestedFormat}' was requested. Format conversion is not supported yet.`,\n            } as unknown;\n          }\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/rules.ts",
-      "line": 317,
-      "content": "} as unknown;",
-      "context": "            format,\n            path: filePath,\n          } as unknown;\n        } catch (error) {\n          // FIXED: Gracefully handle errors in frontmatter parsing for alternative formats",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
     },
     {
       "file": "src/domain/session-lookup-bug-simple.test.ts",
@@ -3368,51 +2864,6 @@
       "category": "test-mocking",
       "priority": "low",
       "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/domain/workspace.ts",
-      "line": 42,
-      "content": "if ((repoUrl as unknown)!.startsWith(\"file://\")) {",
-      "context": "export function resolveMainWorkspaceFromRepoUrl(repoUrl: string): string {\n  // For file:// URLs, just remove the file:// prefix\n  if ((repoUrl as unknown)!.startsWith(\"file://\")) {\n    return (repoUrl as unknown)!.replace(\"file://\", \"\");\n  }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/workspace.ts",
-      "line": 43,
-      "content": "return (repoUrl as unknown)!.replace(\"file://\", \"\");",
-      "context": "  // For file:// URLs, just remove the file:// prefix\n  if ((repoUrl as unknown)!.startsWith(\"file://\")) {\n    return (repoUrl as unknown)!.replace(\"file://\", \"\");\n  }\n  // For other URLs, assume they refer to the current directory",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/workspace.ts",
-      "line": 56,
-      "content": "return (workspacePath as unknown)!.startsWith(minskySessionsPath);",
-      "context": "export function isSessionWorkspace(workspacePath: string): boolean {\n  const minskySessionsPath = getSessionsDir();\n  return (workspacePath as unknown)!.startsWith(minskySessionsPath);\n}\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/workspace.ts",
-      "line": 99,
-      "content": "if (!sessionRecord || !(sessionRecord as unknown)!.repoUrl) {",
-      "context": "    const sessionRecord = await db.getSession(sessionName);\n\n    if (!sessionRecord || !(sessionRecord as unknown)!.repoUrl) {\n      return null;\n    }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/workspace.ts",
-      "line": 105,
-      "content": "upstreamRepository: (sessionRecord as unknown)!.repoUrl,",
-      "context": "    return {\n      session: sessionName,\n      upstreamRepository: (sessionRecord as unknown)!.repoUrl,\n      gitRoot,\n    };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "src/domain/workspace.ts",
@@ -3721,40 +3172,94 @@
       "reason": "Test mocking - may be legitimate for test setup"
     },
     {
-      "file": "src/mcp/server.ts",
-      "line": 211,
-      "content": "methods.push(...Object.keys((this.server)._tools) as unknown);",
-      "context": "        if (this.server._tools) {\n          // @ts-ignore\n          methods.push(...Object.keys((this.server)._tools) as unknown);\n        }\n        log.debug(\"MCP Server registered methods\", {",
+      "file": "src/utils/logger.ts",
+      "line": 35,
+      "content": "const envAgentLogs = (process.env.ENABLE_AGENT_LOGS as unknown) === \"true\";",
+      "context": "  const envMode = process.env.MINSKY_LOG_MODE || null;\n  const envLevel = process.env.LOGLEVEL || null;\n  const envAgentLogs = (process.env.ENABLE_AGENT_LOGS as unknown) === \"true\";\n\n  // If we have all config from environment, use it",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/mcp/inspector-launcher.ts",
-      "line": 101,
-      "content": "SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server",
-      "context": "      ...(process as any).env,\n      CLIENT_PORT: (port as any).toString(),\n      SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server\n    };\n",
+      "file": "src/utils/logger.ts",
+      "line": 146,
+      "content": "log += ` ${JSON.stringify(metadata as unknown)}`;",
+      "context": "      if (Object.keys(metadata).length > 0) {\n        try {\n          log += ` ${JSON.stringify(metadata as unknown)}`;\n        } catch (error) {\n          // ignore serialization errors for metadata in text logs",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/utils/logger.ts",
+      "line": 213,
+      "content": "agentLogger.debug(message, context as unknown);",
+      "context": "      // Otherwise, use agentLogger as normal\n      if (context) {\n        agentLogger.debug(message, context as unknown);\n      } else {\n        agentLogger.debug(message);",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/mcp/inspector-launcher.ts",
-      "line": 149,
-      "content": "log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);",
-      "context": "\n    inspectorProcess.stderr.on(\"data\", (data) => {\n      log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);\n    });\n",
+      "file": "src/utils/logger.ts",
+      "line": 224,
+      "content": "agentLogger.info(message, context as unknown);",
+      "context": "      }\n      if (context) {\n        agentLogger.info(message, context as unknown);\n      } else {\n        agentLogger.info(message);",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/mcp/command-mapper.test.ts",
-      "line": 31,
-      "content": "commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);",
-      "context": "    } as ProjectContext;\n\n    commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);\n  });\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
+      "file": "src/utils/logger.ts",
+      "line": 235,
+      "content": "agentLogger.warn(message, context as unknown);",
+      "context": "      }\n      if (context) {\n        agentLogger.warn(message, context as unknown);\n      } else {\n        agentLogger.warn(message);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/utils/logger.ts",
+      "line": 258,
+      "content": "`${message}: ${context.originalError || JSON.stringify(context as unknown)}`",
+      "context": "        ) {\n          programLogger.error(\n            `${message}: ${context.originalError || JSON.stringify(context as unknown)}`\n          );\n          if (context.stack) {",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/utils/logger.ts",
+      "line": 264,
+      "content": "programLogger.error(message, context as unknown);",
+      "context": "          }\n        } else {\n          programLogger.error(message, context as unknown);\n        }\n        return;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/utils/logger.ts",
+      "line": 281,
+      "content": "agentLogger.error(message, context as unknown);",
+      "context": "        (context.originalError || context.stack)\n      ) {\n        agentLogger.error(message, context as unknown);\n      } else {\n        agentLogger.error(message, context as unknown);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/utils/logger.ts",
+      "line": 283,
+      "content": "agentLogger.error(message, context as unknown);",
+      "context": "        agentLogger.error(message, context as unknown);\n      } else {\n        agentLogger.error(message, context as unknown);\n      }\n    },",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/utils/logger.ts",
+      "line": 334,
+      "content": "defaultLogger._internal.programLogger.error(\"Unhandled error or rejection, exiting.\", error as unknown);",
+      "context": "  if (error) {\n    // Use default logger's internal program logger for unhandled errors that might crash the CLI\n    defaultLogger._internal.programLogger.error(\"Unhandled error or rejection, exiting.\", error as unknown);\n  }\n  // Give logs a moment to flush",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "src/utils/test-utils.ts",
@@ -3928,76 +3433,49 @@
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/schemas/tasks.ts",
-      "line": 119,
-      "content": "return data.description || data.descriptionPath as unknown;",
-      "context": "    (data) => {\n    // Either description or descriptionPath must be provided\n      return data.description || data.descriptionPath as unknown;\n    },\n    {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/schemas/error.ts",
-      "line": 5,
-      "content": "* replacing unsafe `(err as unknown).message` patterns with proper validation.",
-      "context": " * \n * This module provides Zod schemas for validating error objects throughout the codebase,\n * replacing unsafe `(err as unknown).message` patterns with proper validation.\n */\n",
+      "file": "src/utils/git-exec.ts",
+      "line": 176,
+      "content": "...(options as unknown)!.context || [],",
+      "context": "      ...options,\n      context: [\n        ...(options as unknown)!.context || [],\n        { label: \"Repository URL\", value: repoUrl },\n        { label: \"Target directory\", value: targetDir }",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/schemas/runtime.ts",
-      "line": 5,
-      "content": "* replacing unsafe `(Bun as unknown).argv` patterns with proper validation.",
-      "context": " * \n * This module provides Zod schemas for validating runtime environment APIs,\n * replacing unsafe `(Bun as unknown).argv` patterns with proper validation.\n */\n",
+      "file": "src/utils/git-exec.ts",
+      "line": 196,
+      "content": "...(options as unknown)!.context || [],",
+      "context": "      ...options,\n      context: [\n        ...(options as unknown)!.context || [],\n        { label: \"Remote\", value: remote },\n        ...(branch ? [{ label: \"Branch\", value: branch }] : [])",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/schemas/session-db-config.ts",
-      "line": 5,
-      "content": "* replacing unsafe `(config as unknown)` patterns with proper validation.",
-      "context": " * \n * This module provides Zod schemas for validating session database configuration,\n * replacing unsafe `(config as unknown)` patterns with proper validation.\n */\n",
+      "file": "src/utils/git-exec.ts",
+      "line": 216,
+      "content": "...(options as unknown)!.context || [],",
+      "context": "      ...options,\n      context: [\n        ...(options as unknown)!.context || [],\n        { label: \"Remote\", value: remote },\n        ...(branch ? [{ label: \"Branch\", value: branch }] : [])",
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/types/project.ts",
-      "line": 55,
-      "content": "throw new Error(errorMessage as unknown);",
-      "context": "    const errorMessage = `Invalid repository path: ${normalizedPath}`;\n    log.error(errorMessage);\n    throw new Error(errorMessage as unknown);\n  }\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
+      "file": "src/utils/git-exec.ts",
+      "line": 236,
+      "content": "...(options as unknown)!.context || [],",
+      "context": "      ...options,\n      context: [\n        ...(options as unknown)!.context || [],\n        { label: \"Remote\", value: remote },\n        ...(branch ? [{ label: \"Branch\", value: branch }] : [])",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/commands/mcp/index.ts",
-      "line": 164,
-      "content": "}) as unknown;",
-      "context": "              mcpPort: transportType !== \"stdio\" ? port : undefined,\n              mcpHost: transportType !== \"stdio\" ? options.host : undefined,\n            }) as unknown;\n\n            if (inspectorResult.success) {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/commands/config/show.ts",
-      "line": 39,
-      "content": "}) as unknown;",
-      "context": "        exit(1);\n      }\n    }) as unknown;\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/commands/config/list.ts",
-      "line": 47,
-      "content": "}) as unknown;",
-      "context": "        exit(1);\n      }\n    }) as unknown;\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
+      "file": "src/utils/git-exec.ts",
+      "line": 254,
+      "content": "...(options as unknown)!.context || [],",
+      "context": "      ...options,\n      context: [\n        ...(options as unknown)!.context || [],\n        { label: \"Branch to merge\", value: branch }\n      ]",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "src/adapters/shared/response-formatters.ts",
@@ -4027,6 +3505,42 @@
       "reason": "Property access masking - should use proper types"
     },
     {
+      "file": "src/domain/session/session-db-io.test.ts",
+      "line": 67,
+      "content": "const result = readSessionDbFile(undefined as unknown);",
+      "context": "      // \"undefined is not an object (evaluating 'options.baseDir')\"\n      expect(() => {\n        const result = readSessionDbFile(undefined as unknown);\n        expect(result).toHaveProperty(\"sessions\");\n        expect(Array.isArray(result.sessions)).toBe(true);",
+      "category": "test-mocking",
+      "priority": "medium",
+      "reason": "Test parameter passing - check if proper types can be used"
+    },
+    {
+      "file": "src/domain/session/session-db-io.test.ts",
+      "line": 78,
+      "content": "const result = readSessionDbFile(null as unknown);",
+      "context": "    test(\"should handle null options parameter without throwing runtime error\", () => {\n      expect(() => {\n        const result = readSessionDbFile(null as unknown);\n        expect(result).toHaveProperty(\"sessions\");\n        expect(Array.isArray(result.sessions)).toBe(true);",
+      "category": "test-mocking",
+      "priority": "medium",
+      "reason": "Test parameter passing - check if proper types can be used"
+    },
+    {
+      "file": "src/domain/session/session-db-io.test.ts",
+      "line": 133,
+      "content": "writeSessionsToFile(testState.sessions, undefined as unknown);",
+      "context": "      // Test that the function doesn't throw when called with undefined options\n      expect(() => {\n        writeSessionsToFile(testState.sessions, undefined as unknown);\n      }).not.toThrow();\n    });",
+      "category": "test-mocking",
+      "priority": "medium",
+      "reason": "Test parameter passing - check if proper types can be used"
+    },
+    {
+      "file": "src/domain/session/session-db-io.test.ts",
+      "line": 144,
+      "content": "writeSessionsToFile(testState.sessions, null as unknown);",
+      "context": "\n      expect(() => {\n        writeSessionsToFile(testState.sessions, null as unknown);\n      }).not.toThrow();\n    });",
+      "category": "test-mocking",
+      "priority": "medium",
+      "reason": "Test parameter passing - check if proper types can be used"
+    },
+    {
       "file": "src/domain/session/session-db.test.ts",
       "line": 195,
       "content": "} as unknown;",
@@ -4040,6 +3554,24 @@
       "line": 46,
       "content": "provider: provider as unknown,",
       "context": "      // Create provider config from unified configuration\n      return {\n        provider: provider as unknown,\n        apiKey,\n        baseURL: providerConfig.base_url,",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/domain/git/factory-function.test.ts",
+      "line": 19,
+      "content": "createGitService(null as unknown as { baseDir?: string });",
+      "context": "  test(\"should handle null options parameter without throwing runtime error\", () => {\n    expect(() => {\n      createGitService(null as unknown as { baseDir?: string });\n    }).not.toThrow();\n  });",
+      "category": "test-mocking",
+      "priority": "medium",
+      "reason": "Test parameter passing - check if proper types can be used"
+    },
+    {
+      "file": "src/domain/git/pr-generation-operations.ts",
+      "line": 123,
+      "content": "throw new MinskyError(createSessionNotFoundMessage(sessionName, context as unknown));",
+      "context": "    const context = createErrorContext().addCommand(\"minsky git pr\").build();\n\n    throw new MinskyError(createSessionNotFoundMessage(sessionName, context as unknown));\n  }\n  const workdir = deps.getSessionWorkdir(sessionName);",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
@@ -4088,6 +3620,195 @@
       "category": "error-masking",
       "priority": "high",
       "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 91,
+      "content": "execAsync: createMock() as unknown,",
+      "context": "  test(\"should handle missing session in PR workflow\", async () => {\n    const mockDeps = {\n      execAsync: createMock() as unknown,\n      getSession: createMock(() => Promise.resolve(null)) as unknown,\n      getSessionWorkdir: createMock() as unknown,",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 92,
+      "content": "getSession: createMock(() => Promise.resolve(null)) as unknown,",
+      "context": "    const mockDeps = {\n      execAsync: createMock() as unknown,\n      getSession: createMock(() => Promise.resolve(null)) as unknown,\n      getSessionWorkdir: createMock() as unknown,\n    };",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 93,
+      "content": "getSessionWorkdir: createMock() as unknown,",
+      "context": "      execAsync: createMock() as unknown,\n      getSession: createMock(() => Promise.resolve(null)) as unknown,\n      getSessionWorkdir: createMock() as unknown,\n    };\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 132,
+      "content": "}) as unknown,",
+      "context": "        }\n        return { stdout: \"\", stderr: \"\" };\n      }) as unknown,\n      getSession: createMock(() =>\n        Promise.resolve({",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 139,
+      "content": ") as unknown,",
+      "context": "          repoUrl: \"https://github.com/user/repo.git\",\n        })\n      ) as unknown,\n      getSessionWorkdir: createMock(() => \"/test/repo/sessions/task-143-session\") as unknown,\n      getSessionByTaskId: createMock(() =>",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 140,
+      "content": "getSessionWorkdir: createMock(() => \"/test/repo/sessions/task-143-session\") as unknown,",
+      "context": "        })\n      ) as unknown,\n      getSessionWorkdir: createMock(() => \"/test/repo/sessions/task-143-session\") as unknown,\n      getSessionByTaskId: createMock(() =>\n        Promise.resolve({",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 148,
+      "content": ") as unknown,",
+      "context": "          taskId: \"143\",\n        })\n      ) as unknown,\n    };\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 166,
+      "content": "execAsync: createMock() as unknown,",
+      "context": "  test(\"should throw error when taskId has no associated session\", async () => {\n    const mockDeps = {\n      execAsync: createMock() as unknown,\n      getSession: createMock() as unknown,\n      getSessionWorkdir: createMock() as unknown,",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 167,
+      "content": "getSession: createMock() as unknown,",
+      "context": "    const mockDeps = {\n      execAsync: createMock() as unknown,\n      getSession: createMock() as unknown,\n      getSessionWorkdir: createMock() as unknown,\n      getSessionByTaskId: createMock(() => Promise.resolve(null)) as unknown,",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 168,
+      "content": "getSessionWorkdir: createMock() as unknown,",
+      "context": "      execAsync: createMock() as unknown,\n      getSession: createMock() as unknown,\n      getSessionWorkdir: createMock() as unknown,\n      getSessionByTaskId: createMock(() => Promise.resolve(null)) as unknown,\n    };",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 169,
+      "content": "getSessionByTaskId: createMock(() => Promise.resolve(null)) as unknown,",
+      "context": "      getSession: createMock() as unknown,\n      getSessionWorkdir: createMock() as unknown,\n      getSessionByTaskId: createMock(() => Promise.resolve(null)) as unknown,\n    };\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 183,
+      "content": "execAsync: createMock() as unknown,",
+      "context": "  test(\"should throw error when getSessionByTaskId dependency is not available\", async () => {\n    const mockDeps = {\n      execAsync: createMock() as unknown,\n      getSession: createMock() as unknown,\n      getSessionWorkdir: createMock() as unknown,",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 184,
+      "content": "getSession: createMock() as unknown,",
+      "context": "    const mockDeps = {\n      execAsync: createMock() as unknown,\n      getSession: createMock() as unknown,\n      getSessionWorkdir: createMock() as unknown,\n      // getSessionByTaskId is intentionally omitted",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 185,
+      "content": "getSessionWorkdir: createMock() as unknown,",
+      "context": "      execAsync: createMock() as unknown,\n      getSession: createMock() as unknown,\n      getSessionWorkdir: createMock() as unknown,\n      // getSessionByTaskId is intentionally omitted\n    };",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 225,
+      "content": "}) as unknown,",
+      "context": "        }\n        return { stdout: \"\", stderr: \"\" };\n      }) as unknown,\n      getSession: createMock(() =>\n        Promise.resolve({",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 232,
+      "content": ") as unknown,",
+      "context": "          repoUrl: \"https://github.com/user/repo.git\",\n        })\n      ) as unknown,\n      getSessionWorkdir: createMock(() => \"/test/repo/sessions/direct-session\") as unknown,\n      getSessionByTaskId: createMock() as unknown,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 233,
+      "content": "getSessionWorkdir: createMock(() => \"/test/repo/sessions/direct-session\") as unknown,",
+      "context": "        })\n      ) as unknown,\n      getSessionWorkdir: createMock(() => \"/test/repo/sessions/direct-session\") as unknown,\n      getSessionByTaskId: createMock() as unknown,\n    };",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 234,
+      "content": "getSessionByTaskId: createMock() as unknown,",
+      "context": "      ) as unknown,\n      getSessionWorkdir: createMock(() => \"/test/repo/sessions/direct-session\") as unknown,\n      getSessionByTaskId: createMock() as unknown,\n    };\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 267,
+      "content": "}) as unknown,",
+      "context": "        // Fail other git commands to test error handling\n        throw new Error(\"git: command not found\");\n      }) as unknown,\n      getSession: createMock(() =>\n        Promise.resolve({",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 273,
+      "content": ") as unknown,",
+      "context": "          repoName: \"test-repo\",\n        })\n      ) as unknown,\n      getSessionWorkdir: createMock(() => \"/test/repo\") as unknown,\n    };",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "line": 274,
+      "content": "getSessionWorkdir: createMock(() => \"/test/repo\") as unknown,",
+      "context": "        })\n      ) as unknown,\n      getSessionWorkdir: createMock(() => \"/test/repo\") as unknown,\n    };\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
     },
     {
       "file": "src/domain/storage/json-file-storage.ts",
@@ -4142,51 +3863,6 @@
       "category": "error-masking",
       "priority": "high",
       "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/repository/index.ts",
-      "line": 235,
-      "content": "return new LocalGitBackend(config as unknown);",
-      "context": "\n    const { LocalGitBackend } = await import(\"./local\");\n    return new LocalGitBackend(config as unknown);\n  }\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/repository/index.ts",
-      "line": 269,
-      "content": "return new RemoteGitBackend(config as unknown);",
-      "context": "\n    const { RemoteGitBackend } = await import(\"./remote\");\n    return new RemoteGitBackend(config as unknown);\n  }\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/repository/index.ts",
-      "line": 290,
-      "content": "return new GitHubBackend(config as unknown);",
-      "context": "\n    const { GitHubBackend } = await import(\"./github\");\n    return new GitHubBackend(config as unknown);\n  }\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/tasks/jsonFileTaskBackend.ts",
-      "line": 103,
-      "content": "} as unknown;",
-      "context": "          error: result.error,\n          filePath: this.storage.getStorageLocation(),\n        } as unknown;\n      }\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/domain/tasks/jsonFileTaskBackend.ts",
-      "line": 302,
-      "content": "} as unknown;",
-      "context": "        bytesWritten: result.bytesWritten,\n        filePath: this.storage.getStorageLocation(),\n      } as unknown;\n    } catch (error) {\n      const typedError = error instanceof Error ? error : new Error(String(error as any));",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
     },
     {
       "file": "src/domain/tasks/jsonFileTaskBackend.ts",
@@ -4288,6 +3964,15 @@
       "reason": "Property access masking - should use proper types"
     },
     {
+      "file": "src/domain/tasks/markdown-task-backend.ts",
+      "line": 418,
+      "content": "const updatedContent = matter.stringify(parsed.content, data as unknown);",
+      "context": "\n      // Serialize the updated frontmatter and content\n      const updatedContent = matter.stringify(parsed.content, data as unknown);\n\n      // Write back to the file",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
       "file": "src/domain/tasks/taskService.test.ts",
       "line": 172,
       "content": "const saveTasksDataSpy = mockBackend.saveTasksData as unknown as jest.SpyInstance;",
@@ -4360,186 +4045,6 @@
       "reason": "Needs manual review"
     },
     {
-      "file": "src/domain/tasks/taskCommands.ts",
-      "line": 531,
-      "content": "description = ((await readFile(filePath, \"utf-8\")) as unknown).toString();",
-      "context": "        // Resolve relative paths relative to current working directory\n        const filePath = require(\"path\").resolve(validParams.descriptionPath);\n        description = ((await readFile(filePath, \"utf-8\")) as unknown).toString();\n\n        if (!description.trim()) {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/tasks/taskIO.ts",
-      "line": 232,
-      "content": "const taskIdNum = taskId!.startsWith(\"#\") ? (taskId as unknown)!.slice(1) : taskId;",
-      "context": "  workspacePath: string\n): string {\n  const taskIdNum = taskId!.startsWith(\"#\") ? (taskId as unknown)!.slice(1) : taskId;\n  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, \"-\");\n  return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 46,
-      "content": "return JSON.parse(output) as unknown;",
-      "context": "\n        // Parse the JSON output\n        return JSON.parse(output) as unknown;\n      } catch (error) {\n        log.error(\"MCP: Error listing tasks via execSync\", {",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 69,
-      "content": "const command = `minsky tasks get ${(args as unknown)!.taskId} --json`;",
-      "context": "      try {\n        // Execute the command\n        const command = `minsky tasks get ${(args as unknown)!.taskId} --json`;\n        const output = execSync(command).toString();\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 73,
-      "content": "return JSON.parse(output) as unknown;",
-      "context": "\n        // Parse the JSON output\n        return JSON.parse(output) as unknown;\n      } catch (error) {\n        log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 75,
-      "content": "log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {",
-      "context": "        return JSON.parse(output) as unknown;\n      } catch (error) {\n        log.error(`MCP: Error getting task ${(args as unknown)!.taskId} via execSync`, {\n          originalError: getErrorMessage(error as any),\n          stack: error instanceof Error ? (error as any).stack as any : undefined as any,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 96,
-      "content": "const command = `minsky tasks status get ${(args as unknown)!.taskId}`;",
-      "context": "      try {\n        // Execute the command\n        const command = `minsky tasks status get ${(args as unknown)!.taskId}`;\n        const output = execSync(command).toString().trim();\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 101,
-      "content": "taskId: (args as unknown)!.taskId,",
-      "context": "        // Format output\n        return {\n          taskId: (args as unknown)!.taskId,\n          status: output.split(\": \")[1], // Extract the status value\n        };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 105,
-      "content": "log.error(`MCP: Error getting task status for ${(args as unknown)!.taskId} via execSync`, {",
-      "context": "        };\n      } catch (error) {\n        log.error(`MCP: Error getting task status for ${(args as unknown)!.taskId} via execSync`, {\n          originalError: getErrorMessage(error as any),\n          stack: error instanceof Error ? (error as any).stack as any : undefined as any,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 129,
-      "content": "const command = `minsky tasks status set ${(args as unknown)!.taskId} ${args.status}`;",
-      "context": "      try {\n        // Execute the command\n        const command = `minsky tasks status set ${(args as unknown)!.taskId} ${args.status}`;\n        execSync(command);\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 135,
-      "content": "taskId: (args as unknown)!.taskId,",
-      "context": "        return {\n          success: true,\n          taskId: (args as unknown)!.taskId,\n          status: args.status,\n        };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 139,
-      "content": "log.error(`MCP: Error setting task status for ${(args as unknown)!.taskId} via execSync`, {",
-      "context": "        };\n      } catch (error) {\n        log.error(`MCP: Error setting task status for ${(args as unknown)!.taskId} via execSync`, {\n          originalError: getErrorMessage(error as any),\n          stack: error instanceof Error ? (error as any).stack as any : undefined as any,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/tasks.ts",
-      "line": 164,
-      "content": "return JSON.parse(output) as unknown;",
-      "context": "\n        // Parse the JSON output\n        return JSON.parse(output) as unknown;\n      } catch (error) {\n        log.error(\"MCP: Error creating task via execSync\", {",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 20,
-      "content": "return JSON.parse(output) as unknown;",
-      "context": "\n      // Parse the JSON output\n      return JSON.parse(output) as unknown;\n    } catch (error) {\n      log.error(\"Error listing sessions\", { error });",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 39,
-      "content": "const command = `minsky session get ${(args as unknown)!.session} --json`;",
-      "context": "      try {\n        // Execute the command\n        const command = `minsky session get ${(args as unknown)!.session} --json`;\n        const output = execSync(command).toString();\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 43,
-      "content": "return JSON.parse(output) as unknown;",
-      "context": "\n        // Parse the JSON output\n        return JSON.parse(output) as unknown;\n      } catch (error) {\n        log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 45,
-      "content": "log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });",
-      "context": "        return JSON.parse(output) as unknown;\n      } catch (error) {\n        log.error(`Error getting session ${(args as unknown)!.session}`, { error, _session: (args as unknown)!.session });\n        throw new Error(\n          `Failed to get session ${(args as any)!.session}: ${getErrorMessage(error as any)}`",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 124,
-      "content": "if ((args as unknown)!.session) {",
-      "context": "          command += ` -m \"${args.message}\"`;\n        }\n        if ((args as unknown)!.session) {\n          command += ` --session ${(args as unknown)!.session}`;\n        }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 125,
-      "content": "command += ` --session ${(args as unknown)!.session}`;",
-      "context": "        }\n        if ((args as unknown)!.session) {\n          command += ` --session ${(args as unknown)!.session}`;\n        }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/mcp/tools/session.ts",
-      "line": 137,
-      "content": "log.error(\"Error committing changes\", { error, session: (args as unknown)!.session });",
-      "context": "        };\n      } catch (error) {\n        log.error(\"Error committing changes\", { error, session: (args as unknown)!.session });\n        throw new Error(\n          `Failed to commit changes: ${getErrorMessage(error as any)}`",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
       "file": "src/utils/test-utils/index.ts",
       "line": 96,
       "content": "const compatMock = ((...args: any[]) => mockFn(...args)) as unknown;",
@@ -4592,96 +4097,6 @@
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
-    },
-    {
-      "file": "src/utils/test-utils/mocking.ts",
-      "line": 463,
-      "content": "const base = { ...implementations } as unknown;",
-      "context": "export function createPartialMock<T extends object>(implementations: Partial<T> = {}): T {\n  // Create a base object with the provided implementations\n  const base = { ...implementations } as unknown;\n\n  // Create a proxy that will handle method calls",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 103,
-      "content": "id: (task as unknown)!.id,",
-      "context": "export function toTaskData(task: any): TaskData {\n  return {\n    id: (task as unknown)!.id,\n    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 104,
-      "content": "title: (task as unknown)!.title,",
-      "context": "  return {\n    id: (task as unknown)!.id,\n    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,\n    status: (task as unknown)!.status,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 105,
-      "content": "description: (task as unknown)!.description,",
-      "context": "    id: (task as unknown)!.id,\n    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,\n    status: (task as unknown)!.status,\n    specPath: task!.specPath,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 106,
-      "content": "status: (task as unknown)!.status,",
-      "context": "    title: (task as unknown)!.title,\n    description: (task as unknown)!.description,\n    status: (task as unknown)!.status,\n    specPath: task!.specPath,\n    worklog: task!.worklog,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 120,
-      "content": "id: (taskData as unknown)!.id,",
-      "context": "export function fromTaskData(taskData: TaskData): any {\n  return {\n    id: (taskData as unknown)!.id,\n    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 121,
-      "content": "title: (taskData as unknown)!.title,",
-      "context": "  return {\n    id: (taskData as unknown)!.id,\n    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,\n    status: (taskData as unknown)!.status,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 122,
-      "content": "description: (taskData as unknown)!.description,",
-      "context": "    id: (taskData as unknown)!.id,\n    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,\n    status: (taskData as unknown)!.status,\n    specPath: taskData!.specPath,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/types/tasks/taskData.ts",
-      "line": 123,
-      "content": "status: (taskData as unknown)!.status,",
-      "context": "    title: (taskData as unknown)!.title,\n    description: (taskData as unknown)!.description,\n    status: (taskData as unknown)!.status,\n    specPath: taskData!.specPath,\n    worklog: taskData!.worklog,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/utils/error-handler.ts",
-      "line": 136,
-      "content": "log.agent({ message: \"Command result\", result } as unknown);",
-      "context": "    if (isStructuredMode()) {\n      // In structured mode, log to agent logger\n      log.agent({ message: \"Command result\", result } as unknown);\n    } else {\n      // In human mode or when json is explicitly requested, write directly to stdout",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "tests/adapters/mcp/session-edit-tools.test.ts",
@@ -4828,163 +4243,10 @@
       "reason": "Test mocking - may be legitimate for test setup"
     },
     {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 366,
-      "content": "}) as unknown;",
-      "context": "        repo: params!.repo,\n        session: params!.session,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 372,
-      "content": "} as unknown;",
-      "context": "        commitHash: result!.commitHash,\n        message: result!.message,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 392,
-      "content": "}) as unknown;",
-      "context": "        force: params!.force,\n        debug: params!.debug,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 397,
-      "content": "} as unknown;",
-      "context": "        success: result!.pushed,\n        workdir: result!.workdir,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 416,
-      "content": "}) as unknown;",
-      "context": "        session: params!.session,\n        branch: params!.branch,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 422,
-      "content": "} as unknown;",
-      "context": "        workdir: result!.workdir,\n        session: result!.session,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 439,
-      "content": "}) as unknown;",
-      "context": "        session: params!.session,\n        name: params!.name,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 445,
-      "content": "} as unknown;",
-      "context": "        workdir: result!.workdir,\n        branch: result!.branch,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 466,
-      "content": "}) as unknown;",
-      "context": "        debug: params!.debug,\n        noStatusUpdate: params!.noStatusUpdate,\n      }) as unknown;\n\n      return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/git.ts",
-      "line": 472,
-      "content": "} as unknown;",
-      "context": "        markdown: result!.markdown,\n        statusUpdateResult: result!.statusUpdateResult,\n      } as unknown;\n    },\n  });",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/session.ts",
-      "line": 618,
-      "content": "})) as unknown;",
-      "context": "          repo: params!.repo,\n          json: params!.json,\n        })) as unknown;\n\n        return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/shared/commands/session.ts",
-      "line": 722,
-      "content": "})) as unknown;",
-      "context": "          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,\n          skipConflictCheck: params!.skipConflictCheck,\n        })) as unknown;\n\n        return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 243,
-      "content": "name: undefined as unknown,",
-      "context": "      const result = await updateSessionFromParams(\n        {\n          name: undefined as unknown,\n          noStash: false,\n          noPush: false,",
-      "category": "test-mocking",
-      "priority": "medium",
-      "reason": "Test parameter passing - check if proper types can be used"
-    },
-    {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 603,
-      "content": "(gitService as unknown).sessionDb = {",
-      "context": "\n      // Mock sessionDb\n      (gitService as unknown).sessionDb = {\n        getSession: async () => sessionRecord,\n      };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 608,
-      "content": "(gitService as unknown).getSessionWorkdir = () => testWorkdir;",
-      "context": "\n      // Mock getSessionWorkdir to use our test directory\n      (gitService as unknown).getSessionWorkdir = () => testWorkdir;\n\n      // Mock push method",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 611,
-      "content": "(gitService as unknown).push = async () => ({ workdir: testWorkdir, pushed: true });",
-      "context": "\n      // Mock push method\n      (gitService as unknown).push = async () => ({ workdir: testWorkdir, pushed: true });\n\n      // CRITICAL: Mock execInRepository to capture actual commands from preparePr",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 614,
-      "content": "(gitService as unknown).execInRepository = async (workdir: string, command: string) => {",
-      "context": "\n      // CRITICAL: Mock execInRepository to capture actual commands from preparePr\n      (gitService as unknown).execInRepository = async (workdir: string, command: string) => {\n        const fullCommand = `git -C ${workdir} ${command}`;\n        return (await mockExecAsync(fullCommand)).stdout;",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/adapters/shared/bridges/parameter-mapper.ts",
-      "line": 238,
-      "content": "})) as unknown;",
-      "context": "      ...customOptions[name],\n    },\n  })) as unknown;\n}\n",
+      "file": "src/adapters/cli/core/cli-command-factory-core.ts",
+      "line": 38,
+      "content": "enableDevWarnings: process.env.NODE_ENV !== \"production\" as unknown,",
+      "context": "  private initialized = false;\n  private config: CliFactoryConfig = {\n    enableDevWarnings: process.env.NODE_ENV !== \"production\" as unknown,\n    strictValidation: true,\n  };",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
@@ -5161,6 +4423,699 @@
       "reason": "Test mocking - may be legitimate for test setup"
     },
     {
+      "file": "src/adapters/cli/customizations/config-customizations.ts",
+      "line": 31,
+      "content": "flatten(obj as unknown);",
+      "context": "  }\n\n  flatten(obj as unknown);\n  return flattened;\n}",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/cli/customizations/config-customizations.ts",
+      "line": 113,
+      "content": "log.cli(output as unknown);",
+      "context": "              }\n\n              log.cli(output as unknown);\n            } else if (result.error) {\n              log.cli(`Failed to load configuration: ${result.error}`);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/customizations/config-customizations.ts",
+      "line": 117,
+      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
+      "context": "              log.cli(`Failed to load configuration: ${result.error}`);\n            } else {\n              log.cli(JSON.stringify(result as unknown, null, 2));\n            }\n          },",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/adapters/cli/customizations/config-customizations.ts",
+      "line": 125,
+      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
+      "context": "            // Check if JSON output was requested\n            if (result.json) {\n              log.cli(JSON.stringify(result as unknown, null, 2));\n              return;\n            }",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "src/adapters/cli/customizations/config-customizations.ts",
+      "line": 142,
+      "content": "log.cli(output as unknown);",
+      "context": "              }\n\n              log.cli(output as unknown);\n            } else if (result.error) {\n              log.cli(`Failed to load configuration: ${result.error}`);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/cli/customizations/config-customizations.ts",
+      "line": 146,
+      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
+      "context": "              log.cli(`Failed to load configuration: ${result.error}`);\n            } else {\n              log.cli(JSON.stringify(result as unknown, null, 2));\n            }\n          },",
+      "category": "type-bridging",
+      "priority": "medium",
+      "reason": "JSON parsing - may need proper type guards"
+    },
+    {
+      "file": "tests/adapters/cli/session.test.ts",
+      "line": 87,
+      "content": "} as unknown as SessionProviderInterface;",
+      "context": "        return Promise.resolve(mockSessions.find((s) => s.session === name) || null);\n      }),\n    } as unknown as SessionProviderInterface;\n  });\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "tests/adapters/cli/session-test-utilities.ts",
+      "line": 76,
+      "content": "} as unknown as SessionProviderInterface;",
+      "context": "    }),\n    save: jest.fn().mockResolvedValue(undefined),\n  } as unknown as SessionProviderInterface;\n\n  return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "tests/adapters/cli/session-test-utilities.ts",
+      "line": 109,
+      "content": "} as unknown as GitServiceInterface;",
+      "context": "    stashPop: jest.fn().mockResolvedValue(undefined),\n    getCommitHash: jest.fn().mockResolvedValue(\"abc123\"),\n  } as unknown as GitServiceInterface;\n}\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 366,
+      "content": "}) as unknown;",
+      "context": "        repo: params!.repo,\n        session: params!.session,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 372,
+      "content": "} as unknown;",
+      "context": "        commitHash: result!.commitHash,\n        message: result!.message,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 392,
+      "content": "}) as unknown;",
+      "context": "        force: params!.force,\n        debug: params!.debug,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 397,
+      "content": "} as unknown;",
+      "context": "        success: result!.pushed,\n        workdir: result!.workdir,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 416,
+      "content": "}) as unknown;",
+      "context": "        session: params!.session,\n        branch: params!.branch,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 422,
+      "content": "} as unknown;",
+      "context": "        workdir: result!.workdir,\n        session: result!.session,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 439,
+      "content": "}) as unknown;",
+      "context": "        session: params!.session,\n        name: params!.name,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 445,
+      "content": "} as unknown;",
+      "context": "        workdir: result!.workdir,\n        branch: result!.branch,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 466,
+      "content": "}) as unknown;",
+      "context": "        debug: params!.debug,\n        noStatusUpdate: params!.noStatusUpdate,\n      }) as unknown;\n\n      return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/git.ts",
+      "line": 472,
+      "content": "} as unknown;",
+      "context": "        markdown: result!.markdown,\n        statusUpdateResult: result!.statusUpdateResult,\n      } as unknown;\n    },\n  });",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 200,
+      "content": "if (!(params as unknown)!.taskId) throw new ValidationError(\"Missing required parameter: taskId\");",
+      "context": "  execute: async (params, _ctx: CommandExecutionContext) => {\n    log.debug(\"Starting tasks.status.set execution\");\n    if (!(params as unknown)!.taskId) throw new ValidationError(\"Missing required parameter: taskId\");\n\n    // Normalize and validate task ID first",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 204,
+      "content": "const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);",
+      "context": "    // Normalize and validate task ID first\n    log.debug(\"About to normalize task ID\");\n    const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);\n    if (!normalizedTaskId) {\n      throw new ValidationError(",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 207,
+      "content": "`Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`",
+      "context": "    if (!normalizedTaskId) {\n      throw new ValidationError(\n        `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`\n      );\n    }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 216,
+      "content": "repo: (params as unknown)!.repo,",
+      "context": "    const previousStatus = await getTaskStatusFromParams({\n      taskId: normalizedTaskId,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 217,
+      "content": "workspace: (params as unknown)!.workspace,",
+      "context": "      taskId: normalizedTaskId,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n      backend: (params as unknown)!.backend,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 218,
+      "content": "session: (params as unknown)!.session,",
+      "context": "      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n      backend: (params as unknown)!.backend,\n    });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 219,
+      "content": "backend: (params as unknown)!.backend,",
+      "context": "      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n      backend: (params as unknown)!.backend,\n    });\n    log.debug(\"Previous status retrieved successfully\");",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 223,
+      "content": "let status = (params as unknown)!.status;",
+      "context": "    log.debug(\"Previous status retrieved successfully\");\n\n    let status = (params as unknown)!.status;\n\n    // If status is not provided, prompt for it interactively",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 270,
+      "content": "repo: (params as unknown)!.repo,",
+      "context": "      taskId: normalizedTaskId,\n      status: status,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 271,
+      "content": "workspace: (params as unknown)!.workspace,",
+      "context": "      status: status,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n      backend: (params as unknown)!.backend,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 272,
+      "content": "session: (params as unknown)!.session,",
+      "context": "      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n      backend: (params as unknown)!.backend,\n    });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 273,
+      "content": "backend: (params as unknown)!.backend,",
+      "context": "      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n      backend: (params as unknown)!.backend,\n    });\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 296,
+      "content": "const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);",
+      "context": "  execute: async (params, ctx: CommandExecutionContext) => {\n    try {\n      const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);\n      if (!normalizedTaskId) {\n        throw new ValidationError(",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 299,
+      "content": "`Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`",
+      "context": "      if (!normalizedTaskId) {\n        throw new ValidationError(\n          `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`\n        );\n      }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 493,
+      "content": "if (!(params as unknown)!.taskId) throw new ValidationError(\"Missing required parameter: taskId\");",
+      "context": "  parameters: tasksGetParams,\n  execute: async (params, ctx) => {\n    if (!(params as unknown)!.taskId) throw new ValidationError(\"Missing required parameter: taskId\");\n    return await getTaskFromParams({\n      taskId: (params as unknown)!.taskId,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 495,
+      "content": "taskId: (params as unknown)!.taskId,",
+      "context": "    if (!(params as unknown)!.taskId) throw new ValidationError(\"Missing required parameter: taskId\");\n    return await getTaskFromParams({\n      taskId: (params as unknown)!.taskId,\n      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 496,
+      "content": "backend: (params as unknown)!.backend,",
+      "context": "    return await getTaskFromParams({\n      taskId: (params as unknown)!.taskId,\n      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 497,
+      "content": "repo: (params as unknown)!.repo,",
+      "context": "      taskId: (params as unknown)!.taskId,\n      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 498,
+      "content": "workspace: (params as unknown)!.workspace,",
+      "context": "      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n    });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 499,
+      "content": "session: (params as unknown)!.session,",
+      "context": "      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n    });\n  },",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 515,
+      "content": "if (!(params as unknown)!.title) {",
+      "context": "  execute: async (params, ctx) => {\n    // Title is required by schema, but validate it's provided\n    if (!(params as unknown)!.title) {\n      throw new ValidationError(\"Title is required\");\n    }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 520,
+      "content": "if (!(params as unknown)!.description && !(params as unknown)!.descriptionPath) {",
+      "context": "\n    // Validate that either description or descriptionPath is provided\n    if (!(params as unknown)!.description && !(params as unknown)!.descriptionPath) {\n      throw new ValidationError(\"Either --description or --description-path must be provided\");\n    }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 525,
+      "content": "if ((params as unknown)!.description && (params as unknown)!.descriptionPath) {",
+      "context": "\n    // Both description and descriptionPath provided is an error\n    if ((params as unknown)!.description && (params as unknown)!.descriptionPath) {\n      throw new ValidationError(\n        \"Cannot provide both --description and --description-path - use one or the other\"",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 532,
+      "content": "title: (params as unknown)!.title,",
+      "context": "\n    return await createTaskFromTitleAndDescription({\n      title: (params as unknown)!.title,\n      description: (params as unknown)!.description,\n      descriptionPath: (params as unknown)!.descriptionPath,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 533,
+      "content": "description: (params as unknown)!.description,",
+      "context": "    return await createTaskFromTitleAndDescription({\n      title: (params as unknown)!.title,\n      description: (params as unknown)!.description,\n      descriptionPath: (params as unknown)!.descriptionPath,\n      force: (params as unknown)!.force ?? false,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 534,
+      "content": "descriptionPath: (params as unknown)!.descriptionPath,",
+      "context": "      title: (params as unknown)!.title,\n      description: (params as unknown)!.description,\n      descriptionPath: (params as unknown)!.descriptionPath,\n      force: (params as unknown)!.force ?? false,\n      backend: (params as unknown)!.backend,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 535,
+      "content": "force: (params as unknown)!.force ?? false,",
+      "context": "      description: (params as unknown)!.description,\n      descriptionPath: (params as unknown)!.descriptionPath,\n      force: (params as unknown)!.force ?? false,\n      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 536,
+      "content": "backend: (params as unknown)!.backend,",
+      "context": "      descriptionPath: (params as unknown)!.descriptionPath,\n      force: (params as unknown)!.force ?? false,\n      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 537,
+      "content": "repo: (params as unknown)!.repo,",
+      "context": "      force: (params as unknown)!.force ?? false,\n      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 538,
+      "content": "workspace: (params as unknown)!.workspace,",
+      "context": "      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n    });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 539,
+      "content": "session: (params as unknown)!.session,",
+      "context": "      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n    });\n  },",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 596,
+      "content": "if (!(params as unknown)!.taskId) throw new ValidationError(\"Missing required parameter: taskId\");",
+      "context": "  parameters: tasksDeleteParams,\n  execute: async (params, ctx) => {\n    if (!(params as unknown)!.taskId) throw new ValidationError(\"Missing required parameter: taskId\");\n\n    // Handle confirmation if force is not set and we're in interactive mode",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 599,
+      "content": "if (!(params as unknown)!.force && !(params as unknown)!.json) {",
+      "context": "\n    // Handle confirmation if force is not set and we're in interactive mode\n    if (!(params as unknown)!.force && !(params as unknown)!.json) {\n      // Get task details for confirmation\n      const task = await getTaskFromParams({",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 602,
+      "content": "taskId: (params as unknown)!.taskId,",
+      "context": "      // Get task details for confirmation\n      const task = await getTaskFromParams({\n        taskId: (params as unknown)!.taskId,\n        backend: (params as unknown)!.backend,\n        repo: (params as unknown)!.repo,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 603,
+      "content": "backend: (params as unknown)!.backend,",
+      "context": "      const task = await getTaskFromParams({\n        taskId: (params as unknown)!.taskId,\n        backend: (params as unknown)!.backend,\n        repo: (params as unknown)!.repo,\n        workspace: (params as unknown)!.workspace,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 604,
+      "content": "repo: (params as unknown)!.repo,",
+      "context": "        taskId: (params as unknown)!.taskId,\n        backend: (params as unknown)!.backend,\n        repo: (params as unknown)!.repo,\n        workspace: (params as unknown)!.workspace,\n        session: (params as unknown)!.session,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 605,
+      "content": "workspace: (params as unknown)!.workspace,",
+      "context": "        backend: (params as unknown)!.backend,\n        repo: (params as unknown)!.repo,\n        workspace: (params as unknown)!.workspace,\n        session: (params as unknown)!.session,\n      });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 606,
+      "content": "session: (params as unknown)!.session,",
+      "context": "        repo: (params as unknown)!.repo,\n        workspace: (params as unknown)!.workspace,\n        session: (params as unknown)!.session,\n      });\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 613,
+      "content": "message: `Are you sure you want to delete task ${(task as unknown)!.id}: \"${(task as unknown)!.title}\"?`,",
+      "context": "\n      const shouldDelete = await confirm({\n        message: `Are you sure you want to delete task ${(task as unknown)!.id}: \"${(task as unknown)!.title}\"?`,\n      });\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 620,
+      "content": "taskId: (params as unknown)!.taskId,",
+      "context": "          success: false,\n          message: \"Task deletion cancelled\",\n          taskId: (params as unknown)!.taskId,\n        };\n      }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 626,
+      "content": "taskId: (params as unknown)!.taskId,",
+      "context": "\n    const result = await deleteTaskFromParams({\n      taskId: (params as unknown)!.taskId,\n      force: (params as unknown)!.force ?? false,\n      backend: (params as unknown)!.backend,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 627,
+      "content": "force: (params as unknown)!.force ?? false,",
+      "context": "    const result = await deleteTaskFromParams({\n      taskId: (params as unknown)!.taskId,\n      force: (params as unknown)!.force ?? false,\n      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 628,
+      "content": "backend: (params as unknown)!.backend,",
+      "context": "      taskId: (params as unknown)!.taskId,\n      force: (params as unknown)!.force ?? false,\n      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 629,
+      "content": "repo: (params as unknown)!.repo,",
+      "context": "      force: (params as unknown)!.force ?? false,\n      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 630,
+      "content": "workspace: (params as unknown)!.workspace,",
+      "context": "      backend: (params as unknown)!.backend,\n      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n    }) as unknown;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 631,
+      "content": "session: (params as unknown)!.session,",
+      "context": "      repo: (params as unknown)!.repo,\n      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n    }) as unknown;\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 632,
+      "content": "}) as unknown;",
+      "context": "      workspace: (params as unknown)!.workspace,\n      session: (params as unknown)!.session,\n    }) as unknown;\n\n    const message = (result as unknown)!.success",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 634,
+      "content": "const message = (result as unknown)!.success",
+      "context": "    }) as unknown;\n\n    const message = (result as unknown)!.success\n      ? `Task ${(result as unknown)!.taskId} deleted successfully`\n      : `Failed to delete task ${(result as unknown)!.taskId}`;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 635,
+      "content": "? `Task ${(result as unknown)!.taskId} deleted successfully`",
+      "context": "\n    const message = (result as unknown)!.success\n      ? `Task ${(result as unknown)!.taskId} deleted successfully`\n      : `Failed to delete task ${(result as unknown)!.taskId}`;\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 636,
+      "content": ": `Failed to delete task ${(result as unknown)!.taskId}`;",
+      "context": "    const message = (result as unknown)!.success\n      ? `Task ${(result as unknown)!.taskId} deleted successfully`\n      : `Failed to delete task ${(result as unknown)!.taskId}`;\n\n    // Return different formats based on --json flag",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 639,
+      "content": "if ((params as unknown)!.json) {",
+      "context": "\n    // Return different formats based on --json flag\n    if ((params as unknown)!.json) {\n      // Structured output for programmatic use\n      return {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 642,
+      "content": "success: (result as unknown)!.success,",
+      "context": "      // Structured output for programmatic use\n      return {\n        success: (result as unknown)!.success,\n        taskId: (result as unknown)!.taskId,\n        task: (result as unknown)!.task,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 643,
+      "content": "taskId: (result as unknown)!.taskId,",
+      "context": "      return {\n        success: (result as unknown)!.success,\n        taskId: (result as unknown)!.taskId,\n        task: (result as unknown)!.task,\n        message: message,",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 644,
+      "content": "task: (result as unknown)!.task,",
+      "context": "        success: (result as unknown)!.success,\n        taskId: (result as unknown)!.taskId,\n        task: (result as unknown)!.task,\n        message: message,\n      } as unknown;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "src/adapters/shared/commands/tasks.ts",
+      "line": 646,
+      "content": "} as unknown;",
+      "context": "        task: (result as unknown)!.task,\n        message: message,\n      } as unknown;\n    } else {\n      // Simple message for user-friendly output",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/session.ts",
+      "line": 295,
+      "content": "})) as unknown;",
+      "context": "          repo: params!.repo,\n          json: params!.json,\n        })) as unknown;\n\n        return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/shared/commands/session.ts",
+      "line": 399,
+      "content": "})) as unknown;",
+      "context": "          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,\n          skipConflictCheck: params!.skipConflictCheck,\n        })) as unknown;\n\n        return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/cli/utils/error-handler.ts",
+      "line": 136,
+      "content": "log.agent({ message: \"Command result\", result } as unknown);",
+      "context": "    if (isStructuredMode()) {\n      // In structured mode, log to agent logger\n      log.agent({ message: \"Command result\", result } as unknown);\n    } else {\n      // In human mode or when json is explicitly requested, write directly to stdout",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
       "file": "src/domain/storage/backends/error-handling.ts",
       "line": 113,
       "content": "error as unknown",
@@ -5297,15 +5252,6 @@
     },
     {
       "file": "src/domain/storage/backends/sqlite-storage.ts",
-      "line": 184,
-      "content": ".where(eq(sessionsTable.session, id)) as unknown).limit(1);",
-      "context": "        .select()\n        .from(sessionsTable)\n        .where(eq(sessionsTable.session, id)) as unknown).limit(1);\n\n      return (result[0] as TEntity) || null;",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/backends/sqlite-storage.ts",
       "line": 200,
       "content": "let query = (this.drizzleDb.select() as unknown).from(sessionsTable);",
       "context": "\n    try {\n      let query = (this.drizzleDb.select() as unknown).from(sessionsTable);\n\n      // Apply filters if provided",
@@ -5324,36 +5270,9 @@
     },
     {
       "file": "src/domain/storage/backends/sqlite-storage.ts",
-      "line": 292,
-      "content": ".set(updateData) as unknown).where(eq(sessionsTable.session, id));",
-      "context": "      await (this.drizzleDb\n        .update(sessionsTable)\n        .set(updateData) as unknown).where(eq(sessionsTable.session, id));\n\n      // Return updated entity",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/backends/sqlite-storage.ts",
-      "line": 308,
-      "content": "await (this.drizzleDb.delete(sessionsTable) as unknown).where(eq(sessionsTable.session, id));",
-      "context": "\n    try {\n      await (this.drizzleDb.delete(sessionsTable) as unknown).where(eq(sessionsTable.session, id));\n\n      // Since Drizzle doesn't return changes count, we'll check if the entity existed",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/backends/sqlite-storage.ts",
-      "line": 328,
-      "content": ".where(eq(sessionsTable.session, id)) as unknown).limit(1);",
-      "context": "        .select({ count: sessionsTable.session })\n        .from(sessionsTable)\n        .where(eq(sessionsTable.session, id)) as unknown).limit(1);\n\n      return result.length > 0 as unknown;",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/storage/backends/sqlite-storage.ts",
       "line": 330,
       "content": "return result.length > 0 as unknown;",
-      "context": "        .where(eq(sessionsTable.session, id)) as unknown).limit(1);\n\n      return result.length > 0 as unknown;\n    } catch (error) {\n      log.error(\"Failed to check entity existence in SQLite\", { error, id });",
+      "context": "        .where(eq(sessionsTable.session, id)).limit(1);\n\n      return result.length > 0 as unknown;\n    } catch (error) {\n      log.error(\"Failed to check entity existence in SQLite\", { error, id });",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
@@ -5459,9 +5378,9 @@
     }
   ],
   "recommendations": [
-    "🚨 HIGH PRIORITY: 356 assertions are masking type errors and should be fixed immediately",
-    "⚠️  356 assertions are masking type errors - these reduce TypeScript effectiveness",
-    "🧪 104 assertions in tests - review for proper type alternatives",
+    "🚨 HIGH PRIORITY: 362 assertions are masking type errors and should be fixed immediately",
+    "⚠️  362 assertions are masking type errors - these reduce TypeScript effectiveness",
+    "🧪 92 assertions in tests - review for proper type alternatives",
     "🌉 7 assertions for type bridging - consider proper type guards",
     "📋 Start with high priority items, then medium, then low",
     "🔍 Focus on production code before test code",
