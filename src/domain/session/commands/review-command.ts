@@ -3,15 +3,15 @@ import { createGitService } from "../../git";
 import { TaskService } from "../../tasks";
 import { getCurrentSession } from "../../workspace";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { 
+import {
   SessionReviewParams,
   SessionReviewResult,
   SessionProviderInterface,
-  SessionDependencies 
+  SessionDependencies
 } from "../types";
-import { 
-  MinskyError, 
-  ResourceNotFoundError, 
+import {
+  MinskyError,
+  ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
 } from "../../../errors/index";
@@ -22,7 +22,7 @@ import * as WorkspaceUtils from "../../workspace";
  * Reviews a session based on parameters
  * Using proper dependency injection for better testability
  */
-export async function sessionReviewFromParams(
+export async function sessionReview(
   params: SessionReviewParams,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
@@ -57,7 +57,7 @@ export async function sessionReviewFromParams(
 
     // Get the session details using the resolved session name
     const sessionRecord = await deps.sessionDB.getSession(resolvedContext.sessionName);
-    
+
     if (!sessionRecord) {
       throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
     }
@@ -109,20 +109,20 @@ export async function sessionReviewFromParams(
     // Get diff and stats
     let diff: string | undefined;
     let diffStats: { filesChanged: number; insertions: number; deletions: number } | undefined;
-    
+
     try {
       const diffResult = await deps.gitService.execInRepository(
         workdir,
         `git diff --stat ${baseBranch}...${effectivePrBranch}`
       );
-      
+
       const diffText = await deps.gitService.execInRepository(
         workdir,
         `git diff ${baseBranch}...${effectivePrBranch}`
       );
-      
+
       diff = diffText;
-      
+
       // Parse diff stats
       const statsMatch = diffResult.match(/(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/);
       if (statsMatch) {
@@ -198,4 +198,4 @@ function formatReviewOutput(result: SessionReviewResult): string {
   }
 
   return lines.join("\n");
-} 
+}

@@ -20,7 +20,7 @@ import * as WorkspaceUtils from "../../workspace";
 /**
  * Approves a session (merges PR) based on parameters
  */
-export async function approveSessionFromParams(
+export async function sessionApprove(
   params: {
     session?: string;
     task?: string;
