@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-To enhance the task hierarchy system and enable intelligent task decomposition, we need AI-powered commands that can analyze complex tasks and automatically create parent-child task hierarchies. This builds on the core parent-child relationship system to provide intelligent task breakdown.
+To enhance the task hierarchy system and enable intelligent task decomposition, we need AI-powered commands that can analyze complex tasks and automatically create parent-child task hierarchies. This builds on the core parent-child relationship system to provide intelligent task breakdown with **Chain-of-Thought (CoT) monitoring capabilities** for safe and observable AI-driven task planning.
 
 ## Context
 
@@ -12,8 +12,9 @@ With the parent-child task hierarchy system in place, we can now leverage AI to:
 2. **Automated test decomposition** - AI creates comprehensive test task hierarchies
 3. **Task estimation and analysis** - AI provides sizing and complexity analysis
 4. **Hierarchy optimization** - AI suggests improvements to existing task structures
+5. **Monitorable task planning** - AI reasoning about task breakdown becomes observable and intervenable
 
-This enhances the manual task hierarchy system with intelligent automation capabilities.
+This enhances the manual task hierarchy system with intelligent automation capabilities while maintaining **Chain-of-Thought monitorability** for safety and control.
 
 ## Dependencies
 
@@ -31,14 +32,21 @@ The AI integration approach described below may need to be revised based on #235
 
 ## Future Direction Considerations
 
-### Tactical Subtask Generation
+### Tactical Subtask Generation with Chain-of-Thought Monitoring
 
-**RESEARCH REQUIRED**: This AI-powered decomposition should be designed to support future extension to generate tactical subtasks/todos - immediate action items that represent individual AI operations:
+**RESEARCH REQUIRED**: This AI-powered decomposition should be designed to support future extension to generate tactical subtasks/todos with **full Chain-of-Thought monitoring capabilities**:
 
-- Tool calls (grep_search, read_file, edit_file, etc.)
-- Code generation steps
-- Thinking/analysis steps
-- Verification operations
+**Monitorable Tactical Operations:**
+- Tool calls (grep_search, read_file, edit_file, etc.) with reasoning traces
+- Code generation steps with decision rationale
+- Thinking/analysis steps exposed as observable chains
+- Verification operations with explicit validation reasoning
+
+**Chain-of-Thought Safety Integration:**
+- **Real-time monitoring** of AI reasoning during task decomposition
+- **Pattern detection** for problematic decomposition approaches
+- **Intervention points** where human can redirect task planning
+- **Reasoning transparency** - full visibility into AI decision-making process
 
 **Key architectural questions to preserve in this implementation:**
 
@@ -46,6 +54,8 @@ The AI integration approach described below may need to be revised based on #235
 - How to support human-in-the-loop intervention before tactical execution?
 - How to enable tactical subgraph recomputation when strategic requirements change?
 - How to balance storage efficiency with full task graph visibility?
+- **NEW: How to ensure tactical reasoning chains remain monitorable and interpretable?**
+- **NEW: What intervention patterns are needed for safe AI-driven task planning?**
 
 **Design Constraint**: The AI decomposition system should be extensible to support:
 
@@ -53,8 +63,47 @@ The AI integration approach described below may need to be revised based on #235
 - **Intervention checkpoints** - Human review/modification of tactical plans
 - **Subgraph recomputation** - Regenerating tactical plans when strategic tasks change
 - **Execution rollback** - Using ephemeral git branches for safe tactical experimentation
+- **NEW: Chain-of-Thought monitoring** - Real-time observation of AI reasoning during decomposition
+- **NEW: Reasoning pattern detection** - Automated detection of problematic planning approaches
+- **NEW: Intervention mechanisms** - Ability to interrupt and redirect AI planning mid-stream
 
-**Architecture Impact**: Consider how AI-generated tactical subtasks relate to strategic subtasks and user-specified tasks in the overall hierarchy.
+**Architecture Impact**: Consider how AI-generated tactical subtasks relate to strategic subtasks and user-specified tasks in the overall hierarchy, with **full Chain-of-Thought monitorability** throughout the decomposition process.
+
+## Chain-of-Thought Monitoring Integration
+
+### Monitoring AI Task Decomposition
+
+**Real-time Reasoning Observation:**
+- Monitor AI reasoning chains during task analysis and breakdown
+- Detect when AI is making suboptimal decomposition decisions
+- Identify opportunities for human guidance or intervention
+- Track reasoning quality and consistency across decompositions
+
+**Safety Through Transparency:**
+- All AI reasoning about task breakdown is observable
+- Intervention possible at any point in the decomposition process
+- Human can redirect AI reasoning before inappropriate task structures are created
+- Full audit trail of AI decision-making in task planning
+
+**Intervention Patterns for Task Planning:**
+- **Scope creep detection** - AI expanding beyond intended task boundaries
+- **Over-decomposition** - AI creating unnecessarily complex hierarchies
+- **Under-decomposition** - AI failing to break down complex tasks adequately
+- **Inappropriate dependencies** - AI creating problematic task relationships
+
+### Monitorability Requirements
+
+**Transparent Reasoning:**
+- AI must externalize reasoning about task complexity, dependencies, and breakdown strategies
+- Decision rationale for each decomposition choice must be observable
+- Alternative approaches considered must be visible
+- Confidence levels and uncertainty acknowledgment required
+
+**Intervention Capability:**
+- System must support interrupting AI decomposition mid-process
+- Human can provide corrective guidance at any reasoning step
+- AI must be able to incorporate intervention feedback and restart reasoning
+- Partial decomposition results must be preservable across interventions
 
 ## Proposed Solution
 

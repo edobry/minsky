@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { TaskService } from "../taskService";
-import { TaskBackendRouter } from "../task-backend-router";
+import { TaskService } from "./taskService";
+import { TaskBackendRouter } from "./task-backend-router";
 import { join } from "path";
 import { rmSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
@@ -93,7 +93,7 @@ describe("Special Workspace Integration", () => {
       });
 
       // Remove the isInTreeBackend method to test auto-detection
-      delete (backend as unknown).isInTreeBackend;
+      delete backend.isInTreeBackend;
       const proto = Object.getPrototypeOf(backend);
       if (proto && typeof proto.isInTreeBackend === "function") {
         delete proto.isInTreeBackend;
@@ -116,7 +116,7 @@ describe("Special Workspace Integration", () => {
       });
 
       // Remove the isInTreeBackend method to test auto-detection  
-      delete (backend as unknown).isInTreeBackend;
+      delete backend.isInTreeBackend;
       const proto = Object.getPrototypeOf(backend);
       if (proto && typeof proto.isInTreeBackend === "function") {
         delete proto.isInTreeBackend;
@@ -179,7 +179,7 @@ describe("Special Workspace Integration", () => {
 
       // Remove isInTreeBackend methods to test auto-detection
       [localBackend, teamBackend].forEach(backend => {
-        delete (backend as unknown).isInTreeBackend;
+        delete backend.isInTreeBackend;
         const proto = Object.getPrototypeOf(backend);
         if (proto && typeof proto.isInTreeBackend === "function") {
           delete proto.isInTreeBackend;

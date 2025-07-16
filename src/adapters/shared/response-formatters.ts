@@ -39,7 +39,7 @@ export interface ResponseFormatter<T = any> {
  * @returns JSON formatted string
  */
 export function formatAsJson(data: any): string {
-  return JSON.stringify(data as unknown, undefined, 2);
+  return JSON.stringify(data, undefined, 2);
 }
 
 /**
@@ -55,15 +55,15 @@ export abstract class BaseResponseFormatter<T = any> implements ResponseFormatte
    */
   format(data: T, context: CommandExecutionContext): string | object {
     // Determine the output format
-    const format = (context.format as unknown).toLowerCase() as OutputFormat;
+    const format = context.format.toLowerCase() as OutputFormat;
 
     // Format the response based on the requested format
     if (format === OutputFormat.JSON) {
-      return this.formatJson(data as unknown, context as unknown);
+      return this.formatJson(data, context);
     }
 
     // Default to text format
-    return this.formatText(data as unknown, context as unknown);
+    return this.formatText(data, context);
   }
 
   /**
@@ -177,7 +177,7 @@ export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
    * @returns Formatted list
    */
   formatText(items: T[]): string {
-    if ((items as unknown).length === 0) {
+    if (items.length === 0) {
       return "No items found.";
     }
 
@@ -190,12 +190,12 @@ export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
 
     // Format each item
     if (this.itemFormatter) {
-      (items as unknown).forEach((item, index) => {
-        output += `${index + 1}. ${this.itemFormatter!(item as unknown)}\n`;
+      items.forEach((item, index) => {
+        output += `${index + 1}. ${this.itemFormatter!(item)}\n`;
       });
     } else {
-      (items as unknown).forEach((item, index) => {
-        output += `${index + 1}. ${String(item as unknown)}\n`;
+      items.forEach((item, index) => {
+        output += `${index + 1}. ${String(item)}\n`;
       });
     }
 
@@ -211,7 +211,7 @@ export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
   formatJson(items: T[]): object {
     return {
       items,
-      count: (items as unknown).length,
+      count: items.length,
     };
   }
 }
@@ -235,7 +235,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
    * @returns Formatted table
    */
   formatText(rows: T[]): string {
-    if ((rows as unknown).length === 0) {
+    if (rows.length === 0) {
       return "No data found.";
     }
 
@@ -251,14 +251,14 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
 
     // Initialize with header lengths
     this.columns.forEach((col) => {
-      columnWidths[col] = (String(this.headers[col] || col) as unknown).length;
+      columnWidths[col] = String(this.headers[col] || col).length;
     });
 
     // Update with maximum data lengths
     rows.forEach((row) => {
       this.columns.forEach((col) => {
         const value = String(row[col] || "");
-        columnWidths[col] = Math.max((columnWidths as unknown)[col], (value as unknown).length);
+        columnWidths[col] = Math.max(columnWidths[col], value.length);
       });
     });
 
@@ -266,7 +266,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
     const headerRow = this.columns
       .map((col) => {
         const header = String(this.headers[col] || col);
-        return (header as unknown).padEnd((columnWidths as unknown)[col]);
+        return header.padEnd(columnWidths[col]);
       })
       .join(" | ");
 
@@ -275,7 +275,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
     // Create separator row
     const separatorRow = this.columns
       .map((col) => {
-        return "-".repeat((columnWidths as unknown)[col]);
+        return "-".repeat(columnWidths[col]);
       })
       .join("-|-");
 
@@ -286,7 +286,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
       const dataRow = this.columns
         .map((col) => {
           const value = String(row[col] || "");
-          return (value as unknown).padEnd((columnWidths as unknown)[col]);
+          return value.padEnd(columnWidths[col]);
         })
         .join(" | ") as unknown;
 
@@ -305,7 +305,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
   formatJson(rows: T[]): object {
     return {
       rows,
-      count: (rows as unknown).length,
+      count: rows.length,
     };
   }
 }

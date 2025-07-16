@@ -23,7 +23,7 @@ export function expectToMatch(value: string, pattern: RegExp): void {
  * @param length The expected length
  */
 export function expectToHaveLength(value: unknown, length: number): void {
-  expect((value as unknown).length).toBe(length);
+  expect(value.length).toBe(length);
 }
 
 /**
@@ -106,7 +106,7 @@ export function expectToHaveProperty(object: unknown, propertyPath: string, valu
     expect(current).toBeDefined();
     expect(typeof current === "object" || Array.isArray(current)).toBeTruthy();
     expect(part in (current as unknown)).toBeTruthy();
-    current = (current as unknown)[part];
+    current = current[part];
   }
 
   if (value !== undefined) {

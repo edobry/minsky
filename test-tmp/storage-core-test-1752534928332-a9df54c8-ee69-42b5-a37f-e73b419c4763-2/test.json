@@ -1,0 +1,11 @@
+{
+  "entities": [
+    {
+      "id": "test2",
+      "name": "Original Name",
+      "value": 10
+    }
+  ],
+  "lastUpdated": "2025-07-14T23:15:28.332Z",
+  "metadata": {}
+}

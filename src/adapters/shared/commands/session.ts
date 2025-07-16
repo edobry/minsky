@@ -15,377 +15,37 @@ import {
   type CommandExecutionContext,
 } from "../../shared/command-registry";
 import {
-  getSessionFromParams,
-  listSessionsFromParams,
-  startSessionFromParams,
-  deleteSessionFromParams,
-  getSessionDirFromParams,
-  updateSessionFromParams,
-  approveSessionFromParams,
-  sessionPrFromParams,
-  inspectSessionFromParams,
+  sessionGet,
+  sessionList,
+  sessionStart,
+  sessionDelete,
+  sessionDir,
+  sessionUpdate,
+  sessionApprove,
+  sessionPr,
+  sessionInspect,
 } from "../../../domain/session";
 import { log } from "../../../utils/logger";
 import { MinskyError } from "../../../errors/index";
+import {
+  sessionListCommandParams,
+  sessionGetCommandParams,
+  sessionStartCommandParams,
+  sessionDirCommandParams,
+  sessionDeleteCommandParams,
+  sessionUpdateCommandParams,
+  sessionApproveCommandParams,
+  sessionPrCommandParams,
+  sessionInspectCommandParams,
+} from "./session-parameters";
+import {
+  handleSessionPrError,
+  validatePrParameters,
+  generateMissingBodyErrorMessage,
+  generateMissingTaskAssociationErrorMessage,
+} from "./session-error-handling";
 
-/**
- * Parameters for the session list command
- */
-const sessionListCommandParams: CommandParameterMap = {
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
 
-/**
- * Parameters for the session get command
- */
-const sessionGetCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string().min(1),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session start command
- */
-const sessionStartCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string().min(1),
-    description: "Name for the new session (optional, alternative to --task)",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID to associate with the session (required if --description not provided)",
-    required: false,
-  },
-  description: {
-    schema: z.string().min(1),
-    description: "Description for auto-created task (required if --task not provided)",
-    required: false,
-  },
-  branch: {
-    schema: z.string(),
-    description: "Branch name to create (defaults to session name)",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  session: {
-    schema: z.string(),
-    description: "Deprecated: use name parameter instead",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  quiet: {
-    schema: z.boolean(),
-    description: "Suppress output except for the session directory path",
-    required: false,
-    defaultValue: false,
-  },
-  noStatusUpdate: {
-    schema: z.boolean(),
-    description: "Skip updating task status when starting a session with a task",
-    required: false,
-    defaultValue: false,
-  },
-  skipInstall: {
-    schema: z.boolean(),
-    description: "Skip automatic dependency installation",
-    required: false,
-    defaultValue: false,
-  },
-  packageManager: {
-    schema: z.enum(["bun", "npm", "yarn", "pnpm"]),
-    description: "Override the detected package manager",
-    required: false,
-  },
-};
-
-/**
- * Parameters for the session dir command
- */
-const sessionDirCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string().min(1),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session delete command
- */
-const sessionDeleteCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string().min(1),
-    description: "Session name to delete",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  force: {
-    schema: z.boolean(),
-    description: "Skip confirmation prompt",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session update command
- */
-const sessionUpdateCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string(),
-    description: "Session name to update",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  branch: {
-    schema: z.string(),
-    description: "Update branch name",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  noStash: {
-    schema: z.boolean(),
-    description: "Skip stashing local changes",
-    required: false,
-    defaultValue: false,
-  },
-  noPush: {
-    schema: z.boolean(),
-    description: "Skip pushing changes to remote after update",
-    required: false,
-    defaultValue: false,
-  },
-  force: {
-    schema: z.boolean(),
-    description: "Force update even if the session workspace is dirty",
-    required: false,
-    defaultValue: false,
-  },
-  skipConflictCheck: {
-    schema: z.boolean(),
-    description: "Skip proactive conflict detection before update",
-    required: false,
-    defaultValue: false,
-  },
-  autoResolveDeleteConflicts: {
-    schema: z.boolean(),
-    description: "Automatically resolve delete/modify conflicts by accepting deletions",
-    required: false,
-    defaultValue: false,
-  },
-  dryRun: {
-    schema: z.boolean(),
-    description: "Check for conflicts without performing actual update",
-    required: false,
-    defaultValue: false,
-  },
-  skipIfAlreadyMerged: {
-    schema: z.boolean(),
-    description: "Skip update if session changes are already in base branch",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session approve command
- */
-const sessionApproveCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string(),
-    description: "Session name to approve",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session pr command
- * 
- * PROGRESSIVE DISCLOSURE STRATEGY:
- * - Core flags: Essential for basic PR creation (always visible)
- * - Advanced flags: Expert-level control (hidden by default, shown with --advanced)
- * - Smart defaults: Work for 90% of cases without additional flags
- */
-const sessionPrCommandParams: CommandParameterMap = {
-  // === CORE PARAMETERS (Always visible) ===
-  title: {
-    schema: z.string().min(1),
-    description: "Title for the PR (auto-generated if not provided)",
-    required: false,
-  },
-  body: {
-    schema: z.string(),
-    description: "Body text for the PR",
-    required: false,
-  },
-  bodyPath: {
-    schema: z.string(),
-    description: "Path to file containing PR body text",
-    required: false,
-  },
-  name: {
-    schema: z.string(),
-    description: "Session name (auto-detected from workspace if not provided)",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session (auto-detected if not provided)",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path (auto-detected if not provided)",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  
-  // === PROGRESSIVE DISCLOSURE CONTROL ===
-  advanced: {
-    schema: z.boolean(),
-    description: "Show advanced options for conflict resolution and debugging",
-    required: false,
-    defaultValue: false,
-  },
-  
-  // === ADVANCED PARAMETERS (Hidden by default) ===
-  // Note: These are still registered but will be hidden in help unless --advanced is used
-  debug: {
-    schema: z.boolean(),
-    description: "Enable debug output (use with --advanced)",
-    required: false,
-    defaultValue: false,
-  },
-  noStatusUpdate: {
-    schema: z.boolean(),
-    description: "Skip updating task status (use with --advanced)",
-    required: false,
-    defaultValue: false,
-  },
-  skipUpdate: {
-    schema: z.boolean(),
-    description: "Skip session update before creating PR (use with --advanced)",
-    required: false,
-    defaultValue: false,
-  },
-  autoResolveDeleteConflicts: {
-    schema: z.boolean(),
-    description: "Automatically resolve delete/modify conflicts by accepting deletions (use with --advanced)",
-    required: false,
-    defaultValue: false,
-  },
-  skipConflictCheck: {
-    schema: z.boolean(),
-    description: "Skip proactive conflict detection during update (use with --advanced)",
-    required: false,
-    defaultValue: false,
-  },
-};
 
 /**
  * Register the session commands in the shared command registry
@@ -431,7 +91,7 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.get command", { params, context });
 
       try {
-        const session = await getSessionFromParams({
+        const session = await sessionGet({
           name: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -654,55 +314,13 @@ Examples:
     id: "session.pr",
     category: CommandCategory.SESSION,
     name: "pr",
-    description: "Create a pull request for a session with intelligent defaults and smart auto-detection. Use --advanced for expert options.",
+    description: "Create a pull request for a session",
     parameters: sessionPrCommandParams,
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
-      // PROGRESSIVE DISCLOSURE: Show advanced usage help if --advanced flag is used
-      if (params!.advanced) {
-        const advancedHelp = `
-🎯 Advanced Session PR Options:
-
-CONFLICT RESOLUTION:
-• --skip-update                    Skip session update before creating PR
-• --skip-conflict-check           Skip proactive conflict detection
-• --auto-resolve-delete-conflicts Auto-resolve delete/modify conflicts
-
-DEBUGGING & CONTROL:
-• --debug                         Enable detailed debug output
-• --no-status-update             Skip automatic task status updates
-
-COMMON ADVANCED SCENARIOS:
-• Conflicted session:    minsky session pr --skip-update --title "fix: Emergency fix"
-• Debug mode:           minsky session pr --debug --title "feat: New feature"
-• Manual control:       minsky session pr --no-status-update --skip-conflict-check
-
-💡 These options provide expert-level control over the PR creation process.
-   Most users should use the basic command without these flags.
-`;
-        
-        console.log(advancedHelp);
-        return {
-          success: true,
-          message: "Advanced options displayed. Use these flags for expert-level control.",
-        };
-      }
-
       // Import gitService for validation
       const { createGitService } = await import("../../../domain/git.js");
-
-      // SMART DEFAULTS: Apply intelligent defaults based on common scenarios
-      const smartDefaults = {
-        // Auto-generate title from task ID or session name if not provided
-        title: params!.title || `PR for ${params!.task || params!.name || "session"}`,
-        // Use smart conflict resolution by default
-        autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts ?? false,
-        skipConflictCheck: params!.skipConflictCheck ?? false,
-        skipUpdate: params!.skipUpdate ?? false,
-        debug: params!.debug ?? false,
-        noStatusUpdate: params!.noStatusUpdate ?? false,
-      };
 
       // Conditional validation: require body/bodyPath only for new PRs (not refreshing existing ones)
       if (!params!.body && !params!.bodyPath) {
@@ -766,19 +384,19 @@ Example:
       }
 
       try {
-        const result = await sessionPrFromParams({
-          title: smartDefaults.title,
+        const result = (await sessionPr({
+          title: params!.title,
           body: params!.body,
           bodyPath: params!.bodyPath,
           session: params!.name,
           task: params!.task,
           repo: params!.repo,
-          noStatusUpdate: smartDefaults.noStatusUpdate,
-          debug: smartDefaults.debug,
-          skipUpdate: smartDefaults.skipUpdate,
-          autoResolveDeleteConflicts: smartDefaults.autoResolveDeleteConflicts,
-          skipConflictCheck: smartDefaults.skipConflictCheck,
-        });
+          noStatusUpdate: params!.noStatusUpdate,
+          debug: params!.debug,
+          skipUpdate: params!.skipUpdate,
+          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
+          skipConflictCheck: params!.skipConflictCheck,
+        })) as unknown;
 
         return {
           success: true,
@@ -788,25 +406,18 @@ Example:
         // Instead of just logging and rethrowing, provide user-friendly error messages
         const errorMessage = getErrorMessage(error as Error);
 
-        // Enhanced error handling with scenario-based guidance
+        // Handle specific error types with friendly messages
         if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
           throw new MinskyError(
             `🔥 Git merge conflict detected while creating PR branch.
 
-🎯 SCENARIO-BASED SOLUTIONS:
+This usually happens when:
+• The PR branch already exists with different content
+• There are conflicting changes between your session and the base branch
 
-📍 For emergency fixes:
-   minsky session pr --skip-update --title "fix: Emergency fix"
-
-📍 For complex conflicts:
-   1. Manually resolve conflicts in your session workspace
-   2. Commit resolved changes
-   3. Run: minsky session pr --title "Your PR title"
-
-📍 For clean slate approach:
-   minsky session pr --skip-conflict-check --title "Your PR title"
-
-💡 Use --advanced to see all conflict resolution options.
+💡 Quick fixes:
+• Try with --skip-update to avoid session updates
+• Or manually resolve conflicts and retry
 
 Technical details: ${errorMessage}`
           );
@@ -814,15 +425,15 @@ Technical details: ${errorMessage}`
           throw new MinskyError(
             `❌ Failed to create PR branch merge commit.
 
-🎯 QUICK DIAGNOSIS:
-• Check for uncommitted changes: git status
-• Check branch state: git branch -a
-• Check remote connection: git remote -v
+This could be due to:
+• Merge conflicts between your session branch and base branch
+• Remote PR branch already exists with different content
+• Network issues with git operations
 
-💡 Common solutions:
-• Emergency bypass: minsky session pr --skip-update --title "fix: Issue"
-• Debug mode: minsky session pr --advanced --debug --title "Your title"
-• Manual resolution: Commit changes first, then retry
+💡 Try these solutions:
+• Run 'git status' to check for conflicts
+• Use --skip-update to bypass session updates
+• Check your git remote connection
 
 Technical details: ${errorMessage}`
           );
@@ -833,50 +444,40 @@ Technical details: ${errorMessage}`
           throw new MinskyError(
             `🔐 Git authentication error.
 
-🎯 QUICK FIXES:
-• Check SSH keys: ssh -T git@github.com
-• Verify repository access permissions
-• Ensure git credentials are configured
-
-🔧 Common solutions:
-• GitHub: Generate new personal access token
-• SSH: Add your key to ssh-agent
-• HTTPS: Update stored credentials
+Please check:
+• Your SSH keys are properly configured
+• You have push access to the repository
+• Your git credentials are valid
 
 Technical details: ${errorMessage}`
           );
         } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
           throw new MinskyError(
-            `🔍 Session not found: '${params!.name || params!.task}'
+            `🔍 Session not found.
 
-🎯 TROUBLESHOOTING STEPS:
-1. Check available sessions: minsky session list
-2. Verify you're in the correct directory
-3. Auto-detect from workspace: minsky session pr --title "Your title"
+The session '${params!.name || params!.task}' could not be located.
 
-💡 The command auto-detects your session context when run from a session workspace.
+💡 Try:
+• Check available sessions: minsky session list
+• Verify you're in the correct directory
+• Use the correct session name or task ID
 
 Technical details: ${errorMessage}`
           );
         } else {
-          // Enhanced general error with progressive disclosure
+          // For other errors, provide a general helpful message
           throw new MinskyError(
             `❌ Failed to create session PR.
 
-🎯 QUICK DIAGNOSIS:
-• Are you in a session workspace? (Check with: pwd)
-• Are all changes committed? (Check with: git status)
-• Is the session registered? (Check with: minsky session list)
+The operation failed with: ${errorMessage}
 
-💡 For detailed diagnosis, run with --advanced --debug:
-   minsky session pr --advanced --debug --title "Your title"
+💡 Troubleshooting:
+• Check that you're in a session workspace
+• Verify all files are committed
+• Try running with --debug for more details
+• Check 'minsky session list' to see available sessions
 
-🔧 Common solutions:
-• Commit uncommitted changes first
-• Run from session workspace directory
-• Use --skip-update if session updates are problematic
-
-Technical details: ${errorMessage}`
+Need help? Run the command with --debug for detailed error information.`
           );
         }
       }

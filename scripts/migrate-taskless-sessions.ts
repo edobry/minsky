@@ -11,9 +11,9 @@
 import { existsSync } from "fs";
 import { readdir, stat as fsStat } from "fs/promises";
 import { join } from "path";
-import { createSessionProvider, type SessionRecord } from "../src/domain/session.js";
-import { createGitService } from "../src/domain/git.js";
-import { log } from "../src/utils/logger.js";
+import { createSessionProvider, type SessionRecord } from "../src/domain/session";
+import { createGitService } from "../src/domain/git";
+import { log } from "../src/utils/logger";
 
 interface TasklessSession {
   record: SessionRecord;

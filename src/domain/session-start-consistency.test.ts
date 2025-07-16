@@ -7,9 +7,9 @@
 
 import { describe, it, expect, beforeEach, spyOn } from "bun:test";
 import * as fs from "fs";
-import { startSessionFromParams } from "../session";
-import { createMock } from "../../utils/test-utils/mocking";
-import { MinskyError, ResourceNotFoundError } from "../../errors";
+import { startSessionFromParams } from "./session";
+import { createMock } from "../utils/test-utils/mocking";
+import { MinskyError, ResourceNotFoundError } from "../errors";
 
 describe("Session Start Consistency Tests", () => {
   let mockSessionDB: any;
@@ -103,7 +103,7 @@ describe("Session Start Consistency Tests", () => {
 
     it("should clean up existing directory before starting", async () => {
       // Arrange
-      (fs.existsSync as unknown).mockReturnValue(true); // Directory exists
+      fs.existsSync.mockReturnValue(true); // Directory exists
       const params = {
         task: "160",
         repo: "local/minsky",
@@ -191,7 +191,7 @@ describe("Session Start Consistency Tests", () => {
       // Arrange
       const gitError = new Error("git clone failed");
       mockGitService.clone.mockRejectedValue(gitError);
-      (fs.existsSync as unknown).mockReturnValue(true); // Directory exists after failed clone
+      fs.existsSync.mockReturnValue(true); // Directory exists after failed clone
 
       const params = {
         task: "160",
@@ -254,8 +254,8 @@ describe("Session Start Consistency Tests", () => {
   describe("Edge cases and error handling", () => {
     it("should handle directory cleanup failure gracefully", async () => {
       // Arrange
-      (fs.existsSync as unknown).mockReturnValue(true);
-      (fs.rmSync as unknown).mockImplementation(() => {
+      fs.existsSync.mockReturnValue(true);
+      fs.rmSync.mockImplementation(() => {
         throw new Error("permission denied");
       });
 

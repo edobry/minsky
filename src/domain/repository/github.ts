@@ -48,24 +48,24 @@ export class GitHubBackend implements RepositoryBackend {
    * @param config Backend configuration
    */
   constructor(config: RepositoryBackendConfig) {
-    const xdgStateHome = (process.env as unknown).XDG_STATE_HOME || join((process.env as unknown).HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
 
     // Extract GitHub-specific options
-    this.owner = (config.github as unknown).owner;
-    this.repo = (config.github as unknown).repo;
+    this.owner = config.github.owner;
+    this.repo = config.github.repo;
 
     // Set the repo URL using the provided URL or construct from owner/repo if available
     // Note: We don't embed tokens in the URL, letting Git use the system's credentials
-    (this as unknown).repoUrl =
-      (config as unknown).repoUrl ||
+    this.repoUrl =
+      config.repoUrl ||
       (this.owner && this.repo ? `https://github.com/${this.owner}/${this.repo}.git` : "");
 
-    if (!(this as unknown).repoUrl) {
+    if (!this.repoUrl) {
       throw new Error("Repository URL is required for GitHub backend");
     }
 
-    (this as unknown).repoName = normalizeRepositoryURI((this as unknown).repoUrl);
+    this.repoName = normalizeRepositoryURI(this.repoUrl);
     this.sessionDb = createSessionProvider();
     this.gitService = new GitService(this.baseDir);
   }
@@ -92,7 +92,7 @@ export class GitHubBackend implements RepositoryBackend {
    */
   private getSessionWorkdir(session: string): string {
     // Use the new path structure with sessions subdirectory
-    return join(this.baseDir, (this as unknown).repoName, "sessions", session);
+    return join(this.baseDir, this.repoName, "sessions", session);
   }
 
   /**
@@ -104,7 +104,7 @@ export class GitHubBackend implements RepositoryBackend {
     await this.ensureBaseDir();
 
     // Create the repo/sessions directory structure
-    const sessionsDir = join(this.baseDir, (this as unknown).repoName, "sessions");
+    const sessionsDir = join(this.baseDir, this.repoName, "sessions");
     await mkdir(sessionsDir, { recursive: true });
 
     // Get the workdir with sessions subdirectory
@@ -112,8 +112,8 @@ export class GitHubBackend implements RepositoryBackend {
 
     try {
       // Use GitService's clone method to delegate credential handling to Git
-      const result = await (this.gitService as unknown).clone({
-        repoUrl: (this as unknown).repoUrl,
+      const result = await this.gitService.clone({
+        repoUrl: this.repoUrl,
         session,
       });
 
@@ -125,7 +125,7 @@ export class GitHubBackend implements RepositoryBackend {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
 
       // Provide more informative error messages for common GitHub issues
-      if ((normalizedError.message as unknown).includes("Authentication failed")) {
+      if (normalizedError.message.includes("Authentication failed")) {
         throw new Error(`
 🔐 GitHub Authentication Failed
 
@@ -138,16 +138,16 @@ Unable to authenticate with GitHub repository: ${this.owner}/${this.repo}
 
 Repository: https://github.com/${this.owner}/${this.repo}
 `);
-      } else if ((normalizedError.message as unknown).includes("not found")) {
+      } else if (normalizedError.message.includes("not found")) {
         throw new Error(
           `GitHub repository not found: ${this.owner}/${this.repo}. Check the owner and repo names.`
         );
-      } else if ((normalizedError.message as unknown).includes("timed out")) {
+      } else if (normalizedError.message.includes("timed out")) {
         throw new Error(
           "GitHub connection timed out. Check your network connection and try again."
         );
       } else {
-        throw new Error(`Failed to clone GitHub repository: ${(normalizedError as unknown).message}`);
+        throw new Error(`Failed to clone GitHub repository: ${normalizedError.message}`);
       }
     }
   }
@@ -172,7 +172,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       };
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-      throw new Error(`Failed to create branch in GitHub repository: ${(normalizedError as unknown).message}`);
+      throw new Error(`Failed to create branch in GitHub repository: ${normalizedError.message}`);
     }
   }
 
@@ -185,24 +185,24 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async getStatus(): Promise<RepositoryStatus> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
-      const repoSession = (sessions as unknown).find((session) => (session as unknown).repoName === (this as unknown).repoName);
+      const sessions = await this.sessionDb.listSessions();
+      const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         throw new Error("No session found for this repository");
       }
 
       // Forward to the version that takes a session parameter
-      const workdir = this.getSessionWorkdir((repoSession as unknown).session);
+      const workdir = this.getSessionWorkdir(repoSession.session);
 
       // Use GitService to get repository status
-      const gitStatus = await (this.gitService as unknown).getStatus(workdir);
+      const gitStatus = await this.gitService.getStatus(workdir);
 
       // Get additional information directly
       const { stdout: branchOutput } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
-      const branch = (branchOutput as unknown).trim();
+      const branch = branchOutput.trim();
 
       // Get ahead/behind counts
       let ahead = 0;
@@ -211,8 +211,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
         const { stdout: revListOutput } = await execAsync(
           `git -C ${workdir} rev-list --left-right --count @{upstream}...HEAD`
         );
-        const counts = ((revListOutput as unknown).trim() as unknown).split(/\s+/);
-        if (counts && (counts as unknown).length === 2) {
+        const counts = revListOutput.trim().split(/\s+/);
+        if (counts && counts.length === 2) {
           behind = parseInt(counts[0] || "0", 10);
           ahead = parseInt(counts[1] || "0", 10);
         }
@@ -222,32 +222,32 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       // Get remote information
       const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote -v`);
-      const remotes = ((remoteOutput
+      const remotes = remoteOutput
         .trim()
         .split("\n")
-        .filter(Boolean) as unknown).map((line: string) => line.split("\t")[0] || "") as unknown).filter((name, index, self) => name && (self as unknown).indexOf(name) === index);
+        .filter(Boolean).map((line: string) => line.split("\t")[0] || "").filter((name, index, self) => name && self.indexOf(name) === index);
 
       const dirty =
-        (gitStatus.modified as unknown).length > 0 ||
-        (gitStatus.untracked as unknown).length > 0 ||
-        (gitStatus.deleted as unknown).length > 0;
+        gitStatus.modified.length > 0 ||
+        gitStatus.untracked.length > 0 ||
+        gitStatus.deleted.length > 0;
 
       // Create both original and new properties for the unified interface
       const modifiedFiles = [
-        ...(gitStatus.modified as unknown).map((file) => ({ status: "M", file })),
-        ...(gitStatus.untracked as unknown).map((file) => ({ status: "??", file })),
-        ...(gitStatus.deleted as unknown).map((file) => ({ status: "D", file })),
+        ...gitStatus.modified.map((file) => ({ status: "M", file })),
+        ...gitStatus.untracked.map((file) => ({ status: "??", file })),
+        ...gitStatus.deleted.map((file) => ({ status: "D", file })),
       ];
 
       // Extract string representation for original interface
-      const changes = (modifiedFiles as unknown).map((m) => `${(m as unknown).status} ${m.file}`);
+      const changes = modifiedFiles.map((m) => `${m.status} ${m.file}`);
 
       return {
         // Original properties
         clean: !dirty,
         changes,
         branch,
-        tracking: (remotes as unknown).length > 0 ? remotes[0] : undefined as unknown,
+        tracking: remotes.length > 0 ? remotes[0] : undefined,
 
         // Extended properties
         ahead,
@@ -263,7 +263,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       };
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-      throw new Error(`Failed to get GitHub repository status: ${(normalizedError as unknown).message}`);
+      throw new Error(`Failed to get GitHub repository status: ${normalizedError.message}`);
     }
   }
 
@@ -292,11 +292,11 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
     // If no session is provided, find one for this repository
     try {
-      const sessions = await (this.sessionDb as unknown).listSessions();
-      const repoSession = (sessions as unknown).find((s) => (s as unknown).repoName === (this as unknown).repoName);
+      const sessions = await this.sessionDb.listSessions();
+      const repoSession = sessions.find((s) => s.repoName === this.repoName);
 
       if (repoSession) {
-        return this.getSessionWorkdir((repoSession as unknown).session);
+        return this.getSessionWorkdir(repoSession.session);
       }
     } catch (error) {
       // If we can't find a session, just return the base directory
@@ -312,7 +312,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async validate(): Promise<ValidationResult> {
     try {
       // Validate required fields
-      if (!(this as unknown).repoUrl) {
+      if (!this.repoUrl) {
         return {
           valid: false,
           success: false,
@@ -328,7 +328,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         const _command = `curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${this.owner}/${this.repo}`;
 
         const { stdout } = await execAsync(_command);
-        const statusCode = parseInt((stdout as unknown).trim(), 10);
+        const statusCode = parseInt(stdout.trim(), 10);
 
         if (statusCode === HTTP_NOT_FOUND) {
           return {
@@ -364,8 +364,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
       return {
         valid: false,
         success: false,
-        issues: [`Failed to validate GitHub repository: ${(normalizedError as unknown).message}`],
-        message: `Failed to validate GitHub repository: ${(normalizedError as unknown).message}`,
+        issues: [`Failed to validate GitHub repository: ${normalizedError.message}`],
+        message: `Failed to validate GitHub repository: ${normalizedError.message}`,
         error: normalizedError,
       };
     }
@@ -378,8 +378,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async push(): Promise<Result> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
-      const repoSession = (sessions as unknown).find((session) => (session as unknown).repoName === (this as unknown).repoName);
+      const sessions = await this.sessionDb.listSessions();
+      const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         return {
@@ -388,19 +388,19 @@ Repository: https://github.com/${this.owner}/${this.repo}
         };
       }
 
-      const sessionName = (repoSession as unknown).session;
+      const sessionName = repoSession.session;
       const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService for pushing changes
-      const pushResult = await (this.gitService as unknown).push({
+      const pushResult = await this.gitService.push({
         session: sessionName,
         repoPath: workdir,
         remote: "origin",
       });
 
       return {
-        success: (pushResult as unknown).pushed,
-        message: (pushResult as unknown).pushed
+        success: pushResult.pushed,
+        message: pushResult.pushed
           ? "Successfully pushed to repository"
           : "No changes to push or push failed",
       };
@@ -408,7 +408,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
-        message: `Failed to push to repository: ${(normalizedError as unknown).message}`,
+        message: `Failed to push to repository: ${normalizedError.message}`,
         error: normalizedError,
       };
     }
@@ -421,8 +421,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async pull(): Promise<Result> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
-      const repoSession = (sessions as unknown).find((session) => (session as unknown).repoName === (this as unknown).repoName);
+      const sessions = await this.sessionDb.listSessions();
+      const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         return {
@@ -431,15 +431,15 @@ Repository: https://github.com/${this.owner}/${this.repo}
         };
       }
 
-      const sessionName = (repoSession as unknown).session;
+      const sessionName = repoSession.session;
       const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService for pulling changes
-      const pullResult = await (this.gitService as unknown).pullLatest(workdir);
+      const pullResult = await this.gitService.pullLatest(workdir);
 
       return {
         success: true,
-        message: (pullResult as unknown).updated
+        message: pullResult.updated
           ? "Successfully pulled changes from repository"
           : "Already up-to-date. No changes pulled.",
       };
@@ -447,7 +447,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
-        message: `Failed to pull from repository: ${(normalizedError as unknown).message}`,
+        message: `Failed to pull from repository: ${normalizedError.message}`,
         error: normalizedError,
       };
     }
@@ -461,14 +461,14 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async checkout(branch: string): Promise<void> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
-      const repoSession = (sessions as unknown).find((session) => (session as unknown).repoName === (this as unknown).repoName);
+      const sessions = await this.sessionDb.listSessions();
+      const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         throw new Error("No session found for this repository");
       }
 
-      const sessionName = (repoSession as unknown).session;
+      const sessionName = repoSession.session;
       const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService method if available, otherwise use direct command
@@ -476,7 +476,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       await execAsync(`git -C ${workdir} checkout ${branch}`);
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-      throw new Error(`Failed to checkout branch: ${(normalizedError as unknown).message}`);
+      throw new Error(`Failed to checkout branch: ${normalizedError.message}`);
     }
   }
 
@@ -487,7 +487,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   getConfig(): RepositoryBackendConfig {
     return {
       type: "github",
-      repoUrl: (this as unknown).repoUrl,
+      repoUrl: this.repoUrl,
       github: {
         owner: this.owner,
         repo: this.repo,

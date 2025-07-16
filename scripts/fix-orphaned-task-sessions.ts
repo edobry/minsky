@@ -8,9 +8,9 @@
  * updates the session records to properly associate them with their tasks.
  */
 
-import { createSessionProvider, type SessionRecord } from "../src/domain/session.js";
-import { TaskService } from "../src/domain/tasks/taskService.js";
-import { log } from "../src/utils/logger.js";
+import { createSessionProvider, type SessionRecord } from "../src/domain/session";
+import { TaskService } from "../src/domain/tasks/taskService";
+import { log } from "../src/utils/logger";
 
 interface OrphanedSession {
   sessionName: string;

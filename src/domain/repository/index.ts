@@ -203,28 +203,28 @@ export async function createRepositoryBackend(
   config: RepositoryBackendConfig
 ): Promise<RepositoryBackend> {
   // Validate common configuration
-  if (!(config as unknown).type) {
+  if (!config.type) {
     throw new Error("Repository backend type is required");
   }
 
-  if (!(config as unknown).repoUrl) {
+  if (!config.repoUrl) {
     throw new Error("Repository URL is required");
   }
 
   // Backend-specific validation
-  switch ((config as unknown).type) {
-  case (RepositoryBackendType as unknown).LOCAL: {
+  switch (config.type) {
+  case RepositoryBackendType.LOCAL: {
     // For local repositories, validate the path exists (if it's a local path)
-    if (!(config.repoUrl as unknown).includes("://") && !(config.repoUrl as unknown).includes("@")) {
+    if (!config.repoUrl.includes("://") && !config.repoUrl.includes("@")) {
       try {
         const { exec } = await import("child_process");
         const { promisify } = await import("util");
         const execAsync = promisify(exec);
         const { stdout } = await execAsync(
-          `test -d "${(config as unknown).repoUrl}" && echo "exists" || echo "not exists"`
+          `test -d "${config.repoUrl}" && echo "exists" || echo "not exists"`
         );
-        if ((stdout as unknown).trim() === "not exists") {
-          throw new Error(`Repository path does not exist: ${(config as unknown).repoUrl}`);
+        if (stdout.trim() === "not exists") {
+          throw new Error(`Repository path does not exist: ${config.repoUrl}`);
         }
       } catch (error) {
         throw new Error(`Failed to validate local repository _path: ${getErrorMessage(error as any)}`);
@@ -232,65 +232,65 @@ export async function createRepositoryBackend(
     }
 
     const { LocalGitBackend } = await import("./local");
-    return new LocalGitBackend(config as unknown);
+    return new LocalGitBackend(config);
   }
 
-  case (RepositoryBackendType as unknown).REMOTE: {
+  case RepositoryBackendType.REMOTE: {
     // For remote repositories, validate URL format and required options
     if (
-      !(config.repoUrl as unknown).startsWith("http://") &&
-        !(config.repoUrl as unknown).startsWith("https://") &&
-        !(config.repoUrl as unknown).startsWith("git@") &&
-        !(config.repoUrl as unknown).startsWith("ssh://")
+      !config.repoUrl.startsWith("http://") &&
+        !config.repoUrl.startsWith("https://") &&
+        !config.repoUrl.startsWith("git@") &&
+        !config.repoUrl.startsWith("ssh://")
     ) {
-      throw new Error(`Invalid remote repository URL format: ${(config as unknown).repoUrl}`);
+      throw new Error(`Invalid remote repository URL format: ${config.repoUrl}`);
     }
 
     // Validate remote options if provided
-    if ((config as unknown).remote) {
+    if (config.remote) {
       if (
-        (config.remote as unknown).authMethod &&
-          !(["ssh", "https", "token"] as unknown).includes((config.remote as unknown).authMethod)
+        config.remote.authMethod &&
+          !["ssh", "https", "token"].includes(config.remote.authMethod)
       ) {
         throw new Error(
-          `Invalid auth method: ${(config.remote as unknown).authMethod}. Must be one of: ssh, https, token`
+          `Invalid auth method: ${config.remote.authMethod}. Must be one of: ssh, https, token`
         );
       }
 
       if (
-        (config.remote as unknown).depth &&
-          (typeof (config.remote as unknown).depth !== "number" || (config.remote as unknown).depth < 1)
+        config.remote.depth &&
+          (typeof config.remote.depth !== "number" || config.remote.depth < 1)
       ) {
         throw new Error("Clone depth must be a positive number");
       }
     }
 
     const { RemoteGitBackend } = await import("./remote");
-    return new RemoteGitBackend(config as unknown);
+    return new RemoteGitBackend(config);
   }
 
-  case (RepositoryBackendType as unknown).GITHUB: {
+  case RepositoryBackendType.GITHUB: {
     // For GitHub repositories, validate GitHub-specific options
-    if ((config as unknown).github) {
+    if (config.github) {
       // If owner and repo are provided, validate them
       if (
-        ((config.github as unknown).owner && !(config.github as unknown).repo) ||
-          (!(config.github as unknown).owner && (config.github as unknown).repo)
+        (config.github.owner && !config.github.repo) ||
+          (!config.github.owner && config.github.repo)
       ) {
         throw new Error("Both owner and repo must be provided for GitHub repositories");
       }
 
       // Validate GitHub Enterprise settings if provided
-      if ((config.github as unknown).enterpriseDomain && !(config.github as unknown).apiUrl) {
+      if (config.github.enterpriseDomain && !config.github.apiUrl) {
         throw new Error("API URL must be provided when using GitHub Enterprise");
       }
     }
 
     const { GitHubBackend } = await import("./github");
-    return new GitHubBackend(config as unknown);
+    return new GitHubBackend(config);
   }
 
   default:
-    throw new Error(`Unsupported repository backend type: ${(config as unknown).type}`);
+    throw new Error(`Unsupported repository backend type: ${config.type}`);
   }
 }

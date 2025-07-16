@@ -17,14 +17,14 @@ export async function tryCreateGitHubBackend(
 ): Promise<TaskBackend | null> {
   try {
     // Dynamic import to avoid hard dependency
-    const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await (Promise as unknown).all([
+    const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
       import("./githubBackendConfig"),
       import("./githubIssuesTaskBackend"),
     ]);
 
     const config = getGitHubBackendConfig(workspacePath, { logErrors: shouldLogErrors });
     if (!config || !(config as unknown)!.githubToken || !(config as unknown)!.owner || !(config as unknown)!.repo) {
-      return null as unknown;
+      return null;
     }
 
     return createGitHubIssuesTaskBackend({
@@ -37,7 +37,7 @@ export async function tryCreateGitHubBackend(
     });
   } catch (_error) {
     // Return null if GitHub modules are not available
-    return null as unknown;
+    return null;
   }
 }
 

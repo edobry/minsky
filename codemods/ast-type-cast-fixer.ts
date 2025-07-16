@@ -1,208 +1,747 @@
 #!/usr/bin/env bun
 
 /**
- * AST-Based Type Cast Fixer for Task #271
+ * AS-UNKNOWN AST Codemod for Task #280
  * 
- * Uses proper AST traversal and transformation to fix unsafe type casts.
- * Follows the established AST-first principles from existing codemods.
+ * Systematically removes excessive 'as unknown' type assertions throughout the codebase
+ * to improve TypeScript effectiveness and reduce technical debt.
  * 
- * Risk-aware approach:
- * - CRITICAL: Error handling, runtime environment, file system
- * - HIGH: Domain logic, core business functionality  
- * - MEDIUM: CLI/config infrastructure
- * - LOW: Test utilities and mocking
+ * PROBLEM STATEMENT:
+ * The codebase contains 2,728 'as unknown' assertions, with 2,461 classified as high priority.
+ * These assertions mask real type errors, reduce TypeScript effectiveness, and create technical debt.
+ * 
+ * ANALYSIS RESULTS:
+ * - Total assertions: 2,728
+ * - High priority (error-masking): 2,461 (90%)
+ * - Medium priority: 156 (6%)
+ * - Low priority: 111 (4%)
+ * 
+ * TRANSFORMATION PATTERNS:
+ * 
+ * 1. Property Access Patterns (HIGH PRIORITY)
+ *    BEFORE: (state as unknown).sessions
+ *    AFTER:  state.sessions
+ *    
+ *    BEFORE: (this.sessionProvider as unknown).getSession(name)
+ *    AFTER:  this.sessionProvider.getSession(name)
+ * 
+ * 2. Array/Object Method Access (HIGH PRIORITY)
+ *    BEFORE: (sessions as unknown).find(s => s.id === id)
+ *    AFTER:  sessions.find(s => s.id === id)
+ * 
+ * 3. Return Statement Patterns (CRITICAL PRIORITY)
+ *    BEFORE: return null as unknown;
+ *    AFTER:  return null;
+ * 
+ * 4. Null/Undefined Patterns (CRITICAL PRIORITY)
+ *    BEFORE: const result = undefined as unknown;
+ *    AFTER:  const result = undefined;
+ * 
+ * 5. This Context Patterns (HIGH PRIORITY)
+ *    BEFORE: (this as unknown).name = "ErrorName";
+ *    AFTER:  this.name = "ErrorName";
+ * 
+ * RISK ASSESSMENT:
+ * - Critical: Return statements, null/undefined masking, error handling
+ * - High: Property access in domain files, service methods, array operations
+ * - Medium: Configuration access, test utilities, parameter passing
+ * - Low: Test mocking (may be legitimate), type bridging, documented uses
+ * 
+ * IMPLEMENTATION STRATEGY:
+ * 1. Parse all TypeScript files using ts-morph AST
+ * 2. Identify AsExpression nodes with 'unknown' type
+ * 3. Analyze context and categorize by risk level
+ * 4. Apply safe transformations starting with critical patterns
+ * 5. Skip patterns requiring manual review
+ * 6. Validate TypeScript compilation after changes
+ * 
+ * SUCCESS METRICS:
+ * - Target reduction: 50%+ (from 2,728 to <1,364)
+ * - High priority elimination: 80%+ (from 2,461 to <492)
+ * - Zero regressions: All tests must pass
+ * - TypeScript compilation: Must continue to work
+ * 
+ * DEPENDENCIES:
+ * - ts-morph: AST parsing and transformation
+ * - glob: File pattern matching
+ * - Codemod framework utilities
+ * 
+ * RELATED TASKS:
+ * - Task #280: Cleanup excessive 'as unknown' assertions
+ * - Task #276: Test suite optimization (identified the problem)
+ * - Task #271: Risk-aware type cast fixing (similar patterns)
  */
 
-import { Project, SyntaxKind, Node } from "ts-morph";
+import { Project, Node, SyntaxKind, AsExpression, TypeAssertion, SourceFile, ParenthesizedExpression, PropertyAccessExpression } from "ts-morph";
 
-interface TypeCastFix {
+// Copy the framework interfaces locally since we're in session workspace
+interface CodemodIssue {
   file: string;
   line: number;
+  column: number;
   description: string;
-  riskLevel: 'critical' | 'high' | 'medium' | 'low';
-  pattern: string;
+  context: string;
+  severity: "error" | "warning" | "info";
+  type: string;
+  original?: string;
+  suggested?: string;
 }
 
-const fixes: TypeCastFix[] = [];
-
-function getRiskLevel(filePath: string, context: string): 'critical' | 'high' | 'medium' | 'low' {
-  // CRITICAL RISK patterns
-  if (context.includes('(err as any)') || 
-      context.includes('(error as any)') ||
-      context.includes('(process as any)') ||
-      context.includes('(Bun as any)') ||
-      context.includes('fs.statSync') && context.includes('as any')) {
-    return 'critical';
-  }
-  
-  // HIGH RISK - Domain logic files
-  if (filePath.includes('/domain/')) {
-    return 'high';
-  }
-  
-  // LOW RISK - Test files
-  if (filePath.includes('.test.ts') || filePath.includes('/test-utils/')) {
-    return 'low';
-  }
-  
-  // MEDIUM RISK - Everything else (CLI, adapters, etc.)
-  return 'medium';
+interface CodemodMetrics {
+  filesProcessed: number;
+  issuesFound: number;
+  issuesFixed: number;
+  processingTime: number;
+  successRate: number;
+  errors: string[];
+  fileChanges: Map<string, number>;
 }
 
-function getContextAroundNode(node: Node): string {
-  const sourceFile = node.getSourceFile();
-  const start = Math.max(0, node.getStart() - 50);
-  const end = Math.min(sourceFile.getFullText().length, node.getEnd() + 50);
-  return sourceFile.getFullText().substring(start, end);
+interface CodemodOptions {
+  tsConfigPath?: string;
+  includePatterns?: string[];
+  excludePatterns?: string[];
+  dryRun?: boolean;
+  verbose?: boolean;
 }
 
-function getSaferReplacement(asAnyExpression: string, context: string, riskLevel: string): string {
-  // CRITICAL patterns get specific replacements
-  if (riskLevel === 'critical') {
-    if (context.includes('(err as any).message')) {
-      return 'err instanceof Error ? err.message : String(err)';
-    }
-    if (context.includes('(err as any).stack')) {
-      return 'err instanceof Error ? err.stack : undefined';
-    }
-    if (context.includes('(process as any).cwd')) {
-      return 'process.cwd';
-    }
-    if (context.includes('(Bun as any).argv')) {
-      return 'process.argv';
-    }
-    if (context.includes('fs.statSync') && context.includes('.isDirectory')) {
-      return asAnyExpression.replace(' as any', '');
-    }
+abstract class CodemodBase {
+  protected project: Project;
+  protected issues: CodemodIssue[] = [];
+  protected metrics: CodemodMetrics = {
+    filesProcessed: 0,
+    issuesFound: 0,
+    issuesFixed: 0,
+    processingTime: 0,
+    successRate: 0,
+    errors: [],
+    fileChanges: new Map()
+  };
+  
+  protected options: CodemodOptions;
+
+  constructor(options: CodemodOptions = {}) {
+    this.options = {
+      tsConfigPath: "./tsconfig.json",
+      includePatterns: ["src/**/*.ts", "src/**/*.tsx"],
+      excludePatterns: ["**/*.d.ts", "**/*.test.ts", "**/node_modules/**"],
+      dryRun: false,
+      verbose: false,
+      ...options
+    };
+
+    this.project = new Project({
+      tsConfigFilePath: this.options.tsConfigPath,
+      skipAddingFilesFromTsConfig: true,
+    });
   }
-  
-  // For all other cases, use 'as unknown' as safer alternative
-  return asAnyExpression.replace('as any', 'as unknown');
-}
 
-async function fixTypeCastsAST(): Promise<void> {
-  console.log("🚀 Starting AST-based type cast fixes...");
-  
-  const project = new Project({
-    tsConfigFilePath: "tsconfig.json",
-    skipAddingFilesFromTsConfig: true,
-  });
-
-  // Add all TypeScript source files
-  project.addSourceFilesAtPaths("src/**/*.ts");
-  const sourceFiles = project.getSourceFiles().filter(f => 
-    !f.getFilePath().includes('.d.ts') && 
-    !f.getFilePath().includes('node_modules')
-  );
-
-  console.log(`📁 Processing ${sourceFiles.length} source files...`);
-
-  let totalFixes = 0;
-  const riskCounts = { critical: 0, high: 0, medium: 0, low: 0 };
-
-  for (const sourceFile of sourceFiles) {
-    const filePath = sourceFile.getFilePath();
-    let fileChanged = false;
-    let fileFixes = 0;
-
-    console.log(`🔍 Analyzing ${filePath.split('/').pop()}...`);
-
-    // Find all AsExpression nodes (as any, as unknown, etc.)
-    const asExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.AsExpression);
+  async execute(): Promise<void> {
+    const startTime = Date.now();
     
-         for (const asExpr of asExpressions) {
-       const typeNode = asExpr.getTypeNode();
-       const typeText = typeNode?.getText();
-       
-       // Only process 'as any' casts
-       if (typeText === 'any') {
-        const context = getContextAroundNode(asExpr);
-        const riskLevel = getRiskLevel(filePath, context);
-        const line = asExpr.getStartLineNumber();
-        
-        riskCounts[riskLevel]++;
-        
-        // Skip critical risk items for now - require manual review
-        if (riskLevel === 'critical') {
-          fixes.push({
-            file: filePath,
-            line: line,
-            description: `CRITICAL: Manual review needed for ${asExpr.getText()}`,
-            riskLevel,
-            pattern: 'critical_manual_review'
-          });
-          continue;
+    try {
+      this.log("🚀 Starting codemod execution...");
+      
+      this.addSourceFiles();
+      this.findIssues();
+      
+      if (!this.options.dryRun) {
+        this.fixIssues();
+        this.saveChanges();
+      }
+      
+      this.metrics.processingTime = Date.now() - startTime;
+      this.generateReport();
+      
+    } catch (error) {
+      this.metrics.errors.push(`Fatal error: ${error}`);
+      throw error;
+    }
+  }
+
+  protected addSourceFiles(): void {
+    this.log("📁 Adding source files...");
+    
+    const { globSync } = require("glob");
+    const files = this.options.includePatterns!.flatMap(pattern => 
+      globSync(pattern, { ignore: this.options.excludePatterns })
+    );
+    
+    this.log(`Found ${files.length} files to process`);
+    
+    try {
+      this.project.addSourceFilesAtPaths(files);
+      this.log(`✅ Added ${files.length} source files`);
+    } catch (error) {
+      this.metrics.errors.push(`Failed to add source files: ${error}`);
+      throw error;
+    }
+  }
+
+  protected abstract findIssues(): void;
+  protected abstract fixIssues(): void;
+
+  protected saveChanges(): void {
+    this.log("💾 Saving changes...");
+    
+    const sourceFiles = this.project.getSourceFiles();
+    let savedCount = 0;
+    
+    sourceFiles.forEach(sourceFile => {
+      try {
+        if (!sourceFile.isSaved()) {
+          sourceFile.saveSync();
+          savedCount++;
         }
-        
-        // Apply transformation for non-critical items
-        const originalText = asExpr.getText();
-        const replacement = getSaferReplacement(originalText, context, riskLevel);
-        
-                 if (replacement !== originalText && typeNode) {
-           // Replace the type node with 'unknown'
-           typeNode.replaceWithText('unknown');
-           fileChanged = true;
-           fileFixes++;
-           totalFixes++;
+      } catch (error) {
+        this.metrics.errors.push(`Failed to save ${sourceFile.getFilePath()}: ${error}`);
+      }
+    });
+    
+    this.log(`✅ Saved ${savedCount} modified files`);
+  }
+
+  protected generateReport(): void {
+    this.log("\n📊 Codemod Execution Report");
+    this.log("=".repeat(50));
+    this.log(`Files Processed: ${this.metrics.filesProcessed}`);
+    this.log(`Issues Found: ${this.metrics.issuesFound}`);
+    this.log(`Issues Fixed: ${this.metrics.issuesFixed}`);
+    this.log(`Success Rate: ${this.metrics.successRate.toFixed(1)}%`);
+    this.log(`Processing Time: ${this.metrics.processingTime}ms`);
+    
+    if (this.metrics.errors.length > 0) {
+      this.log("\n❌ Errors Encountered:");
+      this.metrics.errors.forEach((error, index) => {
+        this.log(`${index + 1}. ${error}`);
+      });
+    }
+  }
+
+  protected addIssue(issue: Omit<CodemodIssue, "severity"> & { severity?: CodemodIssue["severity"] }): void {
+    this.issues.push({
+      severity: "warning",
+      ...issue
+    });
+    this.metrics.issuesFound++;
+  }
+
+  protected recordFix(filePath: string): void {
+    this.metrics.issuesFixed++;
+    const current = this.metrics.fileChanges.get(filePath) || 0;
+    this.metrics.fileChanges.set(filePath, current + 1);
+  }
+
+  protected getLineAndColumn(node: Node): { line: number; column: number } {
+    const sourceFile = node.getSourceFile();
+    const pos = node.getStart();
+    const lineAndColumn = sourceFile.getLineAndColumnAtPos(pos);
+    return {
+      line: lineAndColumn.line,
+      column: lineAndColumn.column
+    };
+  }
+
+  protected getContext(node: Node, maxLength: number = 100): string {
+    const text = node.getText();
+    return text.length > maxLength ? `${text.substring(0, maxLength)  }...` : text;
+  }
+
+  protected log(message: string): void {
+    if (this.options.verbose || !message.startsWith("  ")) {
+      console.log(message);
+    }
+  }
+}
+
+interface AsUnknownIssue extends CodemodIssue {
+  riskLevel: "critical" | "high" | "medium" | "low";
+  pattern: string;
+  transformationType: "property_access" | "service_method" | "array_operation" | "return_statement" | "null_undefined" | "this_context" | "other";
+  canAutoFix: boolean;
+  suggestedFix: string;
+}
+
+interface TransformationPattern {
+  name: string;
+  description: string;
+  riskLevel: "critical" | "high" | "medium" | "low";
+  detector: (node: AsExpression, context: string) => boolean;
+  canAutoFix: boolean;
+}
+
+export class AsUnknownASTFixer extends CodemodBase {
+  private asUnknownIssues: AsUnknownIssue[] = [];
+  private transformationPatterns: TransformationPattern[] = [];
+
+  constructor(options: CodemodOptions = {}) {
+    super({
+      includePatterns: ["src/**/*.ts"],
+      excludePatterns: ["**/*.d.ts", "**/*.test.ts", "**/node_modules/**"],
+      ...options
+    });
+    this.initializeTransformationPatterns();
+  }
+
+  private initializeTransformationPatterns(): void {
+    this.transformationPatterns = [
+      // CRITICAL PRIORITY: Return statements
+      {
+        name: "Return Statement Null/Undefined",
+        description: "Remove 'as unknown' from return statements with null/undefined",
+        riskLevel: "critical",
+        detector: (node: AsExpression, context: string) => {
+          const text = node.getText();
+          return context.includes("return") && 
+                 (text.includes("null as unknown") || text.includes("undefined as unknown"));
+        },
+        canAutoFix: true
+      },
+
+      // CRITICAL PRIORITY: Null/undefined assignments
+      {
+        name: "Null/Undefined Assignment",
+        description: "Remove 'as unknown' from null/undefined assignments",
+        riskLevel: "critical",
+        detector: (node: AsExpression, context: string) => {
+          const text = node.getText();
+          return text === "null as unknown" || text === "undefined as unknown";
+        },
+        canAutoFix: true
+      },
+
+      // HIGH PRIORITY: Property access on known objects
+      {
+        name: "State/Session Property Access",
+        description: "Remove 'as unknown' from state/session property access",
+        riskLevel: "high",
+        detector: (node: AsExpression, context: string) => {
+          const text = node.getText();
+          return text.includes("state as unknown") || 
+                 text.includes("session as unknown") ||
+                 text.includes("sessions as unknown");
+        },
+        canAutoFix: true
+      },
+
+      // HIGH PRIORITY: Service method calls
+      {
+        name: "Service Method Calls",
+        description: "Remove 'as unknown' from service method calls",
+        riskLevel: "high",
+        detector: (node: AsExpression, context: string) => {
+          const text = node.getText();
+          // Be more conservative - only match simple service patterns, avoid complex imports
+          if (text.includes("await import(") || text.includes("import(") || text.includes("require(")) {
+            return false;
+          }
+          return text.includes("this.sessionProvider as unknown") ||
+                 text.includes("this.pathResolver as unknown") ||
+                 text.includes("this.workspaceBackend as unknown") ||
+                 text.includes("this.config as unknown");
+        },
+        canAutoFix: true
+      },
+
+      // HIGH PRIORITY: Array/object method access
+      {
+        name: "Array/Object Method Access",
+        description: "Remove 'as unknown' from array/object method calls",
+        riskLevel: "high",
+        detector: (node: AsExpression, context: string) => {
+          // Check if this AsExpression is part of a PropertyAccessExpression
+          let parent = node.getParent();
+          if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+            const nextParent = parent.getParent();
+            if (nextParent && nextParent.getKind() === SyntaxKind.PropertyAccessExpression) {
+              const text = node.getText();
+              
+              // SAFETY CHECK: Skip complex expressions
+              if (text.includes("await import(") || text.includes("import(") || text.includes("require(")) {
+                return false;
+              }
+              
+              // Match patterns like (sessions as unknown).find(), (results as unknown).map()
+              return text.includes("sessions") || text.includes("results") || 
+                     text.includes("items") || text.includes("data") ||
+                     text.includes("array") || text.includes("list");
+            }
+          }
+          return false;
+        },
+        canAutoFix: true
+      },
+
+      // HIGH PRIORITY: This context access
+      {
+        name: "This Context Access",
+        description: "Remove 'as unknown' from this context property access",
+        riskLevel: "high",
+        detector: (node: AsExpression, context: string) => {
+          const text = node.getText();
+          return text.includes("this as unknown");
+        },
+        canAutoFix: true
+      },
+
+      // MEDIUM PRIORITY: Environment variables
+      {
+        name: "Environment Variable Access",
+        description: "Remove 'as unknown' from process.env access",
+        riskLevel: "medium",
+        detector: (node: AsExpression, context: string) => {
+          const text = node.getText();
+          return text.includes("process.env as unknown");
+        },
+        canAutoFix: true
+      },
+
+      // HIGH PRIORITY: Method calls on external objects
+      {
+        name: "External Object Method Calls",
+        description: "Remove 'as unknown' from method calls on external objects",
+        riskLevel: "high",
+        detector: (node: AsExpression, context: string) => {
+          // Check if this AsExpression is followed by a method call
+          let parent = node.getParent();
+          if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+            const nextParent = parent.getParent();
+            if (nextParent) {
+              parent = nextParent;
+            }
+          }
           
-          fixes.push({
-            file: filePath,
-            line: line,
-            description: `Fixed: ${originalText} → ${originalText.replace('any', 'unknown')}`,
-            riskLevel,
-            pattern: `${riskLevel}_as_unknown`
-          });
+          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+            const text = node.getText();
+            // Match patterns like (format as unknown).timestamp(), (z.string() as unknown).optional()
+            return text.includes("format") || text.includes("z.") || text.includes("Date") || 
+                   text.includes("Math") || text.includes("JSON") || text.includes("Object") ||
+                   text.includes("Array") || text.includes("console") || text.includes("Buffer");
+          }
+          return false;
+        },
+        canAutoFix: true
+      },
+
+      // HIGH PRIORITY: Property access on constants/objects
+      {
+        name: "Constant Property Access",
+        description: "Remove 'as unknown' from property access on constants",
+        riskLevel: "high",
+        detector: (node: AsExpression, context: string) => {
+          // Check if this AsExpression is followed by property access
+          let parent = node.getParent();
+          if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+            const nextParent = parent.getParent();
+            if (nextParent) {
+              parent = nextParent;
+            }
+          }
+          
+          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+            const text = node.getText();
+            // Match patterns like (descriptions as unknown).SESSION_DESCRIPTION
+            return text.includes("descriptions") || text.includes("constants") || 
+                   text.includes("config") || text.includes("options") || text.includes("params");
+          }
+          return false;
+        },
+        canAutoFix: true
+      },
+
+      // HIGH PRIORITY: Generic object property access
+      {
+        name: "Object Property Access",
+        description: "Remove 'as unknown' from object property access",
+        riskLevel: "high",
+        detector: (node: AsExpression, context: string) => {
+          // Check if this AsExpression is followed by property access
+          let parent = node.getParent();
+          if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+            const nextParent = parent.getParent();
+            if (nextParent) {
+              parent = nextParent;
+            }
+          }
+          
+          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+            const text = node.getText();
+            // Match patterns like (logInfo as unknown).message, (result as unknown).status
+            return !text.includes("process.env") && // Already handled above
+                   !text.includes("format") && // Already handled above
+                   !text.includes("z.") && // Already handled above
+                   !text.includes("state") && // Already handled by state/session pattern
+                   !text.includes("this."); // Already handled by service method pattern
+          }
+          return false;
+        },
+        canAutoFix: true
+      }
+    ];
+  }
+
+  protected findIssues(): void {
+    this.log("🔍 Analyzing 'as unknown' assertions...");
+    
+    const sourceFiles = this.project.getSourceFiles();
+    this.metrics.filesProcessed = sourceFiles.length;
+
+    for (const sourceFile of sourceFiles) {
+      const filePath = sourceFile.getFilePath();
+      
+      // Find all AsExpression nodes
+      sourceFile.forEachDescendant((node: Node) => {
+        if (node.getKind() === SyntaxKind.AsExpression) {
+          const asExpression = node as AsExpression;
+          const typeNode = asExpression.getType();
+          
+          // Check if it's 'as unknown'
+          if (asExpression.getText().includes("as unknown")) {
+            this.analyzeAsUnknownExpression(asExpression, filePath);
+          }
         }
+      });
+    }
+
+    this.log(`📊 Found ${this.asUnknownIssues.length} 'as unknown' assertions`);
+    this.metrics.issuesFound = this.asUnknownIssues.length;
+  }
+
+  private analyzeAsUnknownExpression(node: AsExpression, filePath: string): void {
+    const { line, column } = this.getLineAndColumn(node);
+    const context = this.getContext(node, 200);
+    const nodeText = node.getText();
+    
+    // Find matching transformation pattern
+    const pattern = this.transformationPatterns.find(p => p.detector(node, context));
+    
+    if (!pattern) {
+      // No matching pattern - needs manual review
+      this.addAsUnknownIssue({
+        file: filePath,
+        line,
+        column,
+        description: "Unmatched 'as unknown' pattern - needs manual review",
+        context,
+        type: "as_unknown_unmatched",
+        riskLevel: "medium",
+        pattern: nodeText,
+        transformationType: "other",
+        canAutoFix: false,
+        suggestedFix: "Manual review required"
+      });
+      return;
+    }
+
+    // Create issue with pattern information
+    this.addAsUnknownIssue({
+      file: filePath,
+      line,
+      column,
+      description: `${pattern.name}: ${pattern.description}`,
+      context,
+      type: "as_unknown_pattern",
+      riskLevel: pattern.riskLevel,
+      pattern: nodeText,
+      transformationType: this.getTransformationType(pattern.name),
+      canAutoFix: pattern.canAutoFix,
+      suggestedFix: "Extract expression from 'as unknown' assertion"
+    });
+  }
+
+  private getTransformationType(patternName: string): AsUnknownIssue["transformationType"] {
+    if (patternName.includes("Property Access")) return "property_access";
+    if (patternName.includes("Service Method")) return "service_method";
+    if (patternName.includes("Array") || patternName.includes("Object")) return "array_operation";
+    if (patternName.includes("Return")) return "return_statement";
+    if (patternName.includes("Null") || patternName.includes("Undefined")) return "null_undefined";
+    if (patternName.includes("This")) return "this_context";
+    return "other";
+  }
+
+  private addAsUnknownIssue(issue: Omit<AsUnknownIssue, "severity">): void {
+    this.asUnknownIssues.push({
+      severity: issue.riskLevel === "critical" ? "error" : "warning",
+      ...issue
+    });
+    this.addIssue(issue);
+  }
+
+  protected fixIssues(): void {
+    this.log("🔧 Applying 'as unknown' transformations...");
+    
+    const autoFixableIssues = this.asUnknownIssues.filter(issue => issue.canAutoFix);
+    this.log(`📋 Found ${autoFixableIssues.length} auto-fixable issues`);
+    
+    // Group by file for efficient processing
+    const issuesByFile = new Map<string, AsUnknownIssue[]>();
+    autoFixableIssues.forEach(issue => {
+      if (!issuesByFile.has(issue.file)) {
+        issuesByFile.set(issue.file, []);
+      }
+      issuesByFile.get(issue.file)!.push(issue);
+    });
+
+    // Process each file
+    for (const [filePath, issues] of issuesByFile) {
+      this.fixFileIssues(filePath, issues);
+    }
+
+    this.log(`✅ Applied ${this.metrics.issuesFixed} transformations`);
+  }
+
+  private fixFileIssues(filePath: string, issues: AsUnknownIssue[]): void {
+    const sourceFile = this.project.getSourceFile(filePath);
+    if (!sourceFile) {
+      this.log(`⚠️  Could not find source file: ${filePath}`);
+      return;
+    }
+
+    let transformationCount = 0;
+
+    // Sort issues by position (descending) to avoid position shifts
+    issues.sort((a, b) => b.line - a.line || b.column - a.column);
+
+    for (const issue of issues) {
+      if (this.applyTransformation(sourceFile, issue)) {
+        transformationCount++;
+        this.recordFix(filePath);
       }
     }
 
-    // Note: TypeAssertion syntax (<any>expression) is less common in modern TypeScript
-    // Most projects use AsExpression syntax (expression as any) which we handle above
-
-    if (fileChanged) {
-      sourceFile.save();
-      console.log(`✅ Applied ${fileFixes} fixes to ${filePath.split('/').pop()}`);
+    if (transformationCount > 0) {
+      this.log(`  📝 ${filePath}: ${transformationCount} transformations applied`);
     }
   }
 
-  console.log("\n📊 Risk-Aware Type Cast Fix Summary");
-  console.log("=====================================");
-  console.log(`🔴 Critical (manual review): ${riskCounts.critical}`);
-  console.log(`🟠 High (fixed): ${riskCounts.high}`);
-  console.log(`🟡 Medium (fixed): ${riskCounts.medium}`);
-  console.log(`🟢 Low (fixed): ${riskCounts.low}`);
-  console.log(`✅ Total fixes applied: ${totalFixes}`);
-  console.log(`⚠️  Critical items requiring manual review: ${riskCounts.critical}`);
+  private applyTransformation(sourceFile: SourceFile, issue: AsUnknownIssue): boolean {
+    // Find the specific node at the issue location
+    const nodes = sourceFile.getDescendantsOfKind(SyntaxKind.AsExpression);
+    
+    for (const node of nodes) {
+      const { line, column } = this.getLineAndColumn(node);
+      if (line === issue.line && column === issue.column) {
+        // Apply the transformation using proper AST manipulation
+        const pattern = this.transformationPatterns.find(p => p.name === issue.description.split(":")[0]);
+        if (pattern) {
+          return this.transformAsExpression(node, pattern);
+        }
+      }
+    }
+    
+    return false;
+  }
 
-  // Generate concise report
-  const report = {
-    timestamp: new Date().toISOString(),
-    summary: {
-      totalIssuesFound: fixes.length,
-      automaticFixesApplied: totalFixes,
-      manualReviewRequired: riskCounts.critical,
-      riskBreakdown: riskCounts
-    },
-    criticalIssues: fixes.filter(f => f.riskLevel === 'critical').map(f => ({
-      file: f.file.split('/').pop(),
-      line: f.line,
-      description: f.description
-    })),
-    patternBreakdown: fixes.reduce((acc, fix) => {
-      acc[fix.pattern] = (acc[fix.pattern] || 0) + 1;
+  private transformAsExpression(node: AsExpression, pattern: TransformationPattern): boolean {
+    try {
+      // For 'as unknown' expressions, we want to extract the expression part
+      // and replace the entire AsExpression with just the expression
+      let expression = node.getExpression();
+      const parent = node.getParent();
+      
+      // SAFETY CHECK: Skip complex expressions that would create syntax errors
+      const expressionText = expression.getText();
+      
+      // Skip dynamic imports and await expressions
+      if (expressionText.includes("await import(") || 
+          expressionText.includes("import(") ||
+          expressionText.includes("require(") ||
+          expressionText.includes("process.") ||
+          expressionText.match(/^\d+$/)) { // Skip numeric literals
+        return false;
+      }
+      
+      // Skip numeric expressions with method calls that would create syntax errors
+      // e.g., (port + 3 as unknown).toString() would become port + 3.toString() which is invalid
+      if (expressionText.includes(" + ") && parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+        const grandParent = parent.getParent();
+        if (grandParent && grandParent.getKind() === SyntaxKind.PropertyAccessExpression) {
+          return false;
+        }
+      }
+      
+      // If the expression is parenthesized, extract the inner expression
+      // This handles cases like (state as unknown) -> state instead of (state)
+      if (expression.getKind() === SyntaxKind.ParenthesizedExpression) {
+        const parenthesizedExpr = expression as ParenthesizedExpression;
+        expression = parenthesizedExpr.getExpression();
+      }
+      
+      // ADDITIONAL SAFETY: Skip if extracting parentheses would create complex await/async issues
+      const innerText = expression.getText();
+      if (innerText.includes("await") || innerText.includes("import(")) {
+        return false;
+      }
+      
+      // Check if the AsExpression itself is parenthesized
+      if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+        // Replace the entire parenthesized expression with just the inner expression
+        parent.replaceWithText(expression.getText());
+      } else {
+        // Replace just the AsExpression with the inner expression
+        node.replaceWithText(expression.getText());
+      }
+      
+      return true;
+    } catch (error) {
+      this.log(`⚠️  Error transforming node: ${error}`);
+      return false;
+    }
+  }
+
+  protected generateReport(): void {
+    super.generateReport();
+    
+    this.log("\n📊 AS-UNKNOWN TRANSFORMATION REPORT");
+    this.log("=====================================");
+    
+    // Risk level breakdown
+    const riskBreakdown = this.asUnknownIssues.reduce((acc, issue) => {
+      acc[issue.riskLevel] = (acc[issue.riskLevel] || 0) + 1;
       return acc;
-    }, {} as Record<string, number>)
-  };
-
-  try {
-    await Bun.write('./type-cast-fix-report.json', JSON.stringify(report, null, 2));
-    console.log(`💾 Concise report saved to: type-cast-fix-report.json`);
-  } catch (error) {
-    console.log(`❌ Failed to save report: ${error}`);
+    }, {} as Record<string, number>);
+    
+    this.log("🎯 By Risk Level:");
+    Object.entries(riskBreakdown).forEach(([level, count]) => {
+      this.log(`  ${level}: ${count}`);
+    });
+    
+    // Transformation type breakdown
+    const typeBreakdown = this.asUnknownIssues.reduce((acc, issue) => {
+      acc[issue.transformationType] = (acc[issue.transformationType] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    this.log("🔧 By Transformation Type:");
+    Object.entries(typeBreakdown).forEach(([type, count]) => {
+      this.log(`  ${type}: ${count}`);
+    });
+    
+    // Auto-fix capability
+    const autoFixable = this.asUnknownIssues.filter(i => i.canAutoFix).length;
+    const manualReview = this.asUnknownIssues.length - autoFixable;
+    
+    this.log(`\n🤖 Auto-fixable: ${autoFixable}`);
+    this.log(`👁️  Manual review: ${manualReview}`);
+    
+    // Calculate success metrics
+    const reductionRate = this.metrics.issuesFixed / this.metrics.issuesFound * 100;
+    this.log(`\n📈 Reduction Rate: ${reductionRate.toFixed(1)}%`);
+    
+    if (reductionRate >= 50) {
+      this.log("✅ SUCCESS: Target reduction of 50%+ achieved!");
+    } else {
+      this.log("⚠️  Target reduction of 50%+ not yet achieved");
+    }
   }
 }
 
-// CLI interface
+// CLI execution
 if (import.meta.main) {
-  fixTypeCastsAST().catch(console.error);
+  const fixer = new AsUnknownASTFixer({
+    verbose: true,
+    dryRun: process.argv.includes("--dry-run")
+  });
+  
+  fixer.execute().catch(console.error);
 } 

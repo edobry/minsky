@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
 import { Project } from "ts-morph";
-import { ImportExtensionFixer, ImportFixResult, ImportFixMetrics } from "../fix-import-extensions";
+import { ImportExtensionFixer, ImportFixResult, ImportFixMetrics } from "./fix-import-extensions";
 
 /**
  * Test Suite for Import Extension Fixer

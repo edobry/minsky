@@ -10,12 +10,12 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import {
-  getSessionFromParams,
+  sessionGet,
   deleteSessionFromParams,
   updateSessionFromParams,
   type SessionProviderInterface,
   type SessionRecord,
-} from "../../session";
+} from "../session";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 
 // Mock session provider

@@ -18,7 +18,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Includes phased implementation plan with testing strategy
   - Maintains backward compatibility with existing workflows
 
+### Fixed
+
+- **Module Resolution Errors**: Implemented directory-structure-aware import path fixing
+  - Created comprehensive test suite using actual directory structure analysis
+  - Built directory-aware codemod using path.relative() instead of pattern matching
+  - Achieved 100% success rate with 138 import fixes across 70 files (vs 85% with pattern-based)
+  - Fixed module resolution errors by correcting import paths based on actual filesystem structure
+  - Resolved export/import naming mismatches in session command modules
+  - Command `minsky tasks status set 116` now works correctly without module resolution errors
+  - Updated codemod-development-standards.mdc with key learnings about structure-aware transformations
+
+_See: SpecStory history for directory-structure-aware import path fixing session for module resolution improvements._
+
 ### Changed
+
+- **MCP Inspector Upgrade**: Upgraded @modelcontextprotocol/inspector from 0.14.3 to 0.16.1
+  - Fixed server command execution to use 'bun run minsky' instead of 'minsky' directly
+  - Resolved StreamableHTTPError and connection issues with new inspector version
+  - Added explicit working directory configuration for proper execution context
+  - Inspector now properly launches Minsky MCP server as subprocess for debugging HTTP Stream and stdio transports
 
 - **Task #181**: Completed configuration system migration to idiomatic node-config implementation (Phase 6)
   - Removed NodeConfigAdapter anti-pattern that was fighting against idiomatic node-config usage
@@ -271,8 +290,6 @@ _See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specst
   - Zero breaking changes for development workflow with improved performance
 
 _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
-
-### Fixed
 
 - **Task #255: Fix Session Dependency Installation Error**
   - Fixed critical bug where session startup would fail with "null is not an object" error during dependency installation
@@ -1176,3 +1193,8 @@ _See: SpecStory history [2025-01-16_fix-session-get-output](mdc:.specstory/histo
 - Removed redundant bun-test.d.ts (now using bun-types package)
 
 _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/history/2025-06-18_18-00-continue-linter-fixes.md) for linter cleanup progress._
+
+### Fixed
+- Fixed inconsistent task ID format display in session list output
+- Normalized task#244 from displaying `(task: 244)` to `(task: #244)` for consistency
+- Added script `scripts/normalize-session-task-ids.ts` for future task ID format normalization
