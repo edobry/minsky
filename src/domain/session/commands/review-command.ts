@@ -14,8 +14,8 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-} from "../../../errors/index";
-import { log } from "../../../utils/logger";
+} from "../../errors/index";
+import { log } from "../../utils/logger";
 import * as WorkspaceUtils from "../../workspace";
 
 /**
