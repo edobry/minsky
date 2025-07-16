@@ -3,7 +3,7 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
-import { getSessionFromParams } from "../get-command";
+import { sessionGet } from "../get-command";
 import { log } from "../../../../utils/logger";
 
 /**
@@ -42,7 +42,7 @@ export async function executeSessionGetCommand(
 ): Promise<any> {
   const { name, task, repo, json } = parameters;
 
-  const result = await getSessionFromParams({
+  const result = await sessionGet({
     name,
     task,
     repo,
@@ -54,4 +54,4 @@ export async function executeSessionGetCommand(
   }
 
   return result;
-} 
+}

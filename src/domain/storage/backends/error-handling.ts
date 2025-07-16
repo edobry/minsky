@@ -89,7 +89,7 @@ export class StorageError extends Error {
       recoveryActions: this.recoveryActions,
       retryable: this.retryable,
       stack: this.stack,
-      originalError: (this.originalError as unknown).message,
+      originalError: this.originalError.message,
     };
   }
 }
@@ -102,7 +102,7 @@ export class StorageErrorClassifier {
     error: Error,
     context: StorageErrorContext
   ): StorageError {
-    const classification = this.analyzeError(error as unknown, context as unknown);
+    const classification = this.analyzeError(error, context);
     
     return new StorageError(
       classification.message,
@@ -128,17 +128,17 @@ export class StorageErrorClassifier {
 
     // JSON File Backend Errors
     if (backend === "json") {
-      return this.classifyJsonError(error as unknown, errorMessage);
+      return this.classifyJsonError(error, errorMessage);
     }
 
     // SQLite Backend Errors
     if (backend === "sqlite") {
-      return this.classifySqliteError(error as unknown, errorMessage);
+      return this.classifySqliteError(error, errorMessage);
     }
 
     // PostgreSQL Backend Errors
     if (backend === "postgres") {
-      return this.classifyPostgresError(error as unknown, errorMessage);
+      return this.classifyPostgresError(error, errorMessage);
     }
 
     // Generic error fallback
@@ -338,7 +338,7 @@ export class StorageErrorClassifier {
   }
 
   private static classifyPostgresError(error: Error, errorMessage: string) {
-    const pgError = error as unknown; // PostgreSQL errors have specific properties
+    const pgError = error; // PostgreSQL errors have specific properties
 
     // Connection refused
     if (errorMessage.includes("econnrefused") || errorMessage.includes("connection refused")) {
@@ -565,8 +565,8 @@ export class StorageErrorMonitor {
     const key = `${(error.context as any).backend}-${(error as any).type}`;
     const currentCount = (this.errorCounts as any).get(key) || 0;
     
-    (this.errorCounts as unknown).set(key, currentCount + 1);
-    this.lastErrors.set(key, error as unknown);
+    this.errorCounts.set(key, currentCount + 1);
+    this.lastErrors.set(key, error);
 
     // Log error with context
     log.error("Storage error recorded", {
@@ -602,7 +602,7 @@ export class StorageErrorMonitor {
    * Reset error counters (useful for tests or periodic cleanup)
    */
   static resetCounters(): void {
-    (this.errorCounts as unknown).clear();
+    this.errorCounts.clear();
     this.lastErrors.clear();
   }
 

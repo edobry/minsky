@@ -10,7 +10,7 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import {
-  getSessionFromParams,
+  sessionGet,
   deleteSessionFromParams,
   updateSessionFromParams,
   type SessionProviderInterface,

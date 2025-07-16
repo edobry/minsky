@@ -51,6 +51,16 @@ import {
   type PrOptions,
   type PrResult 
 } from "./git/pr-generation-operations";
+import { 
+  pushImpl,
+  type PushOptions,
+  type PushResult 
+} from "./git/push-operations";
+import { 
+  cloneImpl,
+  type CloneOptions,
+  type CloneResult 
+} from "./git/clone-operations";
 
 const execAsync = promisify(exec);
 
@@ -204,17 +214,7 @@ export interface ExtendedGitDependencies extends BasicGitDependencies {
   access: (path: string) => Promise<void>;
 }
 
-export interface CloneOptions {
-  repoUrl: string;
-  workdir: string; // Explicit path where to clone, provided by caller
-  session?: string;
-  branch?: string;
-}
 
-export interface CloneResult {
-  workdir: string;
-  session: string;
-}
 
 export interface BranchOptions {
   session: string;
@@ -250,18 +250,7 @@ export interface MergeResult {
   conflicts: boolean;
 }
 
-export interface PushOptions {
-  session?: string;
-  repoPath?: string;
-  remote?: string;
-  force?: boolean;
-  debug?: boolean;
-}
 
-export interface PushResult {
-  workdir: string;
-  pushed: boolean;
-}
 
 
 
@@ -305,99 +294,15 @@ export class GitService implements GitServiceInterface {
   async clone(options: CloneOptions): Promise<CloneResult> {
     await this.ensureBaseDir();
 
-    const session = options.session || this.generateSessionId();
-    const workdir = options.workdir;
-
-    log.debug("Clone operation starting", {
-      repoUrl: options.repoUrl,
-      workdir,
-      session,
+    const fs = await import("fs/promises");
+    return cloneImpl(options, {
+      execAsync,
+      mkdir: fs.mkdir,
+      readdir: fs.readdir,
+      access: fs.access,
+      rm: fs.rm,
+      generateSessionId: this.generateSessionId.bind(this)
     });
-
-    try {
-      // Validate repo URL
-      if (!options.repoUrl || options.repoUrl.trim() === "") {
-        log.error("Invalid repository URL", { repoUrl: options.repoUrl });
-        throw new MinskyError("Repository URL is required for cloning");
-      }
-
-      // Clone the repository with verbose logging FIRST
-      log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
-      const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
-
-      // Ensure parent directory exists
-      await mkdir(dirname(workdir), { recursive: true });
-      log.debug("Session parent directory created", { parentDir: dirname(workdir) });
-
-      try {
-        const { stdout, stderr } = await execAsync(cloneCmd);
-        log.debug("git clone succeeded", {
-          stdout: stdout.trim().substring(0, 200),
-        });
-      } catch (cloneErr) {
-        log.error("git clone command failed", {
-          error: getErrorMessage(cloneErr),
-          command: cloneCmd,
-        });
-
-        // Clean up orphaned session directory if git clone fails
-        try {
-          const fs = await import("fs/promises");
-          await fs.rm(workdir, { recursive: true, force: true });
-          log.debug("Cleaned up session directory after git clone failure", { workdir });
-        } catch (cleanupErr) {
-          log.warn("Failed to cleanup session directory after git clone failure", {
-            workdir,
-            error: getErrorMessage(cleanupErr),
-          });
-        }
-
-        throw cloneErr;
-      }
-
-      // Verify the clone was successful by checking for .git directory
-      log.debug("Verifying clone success");
-      const fs = await import("fs/promises");
-      try {
-        const gitDir = join(workdir, ".git");
-        await fs.access(gitDir);
-        log.debug(".git directory exists, clone was successful", { gitDir });
-
-        // List files in the directory to help debug
-        try {
-          const dirContents = await fs.readdir(workdir);
-          log.debug("Clone directory contents", {
-            workdir,
-            fileCount: dirContents.length,
-            firstFewFiles: dirContents.slice(0, 5),
-          });
-        } catch (err) {
-          log.warn("Could not read clone directory", {
-            workdir,
-            error: getErrorMessage(err as any),
-          });
-        }
-      } catch (accessErr) {
-        log.error(".git directory not found after clone", {
-          workdir,
-          error: getErrorMessage(accessErr),
-        });
-        throw new MinskyError("Git repository was not properly cloned: .git directory not found");
-      }
-
-      return {
-        workdir,
-        session,
-      };
-    } catch (error) {
-      log.error("Error during git clone", {
-        error: getErrorMessage(error as any),
-        stack: error instanceof Error ? (error as any).stack : undefined,
-        repoUrl: options.repoUrl,
-        workdir,
-      });
-      throw new MinskyError(`Failed to clone git repository: ${getErrorMessage(error as any)}`);
-    }
   }
 
   async branch(options: BranchOptions): Promise<BranchResult> {
@@ -652,67 +557,12 @@ export class GitService implements GitServiceInterface {
    */
   async push(options: PushOptions): Promise<PushResult> {
     await this.ensureBaseDir();
-    let workdir: string;
-    let branch: string;
-    const remote = options.remote || "origin";
-
-    // 1. Resolve workdir
-    if (options.session) {
-      const record = await this.sessionDb.getSession(options.session);
-      if (!record) {
-        throw new Error(`Session '${options.session}' not found.`);
-      }
-      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(options.session);
-      branch = options.session; // Session branch is named after the session
-    } else if (options.repoPath) {
-      workdir = options.repoPath;
-      // Get current branch from repo
-      const { stdout: branchOut } = await execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      branch = branchOut.trim();
-    } else {
-      // Try to infer from current directory
-      workdir = (process as any).cwd();
-      // Get current branch from cwd
-      const { stdout: branchOut } = await execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      branch = branchOut.trim();
-    }
-
-    // 2. Validate remote exists
-    const { stdout: remotesOut } = await execAsync(`git -C ${workdir} remote`);
-    const remotes = remotesOut.split("\n").map((r) => r.trim()).filter(Boolean);
-    if (!remotes.includes(remote)) {
-      throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
-    }
-
-    // 3. Build push command
-    let pushCmd = `git -C ${workdir} push ${remote} ${branch}`;
-    if (options.force) {
-      pushCmd += " --force";
-    }
-
-    // 4. Execute push
-    try {
-      await execAsync(pushCmd);
-      return { workdir, pushed: true };
-    } catch (err: any) {
-      // Provide helpful error messages for common issues
-      if ((err as any).stderr && (err.stderr as any).includes("[rejected]")) {
-        throw new Error(
-          "Push was rejected by the remote. You may need to pull or use --force if you intend to overwrite remote history."
-        );
-      }
-      if ((err as any).stderr && (err.stderr as any).includes("no upstream")) {
-        throw new Error(
-          "No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first."
-        );
-      }
-      throw new Error((err as any).stderr || (err as any).message || String(err as any));
-    }
+    
+    return pushImpl(options, {
+      execAsync,
+      getSession: (sessionName: string) => this.sessionDb.getSession(sessionName),
+      getSessionWorkdir: (sessionName: string) => this.getSessionWorkdir(sessionName)
+    });
   }
 
   /**
@@ -1032,58 +882,7 @@ export class GitService implements GitServiceInterface {
     }
   }
 
-  /**
-   * Testable version of clone with dependency injection
-   */
-  async cloneWithDependencies(
-    options: CloneOptions,
-    deps: ExtendedGitDependencies
-  ): Promise<CloneResult> {
-    await deps.mkdir(this.baseDir, { recursive: true });
 
-    const session = options.session || this.generateSessionId();
-    const repoName = normalizeRepoName(options.repoUrl);
-    const normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
-
-    const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
-    await deps.mkdir(sessionsDir, { recursive: true });
-
-    const workdir = this.getSessionWorkdir(session);
-
-    try {
-      // Validate repo URL
-      if (!options.repoUrl || options.repoUrl.trim() === "") {
-        throw new Error("Repository URL is required for cloning");
-      }
-
-      // Check if destination already exists and is not empty
-      try {
-        const dirContents = await deps.readdir(workdir);
-        if (dirContents.length > 0) {
-          log.warn("Destination directory is not empty", { workdir, contents: dirContents });
-        }
-      } catch (err) {
-        // Directory doesn't exist or can't be read - this is expected
-        log.debug("Destination directory doesn't exist or is empty", { workdir });
-      }
-
-      // Clone the repository
-      const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
-      await deps.execAsync(cloneCmd);
-
-      // Verify the clone was successful by checking for .git directory
-      try {
-        const gitDir = join(workdir, ".git");
-        await deps.access(gitDir);
-      } catch (accessErr) {
-        throw new Error("Git repository was not properly cloned: .git directory not found");
-      }
-
-      return { workdir, session };
-    } catch (error) {
-      throw new Error(`Failed to clone git repository: ${getErrorMessage(error as any)}`);
-    }
-  }
 
   /**
    * Testable version of branch with dependency injection
@@ -1106,71 +905,7 @@ export class GitService implements GitServiceInterface {
     };
   }
 
-  /**
-   * Testable version of push with dependency injection
-   */
-  async pushWithDependencies(options: PushOptions, deps: PrDependencies): Promise<PushResult> {
-    let workdir: string;
-    let branch: string;
-    const remote = options.remote || "origin";
 
-    // 1. Resolve workdir
-    if (options.session) {
-      const record = await deps.getSession(options.session);
-      if (!record) {
-        throw new Error(`Session '${options.session}' not found.`);
-      }
-      workdir = deps.getSessionWorkdir(options.session);
-      branch = options.session; // Session branch is named after the session
-    } else if (options.repoPath) {
-      workdir = options.repoPath;
-      // Get current branch from repo
-      const { stdout: branchOut } = await deps.execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      branch = branchOut.trim();
-    } else {
-      // Try to infer from current directory
-      workdir = (process as any).cwd();
-      // Get current branch from cwd
-      const { stdout: branchOut } = await deps.execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      branch = branchOut.trim();
-    }
-
-    // 2. Validate remote exists
-    const { stdout: remotesOut } = await deps.execAsync(`git -C ${workdir} remote`);
-    const remotes = remotesOut.split("\n").map((r) => r.trim()).filter(Boolean);
-    if (!remotes.includes(remote)) {
-      throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
-    }
-
-    // 3. Build push command
-    let pushCmd = `git -C ${workdir} push ${remote} ${branch}`;
-    if (options.force) {
-      pushCmd += " --force";
-    }
-
-    // 4. Execute push
-    try {
-      await deps.execAsync(pushCmd);
-      return { workdir, pushed: true };
-    } catch (err: any) {
-      // Provide helpful error messages for common issues
-      if ((err as any).stderr && (err.stderr as any).includes("[rejected]")) {
-        throw new Error(
-          "Push was rejected by the remote. You may need to pull or use --force if you intend to overwrite remote history."
-        );
-      }
-      if ((err as any).stderr && (err.stderr as any).includes("no upstream")) {
-        throw new Error(
-          "No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first."
-        );
-      }
-      throw new Error((err as any).stderr || (err as any).message || String(err as any));
-    }
-  }
 
   /**
    * Get the current branch name

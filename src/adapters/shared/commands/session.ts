@@ -15,360 +15,37 @@ import {
   type CommandExecutionContext,
 } from "../../shared/command-registry";
 import {
-  getSessionFromParams,
-  listSessionsFromParams,
-  startSessionFromParams,
-  deleteSessionFromParams,
-  getSessionDirFromParams,
-  updateSessionFromParams,
-  approveSessionFromParams,
-  sessionPrFromParams,
-  inspectSessionFromParams,
+  sessionGet,
+  sessionList,
+  sessionStart,
+  sessionDelete,
+  sessionDir,
+  sessionUpdate,
+  sessionApprove,
+  sessionPr,
+  sessionInspect,
 } from "../../../domain/session";
 import { log } from "../../../utils/logger";
 import { MinskyError } from "../../../errors/index";
+import {
+  sessionListCommandParams,
+  sessionGetCommandParams,
+  sessionStartCommandParams,
+  sessionDirCommandParams,
+  sessionDeleteCommandParams,
+  sessionUpdateCommandParams,
+  sessionApproveCommandParams,
+  sessionPrCommandParams,
+  sessionInspectCommandParams,
+} from "./session-parameters";
+import {
+  handleSessionPrError,
+  validatePrParameters,
+  generateMissingBodyErrorMessage,
+  generateMissingTaskAssociationErrorMessage,
+} from "./session-error-handling";
 
-/**
- * Parameters for the session list command
- */
-const sessionListCommandParams: CommandParameterMap = {
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
 
-/**
- * Parameters for the session get command
- */
-const sessionGetCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string().min(1),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session start command
- */
-const sessionStartCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string().min(1),
-    description: "Name for the new session (optional, alternative to --task)",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID to associate with the session (required if --description not provided)",
-    required: false,
-  },
-  description: {
-    schema: z.string().min(1),
-    description: "Description for auto-created task (required if --task not provided)",
-    required: false,
-  },
-  branch: {
-    schema: z.string(),
-    description: "Branch name to create (defaults to session name)",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  session: {
-    schema: z.string(),
-    description: "Deprecated: use name parameter instead",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  quiet: {
-    schema: z.boolean(),
-    description: "Suppress output except for the session directory path",
-    required: false,
-    defaultValue: false,
-  },
-  noStatusUpdate: {
-    schema: z.boolean(),
-    description: "Skip updating task status when starting a session with a task",
-    required: false,
-    defaultValue: false,
-  },
-  skipInstall: {
-    schema: z.boolean(),
-    description: "Skip automatic dependency installation",
-    required: false,
-    defaultValue: false,
-  },
-  packageManager: {
-    schema: z.enum(["bun", "npm", "yarn", "pnpm"]),
-    description: "Override the detected package manager",
-    required: false,
-  },
-};
-
-/**
- * Parameters for the session dir command
- */
-const sessionDirCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string().min(1),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session delete command
- */
-const sessionDeleteCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string().min(1),
-    description: "Session name to delete",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  force: {
-    schema: z.boolean(),
-    description: "Skip confirmation prompt",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session update command
- */
-const sessionUpdateCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string(),
-    description: "Session name to update",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  branch: {
-    schema: z.string(),
-    description: "Update branch name",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  noStash: {
-    schema: z.boolean(),
-    description: "Skip stashing local changes",
-    required: false,
-    defaultValue: false,
-  },
-  noPush: {
-    schema: z.boolean(),
-    description: "Skip pushing changes to remote after update",
-    required: false,
-    defaultValue: false,
-  },
-  force: {
-    schema: z.boolean(),
-    description: "Force update even if the session workspace is dirty",
-    required: false,
-    defaultValue: false,
-  },
-  skipConflictCheck: {
-    schema: z.boolean(),
-    description: "Skip proactive conflict detection before update",
-    required: false,
-    defaultValue: false,
-  },
-  autoResolveDeleteConflicts: {
-    schema: z.boolean(),
-    description: "Automatically resolve delete/modify conflicts by accepting deletions",
-    required: false,
-    defaultValue: false,
-  },
-  dryRun: {
-    schema: z.boolean(),
-    description: "Check for conflicts without performing actual update",
-    required: false,
-    defaultValue: false,
-  },
-  skipIfAlreadyMerged: {
-    schema: z.boolean(),
-    description: "Skip update if session changes are already in base branch",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session approve command
- */
-const sessionApproveCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string(),
-    description: "Session name to approve",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session pr command
- */
-const sessionPrCommandParams: CommandParameterMap = {
-  title: {
-    schema: z.string().min(1),
-    description: "Title for the PR (optional for existing PRs)",
-    required: false,
-  },
-  body: {
-    schema: z.string(),
-    description: "Body text for the PR",
-    required: false,
-  },
-  bodyPath: {
-    schema: z.string(),
-    description: "Path to file containing PR body text",
-    required: false,
-  },
-  name: {
-    schema: z.string(),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  noStatusUpdate: {
-    schema: z.boolean(),
-    description: "Skip updating task status",
-    required: false,
-    defaultValue: false,
-  },
-  debug: {
-    schema: z.boolean(),
-    description: "Enable debug output",
-    required: false,
-    defaultValue: false,
-  },
-  skipUpdate: {
-    schema: z.boolean(),
-    description: "Skip session update before creating PR",
-    required: false,
-    defaultValue: false,
-  },
-  autoResolveDeleteConflicts: {
-    schema: z.boolean(),
-    description: "Automatically resolve delete/modify conflicts by accepting deletions",
-    required: false,
-    defaultValue: false,
-  },
-  skipConflictCheck: {
-    schema: z.boolean(),
-    description: "Skip proactive conflict detection during update",
-    required: false,
-    defaultValue: false,
-  },
-};
 
 /**
  * Register the session commands in the shared command registry
@@ -385,7 +62,7 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.list command", { params, context });
 
       try {
-        const sessions = await listSessionsFromParams({
+        const sessions = await sessionList({
           repo: params!.repo,
           json: params!.json,
         });
@@ -414,7 +91,7 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.get command", { params, context });
 
       try {
-        const session = await getSessionFromParams({
+        const session = await sessionGet({
           name: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -464,7 +141,7 @@ Examples:
       }
 
       try {
-        const session = await startSessionFromParams({
+        const session = await sessionStart({
           name: params!.name,
           task: params!.task,
           description: params!.description,
@@ -504,7 +181,7 @@ Examples:
       log.debug("Executing session.dir command", { params, context });
 
       try {
-        const directory = await getSessionDirFromParams({
+        const directory = await sessionDir({
           name: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -537,7 +214,7 @@ Examples:
       log.debug("Executing session.delete command", { params, context });
 
       try {
-        const deleted = await deleteSessionFromParams({
+        const deleted = await sessionDelete({
           name: params!.name,
           task: params!.task,
           force: params!.force,
@@ -570,7 +247,7 @@ Examples:
       log.debug("Executing session.update command", { params, context });
 
       try {
-        await updateSessionFromParams({
+        await sessionUpdate({
           name: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -610,7 +287,7 @@ Examples:
       log.debug("Executing session.approve command", { params, context });
 
       try {
-        const result = (await approveSessionFromParams({
+        const result = (await sessionApprove({
           session: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -707,7 +384,7 @@ Example:
       }
 
       try {
-        const result = (await sessionPrFromParams({
+        const result = (await sessionPr({
           title: params!.title,
           body: params!.body,
           bodyPath: params!.bodyPath,
@@ -825,7 +502,7 @@ Need help? Run the command with --debug for detailed error information.`
       log.debug("Executing session.inspect command", { params, context });
 
       try {
-        const session = await inspectSessionFromParams({
+        const session = await sessionInspect({
           json: params!.json,
         });
 

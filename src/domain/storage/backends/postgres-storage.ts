@@ -73,7 +73,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
     // Run migrations
     this.runMigrations().catch((error) => {
-      log.warn("Migration error (may be expected for new database):", error as unknown);
+      log.warn("Migration error (may be expected for new database):", error);
     });
   }
 
@@ -85,7 +85,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       await migrate(this.drizzle, { migrationsFolder: "./src/domain/storage/migrations" });
     } catch (error) {
       // Log but don't throw - migrations may not exist yet
-      log.debug("Migration attempt failed:", error as unknown);
+      log.debug("Migration attempt failed:", error);
     }
   }
 
@@ -109,7 +109,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return true;
     } catch (error) {
-      log.error("Failed to initialize PostgreSQL storage:", error as unknown);
+      log.error("Failed to initialize PostgreSQL storage:", error);
       return false;
     }
   }
@@ -172,7 +172,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         .from(postgresSessions)
         .where(eq(postgresSessions.session, id)) as unknown).limit(1);
 
-      return result.length > 0 ? fromPostgresSelect((result as unknown)[0]) : null;
+      return result.length > 0 ? fromPostgresSelect(result[0]) : null;
     } catch (error) {
       log.error("Failed to get session from PostgreSQL:", error as Error);
       return null;
@@ -224,11 +224,11 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       // Update in database
       await (this.drizzle
         .update(postgresSessions)
-        .set(updateData as unknown) as unknown).where(eq(postgresSessions.session, id));
+        .set(updateData) as unknown).where(eq(postgresSessions.session, id));
 
       return updated;
     } catch (error) {
-      log.error("Failed to update session in PostgreSQL:", error as unknown);
+      log.error("Failed to update session in PostgreSQL:", error);
       throw error;
     }
   }
@@ -243,7 +243,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return result.rowCount !== null && result.rowCount > 0 as unknown;
     } catch (error) {
-      log.error("Failed to delete session from PostgreSQL:", error as unknown);
+      log.error("Failed to delete session from PostgreSQL:", error);
       return false;
     }
   }
@@ -260,7 +260,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return result.length > 0 as unknown;
     } catch (error) {
-      log.error("Failed to check session existence in PostgreSQL:", error as unknown);
+      log.error("Failed to check session existence in PostgreSQL:", error);
       return false;
     }
   }
@@ -281,7 +281,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     try {
       await this.sql.end();
     } catch (error) {
-      log.error("Error closing PostgreSQL connection:", error as unknown);
+      log.error("Error closing PostgreSQL connection:", error);
     }
   }
 }

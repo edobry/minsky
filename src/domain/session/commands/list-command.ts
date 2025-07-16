@@ -1,16 +1,16 @@
 import type { SessionListParams } from "../../schemas/session";
 import { createSessionProvider } from "../../session";
-import { 
-  Session, 
+import {
+  Session,
   SessionProviderInterface,
-  SessionDependencies 
+  SessionDependencies
 } from "../types";
 
 /**
  * Lists all sessions based on parameters
  * Using proper dependency injection for better testability
  */
-export async function listSessionsFromParams(
+export async function sessionList(
   params: SessionListParams,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
@@ -22,4 +22,4 @@ export async function listSessionsFromParams(
   };
 
   return deps.sessionDB.listSessions();
-} 
+}

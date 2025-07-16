@@ -18,7 +18,7 @@ import { log } from "../../utils/logger";
 /**
  * Prepares a PR for a session based on parameters
  */
-export async function sessionPrFromParams(params: SessionPrParams): Promise<SessionPrResult> {
+export async function sessionPr(params: SessionPrParams): Promise<SessionPrResult> {
   const { session, task, repo, baseBranch, title, body, branchName, debug } = params;
 
   // Set up dependencies with defaults

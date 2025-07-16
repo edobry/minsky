@@ -71,7 +71,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace the preparePr method with our spy
-      (gitService as unknown).preparePr = preparePrSpy;
+      gitService.preparePr = preparePrSpy;
 
       // Execute the preparePr method
       await gitService.preparePr({
@@ -141,7 +141,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace with correct implementation
-      (gitService as unknown).preparePr = correctPreparePrSpy;
+      gitService.preparePr = correctPreparePrSpy;
 
       // Execute the CORRECT preparePr method
       const result = await gitService.preparePr({
@@ -318,7 +318,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         }
       });
 
-      (gitService as unknown).preparePr = preparePrWithConflictSpy;
+      gitService.preparePr = preparePrWithConflictSpy;
 
       // Should throw error on merge conflict
       await expect(

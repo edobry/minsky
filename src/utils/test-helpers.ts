@@ -14,12 +14,12 @@ import { log } from "./logger";
 const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
 
 // Mock filesystem operations for testing
-export function mockMkdirSync(path: string, _options?: { recursive?: boolean }): void {
+export function mockMkdirSync(path: string, options?: { recursive?: boolean }): void {
   log.debug(`[MOCK] Creating directory ${path}`);
   virtualFS.set(path, { isDirectory: true });
 
   // If recursive, create parent directories
-  if (_options?.recursive) {
+  if (options?.recursive) {
     let parent = dirname(path);
     while (parent && parent !== "." && parent !== "/") {
       virtualFS.set(parent, { isDirectory: true });
@@ -36,12 +36,12 @@ export function mockExistsSync(path: string): boolean {
 
 export function mockRmSync(
   path: string,
-  _options?: { recursive?: boolean; force?: boolean }
+  options?: { recursive?: boolean; force?: boolean }
 ): void {
   log.debug(`[MOCK] Removing ${path}`);
 
   // If recursive, remove all children first
-  if (_options?.recursive) {
+  if (options?.recursive) {
     const children = Array.from(virtualFS.keys()).filter((key) => key.startsWith(`${path}/`));
     for (const child of children) {
       virtualFS.delete(child);
@@ -176,13 +176,13 @@ export const mockFS = {
  * @throws Error If command execution failed
  */
 export function ensureValidCommandResult(result: SpawnSyncReturns<string>): void {
-  if (!result || (result as unknown)!.status === null) {
+  if (!result || result.status === null) {
     log.error("Command execution failed or was killed");
     throw new Error("Command execution failed");
   }
 
-  if ((result as unknown)!.status !== 0) {
-    log.error(`Command failed with status ${(result as unknown)!.status}`);
-    log.error(`Stderr: ${(result as unknown)!.stderr}`);
+  if (result.status !== 0) {
+    log.error(`Command failed with status ${result.status}`);
+    log.error(`Stderr: ${result.stderr}`);
   }
 }
