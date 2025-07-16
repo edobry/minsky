@@ -1,4 +1,4 @@
-import type { SessionPrParams } from "../../schemas/session";
+import type { SessionPrParams } from "../../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
 import { preparePrFromParams } from "../../git";
@@ -12,8 +12,8 @@ import {
   ResourceNotFoundError, 
   ValidationError,
   getErrorMessage,
-} from "../../errors/index";
-import { log } from "../../utils/logger";
+} from "../../../../errors";
+import { log } from "../../../../utils/logger";
 
 /**
  * Prepares a PR for a session based on parameters

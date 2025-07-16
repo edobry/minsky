@@ -1,11 +1,11 @@
-import type { SessionStartParams } from "../../schemas/session";
+import type { SessionStartParams } from "../../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
 import { TaskService } from "../../tasks";
 import { normalizeRepoName, resolveRepoPath } from "../../repo-utils";
 import { createTaskFromDescription } from "../../templates/session-templates";
-import { installDependencies } from "../../utils/package-manager";
-import { log } from "../../utils/logger";
+import { installDependencies } from "../../../utils/package-manager";
+import { log } from "../../../../utils/logger";
 import { 
   Session, 
   SessionRecord,
@@ -14,7 +14,7 @@ import {
 import { 
   MinskyError, 
   ValidationError,
-} from "../../errors/index";
+} from "../../../../errors";
 import * as WorkspaceUtils from "../../workspace";
 
 /**
