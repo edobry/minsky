@@ -3,18 +3,18 @@ import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
 import { getCurrentSession } from "../../workspace";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { 
-  Session, 
+import {
+  Session,
   SessionProviderInterface,
-  SessionDependencies 
+  SessionDependencies
 } from "../types";
-import { 
-  MinskyError, 
-  ResourceNotFoundError, 
+import {
+  MinskyError,
+  ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-} from "../../../../errors";
-import { log } from "../../../../utils/logger";
+} from "../../../errors";
+import { log } from "../../../utils/logger";
 
 /**
  * Updates a session based on parameters
@@ -49,7 +49,7 @@ export async function updateSessionFromParams(
 
     // Get the session details using the resolved session name
     const session = await deps.sessionDB.getSession(resolvedContext.sessionName);
-    
+
     if (!session) {
       throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
     }
@@ -61,7 +61,7 @@ export async function updateSessionFromParams(
     try {
       // Fetch latest changes
       await deps.gitService.pullLatest(workdir);
-      
+
       // If branch is specified, checkout to that branch
       if (branch) {
         await deps.gitService.execInRepository(workdir, `git checkout ${branch}`);
@@ -76,7 +76,7 @@ export async function updateSessionFromParams(
       }
 
       log.info(`Session '${resolvedContext.sessionName}' updated successfully`);
-      
+
       return session;
     } catch (error) {
       throw new MinskyError(`Failed to update session: ${getErrorMessage(error)}`);
@@ -90,4 +90,11 @@ export async function updateSessionFromParams(
     }
     throw error;
   }
-} 
+}
+
+/**
+ * Updates a session - simpler interface matching expected export name
+ */
+export async function sessionUpdate(params: SessionUpdateParams): Promise<Session> {
+  return updateSessionFromParams(params);
+}

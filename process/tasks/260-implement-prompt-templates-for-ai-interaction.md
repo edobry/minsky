@@ -151,6 +151,10 @@ minsky templates delete task-continue
 - Session management system
 - Task management system
 
+## Related Tasks
+
+- **Task #284**: Implement user prompt analytics for automatic template discovery - Provides automated discovery of commonly-used prompt structures to feed into this templates system using embeddings and similarity search
+
 ## Estimated Complexity
 
 **Medium-High** - Requires thoughtful design of template system, variable substitution, and CLI integration while maintaining compatibility with existing workflows.
