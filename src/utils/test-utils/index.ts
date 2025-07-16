@@ -36,19 +36,23 @@ export {
   testDataFactory
 } from "./test-isolation";
 
-// Centralized service mock factories
+// Dependency injection utilities and individual service mock factories
 export {
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
   createTestDeps,
+  createTaskTestDeps,
   createSessionTestDeps,
   createGitTestDeps,
-  createTaskTestDeps,
+  createMockRepositoryBackend,
   withMockedDeps,
   createDeepTestDeps,
   createPartialTestDeps,
-  createMockRepositoryBackend,
+  // Individual service mock factories
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+  type MockSessionProviderOptions,
+  type MockGitServiceOptions,
+  type MockTaskServiceOptions
 } from "./dependencies";
 
 // Original utilities (avoid conflicts)
