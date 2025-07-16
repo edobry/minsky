@@ -79,17 +79,6 @@ This technical debt was identified during Task #276 test suite optimization, whe
   - **Global Date simplification**: Removed redundant conditional checks around global Date replacement
   - **Code clarity**: Simplified control flow by removing unnecessary safety conditionals
 
-### Testing Architecture Improvement Identified
-- **Current Issue**: `setupConsoleSpy()` function mocks `process.exit` directly using `spyOn(process, "exit" as any)`
-- **Better Approach**: Should mock the custom `exit()` utility from `src/utils/process.ts` instead
-- **Architectural Benefit**: This follows the established abstraction pattern and aligns with Task #194's effort to replace direct `process.exit()` calls
-- **Proper Implementation**:
-  ```typescript
-  import { exit } from "../process.js";
-  const exitSpy = spyOn(exit).mockImplementation(() => { throw new Error("exit called"); });
-  ```
-- **Impact**: This change would eliminate one more 'as unknown' assertion while following proper architectural patterns
-
 ### Recent Progress (Latest Session Work - CONTINUED AST CODEMOD)
 - **AST Codemod Enhanced with Safety Improvements**:
   - Added comprehensive safety checks for complex expressions

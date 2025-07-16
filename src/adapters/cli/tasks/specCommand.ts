@@ -11,8 +11,8 @@ import {
   addOutputOptions,
   addBackendOptions,
   normalizeTaskParams,
-} from "../../../utils/index";
-import { handleCliError, outputResult } from "../../../utils/error-handler";
+} from "../utils/index";
+import { handleCliError, outputResult } from "../utils/error-handler";
 
 /**
  * Interface for CLI options specific to the spec command
