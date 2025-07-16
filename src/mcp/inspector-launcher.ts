@@ -8,7 +8,7 @@ import { getErrorMessage } from "../errors/index";
 export interface InspectorOptions {
   /**
    * Port for the inspector to listen on
-   * @default 6274
+   * @default 5173
    */
   port?: number;
 
@@ -82,7 +82,7 @@ export function isInspectorAvailable(): boolean {
  * @returns Inspector launch result
  */
 export function launchInspector(options: InspectorOptions): InspectorLaunchResult {
-  const { port = 6274, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = options;
+  const { port = 5173, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = options;
 
   if (!isInspectorAvailable()) {
     return {
@@ -93,44 +93,64 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
   }
 
   try {
-    // For the new MCP inspector, we use the client start script
-    // and configure it to connect to our existing server
+    // Build the MCP server command that the inspector will launch
+    // Use bun run to execute the minsky command properly
+    const serverCommand = ["bun", "run", "minsky", "mcp", "start"];
+
+    // Add transport-specific arguments
+    if (mcpTransportType === "httpStream") {
+      serverCommand.push("--http-stream");
+      if (mcpPort) {
+        serverCommand.push("--port", mcpPort.toString());
+      }
+      if (mcpHost) {
+        serverCommand.push("--host", mcpHost);
+      }
+    } else {
+      // Default to stdio
+      serverCommand.push("--stdio");
+    }
+
+    // Configure environment variables for the inspector
     const env: Record<string, string | undefined> = {
-      ...(process as any).env,
-      CLIENT_PORT: (port as any).toString(),
-      SERVER_PORT: ((port + 3) as unknown).toString(), // Use a different port for the inspector server
+      ...process.env,
+      CLIENT_PORT: port.toString(),
+      SERVER_PORT: "3000", // Standard MCP Inspector proxy server port
     };
 
     // Configure auto-open based on openBrowser option
     if (!openBrowser) {
-      (env as unknown).MCP_AUTO_OPEN_ENABLED = "false";
+      env.MCP_AUTO_OPEN_ENABLED = "false";
     }
 
     // For security, we'll need to set this for auto-open to work
-    (env as unknown).DANGEROUSLY_OMIT_AUTH = "true";
+    env.DANGEROUSLY_OMIT_AUTH = "true";
 
     log.debug("Launching MCP Inspector", {
       clientPort: port,
-      serverPort: port + 3,
+      serverPort: 3000,
       openBrowser,
       mcpTransportType,
       mcpPort,
       mcpHost,
+      serverCommand,
     });
 
-    // Use the client start script directly
+    // Launch the inspector with the server command
+    // The inspector will start its own instance of the server and connect to it
     const inspectorProcess = spawn(
-      "node",
-      ["node_modules/@modelcontextprotocol/inspector/client/bin/start.js"],
+      "npx",
+      ["@modelcontextprotocol/inspector", ...serverCommand],
       {
         stdio: ["ignore", "pipe", "pipe"],
         detached: false,
         env,
+        cwd: process.cwd(), // Ensure we're in the right directory for bun run
       }
     );
 
     // Check for immediate launch errors
-    if (!(inspectorProcess as unknown).pid) {
+    if (!inspectorProcess.pid) {
       return {
         success: false,
         error: "Failed to start MCP Inspector process",
@@ -138,18 +158,18 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     }
 
     // Handle process events
-    (inspectorProcess as unknown).on("error", (error) => {
+    inspectorProcess.on("error", (error) => {
       log.error("MCP Inspector process error", {
         error: (error as any).message as any,
         stack: (error as any).stack as any,
       });
     });
 
-    (inspectorProcess.stderr as unknown).on("data", (data) => {
+    inspectorProcess.stderr.on("data", (data) => {
       log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);
     });
 
-    (inspectorProcess as unknown).on("exit", (code, signal) => {
+    inspectorProcess.on("exit", (code, signal) => {
       log.debug("MCP Inspector process exited", { code, signal });
     });
 

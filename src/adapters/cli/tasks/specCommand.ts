@@ -11,20 +11,32 @@ import {
   addOutputOptions,
   addBackendOptions,
   normalizeTaskParams,
-} from "../utils/index";
-import { handleCliError, outputResult } from "../utils/error-handler";
+} from "../../../utils/index";
+import { handleCliError, outputResult } from "../../../utils/error-handler";
+
+/**
+ * Interface for CLI options specific to the spec command
+ */
+interface SpecCommandOptions {
+  section?: string;
+  session?: string;
+  repo?: string;
+  "upstream-repo"?: string;
+  backend?: string;
+  json?: boolean;
+}
 
 /**
  * Creates the task spec command
  * This command retrieves and displays task specification content
  */
 export function createSpecCommand(): Command {
-  const command = (new Command("spec")
+  const command = new Command("spec")
     .description("Get task specification _content")
-    .argument("<task-id>", "ID of the task to retrieve specification _content for") as unknown).option(
-    "--section <section>",
-    "Specific section of the specification to retrieve (e.g., 'requirements')"
-  );
+    .argument("<task-id>", "ID of the task to retrieve specification _content for").option(
+      "--section <section>",
+      "Specific section of the specification to retrieve (e.g., 'requirements')"
+    );
 
   // Add shared options
   addRepoOptions(command);
@@ -34,14 +46,7 @@ export function createSpecCommand(): Command {
   command.action(
     async (
       taskId: string,
-      options: {
-        section?: string;
-        session?: string;
-        repo?: string;
-        "upstream-repo"?: string;
-        backend?: string;
-        json?: boolean;
-      }
+      options: SpecCommandOptions
     ) => {
       try {
         // Normalize the task ID before passing to domain
@@ -53,55 +58,24 @@ export function createSpecCommand(): Command {
         }
 
         // Convert CLI options to domain parameters using normalization helper
-        const normalizedParams = normalizeTaskParams(options as unknown);
+        const normalizedParams = normalizeTaskParams(options);
 
         // Convert CLI options to domain parameters
         const params: TaskSpecContentParams = {
           ...normalizedParams,
           taskId: normalizedTaskId,
-          section: (options as unknown).section,
-        } as unknown;
+          section: options.section,
+        };
 
         // Call the domain function
-        const result = await getTaskSpecContentFromParams(params as unknown);
+        const result = await getTaskSpecContentFromParams(params);
 
         // Format and display the result
-        outputResult(result as unknown, {
-          json: (options as unknown).json,
-          formatter: (data: any) => {
-            log.cli(`Task ${(data.task as unknown).id}: ${(data.task as unknown).title}`);
-            log.cli(`Specification file: ${(data as unknown).specPath}`);
-
-            // If a specific section was requested, try to extract it
-            if ((data as unknown).section) {
-              // Simple extraction logic for common section patterns
-              const sectionRegex = new RegExp(`## ${(data as unknown).section}`, "i");
-              const match = (data.content as unknown).match(sectionRegex);
-
-              if (match && match.index !== undefined) {
-                const startIndex = match.index;
-                // Find the next section or the end of the file
-                const nextSectionMatch = ((data.content as unknown).slice(startIndex + match[0].length) as unknown).match(/^## /m);
-                const endIndex = nextSectionMatch
-                  ? startIndex + (match[0] as unknown).length + (nextSectionMatch as unknown).index
-                  : (data.content as unknown).length;
-
-                const sectionContent = (((data.content.slice(startIndex, endIndex)) as unknown).toString() as unknown).trim();
-                log.cli(`\n${sectionContent}`);
-              } else {
-                log.cli(`\nSection "${(data as unknown).section}" not found in specification.`);
-                log.cli("\nFull specification content:");
-                log.cli((data as unknown).content);
-              }
-            } else {
-              // Display the full content
-              log.cli("\nSpecification content:");
-              log.cli((data as unknown).content);
-            }
-          },
+        outputResult(result, {
+          json: options.json,
         });
       } catch (error) {
-        handleCliError(error as any);
+        handleCliError(error);
       }
     }
   );

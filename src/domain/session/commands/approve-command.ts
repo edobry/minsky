@@ -3,24 +3,24 @@ import { createGitService } from "../../git";
 import { TaskService, TASK_STATUS } from "../../tasks";
 import { getCurrentSession } from "../../workspace";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { 
+import {
   SessionApprovalResult,
   SessionProviderInterface,
-  SessionApprovalDependencies 
+  SessionApprovalDependencies
 } from "../types";
-import { 
-  MinskyError, 
-  ResourceNotFoundError, 
+import {
+  MinskyError,
+  ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-} from "../../errors/index";
-import { log } from "../../utils/logger";
+} from "../../../errors";
+import { log } from "../../../utils/logger";
 import * as WorkspaceUtils from "../../workspace";
 
 /**
  * Approves a session (merges PR) based on parameters
  */
-export async function approveSessionFromParams(
+export async function sessionApprove(
   params: {
     session?: string;
     task?: string;
@@ -61,7 +61,7 @@ export async function approveSessionFromParams(
 
     // Get the session details using the resolved session name
     const sessionRecord = await deps.sessionDB.getSession(resolvedContext.sessionName);
-    
+
     if (!sessionRecord) {
       throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
     }
@@ -71,7 +71,7 @@ export async function approveSessionFromParams(
 
     // Get current branch (should be the PR branch)
     const currentBranch = await deps.gitService.getCurrentBranch(workdir);
-    
+
     // Get base branch
     let baseBranch = "main";
     try {
@@ -82,20 +82,20 @@ export async function approveSessionFromParams(
 
     // Switch to base branch
     await deps.gitService.execInRepository(workdir, `git checkout ${baseBranch}`);
-    
+
     // Pull latest changes
     await deps.gitService.pullLatest(workdir);
-    
+
     // Merge the PR branch
     const mergeResult = await deps.gitService.mergeBranch(workdir, currentBranch);
-    
+
     if (mergeResult.conflicts) {
       throw new MinskyError(`Merge conflicts detected while merging ${currentBranch} into ${baseBranch}`);
     }
 
     // Get merge commit hash
     const commitHash = await deps.gitService.execInRepository(workdir, "git rev-parse HEAD");
-    
+
     // Push the merged changes
     await deps.gitService.push({
       repoPath: workdir,
@@ -131,7 +131,7 @@ export async function approveSessionFromParams(
     };
 
     log.info(`Session '${resolvedContext.sessionName}' approved and merged successfully`);
-    
+
     return result;
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
@@ -142,4 +142,4 @@ export async function approveSessionFromParams(
     }
     throw error;
   }
-} 
+}

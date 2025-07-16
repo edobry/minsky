@@ -1,14 +1,33 @@
 import { normalizeRepoName } from "../repo-utils";
-import { MergePrOptions, MergePrResult } from "./types";
+import type { SessionProviderInterface } from "../session";
+
+export interface MergePrOptions {
+  prBranch: string;
+  repoPath?: string;
+  baseBranch?: string;
+  session?: string;
+}
+
+export interface MergePrResult {
+  prBranch: string;
+  baseBranch: string;
+  commitHash: string;
+  mergeDate: string;
+  mergedBy: string;
+}
 
 export interface MergePrDependencies {
-  execInRepository: (workdir: string, command: string) => Promise<string>;
-  getSession: (name: string) => Promise<any>;
+  sessionDb: SessionProviderInterface;
   getSessionWorkdir: (session: string) => string;
+  execInRepository: (workdir: string, command: string) => Promise<string>;
 }
 
 /**
- * Merge a PR branch into the base branch
+ * Merges a pull request branch into the base branch
+ * 
+ * @param options - PR merge options
+ * @param deps - Injected dependencies
+ * @returns PR merge result
  */
 export async function mergePrImpl(
   options: MergePrOptions,
@@ -19,7 +38,7 @@ export async function mergePrImpl(
 
   // 1. Determine working directory
   if (options.session) {
-    const record = await deps.getSession(options.session);
+    const record = await deps.sessionDb.getSession(options.session);
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
@@ -29,7 +48,7 @@ export async function mergePrImpl(
     workdir = options.repoPath;
   } else {
     // Try to infer from current directory
-    workdir = process.cwd();
+    workdir = (process as any).cwd();
   }
 
   // 2. Make sure we're on the base branch

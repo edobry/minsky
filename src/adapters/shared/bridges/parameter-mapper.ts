@@ -49,30 +49,30 @@ export interface ParameterMapping {
  * Creates Commander.js options from parameter mappings
  */
 export function createOptionsFromMappings(mappings: ParameterMapping[]): Option[] {
-  return mappings.filter((mapping) => !(mapping.options as unknown).asArgument).map(createOptionFromMapping);
+  return mappings.filter((mapping) => !mapping.options.asArgument).map(createOptionFromMapping);
 }
 
 /**
  * Adds Commander.js arguments from parameter mappings
  */
 export function addArgumentsFromMappings(command: Command, mappings: ParameterMapping[]): Command {
-  const argumentMappings = mappings.filter((mapping) => (mapping.options as unknown).asArgument);
+  const argumentMappings = mappings.filter((mapping) => mapping.options.asArgument);
 
   argumentMappings.forEach((mapping) => {
     const { name, paramDef, options } = mapping;
 
     // Format argument name
-    const argName = formatArgumentName(name, (paramDef as unknown).required, (options as unknown).variadic);
+    const argName = formatArgumentName(name, paramDef.required, options.variadic);
 
     // Add argument to command
-    if ((options as unknown).variadic) {
-      command.argument(argName, (options as unknown).description || (paramDef as unknown).description || "");
+    if (options.variadic) {
+      command.argument(argName, options.description || paramDef.description || "");
     } else {
-      command.argument(argName, (options as unknown).description || (paramDef as unknown).description || "");
+      command.argument(argName, options.description || paramDef.description || "");
     }
 
     // Add custom parser if provided
-    if ((options as unknown).parser) {
+    if (options.parser) {
       // Note: Commander.js doesn't have a direct way to add parsers to arguments
       // This would need to be handled in the action function
     }
@@ -88,25 +88,25 @@ function createOptionFromMapping(mapping: ParameterMapping): Option {
   const { name, paramDef, options } = mapping;
 
   // Get schema type for proper option definition
-  const schemaType = getZodSchemaType((paramDef as unknown).schema);
+  const schemaType = getZodSchemaType(paramDef.schema);
 
   // Format option flag
-  const flag = formatOptionFlag(name, (options as unknown).alias, schemaType);
+  const flag = formatOptionFlag(name, options.alias, schemaType);
 
   // Create the option
-  const option = new Option(flag, (options as unknown).description || (paramDef as unknown).description || "");
+  const option = new Option(flag, options.description || paramDef.description || "");
 
   // Apply additional configuration
-  if ((options as unknown).hidden) {
+  if (options.hidden) {
     option.hideHelp();
   }
 
-  if ((paramDef as unknown).defaultValue !== undefined || (options as unknown).defaultValue !== undefined) {
-    option.default((options as unknown).defaultValue ?? (paramDef as unknown).defaultValue);
+  if (paramDef.defaultValue !== undefined || options.defaultValue !== undefined) {
+    option.default(options.defaultValue ?? paramDef.defaultValue);
   }
 
   // Add proper type handling based on schema
-  addTypeHandlingToOption(option, schemaType, (options as unknown).parser);
+  addTypeHandlingToOption(option, schemaType, options.parser);
 
   return option;
 }
@@ -171,7 +171,7 @@ function addTypeHandlingToOption(
   switch (schemaType) {
   case "number":
     return option.argParser((value) => {
-      const num = Number(value as unknown);
+      const num = Number(value);
       if (isNaN(num)) {
         throw new Error("Option requires a number value");
       }
@@ -182,7 +182,7 @@ function addTypeHandlingToOption(
     return option;
 
   case "array":
-    return option.argParser((value) => ((value as unknown).split(",") as unknown).map((v) => (v as unknown).trim()));
+    return option.argParser((value) => value.split(",").map((v) => v.trim()));
 
   default:
     return option;
@@ -203,12 +203,12 @@ function getZodSchemaType(schema: z.ZodTypeAny): string | undefined {
 
   // Handle optional types and nullable types (unwrap and check inner type)
   if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
-    return getZodSchemaType((schema as unknown).unwrap());
+    return getZodSchemaType(schema.unwrap());
   }
 
   // Handle default types (access inner type differently)
   if (schema instanceof z.ZodDefault) {
-    return getZodSchemaType((schema._def as unknown).innerType);
+    return getZodSchemaType(schema._def.innerType);
   }
 
   // Handle enums
@@ -225,17 +225,17 @@ export function createParameterMappings(
   parameters: Record<string, CommandParameterDefinition>,
   customOptions: Record<string, ParameterMappingOptions> = {}
 ): ParameterMapping[] {
-  return (Object.entries(parameters) as unknown).map(([name, paramDef]) => ({
+  return Object.entries(parameters).map(([name, paramDef]) => ({
     name,
     paramDef,
     options: {
       // Apply default options
-      hidden: (paramDef as unknown).cliHidden,
+      hidden: paramDef.cliHidden,
 
       // Override with custom options if available
       ...customOptions[name],
     },
-  })) as unknown;
+  }));
 }
 
 /**
@@ -248,17 +248,17 @@ export function normalizeCliParameters(
   const result: Record<string, any> = {};
 
   // Process each parameter
-  for (const [paramName, paramDef] of (Object as unknown).entries(parametersSchema)) {
+  for (const [paramName, paramDef] of Object.entries(parametersSchema)) {
     const rawValue = cliParameters[paramName];
 
     // Handle undefined values
     if (rawValue === undefined) {
       // Use default value if available
-      if ((paramDef as unknown).defaultValue !== undefined) {
-        (result as unknown)[paramName] = (paramDef as unknown).defaultValue;
+      if (paramDef.defaultValue !== undefined) {
+        result[paramName] = paramDef.defaultValue;
       }
       // Skip optional parameters
-      if (!(paramDef as unknown).required) {
+      if (!paramDef.required) {
         continue;
       }
       // Error for required parameters without default
@@ -266,8 +266,8 @@ export function normalizeCliParameters(
     } else {
       // Parse and validate the value
       try {
-        const parsedValue = (paramDef.schema as unknown).parse(rawValue);
-        (result as unknown)[paramName] = parsedValue;
+        const parsedValue = paramDef.schema.parse(rawValue);
+        result[paramName] = parsedValue;
       } catch (error) {
         // Use user-friendly error formatting for Zod validation errors
         if (error instanceof z.ZodError) {

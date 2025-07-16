@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { rm, mkdir } from "fs/promises";
 import { existsSync } from "fs";
-import { GitService } from "../git";
+import { GitService } from "./git";
 
 describe("Session Lookup Bug Integration Test", () => {
   let tempDir: string;

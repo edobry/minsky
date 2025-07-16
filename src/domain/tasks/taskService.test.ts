@@ -5,12 +5,12 @@ const TEST_VALUE = 123;
  */
 
 import { describe, test, expect, mock, beforeEach } from "bun:test";
-import { TaskService } from "../taskService";
-import type { TaskBackend } from "../taskBackend";
+import { TaskService } from "./taskService";
+import type { TaskBackend } from "./taskBackend";
 import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
-} from "../../../types/tasks/taskData";
+} from "../../types/tasks/taskData";
 
 // Create a mock backend for testing
 function createMockBackend(): TaskBackend {

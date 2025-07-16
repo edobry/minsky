@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { tmpdir } from "os";
 import { rmSync, existsSync, mkdirSync, readFileSync } from "fs";
-import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
-import { TaskService } from "../taskService";
-import type { TaskData } from "../../../types/tasks/taskData";
+import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { TaskService } from "./taskService";
+import type { TaskData } from "../../types/tasks/taskData";
 
 describe("Real-World Workflow Testing", () => {
   const testBaseDir = join(tmpdir(), "minsky-test", `real-world-test-${Date.now()}-${Math.random().toString(36).substring(7)}`);
@@ -36,7 +36,7 @@ describe("Real-World Workflow Testing", () => {
       });
 
       // 2. Verify the backend knows its storage location
-      expect((jsonBackend as unknown).getStorageLocation()).toBe(testJsonPath);
+      expect(jsonBackend.getStorageLocation()).toBe(testJsonPath);
 
       // 3. Create some test task data
       const testTasks: TaskData[] = [
@@ -94,7 +94,7 @@ describe("Real-World Workflow Testing", () => {
 
       // Should default to team-shareable location
       const expectedPath = join(testBaseDir, "process", "tasks.json");
-      expect((jsonBackend as unknown).getStorageLocation()).toBe(expectedPath);
+      expect(jsonBackend.getStorageLocation()).toBe(expectedPath);
     });
   });
 

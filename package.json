@@ -12,14 +12,15 @@
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\"",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "test:coverage": "bun test --coverage"
+    "test:coverage": "bun test --coverage",
+    "validate-commit": "bun scripts/validate-commit-message.ts"
   },
   "bin": {
     "minsky": "./src/cli.ts"
   },
   "devDependencies": {
     "@eslint/js": "9.29.0",
-    "@modelcontextprotocol/inspector": "^0.14.3",
+    "@modelcontextprotocol/inspector": "0.14.3",
     "@types/bun": "^1.2.11",
     "@types/config": "^3.3.5",
     "@types/jest": "^29.5.14",
@@ -59,7 +60,7 @@
     "config": "^4.0.0",
     "drizzle-kit": "^0.31.2",
     "drizzle-orm": "^0.44.2",
-    "fastmcp": "^3.5.0",
+    "fastmcp": "3.5.0",
     "fs-extra": "^11.3.0",
     "gray-matter": "^4.0.3",
     "logform": "^2.7.0",

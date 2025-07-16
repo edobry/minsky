@@ -11,9 +11,9 @@ const TEST_ARRAY_SIZE = 3;
  * create regular PR branches instead of prepared merge commits.
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { GitService } from "../git";
-import { sessionPrFromParams } from "../session";
-import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
+import { GitService } from "./git";
+import { sessionPrFromParams } from "./session";
+import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
 
 // Set up automatic mock cleanup
@@ -71,7 +71,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace the preparePr method with our spy
-      (gitService as unknown).preparePr = preparePrSpy;
+      gitService.preparePr = preparePrSpy;
 
       // Execute the preparePr method
       await gitService.preparePr({
@@ -141,7 +141,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace with correct implementation
-      (gitService as unknown).preparePr = correctPreparePrSpy;
+      gitService.preparePr = correctPreparePrSpy;
 
       // Execute the CORRECT preparePr method
       const result = await gitService.preparePr({
@@ -209,8 +209,8 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace the preparePrFromParams function
-      const originalPreparePr = require("../git.js").preparePrFromParams;
-      (require("../git.js") as unknown).preparePrFromParams = mockPreparePrFromParams;
+      const originalPreparePr = require("./git").preparePrFromParams;
+      (require("./git") as unknown).preparePrFromParams = mockPreparePrFromParams;
 
       try {
         // Execute sessionPrFromParams
@@ -237,7 +237,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         expect(result.baseBranch).toBe("main");
       } finally {
         // Restore original function
-        (require("../git.js") as unknown).preparePrFromParams = originalPreparePr;
+        (require("./git") as unknown).preparePrFromParams = originalPreparePr;
       }
     });
   });
@@ -318,7 +318,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         }
       });
 
-      (gitService as unknown).preparePr = preparePrWithConflictSpy;
+      gitService.preparePr = preparePrWithConflictSpy;
 
       // Should throw error on merge conflict
       await expect(

@@ -20,7 +20,7 @@ export class MinskyError extends Error {
     public readonly cause?: any
   ) {
     super(message);
-    (this as unknown).name = (this.constructor as unknown).name;
+    this.name = this.constructor.name;
 
     // Capture stack trace, excluding constructor call from it
     if (Error.captureStackTrace) {

@@ -29,7 +29,7 @@ export class FastMCPCommandMapper {
   ): void {
     log.debug(`Registering tool: ${name}`, { description });
 
-    (this.server as unknown).addTool({
+    this.server.addTool({
       name,
       description,
       parameters: schema,
@@ -46,7 +46,7 @@ export class FastMCPCommandMapper {
     schema: T,
     handler: (args: z.infer<T>) => Promise<Record<string, any>>
   ): void {
-    this.addTool(`session.${name}`, description, schema, handler as unknown);
+    this.addTool(`session.${name}`, description, schema, handler);
   }
 
   /**
@@ -58,7 +58,7 @@ export class FastMCPCommandMapper {
     schema: T,
     handler: (args: z.infer<T>) => Promise<Record<string, any>>
   ): void {
-    this.addTool(`tasks.${name}`, description, schema, handler as unknown);
+    this.addTool(`tasks.${name}`, description, schema, handler);
   }
 
   /**
@@ -70,16 +70,16 @@ export class FastMCPCommandMapper {
     schema: T,
     handler: (args: z.infer<T>) => Promise<Record<string, any>>
   ): void {
-    this.addTool(`git.${name}`, description, schema, handler as unknown);
+    this.addTool(`git.${name}`, description, schema, handler);
   }
 
   /**
    * Add a simple command without prefix
    */
   addCommand(command: { name: string; description: string; inputSchema?: any }): void {
-    (this.server as unknown).addTool({
-      name: (command as unknown).name,
-      description: (command as unknown).description,
+    this.server.addTool({
+      name: command.name,
+      description: command.description,
       parameters: command?.inputSchema || z.object({}),
       execute: async () => ({ success: true }),
     });

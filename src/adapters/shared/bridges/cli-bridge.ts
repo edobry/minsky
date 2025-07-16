@@ -22,6 +22,15 @@ import {
   addArgumentsFromMappings,
   normalizeCliParameters,
 } from "./parameter-mapper";
+import {
+  formatSessionDetails,
+  formatSessionSummary,
+  formatSessionPrDetails,
+  formatSessionApprovalDetails,
+  formatDebugEchoDetails,
+  formatRuleDetails,
+  formatRuleSummary,
+} from "./cli-result-formatters";
 
 /**
  * CLI-specific execution context
@@ -464,7 +473,7 @@ export class CliCommandBridge {
       } else if (typeof result === "object" && result !== null) {
         // Special handling for session get command results
         if ((commandDef as any).id === "session.get" && "session" in result) {
-          this.formatSessionDetails((result as any).session as Record<string, any>);
+          formatSessionDetails((result as any).session as Record<string, any>);
         } else if ((commandDef as any).id === "session.dir" && "directory" in result) {
           log.cli(`${(result as any).directory}`);
         } else if ((commandDef as any).id === "session.list" && "sessions" in result) {
@@ -472,23 +481,23 @@ export class CliCommandBridge {
           const sessions = (result as any).sessions as any[];
           if (Array.isArray(sessions) && (sessions as any).length > 0) {
             (sessions as any).forEach((session: any) => {
-              this.formatSessionSummary(session as Record<string, any>);
+              formatSessionSummary(session as Record<string, any>);
             });
           } else {
             log.cli("No sessions found.");
           }
         } else if ((commandDef as any).id === "session.pr" && "prBranch" in result) {
           // Handle session pr results - format them nicely
-          this.formatSessionPrDetails(result as any);
+          formatSessionPrDetails(result as any);
         } else if ((commandDef as any).id === "session.approve" && ((result as any).result && "session" in (result as any).result)) {
           // Handle session approve results - format them nicely
-          this.formatSessionApprovalDetails((result as any).result);
+          formatSessionApprovalDetails((result as any).result);
         } else if ((commandDef as any).id === "rules.list" && "rules" in result) {
           // Handle rules list results
           if (Array.isArray((result as any).rules)) {
             if ((result.rules as any).length > 0) {
               (result.rules as any).forEach((rule: any) => {
-                this.formatRuleSummary(rule as Record<string, any>);
+                formatRuleSummary(rule as Record<string, any>);
               });
             } else {
               log.cli("No rules found.");
@@ -496,7 +505,7 @@ export class CliCommandBridge {
           }
         } else if ((commandDef as any).id === "rules.get" && "rule" in result) {
           // Handle rules get results
-          this.formatRuleDetails((result as any).rule as Record<string, any>);
+          formatRuleDetails((result as any).rule as Record<string, any>);
         } else if ((commandDef as any).id === "tasks.status.get") {
           // Handle tasks status get results with friendly formatting
           const resultObj = result as Record<string, any>;
@@ -573,24 +582,7 @@ export class CliCommandBridge {
     };
   }
 
-  /**
-   * Format session details for human-readable output
-   */
-  private formatSessionDetails(session: Record<string, any>): void {
-    if (!session) return;
-
-    // Display session information in a user-friendly format
-    if ((session as any).session) log.cli(`Session: ${(session as any).session}`);
-    if ((session as any).taskId) log.cli(`Task ID: ${(session as any).taskId}`);
-    if ((session as any).repoName) log.cli(`Repository: ${(session as any).repoName}`);
-    if ((session as any).repoPath) log.cli(`Session Path: ${(session as any).repoPath}`);
-    if ((session as any)._branch) log.cli(`Branch: ${(session as any)._branch}`);
-    if ((session as any).createdAt) log.cli(`Created: ${(session as any).createdAt}`);
-    if ((session as any).backendType) log.cli(`Backend: ${(session as any).backendType}`);
-    if ((session as any).repoUrl && (session as any).repoUrl !== (session as any).repoName) {
-      log.cli(`Repository URL: ${(session as any).repoUrl}`);
-    }
-  }
+  // Session details formatting moved to cli-result-formatters.ts
 
   /**
    * Format session start success message for human-readable output
@@ -627,123 +619,11 @@ export class CliCommandBridge {
     log.cli("   • Run \"minsky session pr\" when ready to create a pull request");
   }
 
-  /**
-   * Format session summary for list views
-   */
-  private formatSessionSummary(session: Record<string, any>): void {
-    if (!session) return;
+  // Session summary formatting moved to cli-result-formatters.ts
 
-    const sessionName = (session as any).session || "unknown";
-    const taskId = (session as any).taskId ? ` (${(session as any).taskId})` : "";
-    const repoName = (session as any).repoName ? ` - ${(session as any).repoName}` : "";
+  // Session PR details formatting moved to cli-result-formatters.ts
 
-    log.cli(`${sessionName}${taskId}${repoName}`);
-  }
-
-  /**
-   * Format session pr details for human-readable output
-   */
-  private formatSessionPrDetails(result: Record<string, any>): void {
-    if (!result) return;
-
-    const prBranch = (result as any).prBranch || "unknown";
-    const baseBranch = (result as any).baseBranch || "main";
-    const title = (result as any).title || "Untitled PR";
-    const body = (result as any).body || "";
-
-    // Header
-    log.cli("✅ PR branch created successfully!");
-    log.cli("");
-
-    // PR Details Section
-    log.cli("📝 PR Details:");
-    log.cli(`   Title: ${title}`);
-    log.cli(`   PR Branch: ${prBranch}`);
-    log.cli(`   Base Branch: ${baseBranch}`);
-
-    if (body && typeof body === "string" && (body as any).trim()) {
-      const truncatedBody =
-        (body as any).length > 100 ? `${(body as any).substring(0, 100)}...` : body;
-      log.cli(`   Body: ${truncatedBody}`);
-    }
-    log.cli("");
-
-    // Next Steps Section
-    log.cli("🚀 Next Steps:");
-    log.cli("   1. Review the PR branch in your repository");
-    log.cli("   2. Create a pull request in your Git hosting platform (GitHub, GitLab, etc.)");
-    log.cli("   3. Request reviews from team members");
-    log.cli("   4. Merge the PR when approved");
-    log.cli("");
-
-    // Commands Section
-    log.cli("📋 Useful Commands:");
-    log.cli(`   • View PR branch: git checkout ${prBranch}`);
-    log.cli("   • Approve and merge: minsky session approve");
-    log.cli(`   • Switch back to main: git checkout ${baseBranch}`);
-    log.cli("");
-
-    // Status message
-    if ((result as any).taskUpdated) {
-      log.cli("✅ Task status updated to IN-REVIEW");
-    }
-  }
-
-  /**
-   * Format session approval details for human-readable output
-   */
-  private formatSessionApprovalDetails(result: Record<string, any>): void {
-    if (!result) return;
-
-    const sessionName = (result as any).session || "unknown";
-    const taskId = (result as any).taskId || "";
-    const commitHash = (result as any).commitHash || "";
-    const mergeDate = (result as any).mergeDate || "";
-    const mergedBy = (result as any).mergedBy || "";
-    const baseBranch = (result as any).baseBranch || "main";
-    const prBranch = (result as any).prBranch || "";
-    const isNewlyApproved = (result as any).isNewlyApproved !== false; // default to true for backward compatibility
-
-    // Header - different based on whether newly approved or already approved
-    if (isNewlyApproved) {
-      log.cli("✅ Session approved and merged successfully!");
-    } else {
-      log.cli("ℹ️  Session was already approved and merged");
-    }
-    log.cli("");
-
-    // Session Details
-    log.cli("📝 Session Details:");
-    log.cli(`   Session: ${sessionName}`);
-    if (taskId) {
-      const taskStatusMessage = isNewlyApproved ? "(status updated to DONE)" : "(already marked as DONE)";
-      log.cli(`   Task: ${taskId} ${taskStatusMessage}`);
-    }
-    log.cli(`   Merged by: ${mergedBy}`);
-    if (mergeDate) {
-      const date = new Date(mergeDate);
-      log.cli(`   Merge date: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
-    }
-    log.cli("");
-
-    // Technical Details
-    log.cli("🔧 Technical Details:");
-    log.cli(`   Base branch: ${baseBranch}`);
-    if (prBranch) {
-      log.cli(`   PR branch: ${prBranch}`);
-    }
-    if (commitHash) {
-      log.cli(`   Commit hash: ${commitHash.substring(0, 8)}`);
-    }
-    log.cli("");
-
-    // Success message - different based on whether newly approved or already approved
-    if (isNewlyApproved) {
-      log.cli("🎉 Your work has been successfully merged and the session is complete!");
-    } else {
-      log.cli("✅ Session is already complete - no action needed!");
-    }
-  }
+  // Session approval details formatting moved to cli-result-formatters.ts
 
   /**
    * Format debug echo details for human-readable output

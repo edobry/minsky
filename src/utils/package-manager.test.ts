@@ -15,7 +15,7 @@ import {
   detectPackageManager,
   getInstallCommand,
   installDependencies,
-} from "../package-manager";
+} from "./package-manager";
 
 describe("Package Manager Utilities", () => {
   // Mock fs.existsSync

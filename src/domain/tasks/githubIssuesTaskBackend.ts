@@ -94,18 +94,18 @@ function extractGitHubRepoFromRemote(
     // Parse GitHub repository from various URL formats
     // SSH: git@github.com:owner/repo.git
     // HTTPS: https://github.com/owner/repo.git
-    const sshMatch = (remoteUrl as unknown).match(/git@github\.com:([^\/]+)\/([^\.]+)/);
-    const httpsMatch = (remoteUrl as unknown).match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+    const sshMatch = remoteUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
+    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
 
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {
       return {
         owner: match[1],
-        repo: (match[2] as unknown).replace(/\.git$/, ""), // Remove .git suffix
+        repo: match[2].replace(/\.git$/, ""), // Remove .git suffix
       };
     }
 
-    return null as unknown;
+    return null;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
@@ -170,8 +170,8 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       log.debug("Fetching GitHub issues", { owner: this.owner, repo: this.repo });
 
       // Fetch all issues with Minsky labels
-      const labelQueries = (Object.values(this.statusLabels) as unknown).join(",");
-      const response = await (this.octokit.rest.issues as unknown).listForRepo({
+      const labelQueries = Object.values(this.statusLabels).join(",");
+      const response = await this.octokit.rest.issues.listForRepo({
         owner: this.owner,
         repo: this.repo,
         labels: labelQueries,
@@ -179,8 +179,8 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         per_page: 100, // Adjust as needed
       });
 
-      const issues = (response as unknown).data;
-      log.debug(`Retrieved ${(issues as unknown).length} issues from GitHub`, {
+      const issues = response.data;
+      log.debug(`Retrieved ${issues.length} issues from GitHub`, {
         owner: this.owner,
         repo: this.repo,
       });
@@ -213,9 +213,9 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       // from the issue data.
 
       // Extract task ID from spec path
-      const pathParts = (specPath as unknown).split("/");
-      const fileName = pathParts[(pathParts as unknown).length - 1];
-      const taskIdMatch = (fileName as unknown).match(/^(\d+)-/);
+      const pathParts = specPath.split("/");
+      const fileName = pathParts[pathParts.length - 1];
+      const taskIdMatch = fileName.match(/^(\d+)-/);
 
       if (!taskIdMatch || !taskIdMatch[1]) {
         throw new Error(`Invalid spec path format: ${specPath}`);
@@ -224,16 +224,16 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       const taskId = `#${taskIdMatch[1]}`;
 
       // Try to find the corresponding GitHub issue
-      const response = await (this.octokit.rest.issues as unknown).listForRepo({
+      const response = await this.octokit.rest.issues.listForRepo({
         owner: this.owner,
         repo: this.repo,
-        labels: (Object.values(this.statusLabels) as unknown).join(",") as unknown,
+        labels: Object.values(this.statusLabels).join(",") as unknown,
         state: "all",
       }) as unknown;
 
-      const issue = (response.data as unknown).find((issue) => {
+      const issue = response.data.find((issue) => {
         // Look for issue with matching task ID in title or body
-        return (issue.title as unknown).includes(taskId) || (issue.body as unknown).includes(taskId);
+        return issue.title.includes(taskId) || issue.body.includes(taskId);
       });
 
       if (!issue) {
@@ -244,23 +244,23 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       }
 
       // Generate spec content from issue
-      const specContent = `# Task ${taskId}: ${(issue as unknown).title}
+      const specContent = `# Task ${taskId}: ${issue.title}
 
 ## Status
 ${this.getTaskStatusFromIssue(issue)}
 
 ## Description
-${(issue as unknown).body || "No description provided"}
+${issue.body || "No description provided"}
 
 ## GitHub Issue
-- Issue: #${(issue as unknown).number}
-- URL: ${(issue as unknown).html_url}
-- State: ${(issue as unknown).state}
-- Created: ${(issue as unknown).created_at}
-- Updated: ${(issue as unknown).updated_at}
+- Issue: #${issue.number}
+- URL: ${issue.html_url}
+- State: ${issue.state}
+- Created: ${issue.created_at}
+- Updated: ${issue.updated_at}
 
 ## Labels
-${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? label : label.name}`) as unknown).join("\n")}
+${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.name}`).join("\n")}
 `;
 
       return {
@@ -298,12 +298,12 @@ ${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? lab
   formatTasks(tasks: TaskData[]): string {
     // For GitHub backend, we don't store tasks in a file format
     // This is used when syncing back to GitHub
-    return JSON.stringify((tasks as unknown).map((task) => this.convertTaskDataToIssueFormat(task)));
+    return JSON.stringify(tasks.map((task) => this.convertTaskDataToIssueFormat(task)));
   }
 
   parseTaskSpec(content: string): TaskSpecData {
     // Parse markdown content to extract task specification
-    const lines = (((content) as unknown).toString() as unknown).split("\n");
+    const lines = content.toString().split("\n");
     let title = "";
     let description = "";
     let metadata: Record<string, any> = {};
@@ -312,27 +312,27 @@ ${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? lab
     let descriptionLines: string[] = [];
 
     for (const line of lines) {
-      const trimmed = (line as unknown).trim();
+      const trimmed = line.trim();
 
-      if ((trimmed as unknown).startsWith("# ")) {
-        title = ((trimmed as unknown).substring(2) as unknown).trim();
+      if (trimmed.startsWith("# ")) {
+        title = trimmed.substring(2).trim();
         // Extract task ID from title if present
-        const taskIdMatch = (title as unknown).match(/^Task (#\d+):/);
+        const taskIdMatch = title.match(/^Task (#\d+):/);
         if (taskIdMatch) {
-          (metadata as unknown).taskId = taskIdMatch[1];
-          title = ((title as unknown).substring(taskIdMatch[0].length) as unknown).trim();
+          metadata.taskId = taskIdMatch[1];
+          title = title.substring(taskIdMatch[0].length).trim();
         }
-      } else if ((trimmed as unknown).startsWith("## ")) {
-        currentSection = ((trimmed.substring(3) as unknown).trim() as unknown).toLowerCase();
+      } else if (trimmed.startsWith("## ")) {
+        currentSection = trimmed.substring(3).trim().toLowerCase();
         if (currentSection === "description") {
           descriptionLines = [];
         }
       } else if (currentSection === "description" && trimmed) {
-        (descriptionLines as unknown).push(trimmed);
+        descriptionLines.push(trimmed);
       }
     }
 
-    description = (descriptionLines as unknown).join("\n");
+    description = descriptionLines.join("\n");
 
     return {
       title,
@@ -344,19 +344,19 @@ ${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? lab
   formatTaskSpec(spec: TaskSpecData): string {
     const { title, description, metadata } = spec;
 
-    let content = `# Task ${(metadata as unknown).taskId || "#000"}: ${title}\n\n`;
+    let content = `# Task ${metadata.taskId || "#000"}: ${title}\n\n`;
 
     if (description) {
       content += `## Description\n${description}\n\n`;
     }
 
     // Add GitHub-specific metadata if available
-    if ((metadata as unknown).githubIssue) {
-      const githubIssue = (metadata as unknown).githubIssue as unknown;
+    if (metadata.githubIssue) {
+      const githubIssue = metadata.githubIssue as unknown;
       content += "## GitHub Issue\n";
-      content += `- Issue: #${(githubIssue as unknown).number}\n`;
-      content += `- URL: ${(githubIssue as unknown).html_url}\n`;
-      content += `- State: ${(githubIssue as unknown).state}\n\n`;
+      content += `- Issue: #${githubIssue.number}\n`;
+      content += `- URL: ${githubIssue.html_url}\n`;
+      content += `- State: ${githubIssue.state}\n\n`;
     }
 
     return content;
@@ -439,33 +439,33 @@ ${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? lab
 
   private convertTaskDataToIssueFormat(task: TaskData): any {
     return {
-      title: (task as unknown).title,
-      body: (task as unknown).description,
-      labels: this.getLabelsForTaskStatus((task as unknown).status),
-      state: (task as unknown).status === "DONE" ? "closed" : "open",
+      title: task.title,
+      body: task.description,
+      labels: this.getLabelsForTaskStatus(task.status),
+      state: task.status === "DONE" ? "closed" : "open",
     };
   }
 
   private extractTaskIdFromIssue(issue: any): string {
     // Try to find task ID like #123 in title
-    const titleMatch = (issue.title as unknown).match(/#(\d+)/);
+    const titleMatch = issue.title.match(/#(\d+)/);
     if (titleMatch && titleMatch[1]) {
       return `#${titleMatch[1]}`;
     }
 
     // If not in title, look in body
-    const bodyMatch = (issue.body as unknown).match(/Task ID: #(\d+)/);
+    const bodyMatch = issue.body.match(/Task ID: #(\d+)/);
     if (bodyMatch && bodyMatch[1]) {
       return `#${bodyMatch[1]}`;
     }
 
     // Fallback to issue number
-    return `#${(issue as unknown).number}`;
+    return `#${issue.number}`;
   }
 
   private getTaskStatusFromIssue(issue: any): TaskStatus {
     for (const [status, label] of Object.entries(this.statusLabels)) {
-      if ((issue.labels as unknown).some((l: any) => (l as unknown).name === label)) {
+      if (issue.labels.some((l: any) => l.name === label)) {
         return status as TaskStatus;
       }
     }
@@ -474,7 +474,7 @@ ${((issue.labels as unknown).map((label) => `- ${typeof label === "string" ? lab
   }
 
   private getLabelsForTaskStatus(status: string): string[] {
-    return [(this.statusLabels as unknown)[status] || this.statusLabels.TODO];
+    return [this.statusLabels[status] || this.statusLabels.TODO];
   }
 
   private async syncTaskToGitHub(taskData: TaskData): Promise<void> {

@@ -7,7 +7,7 @@
  */
 import { describe, test, expect as bunExpect } from "bun:test";
 import { compat } from "../index";
-import { setupTestMocks } from "../mocking";
+import { setupTestMocks } from "./mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -17,7 +17,7 @@ compat.setupTestCompat();
 
 // Use a typed expect to make TypeScript happy with the enhanced matchers
  
-const expect = bunExpect as unknown;
+const expect = bunExpect;
 
 describe("Mock Function Compatibility", () => {
   test("creates working mock functions", () => {
