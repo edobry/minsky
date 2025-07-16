@@ -1,4 +1,4 @@
-import type { SessionDeleteParams } from "../../schemas/session";
+import type { SessionDeleteParams } from "../../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { 
   SessionProviderInterface,

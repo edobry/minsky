@@ -4,7 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { getSessionFromParams } from "../get-command";
-import { log } from "../../../../utils/logger";
+import { log } from "../../../../../../utils/logger";
 
 /**
  * Parameters for the session get command
