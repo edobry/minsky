@@ -72,15 +72,15 @@ describe("TaskService Interface Compatibility", () => {
 
     // Interface methods that CLI and other code expects to exist
     const requiredMethods = [
-      "listTasks",
-      "getTask",
-      "getTaskStatus",
-      "setTaskStatus",
-      "updateTaskStatus",
-      "getWorkspacePath"
+      'listTasks',
+      'getTask',
+      'getTaskStatus',
+      'setTaskStatus',
+      'updateTaskStatus',
+      'getWorkspacePath'
     ];
 
-    for (const methodName of requiredMethods) {
+        for (const methodName of requiredMethods) {
       expect(typeof (taskService as any)[methodName]).toBe("function");
     }
   });
