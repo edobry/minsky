@@ -216,6 +216,16 @@ export class TaskService {
   }
 
   /**
+   * Get task status
+   * @param id Task ID
+   * @returns Promise resolving to task status or undefined if not found
+   */
+  async getTaskStatus(id: string): Promise<string | undefined> {
+    const task = await this.getTask(id);
+    return task?.status;
+  }
+
+  /**
    * Get the workspace path
    * @returns Workspace path
    */
