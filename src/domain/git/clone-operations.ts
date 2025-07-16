@@ -1,6 +1,6 @@
 import { join, dirname } from "node:path";
 import { normalizeRepoName } from "../repo-utils";
-import { getErrorMessage } from "../../errors/index";
+import { getErrorMessage } from "../../errors";
 import { log } from "../../utils/logger";
 
 /**
@@ -128,4 +128,4 @@ export async function cloneImpl(options: CloneOptions, deps: CloneDependencies):
     });
     throw new Error(`Failed to clone git repository: ${getErrorMessage(error as any)}`);
   }
-} 
+}

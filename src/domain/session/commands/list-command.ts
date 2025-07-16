@@ -1,4 +1,4 @@
-import type { SessionListParams } from "../../schemas/session";
+import type { SessionListParams } from "../../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { 
   Session, 
