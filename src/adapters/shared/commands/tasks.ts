@@ -641,7 +641,7 @@ const tasksDeleteRegistration = {
     if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Handle confirmation if force is not set and we're in interactive mode
-    if (!(params as unknown as TasksDeleteParams).force && !(params as unknown as TasksDeleteParams).json) {
+    if (!(params as TasksDeleteParams).force && !(params as TasksDeleteParams).json) {
       // Get task details for confirmation
       const task = await getTaskFromParams({
         taskId: params.taskId,
@@ -655,7 +655,7 @@ const tasksDeleteRegistration = {
       const { confirm, isCancel } = await import("@clack/prompts");
 
       const shouldDelete = await confirm({
-        message: `Are you sure you want to delete task ${(task as unknown as { id: string; title: string }).id}: "${(task as unknown as { id: string; title: string }).title}"?`,
+        message: `Are you sure you want to delete task ${(task as { id: string; title: string }).id}: "${(task as { id: string; title: string }).title}"?`,
       });
 
       if (isCancel(shouldDelete) || !shouldDelete) {
@@ -681,12 +681,12 @@ const tasksDeleteRegistration = {
       : `Failed to delete task ${(result).taskId}`;
 
     // Return different formats based on --json flag
-    if ((params as unknown as TasksDeleteParams).json) {
+    if ((params as TasksDeleteParams).json) {
       // Structured output for programmatic use
       return {
-        success: (result as unknown as { success: boolean; taskId: string; task?: any }).success,
-        taskId: (result as unknown as { taskId: string }).taskId,
-        task: (result as unknown as { task?: any }).task,
+        success: (result as { success: boolean; taskId: string; task?: any }).success,
+        taskId: (result as { taskId: string }).taskId,
+        task: (result as { task?: any }).task,
         message: message,
       };
     } else {

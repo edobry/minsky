@@ -114,17 +114,33 @@ export class ComprehensiveAsUnknownFixer {
    */
   public fixSessionObjectPatterns(sourceFile: SourceFile): TransformationResult[] {
     const initialCount = this.transformations.length;
+    const candidates: Array<{ node: Node, varName: string, propertyName: string, before: string, after: string }> = [];
     
+    // Recursive function to find AsExpression anywhere in the tree
+    const findAsExpression = (node: Node): Node | null => {
+      if (Node.isAsExpression(node)) {
+        return node;
+      }
+      for (const child of node.getChildren()) {
+        const found = findAsExpression(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    
+    // First pass: collect transformation candidates
     sourceFile.forEachDescendant((node) => {
       if (Node.isPropertyAccessExpression(node)) {
         const expression = node.getExpression();
         
-        // Look for: (sessionXxx as unknown)!
+        // Look for: (sessionXxx as unknown)! (with any nesting)
         if (Node.isNonNullExpression(expression)) {
           const innerExpr = expression.getExpression();
-          if (Node.isAsExpression(innerExpr)) {
-            const variable = innerExpr.getExpression();
-            const typeNode = innerExpr.getTypeNode();
+          const asExpr = findAsExpression(innerExpr);
+          
+          if (asExpr && Node.isAsExpression(asExpr)) {
+            const variable = asExpr.getExpression();
+            const typeNode = asExpr.getTypeNode();
             
             if (Node.isIdentifier(variable) && 
                 typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
@@ -135,22 +151,29 @@ export class ComprehensiveAsUnknownFixer {
                 const propertyName = node.getName();
                 const after = `${varName}.${propertyName}`;
                 
-                this.recordTransformation({
-                  pattern: "session-object-non-null",
-                  before,
-                  after,
-                  line: node.getStartLineNumber(),
-                  file: sourceFile.getFilePath()
-                });
-                
-                // Replace the entire property access: (sessionXxx as unknown)!.prop → sessionXxx.prop
-                node.replaceWithText(after);
+                candidates.push({ node, varName, propertyName, before, after });
               }
             }
           }
         }
       }
     });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, varName, propertyName, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "session-object-non-null",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      // Replace the entire property access: (sessionXxx as unknown)!.prop → sessionXxx.prop
+      node.replaceWithText(after);
+    }
     
     return this.transformations.slice(initialCount);
   }
@@ -162,42 +185,63 @@ export class ComprehensiveAsUnknownFixer {
    */
   public fixDynamicImportPatterns(sourceFile: SourceFile): TransformationResult[] {
     const initialCount = this.transformations.length;
+    const candidates: Array<{ node: Node, awaitExpr: string, propertyName: string, before: string, after: string }> = [];
     
+    // Recursive function to find AsExpression anywhere in the tree
+    const findAsExpression = (node: Node): Node | null => {
+      if (Node.isAsExpression(node)) {
+        return node;
+      }
+      for (const child of node.getChildren()) {
+        const found = findAsExpression(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    
+    // First pass: collect transformation candidates
     sourceFile.forEachDescendant((node) => {
       if (Node.isPropertyAccessExpression(node)) {
         const expression = node.getExpression();
         
-        if (Node.isAsExpression(expression)) {
-          const innerExpr = expression.getExpression();
-          const typeNode = expression.getTypeNode();
+        // Look for AsExpression anywhere in the tree
+        const asExpr = findAsExpression(expression);
+        if (asExpr && Node.isAsExpression(asExpr)) {
+          const innerExpr = asExpr.getExpression();
+          const typeNode = asExpr.getTypeNode();
           
-          if (Node.isAwaitExpression(innerExpr) && 
-              typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+          if (typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+            // Handle both direct AwaitExpression and ParenthesizedExpression containing AwaitExpression
+            let awaitExpr: Node | null = null;
             
-            const awaitedExpr = innerExpr.getExpression();
-            if (Node.isCallExpression(awaitedExpr)) {
-              const callExpr = awaitedExpr.getExpression();
-              if (Node.isIdentifier(callExpr) && callExpr.getText() === "import") {
-                
-                const args = awaitedExpr.getArguments();
-                if (args.length === 1 && Node.isStringLiteral(args[0])) {
-                  const importPath = args[0].getLiteralValue();
+            if (Node.isAwaitExpression(innerExpr)) {
+              awaitExpr = innerExpr;
+            } else if (Node.isParenthesizedExpression(innerExpr)) {
+              const parenInner = innerExpr.getExpression();
+              if (Node.isAwaitExpression(parenInner)) {
+                awaitExpr = parenInner;
+              }
+            }
+            
+            if (awaitExpr && Node.isAwaitExpression(awaitExpr)) {
+              const awaitedExpr = awaitExpr.getExpression();
+              if (Node.isCallExpression(awaitedExpr)) {
+                const callExpr = awaitedExpr.getExpression();
+                if (Node.isIdentifier(callExpr) && callExpr.getText() === "import") {
                   
-                  // Only fix relative imports (safer)
-                  if (importPath.startsWith("./") || importPath.startsWith("../")) {
-                    const before = node.getText();
-                    const propertyName = node.getName();
-                    const after = `${innerExpr.getText()}.${propertyName}`;
+                  const args = awaitedExpr.getArguments();
+                  if (args.length === 1 && Node.isStringLiteral(args[0])) {
+                    const importPath = args[0].getLiteralValue();
                     
-                    this.recordTransformation({
-                      pattern: "dynamic-import-relative",
-                      before,
-                      after,
-                      line: node.getStartLineNumber(),
-                      file: sourceFile.getFilePath()
-                    });
-                    
-                    node.replaceWithText(after);
+                    // Only fix relative imports (safer)
+                    if (importPath.startsWith("./") || importPath.startsWith("../")) {
+                      const before = node.getText();
+                      const propertyName = node.getName();
+                      const awaitExprText = awaitExpr.getText();
+                      const after = `(${awaitExprText}).${propertyName}`;
+                      
+                      candidates.push({ node, awaitExpr: awaitExprText, propertyName, before, after });
+                    }
                   }
                 }
               }
@@ -206,6 +250,21 @@ export class ComprehensiveAsUnknownFixer {
         }
       }
     });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, awaitExpr, propertyName, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "dynamic-import-relative",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(after);
+    }
     
     return this.transformations.slice(initialCount);
   }
@@ -216,14 +275,30 @@ export class ComprehensiveAsUnknownFixer {
    */
   public fixConfigObjectPatterns(sourceFile: SourceFile): TransformationResult[] {
     const initialCount = this.transformations.length;
+    const candidates: Array<{ node: Node, varName: string, propertyName: string, before: string, after: string }> = [];
     
+    // Recursive function to find AsExpression anywhere in the tree
+    const findAsExpression = (node: Node): Node | null => {
+      if (Node.isAsExpression(node)) {
+        return node;
+      }
+      for (const child of node.getChildren()) {
+        const found = findAsExpression(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    
+    // First pass: collect transformation candidates
     sourceFile.forEachDescendant((node) => {
       if (Node.isPropertyAccessExpression(node)) {
         const expression = node.getExpression();
         
-        if (Node.isAsExpression(expression)) {
-          const variable = expression.getExpression();
-          const typeNode = expression.getTypeNode();
+        // Look for direct AsExpression or nested ones
+        const asExpr = findAsExpression(expression);
+        if (asExpr && Node.isAsExpression(asExpr)) {
+          const variable = asExpr.getExpression();
+          const typeNode = asExpr.getTypeNode();
           
           if (Node.isIdentifier(variable) && 
               typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
@@ -234,20 +309,27 @@ export class ComprehensiveAsUnknownFixer {
               const propertyName = node.getName();
               const after = `${varName}.${propertyName}`;
               
-              this.recordTransformation({
-                pattern: "config-object-cast",
-                before,
-                after,
-                line: node.getStartLineNumber(),
-                file: sourceFile.getFilePath()
-              });
-              
-              node.replaceWithText(after);
+              candidates.push({ node, varName, propertyName, before, after });
             }
           }
         }
       }
     });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, varName, propertyName, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "config-object-cast",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(after);
+    }
     
     return this.transformations.slice(initialCount);
   }
@@ -258,14 +340,30 @@ export class ComprehensiveAsUnknownFixer {
    */
   public fixErrorHandlingPatterns(sourceFile: SourceFile): TransformationResult[] {
     const initialCount = this.transformations.length;
+    const candidates: Array<{ node: Node, varName: string, propertyName: string, before: string, after: string }> = [];
     
+    // Recursive function to find AsExpression anywhere in the tree
+    const findAsExpression = (node: Node): Node | null => {
+      if (Node.isAsExpression(node)) {
+        return node;
+      }
+      for (const child of node.getChildren()) {
+        const found = findAsExpression(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    
+    // First pass: collect transformation candidates
     sourceFile.forEachDescendant((node) => {
       if (Node.isPropertyAccessExpression(node)) {
         const expression = node.getExpression();
         
-        if (Node.isAsExpression(expression)) {
-          const variable = expression.getExpression();
-          const typeNode = expression.getTypeNode();
+        // Look for direct AsExpression or nested ones
+        const asExpr = findAsExpression(expression);
+        if (asExpr && Node.isAsExpression(asExpr)) {
+          const variable = asExpr.getExpression();
+          const typeNode = asExpr.getTypeNode();
           
           if (Node.isIdentifier(variable) && 
               typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
@@ -276,20 +374,27 @@ export class ComprehensiveAsUnknownFixer {
               const propertyName = node.getName();
               const after = `${varName}.${propertyName}`;
               
-              this.recordTransformation({
-                pattern: "error-object-cast",
-                before,
-                after,
-                line: node.getStartLineNumber(),
-                file: sourceFile.getFilePath()
-              });
-              
-              node.replaceWithText(after);
+              candidates.push({ node, varName, propertyName, before, after });
             }
           }
         }
       }
     });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, varName, propertyName, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "error-object-cast",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(after);
+    }
     
     return this.transformations.slice(initialCount);
   }
@@ -300,14 +405,30 @@ export class ComprehensiveAsUnknownFixer {
    */
   public fixProviderServicePatterns(sourceFile: SourceFile): TransformationResult[] {
     const initialCount = this.transformations.length;
+    const candidates: Array<{ node: Node, varName: string, propertyName: string, before: string, after: string }> = [];
     
+    // Recursive function to find AsExpression anywhere in the tree
+    const findAsExpression = (node: Node): Node | null => {
+      if (Node.isAsExpression(node)) {
+        return node;
+      }
+      for (const child of node.getChildren()) {
+        const found = findAsExpression(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    
+    // First pass: collect transformation candidates
     sourceFile.forEachDescendant((node) => {
       if (Node.isPropertyAccessExpression(node)) {
         const expression = node.getExpression();
         
-        if (Node.isAsExpression(expression)) {
-          const variable = expression.getExpression();
-          const typeNode = expression.getTypeNode();
+        // Look for direct AsExpression or nested ones
+        const asExpr = findAsExpression(expression);
+        if (asExpr && Node.isAsExpression(asExpr)) {
+          const variable = asExpr.getExpression();
+          const typeNode = asExpr.getTypeNode();
           
           if (Node.isIdentifier(variable) && 
               typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
@@ -318,20 +439,27 @@ export class ComprehensiveAsUnknownFixer {
               const propertyName = node.getName();
               const after = `${varName}.${propertyName}`;
               
-              this.recordTransformation({
-                pattern: "provider-service-cast",
-                before,
-                after,
-                line: node.getStartLineNumber(),
-                file: sourceFile.getFilePath()
-              });
-              
-              node.replaceWithText(after);
+              candidates.push({ node, varName, propertyName, before, after });
             }
           }
         }
       }
     });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, varName, propertyName, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "provider-service-cast",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(after);
+    }
     
     return this.transformations.slice(initialCount);
   }
@@ -342,38 +470,44 @@ export class ComprehensiveAsUnknownFixer {
    */
   public fixRedundantCastPatterns(sourceFile: SourceFile): TransformationResult[] {
     const initialCount = this.transformations.length;
+    const candidates: Array<{ node: Node, variable: Node, finalType: string, before: string, after: string }> = [];
     
+    // First pass: collect transformation candidates
     sourceFile.forEachDescendant((node) => {
       if (Node.isAsExpression(node)) {
         const expression = node.getExpression();
+        const finalTypeNode = node.getTypeNode();
         
         // Look for: (variable as unknown) as Type
-        if (Node.isAsExpression(expression)) {
-          const innerVariable = expression.getExpression();
-          const innerType = expression.getTypeNode();
+        if (Node.isAsExpression(expression) && finalTypeNode) {
+          const variable = expression.getExpression();
+          const intermediateType = expression.getTypeNode();
           
-          if (Node.isIdentifier(innerVariable) && 
-              innerType?.getKind() === SyntaxKind.UnknownKeyword) {
-            
-            const varName = innerVariable.getText();
-            const outerType = node.getTypeNode();
+          if (intermediateType?.getKind() === SyntaxKind.UnknownKeyword) {
             const before = node.getText();
-            const after = `${varName} as ${outerType?.getText()}`;
+            const finalType = finalTypeNode.getText();
+            const after = `${variable.getText()} as ${finalType}`;
             
-            this.recordTransformation({
-              pattern: "redundant-cast",
-              before,
-              after,
-              line: node.getStartLineNumber(),
-              file: sourceFile.getFilePath()
-            });
-            
-            // Replace with: variable as Type
-            node.replaceWithText(after);
+            candidates.push({ node, variable, finalType, before, after });
           }
         }
       }
     });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, variable, finalType, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "redundant-double-cast",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(after);
+    }
     
     return this.transformations.slice(initialCount);
   }
@@ -424,11 +558,13 @@ export class ComprehensiveAsUnknownFixer {
 
   /**
    * Pattern 8: Simple Variable Patterns
-   * Fixes: (variable as unknown) → variable (for simple cases)
+   * Fixes: (variable as unknown) → variable
    */
   public fixSimpleVariablePatterns(sourceFile: SourceFile): TransformationResult[] {
     const initialCount = this.transformations.length;
+    const candidates: Array<{ node: Node, varName: string, before: string, after: string }> = [];
     
+    // First pass: collect transformation candidates
     sourceFile.forEachDescendant((node) => {
       if (Node.isAsExpression(node)) {
         const expression = node.getExpression();
@@ -444,19 +580,26 @@ export class ComprehensiveAsUnknownFixer {
             const before = node.getText();
             const after = varName;
             
-            this.recordTransformation({
-              pattern: "simple-variable-cast",
-              before,
-              after,
-              line: node.getStartLineNumber(),
-              file: sourceFile.getFilePath()
-            });
-            
-            node.replaceWithText(varName);
+            candidates.push({ node, varName, before, after });
           }
         }
       }
     });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, varName, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "simple-variable-cast",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(varName);
+    }
     
     return this.transformations.slice(initialCount);
   }
@@ -484,10 +627,31 @@ export class ComprehensiveAsUnknownFixer {
 
   private isSafeContext(node: Node): boolean {
     // Check if we're in a simple assignment or return context
-    const parent = node.getParent();
-    return Node.isVariableDeclaration(parent) || 
-           Node.isReturnStatement(parent) ||
-           Node.isCallExpression(parent);
+    let current = node.getParent();
+    
+    // Look up the parent chain to find a safe context, handling ParenthesizedExpressions
+    while (current) {
+      if (Node.isVariableDeclaration(current) || 
+          Node.isReturnStatement(current) ||
+          Node.isCallExpression(current)) {
+        return true;
+      }
+      
+      // Skip over ParenthesizedExpressions to check their parents
+      if (Node.isParenthesizedExpression(current)) {
+        current = current.getParent();
+        continue;
+      }
+      
+      // Stop at statement boundaries
+      if (Node.isStatement(current)) {
+        break;
+      }
+      
+      current = current.getParent();
+    }
+    
+    return false;
   }
 
   private recordTransformation(transformation: TransformationResult): void {
