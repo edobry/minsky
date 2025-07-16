@@ -267,7 +267,7 @@ export async function createRepositoryBackend(
       getStatus: async (session?: string): Promise<RepositoryStatus> => {
         // If no session is provided, work with the most recent session
         if (!session) {
-          const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+          const sessionDb = new (await import("./session.js")).SessionDB();
           const sessions = await sessionDb.listSessions();
           const repoName = normalizeRepoName(config.url || "");
           const repoSession = sessions.find((s) => s.repoName === repoName);
@@ -311,7 +311,7 @@ export async function createRepositoryBackend(
       getPath: async (session?: string): Promise<string> => {
         // If no session is provided, work with the most recent session
         if (!session) {
-          const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+          const sessionDb = new (await import("./session.js")).SessionDB();
           const sessions = await sessionDb.listSessions();
           const repoName = normalizeRepoName(config.url || "");
           const repoSession = sessions.find((s) => s.repoName === repoName);
@@ -345,7 +345,7 @@ export async function createRepositoryBackend(
 
       push: async (branch?: string): Promise<void> => {
         // Find an existing session for this repository
-        const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+        const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
         const repoName = normalizeRepoName(config.url || "");
         const repoSession = sessions.find((s) => s.repoName === repoName);
@@ -365,7 +365,7 @@ export async function createRepositoryBackend(
 
       pull: async (branch?: string): Promise<void> => {
         // Find an existing session for this repository
-        const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+        const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
         const repoName = normalizeRepoName(config.url || "");
         const repoSession = sessions.find((s) => s.repoName === repoName);
@@ -395,7 +395,7 @@ export async function createRepositoryBackend(
 
       checkout: async (branch: string): Promise<void> => {
         // Find an existing session for this repository
-        const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+        const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
         const repoName = normalizeRepoName(config.url || "");
         const repoSession = sessions.find((s) => s.repoName === repoName);
@@ -457,7 +457,7 @@ export async function resolveRepository(
   }
   // 2. Try to resolve from session
   else if (session) {
-    const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+    const sessionDb = new (await import("./session.js")).SessionDB();
     const sessionRecord = await sessionDb.getSession(session);
     if (!sessionRecord) {
       throw new ValidationError(`Session not found: ${session}`);
@@ -469,7 +469,7 @@ export async function resolveRepository(
   // 3. Try to resolve from task ID
   else if (taskId) {
     const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
-    const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+    const sessionDb = new (await import("./session.js")).SessionDB();
     const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
     if (!sessionRecord) {
       throw new ValidationError(`No session found for task: ${taskId}`);
