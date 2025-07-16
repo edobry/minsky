@@ -156,7 +156,6 @@ export function getSessionCustomizations(): { category: CommandCategory; options
         "session.pr": {
           useFirstRequiredParamAsArgument: false,
           parameters: {
-            // === CORE PARAMETERS (Always visible) ===
             title: {
               description: "Title for the PR (auto-generated if not provided)",
             },
@@ -173,31 +172,24 @@ export function getSessionCustomizations(): { category: CommandCategory; options
               alias: "t",
               description: "Task ID associated with the session (auto-detected if not provided)",
             },
-
-            // === PROGRESSIVE DISCLOSURE CONTROL ===
-            advanced: {
-              description: "Show advanced options for conflict resolution and debugging",
-            },
-
-            // === ADVANCED PARAMETERS (Expert-level control) ===
             skipUpdate: {
-              description: "Skip session update before creating PR (use with --advanced)",
+              description: "Skip session update before creating PR",
             },
             noStatusUpdate: {
-              description: "Skip updating task status (use with --advanced)",
+              description: "Skip updating task status",
             },
             debug: {
-              description: "Enable debug output (use with --advanced)",
+              description: "Enable debug output",
             },
             autoResolveDeleteConflicts: {
-              description: "Auto-resolve delete/modify conflicts (use with --advanced)",
+              description: "Auto-resolve delete/modify conflicts",
             },
             skipConflictCheck: {
-              description: "Skip proactive conflict detection (use with --advanced)",
+              description: "Skip proactive conflict detection",
             },
           },
         },
       },
     },
   };
-} 
+}

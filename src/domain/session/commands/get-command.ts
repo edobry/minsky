@@ -1,15 +1,15 @@
-import type { SessionGetParams } from "../../schemas/session";
+import type { SessionGetParams } from "../../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { 
-  Session, 
+import {
+  Session,
   SessionProviderInterface,
-  SessionDependencies 
+  SessionDependencies
 } from "../types";
-import { 
-  ResourceNotFoundError, 
+import {
+  ResourceNotFoundError,
   ValidationError,
-} from "../../errors/index";
+} from "../../../errors";
 
 /**
  * Gets session details based on parameters
@@ -50,4 +50,4 @@ export async function getSessionFromParams(
     }
     throw error;
   }
-} 
+}
