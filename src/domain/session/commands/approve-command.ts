@@ -13,7 +13,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-} from "../../../errors";
+} from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import * as WorkspaceUtils from "../../workspace";
 
@@ -113,8 +113,8 @@ export async function sessionApprove(
     // Update task status if applicable
     if (sessionRecord.taskId && deps.taskService.setTaskStatus) {
       try {
-        await deps.taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.COMPLETED);
-        log.info(`Task ${sessionRecord.taskId} status updated to COMPLETED`);
+        await deps.taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.DONE);
+        log.info(`Task ${sessionRecord.taskId} status updated to DONE`);
       } catch (error) {
         log.debug("Could not update task status", { error });
       }
