@@ -5,10 +5,8 @@
  * for improving merge conflict prevention in session PR workflow.
  */
 
-import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { 
-  ConflictDetectionService
-} from "./conflict-detection";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { ConflictDetectionService } from "./conflict-detection";
 import {
   ConflictType, 
   ConflictSeverity, 
@@ -16,16 +14,14 @@ import {
   type ConflictPrediction,
   type BranchDivergenceAnalysis
 } from "./conflict-detection-types";
+import type { GitServiceInterface } from "./types";
+import { createMockLogger, clearLoggerMocks } from "../../utils/test-utils/logger-mock";
 
 // Mock execAsync
 const mockExecAsync = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
 
-// Mock logger
-const mockLog = {
-  debug: mock(() => {}),
-  error: mock(() => {}),
-  warn: mock(() => {})
-};
+// Use centralized logger mock
+const mockLog = createMockLogger();
 
 // Override the imports with mocks
 mock.module("../../utils/exec", () => ({
@@ -43,9 +39,7 @@ describe("ConflictDetectionService", () => {
 
   beforeEach(() => {
     mockExecAsync.mockClear();
-    mockLog.debug.mockClear();
-    mockLog.error.mockClear();
-    mockLog.warn.mockClear();
+    clearLoggerMocks(mockLog);
   });
 
   describe("analyzeBranchDivergence", () => {
