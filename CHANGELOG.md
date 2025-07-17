@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Task #286 HTTP Transport**: Restored complete HTTP transport implementation from task 286 branch
+  - **Fixed browser connection error** for inspector connecting to `http://localhost:3000/mcp`
+  - **Restored StreamableHTTPServerTransport** with proper Express server integration
+  - **Fixed handleHttpRequest()** method that was missing from main branch after merge
+  - **Restored HTTP session management** with mcp-session-id headers and on-demand transport creation
+  - **Fixed inspector port configuration** to use correct internal proxy port (6277)
+  - **Verified full HTTP transport functionality** with inspector, CORS, health endpoints, and multi-client support
+
 ### Added
 
 - **Task #286 Follow-up**: Completed inspector upgrade and FastMCP cleanup
