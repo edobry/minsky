@@ -59,39 +59,81 @@ export function createSessionTestData(): SessionTestData {
       backendType: "local",
       remote: { authMethod: "ssh", depth: 1 },
     },
+    // Add missing sessions that the update tests expect
+    {
+      session: "test-existing-session",
+      repoName: "local-minsky",
+      repoUrl: "https://github.com/edobry/minsky",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "#168",
+      branch: "test-existing-session",
+      repoPath: "/Users/edobry/.local/state/minsky/sessions/test-existing-session",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
+    },
+    {
+      session: "task#42",
+      repoName: "local-minsky",
+      repoUrl: "https://github.com/edobry/minsky",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "#42",
+      branch: "task#42",
+      repoPath: "/Users/edobry/.local/state/minsky/sessions/task#42",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
+    },
+    {
+      session: "missing-workspace-session",
+      repoName: "local-minsky",
+      repoUrl: "https://github.com/edobry/minsky",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "#999",
+      branch: "missing-workspace-session",
+      repoPath: "/Users/edobry/.local/state/minsky/sessions/missing-workspace-session",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
+    },
+    {
+      session: "dirty-session",
+      repoName: "local-minsky",
+      repoUrl: "https://github.com/edobry/minsky",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "#888",
+      branch: "dirty-session",
+      repoPath: "/Users/edobry/.local/state/minsky/sessions/dirty-session",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
+    },
   ];
 
   const mockSessionDB = {
-    findAll: createMock(),
-    findByName: createMock(),
-    findByTaskId: createMock(),
-    findByRepoPath: createMock(),
-    save: createMock(),
-    getSessionByTaskId: createMock(),
+    listSessions: createMock(),
     getSession: createMock(),
+    getSessionByTaskId: createMock(),
+    addSession: createMock(),
+    updateSession: createMock(),
+    deleteSession: createMock(),
+    getRepoPath: createMock(),
     getSessionWorkdir: createMock(),
   } as unknown as SessionProviderInterface;
 
   // Set up mock implementations manually to avoid type issues
-  mockSessionDB.findAll.mockResolvedValue(mockSessions);
-  mockSessionDB.findByName.mockImplementation((name: string) => {
+  (mockSessionDB.listSessions as any).mockResolvedValue(mockSessions);
+  (mockSessionDB.getSession as any).mockImplementation((name: string) => {
     return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
   });
-  mockSessionDB.findByTaskId.mockImplementation((taskId: string) => {
+  (mockSessionDB.getSessionByTaskId as any).mockImplementation((taskId: string) => {
     return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
   });
-  mockSessionDB.findByRepoPath.mockImplementation((repoPath: string) => {
-    return Promise.resolve(mockSessions.find((s) => s.repoPath === repoPath) || null);
+  (mockSessionDB.getRepoPath as any).mockImplementation((record: any) => {
+    return Promise.resolve(record.repoPath || "/default/path");
   });
-  mockSessionDB.save.mockResolvedValue(undefined);
-  mockSessionDB.getSessionByTaskId.mockImplementation((taskId: string) => {
-    return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
-  });
-  mockSessionDB.getSession.mockImplementation((name: string) => {
-    return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
-  });
-  mockSessionDB.getSessionWorkdir.mockImplementation((sessionName: string) => {
-    return Promise.resolve(join(tempDir, sessionName));
+  (mockSessionDB.addSession as any).mockResolvedValue(undefined);
+  (mockSessionDB.updateSession as any).mockResolvedValue(undefined);
+  (mockSessionDB.deleteSession as any).mockResolvedValue(true);
+  (mockSessionDB.getSessionWorkdir as any).mockImplementation((sessionName: string) => {
+    const session = mockSessions.find((s) => s.session === sessionName);
+    return Promise.resolve(session?.repoPath || "/default/workdir");
   });
 
   return {
