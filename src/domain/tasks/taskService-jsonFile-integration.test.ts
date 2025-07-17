@@ -79,8 +79,8 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       // Create task
       const task = await taskServiceInstance.createTask(taskData.specPath);
 
-      expect(task.id).toMatch(/^#\d+$/); // Should get assigned a sequential ID
-      expect(task.id).not.toBe(taskData.id); // Should NOT preserve the test factory ID
+      expect(task.id).toMatch(/^#\d+$/); // Should match task ID pattern
+      expect(task.id).toBe(taskData.id); // Should preserve the test factory ID from spec
       expect(task.title).toBe(taskData.title);
       expect(task.status).toBe("TODO");
 

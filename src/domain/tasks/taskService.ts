@@ -194,6 +194,11 @@ export class TaskService {
    * @returns Promise resolving to the updated task
    */
   async updateTaskStatus(id: string, status: string): Promise<TaskData> {
+    // Validate status first
+    if (!isValidTaskStatus(status)) {
+      throw new Error(`Status must be one of: ${TASK_STATUS_VALUES.join(", ")}`);
+    }
+
     const tasks = await this.getAllTasks();
     const taskIndex = tasks.findIndex((task) => task.id === id);
 
@@ -220,9 +225,9 @@ export class TaskService {
    * @param id Task ID
    * @returns Promise resolving to the task status or null if not found
    */
-  async getTaskStatus(id: string): Promise<string | null> {
+  async getTaskStatus(id: string): Promise<string | undefined> {
     const task = await this.getTask(id);
-    return task ? task.status : null;
+    return task ? task.status : undefined;
   }
 
   /**

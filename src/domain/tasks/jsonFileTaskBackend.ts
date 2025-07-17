@@ -251,13 +251,19 @@ export class JsonFileTaskBackend implements TaskBackend {
     }
     const spec = this.parseTaskSpec(specDataResult.content || "");
 
-    // Get all existing tasks to determine the new task's ID
-    const tasks = await this.getAllTasks();
-    const newId = `#${tasks.length + 1}`;
+    // Use the spec ID if available, otherwise generate a sequential ID
+    let taskId: string;
+    if (spec.id && spec.id.trim()) {
+      taskId = spec.id;
+    } else {
+      // Get all existing tasks to determine the new task's ID
+      const tasks = await this.getAllTasks();
+      taskId = `#${tasks.length + 1}`;
+    }
 
     // Create the new task data
     const newTask: TaskData = {
-      id: newId,
+      id: taskId,
       title: spec.title,
       description: spec.description,
       status: TASK_STATUS.TODO,
