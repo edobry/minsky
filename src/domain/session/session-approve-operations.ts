@@ -81,7 +81,29 @@ export async function approveSessionImpl(
     const session = await sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
       throw new ResourceNotFoundError(
-        `No session found for task ${taskIdToUse}`,
+        `🚫 No Session Found for Task ${taskIdToUse}
+
+Task ${taskIdToUse} exists but has no associated session to approve.
+
+💡 Here's what you can do:
+
+1️⃣ Check if the task has a session:
+   minsky session list
+
+2️⃣ Start a session for this task:
+   minsky session start --task ${taskIdToUse}
+
+3️⃣ Or approve a different task that has a session:
+   minsky session list | grep "task:"
+   minsky session approve --task <task-id-with-session>
+
+📋 Current available sessions:
+   Run 'minsky session list' to see which tasks have active sessions.
+
+❓ Need help?
+   • Use 'minsky session start --task ${taskIdToUse}' to create a session
+   • Use 'minsky tasks list' to see all available tasks
+   • Use 'minsky session get --task <id>' to check session details`,
         "task",
         taskIdToUse
       );
