@@ -25,7 +25,7 @@ describe("PR Validation Utilities", () => {
 
     test("should detect and remove title duplication in body", () => {
       const title = "feat(#285): Fix session PR title duplication bug";
-      const duplicatedBody = `feat(#285): Fix session PR title duplication bug\n\n## Summary\n\nThis PR fixes the issue.`;
+      const duplicatedBody = "feat(#285): Fix session PR title duplication bug\n\n## Summary\n\nThis PR fixes the issue.";
       
       const result = validatePrContent(title, duplicatedBody);
       
@@ -91,7 +91,7 @@ describe("PR Validation Utilities", () => {
   describe("sanitizePrBody", () => {
     test("should remove lines that duplicate the title", () => {
       const title = "feat(#285): Fix session PR title duplication bug";
-      const body = `feat(#285): Fix session PR title duplication bug\n\n## Summary\n\nThis PR fixes the issue.\n\nfeat(#285): Fix session PR title duplication bug\n\n## Changes\n\n- Fixed parsing`;
+      const body = "feat(#285): Fix session PR title duplication bug\n\n## Summary\n\nThis PR fixes the issue.\n\nfeat(#285): Fix session PR title duplication bug\n\n## Changes\n\n- Fixed parsing";
       
       const result = sanitizePrBody(title, body);
       
@@ -132,7 +132,7 @@ describe("PR Validation Utilities", () => {
 
     test("should sanitize content with duplication and provide warnings", () => {
       const title = "feat(#285): Fix session PR title duplication bug";
-      const body = `feat(#285): Fix session PR title duplication bug\n\n## Summary\n\nThis PR fixes the issue.`;
+      const body = "feat(#285): Fix session PR title duplication bug\n\n## Summary\n\nThis PR fixes the issue.";
       
       const result = preparePrContent(title, body);
       

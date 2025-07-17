@@ -68,17 +68,17 @@ async function extractPrDescriptionFixed(
     // Filter out empty lines and prevent title duplication in body
     const bodyLines = lines.slice(1).filter(line => line.trim() !== "");
     
-         // Check if first line of body duplicates the title
-     let body = "";
-     if (bodyLines.length > 0) {
-       // If first body line is identical to title, skip it
-       const firstBodyLine = bodyLines[0]?.trim() || "";
-       if (firstBodyLine === title.trim()) {
-         body = bodyLines.slice(1).join("\n").trim();
-       } else {
-         body = bodyLines.join("\n").trim();
-       }
-     }
+    // Check if first line of body duplicates the title
+    let body = "";
+    if (bodyLines.length > 0) {
+      // If first body line is identical to title, skip it
+      const firstBodyLine = bodyLines[0]?.trim() || "";
+      if (firstBodyLine === title.trim()) {
+        body = bodyLines.slice(1).join("\n").trim();
+      } else {
+        body = bodyLines.join("\n").trim();
+      }
+    }
 
     return { title, body };
   } catch (error) {
@@ -123,7 +123,7 @@ describe("Session PR Title Duplication Bug Tests", () => {
   test("should reproduce title duplication when body accidentally contains title", async () => {
     // Simulate a commit message where the body accidentally includes the title
     const originalTitle = "feat(#285): Fix session PR title duplication bug";
-    const duplicatedBody = `feat(#285): Fix session PR title duplication bug\n\nThis PR fixes the issue where titles are duplicated in PR descriptions.`;
+    const duplicatedBody = "feat(#285): Fix session PR title duplication bug\n\nThis PR fixes the issue where titles are duplicated in PR descriptions.";
     const commitMessage = `${originalTitle}\n\n${duplicatedBody}`;
 
     mockGitService = {
@@ -146,7 +146,7 @@ describe("Session PR Title Duplication Bug Tests", () => {
   test("should fix title duplication with improved parsing", async () => {
     // Same problematic commit message as above
     const originalTitle = "feat(#285): Fix session PR title duplication bug";
-    const duplicatedBody = `feat(#285): Fix session PR title duplication bug\n\nThis PR fixes the issue where titles are duplicated in PR descriptions.`;
+    const duplicatedBody = "feat(#285): Fix session PR title duplication bug\n\nThis PR fixes the issue where titles are duplicated in PR descriptions.";
     const commitMessage = `${originalTitle}\n\n${duplicatedBody}`;
 
     mockGitService = {
