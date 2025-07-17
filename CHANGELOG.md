@@ -11,13 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Task #286 HTTP Transport**: Restored complete HTTP transport implementation from task 286 branch
-  - **Fixed browser connection error** for inspector connecting to `http://localhost:3000/mcp`
-  - **Restored StreamableHTTPServerTransport** with proper Express server integration
-  - **Fixed handleHttpRequest()** method that was missing from main branch after merge
-  - **Restored HTTP session management** with mcp-session-id headers and on-demand transport creation
-  - **Fixed inspector port configuration** to use correct internal proxy port (6277)
-  - **Verified full HTTP transport functionality** with inspector, CORS, health endpoints, and multi-client support
+- **HTTP Transport Restoration**: Fixed complete loss of HTTP transport functionality during merge
+  - **CRITICAL**: Restored missing `handleHttpRequest()` method that was lost during task 286 merge
+  - **CRITICAL**: Restored `--http` CLI flag that was replaced with older `--transport` syntax
+  - **Root Cause**: Git restore commands pulled from wrong commits, losing working implementation
+  - **Resolution**: Manually restored from commits 3afd36c0 (server) and 94b434f7 (command)
+  - **Verified Working**: Health endpoint, MCP protocol over HTTP, inspector integration all functional
+  - **Browser connection error FIXED**: Inspector can now connect to `http://localhost:3001/mcp`
 
 ### Added
 
