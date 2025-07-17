@@ -5,7 +5,7 @@ All notable changes to the Minsky project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> **Note:** This changelog references SpecStory conversation histories. See [.specstory/.what-is-this.md](mdc:.specstory/.what-is-this.md) for details on the SpecStory artifact system.
+
 
 ## [Unreleased]
 
@@ -33,10 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Resolved export/import naming mismatches in session command modules
   - Command `minsky tasks status set 116` now works correctly without module resolution errors
   - Updated codemod-development-standards.mdc with key learnings about structure-aware transformations
-
-_See: SpecStory history for task creation system bugfix and test-driven development approach for temporary path issue resolution._
-
-_See: SpecStory history for directory-structure-aware import path fixing session for module resolution improvements._
 
 ### Changed
 
