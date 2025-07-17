@@ -1,8 +1,20 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createMock } from "../utils/test-utils/mocking";
 import * as WorkspaceUtils from "./workspace";
+
+// Mock logger
+const mockLog = {
+  debug: mock(() => {}),
+  info: mock(() => {}),
+  warn: mock(() => {}),
+  error: mock(() => {})
+};
+
+mock.module("../utils/logger", () => ({
+  log: mockLog
+}));
 
 const TEST_VALUE = 123;
 

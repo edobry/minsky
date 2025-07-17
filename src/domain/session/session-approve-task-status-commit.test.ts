@@ -12,10 +12,22 @@
  * - The commit should be pushed to remote
  */
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionFromParams } from "../session";
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
+
+// Mock logger
+const mockLog = {
+  debug: mock(() => {}),
+  info: mock(() => {}),
+  warn: mock(() => {}),
+  error: mock(() => {})
+};
+
+mock.module("../../utils/logger", () => ({
+  log: mockLog
+}));
 
 describe("Session Approve Task Status Commit", () => {
   test("should commit task status update after successful merge", async () => {
