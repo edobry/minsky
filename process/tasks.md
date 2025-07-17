@@ -503,18 +503,7 @@
 - [x] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)
 
 - [ ] Separate Task ID Storage from Display Format [#283](process/tasks/283-separate-task-id-storage-from-display-format.md)
-<<<<<<< HEAD
-=======
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-- [ ] Integrate Task Graph System with Workflow Orchestration [#284](/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/temp-task-integrate-task-graph-system-with-workflow-orchestration-1752698904125.md)
->>>>>>> origin/main
-=======
-- [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
->>>>>>> origin/main
-=======
 - [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
 
-- [x] Fix session PR title duplication bug [#285](/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/temp-task-fix-session-pr-title-duplication-bug-1752771189150.md)
->>>>>>> origin/main
+- [-] Fix session PR title duplication bug [#285](/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/temp-task-fix-session-pr-title-duplication-bug-1752771189150.md)
