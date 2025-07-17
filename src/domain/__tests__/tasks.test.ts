@@ -16,6 +16,7 @@ import {
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { expectToBeInstanceOf } from "../../utils/test-utils/assertions";
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
+import { createMockTaskService } from "../../utils/test-utils/dependencies";
 
 const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
 
@@ -30,32 +31,30 @@ const mockTask: Task = {
   description: "This is a test task",
 };
 
-// Create a default implementation for getTask that works for all tests
-const defaultGetTaskMock = (id: unknown) => Promise.resolve(id === "#TEST_VALUE" ? mockTask : null);
-
-const mockTaskService = {
-  listTasks: createMock(() => Promise.resolve([mockTask])),
-  getTask: createMock(defaultGetTaskMock),
-  getTaskStatus: createMock((id: unknown) =>
-    Promise.resolve(id === "#TEST_VALUE" ? TASK_STATUS.TODO : null)
-  ),
-  setTaskStatus: createMock(() => Promise.resolve()),
-  backends: [] as unknown,
-  currentBackend: {} as unknown,
-  getWorkspacePath: createMock(() => "/mock/workspace/path"),
-  createTask: createMock((_specPath: unknown) => Promise.resolve({ ...mockTask, id: "#new" })),
-};
+// Create properly typed mock task service using Task #061 factory
+const mockTaskService = createMockTaskService({
+  mockGetTask: (id: string) =>
+    Promise.resolve(id === "#TEST_VALUE" ? mockTask : null),
+  listTasks: () => Promise.resolve([mockTask]),
+  getTaskStatus: (id: string) =>
+    Promise.resolve(id === "#TEST_VALUE" ? TASK_STATUS.TODO : undefined),
+  setTaskStatus: () => Promise.resolve(),
+  getWorkspacePath: () => "/mock/workspace/path",
+  createTask: (_specPath: string) => Promise.resolve({ ...mockTask, id: "#new" }),
+  backends: [],
+  currentBackend: "test",
+});
 
 const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
 const mockResolveMainWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
-const mockCreateTaskService = createMock(() => mockTaskService as unknown);
+const mockCreateTaskService = createMock(() => mockTaskService);
 
-// Type assertion for mock dependencies
+// Properly typed mock dependencies
 const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
   resolveMainWorkspacePath: mockResolveMainWorkspacePath,
   createTaskService: mockCreateTaskService,
-} as unknown; // Cast to any to avoid TypeScript errors with the deps parameter
+};
 
 describe("interface-agnostic task functions", () => {
   // No beforeEach needed - setupTestMocks() handles automatic cleanup after each test
