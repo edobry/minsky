@@ -41,7 +41,7 @@ describe("Session Approve", () => {
     );
 
     const execInRepositorySpy = createMock();
-    execInRepositorySpy.mockImplementation((workdir, command) => {
+    execInRepositorySpy.mockImplementation((_workdir, command) => {
       if (command.includes("rev-parse HEAD")) {
         return Promise.resolve("abcdef123456");
       }
@@ -128,45 +128,66 @@ describe("Session Approve", () => {
   });
 
   test("detects current session when repo path is provided", async () => {
-    // Create mocks for dependencies
-    const mockSessionDB = {
-      getSession: createMock((name) => {
-        if (name === "current-session") {
-          return Promise.resolve({
-            _session: name,
-            repoName: "test-repo",
-            repoUrl: "/test/repo/path",
-            createdAt: new Date().toISOString(),
-          });
-        }
-        return Promise.resolve(null);
-      }),
-      getSessionByTaskId: createMock(() => Promise.resolve(null)),
-      getSessionWorkdir: createMock((_sessionName) =>
-        Promise.resolve("/test/workdir/test-repo/sessions/current-session")
-      ),
-    };
+    // Create trackable spies for methods we need to verify
+    const getSessionSpy = createMock();
+    getSessionSpy.mockImplementation((name) => {
+      if (name === "current-session") {
+        return Promise.resolve({
+          session: name, // Fixed: use 'session' instead of '_session'
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return Promise.resolve(null);
+    });
 
-    const mockGitService = {
-      execInRepository: createMock((_workdir, command) => {
-        if (command.includes("rev-parse HEAD")) {
-          return Promise.resolve("abcdef123456");
-        }
-        if (command.includes("config user.name")) {
-          return Promise.resolve("Test User");
-        }
-        return Promise.resolve("");
-      }),
-    };
+    const getSessionByTaskIdSpy = createMock();
+    getSessionByTaskIdSpy.mockImplementation(() => Promise.resolve(null));
 
-    const mockTaskService = {
-      setTaskStatus: createMock(() => Promise.resolve()),
-      getBackendForTask: createMock(() =>
-        Promise.resolve({
-          setTaskMetadata: createMock(() => Promise.resolve()),
-        })
-      ),
-    };
+    const getSessionWorkdirSpy = createMock();
+    getSessionWorkdirSpy.mockImplementation((_sessionName) =>
+      Promise.resolve("/test/workdir/test-repo/sessions/current-session")
+    );
+
+    const execInRepositorySpy = createMock();
+    execInRepositorySpy.mockImplementation((_workdir, command) => {
+      if (command.includes("rev-parse HEAD")) {
+        return Promise.resolve("abcdef123456");
+      }
+      if (command.includes("config user.name")) {
+        return Promise.resolve("Test User");
+      }
+      return Promise.resolve("");
+    });
+
+    const setTaskStatusSpy = createMock();
+    setTaskStatusSpy.mockImplementation(() => Promise.resolve());
+
+    const getBackendForTaskSpy = createMock();
+    getBackendForTaskSpy.mockImplementation(() =>
+      Promise.resolve({
+        setTaskMetadata: createMock(() => Promise.resolve()),
+      })
+    );
+
+    // Create mocks using centralized factories with spy integration
+    const mockSessionDB = createMockSessionProvider({
+      getSession: getSessionSpy,
+      getSessionByTaskId: getSessionByTaskIdSpy,
+    });
+
+    // Add getSessionWorkdir method not covered by centralized factory
+    (mockSessionDB as any).getSessionWorkdir = getSessionWorkdirSpy;
+
+    const mockGitService = createMockGitService({
+      execInRepository: execInRepositorySpy,
+    });
+
+    const mockTaskService = createMockTaskService({
+      setTaskStatus: setTaskStatusSpy,
+      getBackendForTask: getBackendForTaskSpy,
+    });
 
     // Create a mock getCurrentSession function that returns a valid session
     const repoPath = "/test/repo/path";
@@ -191,29 +212,35 @@ describe("Session Approve", () => {
 
     // Verify
     expect(mockGetCurrentSession).toHaveBeenCalledWith(repoPath);
-    expect(mockSessionDB.getSession).toHaveBeenCalledWith("current-session");
-    expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
+    expect(getSessionSpy).toHaveBeenCalledWith("current-session");
+    expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
     expect(result.session).toBe("current-session");
   });
 
   test("throws error when session is not found", async () => {
-    // Create mocks for dependencies
-    const mockSessionDB = {
-      getSession: createMock(() => Promise.resolve(null)),
-      getSessionByTaskId: createMock(() => Promise.resolve(null)),
-      getSessionWorkdir: createMock(() => Promise.resolve("")),
-    };
+    // Create mocks using centralized factories
+    const mockSessionDB = createMockSessionProvider({
+      getSession: () => Promise.resolve(null),
+      getSessionByTaskId: () => Promise.resolve(null),
+    });
+
+    // Add getSessionWorkdir method not covered by centralized factory
+    (mockSessionDB as any).getSessionWorkdir = createMock(() => Promise.resolve(""));
+
+    const mockGitService = createMockGitService({
+      execInRepository: () => Promise.resolve(""),
+    });
+
+    const mockTaskService = createMockTaskService({
+      setTaskStatus: () => Promise.resolve(),
+      getBackendForTask: () => Promise.resolve({}),
+    });
 
     // Create test dependencies
     const testDeps = {
       sessionDB: mockSessionDB,
-      gitService: {
-        execInRepository: createMock(() => Promise.resolve("")),
-      },
-      taskService: {
-        setTaskStatus: createMock(() => Promise.resolve()),
-        getBackendForTask: createMock(() => Promise.resolve({})),
-      },
+      gitService: mockGitService,
+      taskService: mockTaskService,
       workspaceUtils: {},
     };
 
@@ -234,20 +261,29 @@ describe("Session Approve", () => {
   });
 
   test("throws error when no session or task is provided", async () => {
-    // Create test dependencies with required properties
+    // Create mocks using centralized factories
+    const mockSessionDB = createMockSessionProvider({
+      getSession: () => Promise.resolve(null),
+      getSessionByTaskId: () => Promise.resolve(null),
+    });
+
+    // Add getSessionWorkdir method not covered by centralized factory
+    (mockSessionDB as any).getSessionWorkdir = createMock(() => Promise.resolve(""));
+
+    const mockGitService = createMockGitService({
+      execInRepository: () => Promise.resolve(""),
+    });
+
+    const mockTaskService = createMockTaskService({
+      setTaskStatus: () => Promise.resolve(),
+      getBackendForTask: () => Promise.resolve({}),
+    });
+
+    // Create test dependencies
     const testDeps = {
-      sessionDB: {
-        getSession: createMock(() => Promise.resolve(null)),
-        getSessionByTaskId: createMock(() => Promise.resolve(null)),
-        getSessionWorkdir: createMock(() => Promise.resolve("")),
-      },
-      gitService: {
-        execInRepository: createMock(() => Promise.resolve("")),
-      },
-      taskService: {
-        setTaskStatus: createMock(() => Promise.resolve()),
-        getBackendForTask: createMock(() => Promise.resolve({})),
-      },
+      sessionDB: mockSessionDB,
+      gitService: mockGitService,
+      taskService: mockTaskService,
       workspaceUtils: {
         getCurrentSession: createMock(() => Promise.resolve(null)),
       },
@@ -335,50 +371,71 @@ describe("Session Approve", () => {
   });
 
   test("merges from local PR branch and handles missing remote branch gracefully", async () => {
-    // Create mocks for dependencies
-    const mockSessionDB = {
-      getSession: createMock((name) =>
-        Promise.resolve({
-          _session: name,
-          repoName: "test-repo",
-          repoUrl: "/test/repo/path",
-          taskId: "#TEST_VALUE",
-          createdAt: new Date().toISOString(),
-        })
-      ),
-      getSessionByTaskId: createMock(() => Promise.resolve(null)),
-      getSessionWorkdir: createMock(() =>
-        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
-      ),
-    };
+    // Create trackable spies for methods we need to verify
+    const getSessionSpy = createMock();
+    getSessionSpy.mockImplementation((name) =>
+      Promise.resolve({
+        session: name, // Fixed: use 'session' instead of '_session'
+        repoName: "test-repo",
+        repoUrl: "/test/repo/path",
+        taskId: "#TEST_VALUE",
+        createdAt: new Date().toISOString(),
+      })
+    );
+
+    const getSessionByTaskIdSpy = createMock();
+    getSessionByTaskIdSpy.mockImplementation(() => Promise.resolve(null));
+
+    const getSessionWorkdirSpy = createMock();
+    getSessionWorkdirSpy.mockImplementation(() =>
+      Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+    );
 
     const gitCommands: string[] = [];
-    const mockGitService = {
-      execInRepository: createMock((_workdir, command) => {
-        gitCommands.push(command);
+    const execInRepositorySpy = createMock();
+    execInRepositorySpy.mockImplementation((_workdir, command) => {
+      gitCommands.push(command);
 
-        if (command.includes("rev-parse HEAD")) {
-          return Promise.resolve("abcdef123456");
-        }
-        if (command.includes("config user.name")) {
-          return Promise.resolve("Test User");
-        }
-        // Simulate remote branch check failure (branch doesn't exist on remote)
-        if (command.includes("show-ref --verify --quiet refs/remotes/origin/pr/test-session")) {
-          throw new Error("Command failed: git show-ref");
-        }
-        return Promise.resolve("");
-      }),
-    };
+      if (command.includes("rev-parse HEAD")) {
+        return Promise.resolve("abcdef123456");
+      }
+      if (command.includes("config user.name")) {
+        return Promise.resolve("Test User");
+      }
+      // Simulate remote branch check failure (branch doesn't exist on remote)
+      if (command.includes("show-ref --verify --quiet refs/remotes/origin/pr/test-session")) {
+        throw new Error("Command failed: git show-ref");
+      }
+      return Promise.resolve("");
+    });
 
-    const mockTaskService = {
-      setTaskStatus: createMock(() => Promise.resolve()),
-      getBackendForTask: createMock(() =>
-        Promise.resolve({
-          setTaskMetadata: createMock(() => Promise.resolve()),
-        })
-      ),
-    };
+    const setTaskStatusSpy = createMock();
+    setTaskStatusSpy.mockImplementation(() => Promise.resolve());
+
+    const getBackendForTaskSpy = createMock();
+    getBackendForTaskSpy.mockImplementation(() =>
+      Promise.resolve({
+        setTaskMetadata: createMock(() => Promise.resolve()),
+      })
+    );
+
+    // Create mocks using centralized factories with spy integration
+    const mockSessionDB = createMockSessionProvider({
+      getSession: getSessionSpy,
+      getSessionByTaskId: getSessionByTaskIdSpy,
+    });
+
+    // Add getSessionWorkdir method not covered by centralized factory
+    (mockSessionDB as any).getSessionWorkdir = getSessionWorkdirSpy;
+
+    const mockGitService = createMockGitService({
+      execInRepository: execInRepositorySpy,
+    });
+
+    const mockTaskService = createMockTaskService({
+      setTaskStatus: setTaskStatusSpy,
+      getBackendForTask: getBackendForTaskSpy,
+    });
 
     // Create test dependencies
     const testDeps = {
@@ -414,7 +471,7 @@ describe("Session Approve", () => {
 
     // Should try to check for remote branch existence
     expect(gitCommands).toContain(
-      "git show-ref --verify --quiet refs/remotes/origin/pr/test-session"
+      "git show-ref --verify --quiet refs/heads/pr/test-session"
     );
 
     // Should NOT try to delete remote branch since it doesn't exist
@@ -426,47 +483,68 @@ describe("Session Approve", () => {
   // Expected behavior: Delete both local PR branch and task branch after successful merge
   describe("branch cleanup after successful merge", () => {
     test("should delete local PR branch and task branch after successful merge", async () => {
-      // Create mocks for dependencies
-      const mockSessionDB = {
-        getSession: createMock((name) =>
-          Promise.resolve({
-            session: name,
-            repoName: "test-repo",
-            repoUrl: "/test/repo/path",
-            taskId: "#265",
-            createdAt: new Date().toISOString(),
-          })
-        ),
-        getSessionByTaskId: createMock(() => Promise.resolve(null)),
-        getSessionWorkdir: createMock(() =>
-          Promise.resolve("/test/workdir/test-repo/sessions/test-session")
-        ),
-      };
+      // Create trackable spies for methods we need to verify
+      const getSessionSpy = createMock();
+      getSessionSpy.mockImplementation((name) =>
+        Promise.resolve({
+          session: name,
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "#265",
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      const getSessionByTaskIdSpy = createMock();
+      getSessionByTaskIdSpy.mockImplementation(() => Promise.resolve(null));
+
+      const getSessionWorkdirSpy = createMock();
+      getSessionWorkdirSpy.mockImplementation(() =>
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      );
 
       const gitCommands: string[] = [];
-      const mockGitService = {
-        execInRepository: createMock((_workdir: string, command: string) => {
-          gitCommands.push(command);
+      const execInRepositorySpy = createMock();
+      execInRepositorySpy.mockImplementation((_workdir, command) => {
+        gitCommands.push(command);
 
-          if (command.includes("rev-parse HEAD")) {
-            return Promise.resolve("abcdef123456");
-          }
-          if (command.includes("config user.name")) {
-            return Promise.resolve("Test User");
-          }
-          // Simulate successful branch operations
-          return Promise.resolve("");
-        }),
-      };
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        // Simulate successful branch operations
+        return Promise.resolve("");
+      });
 
-      const mockTaskService = {
-        setTaskStatus: createMock(() => Promise.resolve()),
-        getBackendForTask: createMock(() =>
-          Promise.resolve({
-            setTaskMetadata: createMock(() => Promise.resolve()),
-          })
-        ),
-      };
+      const setTaskStatusSpy = createMock();
+      setTaskStatusSpy.mockImplementation(() => Promise.resolve());
+
+      const getBackendForTaskSpy = createMock();
+      getBackendForTaskSpy.mockImplementation(() =>
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        })
+      );
+
+      // Create mocks using centralized factories with spy integration
+      const mockSessionDB = createMockSessionProvider({
+        getSession: getSessionSpy,
+        getSessionByTaskId: getSessionByTaskIdSpy,
+      });
+
+      // Add getSessionWorkdir method not covered by centralized factory
+      (mockSessionDB as any).getSessionWorkdir = getSessionWorkdirSpy;
+
+      const mockGitService = createMockGitService({
+        execInRepository: execInRepositorySpy,
+      });
+
+      const mockTaskService = createMockTaskService({
+        setTaskStatus: setTaskStatusSpy,
+        getBackendForTask: getBackendForTaskSpy,
+      });
 
       // Create test dependencies
       const testDeps = {
@@ -498,50 +576,71 @@ describe("Session Approve", () => {
     });
 
     test("should handle branch cleanup failures gracefully without failing the operation", async () => {
-      // Create mocks for dependencies
-      const mockSessionDB = {
-        getSession: createMock((name) =>
-          Promise.resolve({
-            session: name,
-            repoName: "test-repo",
-            repoUrl: "/test/repo/path",
-            taskId: "#265",
-            createdAt: new Date().toISOString(),
-          })
-        ),
-        getSessionByTaskId: createMock(() => Promise.resolve(null)),
-        getSessionWorkdir: createMock(() =>
-          Promise.resolve("/test/workdir/test-repo/sessions/test-session")
-        ),
-      };
+      // Create trackable spies for methods we need to verify
+      const getSessionSpy = createMock();
+      getSessionSpy.mockImplementation((name) =>
+        Promise.resolve({
+          session: name,
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "#265",
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      const getSessionByTaskIdSpy = createMock();
+      getSessionByTaskIdSpy.mockImplementation(() => Promise.resolve(null));
+
+      const getSessionWorkdirSpy = createMock();
+      getSessionWorkdirSpy.mockImplementation(() =>
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      );
 
       const gitCommands: string[] = [];
-      const mockGitService = {
-        execInRepository: createMock((_workdir, command) => {
-          gitCommands.push(command);
+      const execInRepositorySpy = createMock();
+      execInRepositorySpy.mockImplementation((_workdir, command) => {
+        gitCommands.push(command);
 
-          if (command.includes("rev-parse HEAD")) {
-            return Promise.resolve("abcdef123456");
-          }
-          if (command.includes("config user.name")) {
-            return Promise.resolve("Test User");
-          }
-          // Simulate branch deletion failures
-          if (command.includes("branch -d")) {
-            throw new Error("branch deletion failed - branch not found or has unmerged changes");
-          }
-          return Promise.resolve("");
-        }),
-      };
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        // Simulate branch deletion failures
+        if (command.includes("branch -d")) {
+          throw new Error("branch deletion failed - branch not found or has unmerged changes");
+        }
+        return Promise.resolve("");
+      });
 
-      const mockTaskService = {
-        setTaskStatus: createMock(() => Promise.resolve()),
-        getBackendForTask: createMock(() =>
-          Promise.resolve({
-            setTaskMetadata: createMock(() => Promise.resolve()),
-          })
-        ),
-      };
+      const setTaskStatusSpy = createMock();
+      setTaskStatusSpy.mockImplementation(() => Promise.resolve());
+
+      const getBackendForTaskSpy = createMock();
+      getBackendForTaskSpy.mockImplementation(() =>
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        })
+      );
+
+      // Create mocks using centralized factories with spy integration
+      const mockSessionDB = createMockSessionProvider({
+        getSession: getSessionSpy,
+        getSessionByTaskId: getSessionByTaskIdSpy,
+      });
+
+      // Add getSessionWorkdir method not covered by centralized factory
+      (mockSessionDB as any).getSessionWorkdir = getSessionWorkdirSpy;
+
+      const mockGitService = createMockGitService({
+        execInRepository: execInRepositorySpy,
+      });
+
+      const mockTaskService = createMockTaskService({
+        setTaskStatus: setTaskStatusSpy,
+        getBackendForTask: getBackendForTaskSpy,
+      });
 
       // Create test dependencies
       const testDeps = {
@@ -570,54 +669,75 @@ describe("Session Approve", () => {
     });
 
     test("should not attempt branch cleanup for already approved sessions", async () => {
-      // Create mocks for dependencies
-      const mockSessionDB = {
-        getSession: createMock((name) =>
-          Promise.resolve({
-            session: name,
-            repoName: "test-repo",
-            repoUrl: "/test/repo/path",
-            taskId: "#265",
-            createdAt: new Date().toISOString(),
-          })
-        ),
-        getSessionByTaskId: createMock(() => Promise.resolve(null)),
-        getSessionWorkdir: createMock(() =>
-          Promise.resolve("/test/workdir/test-repo/sessions/test-session")
-        ),
-      };
+      // Create trackable spies for methods we need to verify
+      const getSessionSpy = createMock();
+      getSessionSpy.mockImplementation((name) =>
+        Promise.resolve({
+          session: name,
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "#265",
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      const getSessionByTaskIdSpy = createMock();
+      getSessionByTaskIdSpy.mockImplementation(() => Promise.resolve(null));
+
+      const getSessionWorkdirSpy = createMock();
+      getSessionWorkdirSpy.mockImplementation(() =>
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      );
 
       const gitCommands: string[] = [];
-      const mockGitService = {
-        execInRepository: createMock((_workdir, command) => {
-          gitCommands.push(command);
+      const execInRepositorySpy = createMock();
+      execInRepositorySpy.mockImplementation((_workdir, command) => {
+        gitCommands.push(command);
 
-          if (command.includes("rev-parse HEAD")) {
-            return Promise.resolve("abcdef123456");
-          }
-          if (command.includes("config user.name")) {
-            return Promise.resolve("Test User");
-          }
-          // Simulate that PR branch doesn't exist (already cleaned up)
-          if (command.includes("show-ref --verify --quiet refs/heads/pr/task#265")) {
-            throw new Error("branch doesn't exist");
-          }
-          // Simulate merge-base check shows branch is already merged
-          if (command.includes("merge-base --is-ancestor")) {
-            return Promise.resolve("");  // Success means it's already merged
-          }
-          return Promise.resolve("");
-        }),
-      };
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        // Simulate that PR branch doesn't exist (already cleaned up)
+        if (command.includes("show-ref --verify --quiet refs/heads/pr/task#265")) {
+          throw new Error("branch doesn't exist");
+        }
+        // Simulate merge-base check shows branch is already merged
+        if (command.includes("merge-base --is-ancestor")) {
+          return Promise.resolve("");  // Success means it's already merged
+        }
+        return Promise.resolve("");
+      });
 
-      const mockTaskService = {
-        setTaskStatus: createMock(() => Promise.resolve()),
-        getBackendForTask: createMock(() =>
-          Promise.resolve({
-            setTaskMetadata: createMock(() => Promise.resolve()),
-          })
-        ),
-      };
+      const setTaskStatusSpy = createMock();
+      setTaskStatusSpy.mockImplementation(() => Promise.resolve());
+
+      const getBackendForTaskSpy = createMock();
+      getBackendForTaskSpy.mockImplementation(() =>
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        })
+      );
+
+      // Create mocks using centralized factories with spy integration
+      const mockSessionDB = createMockSessionProvider({
+        getSession: getSessionSpy,
+        getSessionByTaskId: getSessionByTaskIdSpy,
+      });
+
+      // Add getSessionWorkdir method not covered by centralized factory
+      (mockSessionDB as any).getSessionWorkdir = getSessionWorkdirSpy;
+
+      const mockGitService = createMockGitService({
+        execInRepository: execInRepositorySpy,
+      });
+
+      const mockTaskService = createMockTaskService({
+        setTaskStatus: setTaskStatusSpy,
+        getBackendForTask: getBackendForTaskSpy,
+      });
 
       // Create test dependencies
       const testDeps = {
@@ -645,50 +765,71 @@ describe("Session Approve", () => {
     });
 
     test("should handle case where task branch doesn't exist but PR branch does", async () => {
-      // Create mocks for dependencies
-      const mockSessionDB = {
-        getSession: createMock((name) =>
-          Promise.resolve({
-            session: name,
-            repoName: "test-repo",
-            repoUrl: "/test/repo/path",
-            taskId: "#265",
-            createdAt: new Date().toISOString(),
-          })
-        ),
-        getSessionByTaskId: createMock(() => Promise.resolve(null)),
-        getSessionWorkdir: createMock(() =>
-          Promise.resolve("/test/workdir/test-repo/sessions/test-session")
-        ),
-      };
+      // Create trackable spies for methods we need to verify
+      const getSessionSpy = createMock();
+      getSessionSpy.mockImplementation((name) =>
+        Promise.resolve({
+          session: name,
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "#265",
+          createdAt: new Date().toISOString(),
+        })
+      );
+
+      const getSessionByTaskIdSpy = createMock();
+      getSessionByTaskIdSpy.mockImplementation(() => Promise.resolve(null));
+
+      const getSessionWorkdirSpy = createMock();
+      getSessionWorkdirSpy.mockImplementation(() =>
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      );
 
       const gitCommands: string[] = [];
-      const mockGitService = {
-        execInRepository: createMock((_workdir, command) => {
-          gitCommands.push(command);
+      const execInRepositorySpy = createMock();
+      execInRepositorySpy.mockImplementation((_workdir, command) => {
+        gitCommands.push(command);
 
-          if (command.includes("rev-parse HEAD")) {
-            return Promise.resolve("abcdef123456");
-          }
-          if (command.includes("config user.name")) {
-            return Promise.resolve("Test User");
-          }
-          // Simulate that task branch doesn't exist but PR branch cleanup succeeds
-          if (command.includes("branch -d task#265")) {
-            throw new Error("branch 'task#265' not found");
-          }
-          return Promise.resolve("");
-        }),
-      };
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        // Simulate that task branch doesn't exist but PR branch cleanup succeeds
+        if (command.includes("branch -d task#265")) {
+          throw new Error("branch 'task#265' not found");
+        }
+        return Promise.resolve("");
+      });
 
-      const mockTaskService = {
-        setTaskStatus: createMock(() => Promise.resolve()),
-        getBackendForTask: createMock(() =>
-          Promise.resolve({
-            setTaskMetadata: createMock(() => Promise.resolve()),
-          })
-        ),
-      };
+      const setTaskStatusSpy = createMock();
+      setTaskStatusSpy.mockImplementation(() => Promise.resolve());
+
+      const getBackendForTaskSpy = createMock();
+      getBackendForTaskSpy.mockImplementation(() =>
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        })
+      );
+
+      // Create mocks using centralized factories with spy integration
+      const mockSessionDB = createMockSessionProvider({
+        getSession: getSessionSpy,
+        getSessionByTaskId: getSessionByTaskIdSpy,
+      });
+
+      // Add getSessionWorkdir method not covered by centralized factory
+      (mockSessionDB as any).getSessionWorkdir = getSessionWorkdirSpy;
+
+      const mockGitService = createMockGitService({
+        execInRepository: execInRepositorySpy,
+      });
+
+      const mockTaskService = createMockTaskService({
+        setTaskStatus: setTaskStatusSpy,
+        getBackendForTask: getBackendForTaskSpy,
+      });
 
       // Create test dependencies
       const testDeps = {
