@@ -232,6 +232,10 @@ Then try the session approve command again.
     }
 
     // First, check out the base branch
+    if (!params.json) {
+      log.cli("🔄 Switching to base branch...");
+    }
+
     try {
       await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
     } catch (checkoutError) {
@@ -255,6 +259,9 @@ Then try the session approve command again.
     }
 
     // Fetch latest changes
+    if (!params.json) {
+      log.cli("📡 Fetching latest changes...");
+    }
     await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
 
     // Check if the PR branch has already been merged
@@ -277,6 +284,10 @@ Then try the session approve command again.
       // This avoids the race condition where the check can fail during merge process
 
       // Attempt the merge - if it fails because already merged, git will tell us
+      if (!params.json) {
+        log.cli(`🔀 Merging PR branch ${prBranch}...`);
+      }
+
       try {
         await deps.gitService.execInRepository(workingDirectory, `git merge --ff-only ${prBranch}`);
 
