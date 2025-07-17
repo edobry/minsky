@@ -1,80 +1,59 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { sessionReviewFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
-import type { SessionProviderInterface, GitServiceInterface } from "./session";
+import type { SessionProviderInterface } from "./session";
+import type { GitServiceInterface } from "./git";
 import type { TaskServiceInterface } from "./tasks";
 import type { WorkspaceUtilsInterface } from "./workspace";
+import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/index";
 
 const TEST_VALUE = 123;
 const TEST_ARRAY_SIZE = 3;
 
 describe("sessionReviewFromParams", () => {
-  // Mock the SessionProviderInterface
-  const mockSessionDB: SessionProviderInterface = {
-    getSession: mock(() => ({
+  // Create centralized mocks
+  const mockSessionDB = createMockSessionProvider({
+    getSession: () => Promise.resolve({
       session: "testSession",
       taskId: "#TEST_VALUE",
       repoName: "test-repo",
       repoUrl: "https://github.com/test/test-repo",
       branch: "feature/test",
       createdAt: new Date().toISOString(),
-    })),
-    getSessionByTaskId: mock(() => ({
+    }),
+    getSessionByTaskId: () => Promise.resolve({
       session: "task#TEST_VALUE",
       taskId: "#TEST_VALUE",
       repoName: "test-repo",
       repoUrl: "https://github.com/test/test-repo",
       branch: "feature/test",
       createdAt: new Date().toISOString(),
-    })),
-    getSessionWorkdir: mock(() => "/fake/path/to/session"),
-    // Implement other required methods with mock implementations
-    listSessions: mock(() => []),
-    addSession: mock(() => Promise.resolve()),
-    updateSession: mock(() => Promise.resolve()),
-    deleteSession: mock(() => Promise.resolve(true)),
-    getRepoPath: mock(() => "/fake/path/to/repo"),
-  };
+    }),
+    getSessionWorkdir: () => Promise.resolve("/fake/path/to/session"),
+  });
 
-  // Mock the GitServiceInterface
-  const mockGitService: GitServiceInterface = {
-    execInRepository: mock((_path: unknown) => {
+  const mockGitService = createMockGitService({
+    execInRepository: (workdir: string, command: string) => {
       if (command.includes("git ls-remote")) {
-        return "refs/heads/pr/testSession";
+        return Promise.resolve("refs/heads/pr/testSession");
       }
       if (command.includes("log -1")) {
-        return "PR Title\n\nPR Description body";
+        return Promise.resolve("PR Title\n\nPR Description body");
       }
       if (command.includes("diff --stat")) {
-        return "3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)";
+        return Promise.resolve("3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)");
       }
       if (command.includes("git diff")) {
-        return "diff --git a/file.txt b/file.txt\n+new line\n-old line";
+        return Promise.resolve("diff --git a/file.txt b/file.txt\n+new line\n-old line");
       }
-      return "";
-    }),
-    // Add other required methods with minimal implementations
-    clone: mock(() => Promise.resolve({ _workdir: "", _session: "" })),
-    branch: mock(() => Promise.resolve({ _branch: "" })),
-    stashChanges: mock(() => Promise.resolve()),
-    pullLatest: mock(() => Promise.resolve()),
-    mergeBranch: mock(() => Promise.resolve({ conflicts: false })),
-    push: mock(() => Promise.resolve()),
-    popStash: mock(() => Promise.resolve()),
-    getSessionWorkdir: mock(() => ""),
-    commit: mock(() => Promise.resolve({ hash: "" })),
-  };
+      return Promise.resolve("");
+    },
+  });
 
-  // Mock the TaskServiceInterface with getTaskSpecData
-  const mockTaskService: TaskServiceInterface & {
-    getTaskSpecData: (taskId: unknown) => Promise<string>;
-  } = {
-    getTaskSpecData: mock(() => Promise.resolve("# Task Specification\n\nThis is a test task")),
-    getTask: mock(() => Promise.resolve(null)),
-    getTaskStatus: mock(() => Promise.resolve("")),
-    setTaskStatus: mock(() => Promise.resolve()),
-    listTasks: mock(() => Promise.resolve([])),
-  };
+  const mockTaskService = createMockTaskService({
+    getTaskStatus: () => Promise.resolve(""),
+    setTaskStatus: () => Promise.resolve(),
+  });
 
   // Mock the WorkspaceUtilsInterface
   const mockWorkspaceUtils: WorkspaceUtilsInterface = {
