@@ -16,9 +16,9 @@
 
 - [x] Add `git commit` Command to Stage and Commit Changes [#009](process/tasks/009-add-git-commit-command-to-stage-and-commit-changes.md)
 
-- [x] Enhance `git pr` Command to Create GitHub PRs and Update Task Status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
+- [x] ~~Enhance `git pr` Command to Create GitHub PRs and Update Task Status~~ (Command removed - functionality moved to `session pr`) [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
 
-- [x] Fix `git pr` Command and Add Proper Tests [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
+- [x] ~~Fix `git pr` Command and Add Proper Tests~~ (Command removed - functionality moved to `session pr`) [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 
 - [x] Add `session update` Command [#012](process/tasks/012-add-session-update-command.md)
 
@@ -34,7 +34,7 @@
 
 - [x] Implement Test Suite Improvements [#019](process/tasks/019-implement-test-suite-improvements.md)
 
-- [x] Add `--task` option to `git pr` command [#020](process/tasks/020-add-task-option-to-git-pr-command.md)
+- [x] ~~Add `--task` option to `git pr` command~~ (Command removed - functionality moved to `session pr`) [#020](process/tasks/020-add-task-option-to-git-pr-command.md)
 
 - [x] Refactor Large Methods in GitService [#021](process/tasks/021-refactor-large-methods-in-gitservice.md)
 
@@ -503,7 +503,18 @@
 - [x] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)
 
 - [ ] Separate Task ID Storage from Display Format [#283](process/tasks/283-separate-task-id-storage-from-display-format.md)
+<<<<<<< HEAD
+=======
 
+<<<<<<< HEAD
+<<<<<<< HEAD
+- [ ] Integrate Task Graph System with Workflow Orchestration [#284](/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/temp-task-integrate-task-graph-system-with-workflow-orchestration-1752698904125.md)
+>>>>>>> origin/main
+=======
+- [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
+>>>>>>> origin/main
+=======
 - [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
 
 - [ ] Fix session PR title duplication bug [#285](/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/temp-task-fix-session-pr-title-duplication-bug-1752771189150.md)
+>>>>>>> origin/main
