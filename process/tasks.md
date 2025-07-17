@@ -516,5 +516,5 @@
 =======
 - [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
 
-- [ ] Fix session PR title duplication bug [#285](/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/temp-task-fix-session-pr-title-duplication-bug-1752771189150.md)
+- [-] Fix session PR title duplication bug [#285](/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/temp-task-fix-session-pr-title-duplication-bug-1752771189150.md)
 >>>>>>> origin/main
