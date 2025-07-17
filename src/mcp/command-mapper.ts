@@ -32,11 +32,11 @@ export class CommandMapper {
 
   /**
    * Normalize method name to ensure compatibility with MCP
-   * 
+   *
    * The MCP protocol supports dots in method names for namespacing,
    * but some JSON-RPC implementations may have issues with dot notation.
    * We normalize method names and provide underscore aliases for compatibility.
-   * 
+   *
    * @param methodName Original method name (may contain dots for namespacing)
    * @returns Normalized method name safe for JSON-RPC
    */
@@ -58,17 +58,34 @@ export class CommandMapper {
    * @param zodSchema The Zod schema to convert
    * @returns JSON Schema object
    */
-  private zodToJsonSchema(zodSchema: z.ZodTypeAny): any {
+  public zodToJsonSchema(zodSchema: z.ZodTypeAny): any {
     try {
-      return zodToJsonSchema(zodSchema, {
+      const jsonSchema = zodToJsonSchema(zodSchema, {
         name: "ToolParameters",
         $refStrategy: "none", // Inline all definitions
       });
+
+      // If the schema has a $ref, extract the actual definition
+      // This happens when zod-to-json-schema creates a wrapper with definitions
+      let flatSchema = jsonSchema;
+      if ((jsonSchema as any).$ref && (jsonSchema as any).definitions) {
+        const refKey = (jsonSchema as any).$ref.replace("#/definitions/", "");
+        flatSchema = (jsonSchema as any).definitions[refKey];
+      }
+
+      log.debug("Converted Zod to JSON Schema", {
+        zodType: zodSchema._def?.typeName,
+        originalSchema: jsonSchema,
+        flatSchema,
+        hasRef: !!(jsonSchema as any).$ref,
+      });
+
+      return flatSchema;
     } catch (error) {
       log.warn("Failed to convert Zod schema to JSON Schema, using fallback", {
         error: getErrorMessage(error),
       });
-      
+
       // Return a permissive fallback schema
       return {
         type: "object",
