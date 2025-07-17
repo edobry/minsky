@@ -84,6 +84,16 @@ function createMockBackend(): TaskBackend {
     getTaskSpecPath: mock((taskId) => `mock/specs/${taskId.replace(/^#/, "")}.md`),
 
     fileExists: mock(() => Promise.resolve(true)),
+
+    createTask: mock((specPath: string, options?: any) => {
+      return Promise.resolve({
+        id: "#001",
+        title: "Created Task",
+        description: "Test task description",
+        status: "TODO",
+        specPath,
+      });
+    }),
   };
 }
 

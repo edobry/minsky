@@ -10,7 +10,7 @@ import { writeFile, mkdir, rm } from "fs/promises";
 import { join } from "path";
 import { InvalidPathError } from "../workspace/workspace-backend";
 
-describe.skip("SessionPathResolver Domain Logic", () => {
+describe("SessionPathResolver Domain Logic", () => {
   let tempDir: string;
   let sessionWorkspace: string;
   let resolver: SessionPathResolver;
