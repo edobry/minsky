@@ -33,33 +33,33 @@ import {
   gitMergeWithTimeout,
   gitPushWithTimeout,
 } from "../utils/git-exec-enhanced";
-import { 
-  preparePrImpl, 
-  type PreparePrOptions, 
-  type PreparePrResult 
+import {
+  preparePrImpl,
+  type PreparePrOptions,
+  type PreparePrResult
 } from "./git/prepare-pr-operations";
-import { 
-  mergePrImpl, 
-  type MergePrOptions, 
-  type MergePrResult 
+import {
+  mergePrImpl,
+  type MergePrOptions,
+  type MergePrResult
 } from "./git/merge-pr-operations";
-import { 
-  mergeBranchImpl 
+import {
+  mergeBranchImpl
 } from "./git/merge-branch-operations";
-import { 
+import {
   prWithDependenciesImpl,
   type PrOptions,
-  type PrResult 
+  type PrResult
 } from "./git/pr-generation-operations";
-import { 
+import {
   pushImpl,
   type PushOptions,
-  type PushResult 
+  type PushResult
 } from "./git/push-operations";
-import { 
+import {
   cloneImpl,
   type CloneOptions,
-  type CloneResult 
+  type CloneResult
 } from "./git/clone-operations";
 
 const execAsync = promisify(exec);
@@ -410,7 +410,7 @@ export class GitService implements GitServiceInterface {
       ...deps,
       ensureBaseDir: () => this.ensureBaseDir()
     };
-    
+
     return await prWithDependenciesImpl(options, extendedDeps);
   }
 
@@ -557,7 +557,7 @@ export class GitService implements GitServiceInterface {
    */
   async push(options: PushOptions): Promise<PushResult> {
     await this.ensureBaseDir();
-    
+
     return pushImpl(options, {
       execAsync,
       getSession: (sessionName: string) => this.sessionDb.getSession(sessionName),
@@ -966,7 +966,7 @@ export class GitService implements GitServiceInterface {
       repoPath,
       sourceBranch,
       targetBranch,
-      options
+      options as unknown
     );
   }
 
@@ -986,7 +986,7 @@ export class GitService implements GitServiceInterface {
       repoPath,
       sessionBranch,
       baseBranch,
-      options
+      options as unknown
     );
   }
 }

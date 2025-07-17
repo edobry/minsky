@@ -113,7 +113,6 @@ describe("Session DB I/O Functions", () => {
       ];
 
       await writeSessionsToFile(testState.sessions, { dbPath: testDbPath });
-      // Function completed successfully if no error was thrown
       expect(existsSync(testDbPath)).toBe(true);
 
       // Verify the written content

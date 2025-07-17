@@ -5,7 +5,7 @@
  * before git operations succeeded, causing inconsistent state when git operations failed.
  */
 
-import { describe, it, expect, beforeEach, spyOn } from "bun:test";
+import { describe, it, expect, beforeEach, mock } from "bun:test";
 import * as fs from "fs";
 import { startSessionFromParams } from "./session";
 import { createMock } from "../utils/test-utils/mocking";
@@ -19,9 +19,9 @@ describe("Session Start Consistency Tests", () => {
   let mockResolveRepoPath: any;
 
   beforeEach(() => {
-    // Mock the file system functions
-    spyOn(fs, "existsSync").mockReturnValue(false);
-    spyOn(fs, "rmSync").mockImplementation(() => {});
+    // Mock the file system functions with Bun-compatible patterns
+    (fs as any).existsSync = mock(() => false);
+    (fs as any).rmSync = mock(() => {});
 
     // Create fresh mocks for each test
     mockSessionDB = {
@@ -103,7 +103,7 @@ describe("Session Start Consistency Tests", () => {
 
     it("should clean up existing directory before starting", async () => {
       // Arrange
-      fs.existsSync.mockReturnValue(true); // Directory exists
+      (fs as any).existsSync = mock(() => true); // Directory exists
       const params = {
         task: "160",
         repo: "local/minsky",
@@ -190,8 +190,8 @@ describe("Session Start Consistency Tests", () => {
     it("should clean up session directory when git operations fail", async () => {
       // Arrange
       const gitError = new Error("git clone failed");
-      mockGitService.clone.mockRejectedValue(gitError);
-      fs.existsSync.mockReturnValue(true); // Directory exists after failed clone
+      mockGitService.clone.mockImplementation(() => Promise.reject(gitError));
+      (fs as any).existsSync = mock(() => true); // Directory exists after failed clone
 
       const params = {
         task: "160",
@@ -254,8 +254,8 @@ describe("Session Start Consistency Tests", () => {
   describe("Edge cases and error handling", () => {
     it("should handle directory cleanup failure gracefully", async () => {
       // Arrange
-      fs.existsSync.mockReturnValue(true);
-      fs.rmSync.mockImplementation(() => {
+      (fs as any).existsSync = mock(() => true);
+      (fs as any).rmSync = mock(() => {
         throw new Error("permission denied");
       });
 
@@ -405,12 +405,9 @@ describe("Session Start Consistency Tests", () => {
       expect(mockSessionDB.addSession).not.toHaveBeenCalled();
 
       // Verify the session database is clean and no orphaned records exist
-      const addSessionCalls = mockSessionDB.addSession.mock.calls;
-      const deleteSessionCalls = mockSessionDB.deleteSession.mock.calls;
-
-      expect(addSessionCalls).toHaveLength(0);
-      // If addSession was never called, deleteSession shouldn't be called either
-      // (unless cleaning up pre-existing state, but that's handled elsewhere)
+      // The not.toHaveBeenCalled() check above already verifies this,
+      // but we also verify deleteSession wasn't called since addSession wasn't called
+      expect(mockSessionDB.deleteSession).not.toHaveBeenCalled();
     });
 
     it("should verify that session can be created after cleaning up inconsistent state", async () => {

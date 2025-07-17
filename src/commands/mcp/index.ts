@@ -1,5 +1,5 @@
-import fs from "fs";
-import path from "path";
+import * as fs from "fs";
+import * as path from "path";
 import { Command } from "commander";
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
@@ -19,6 +19,9 @@ import { createProjectContext } from "../../types/project";
 import { exit } from "../../utils/process";
 
 const INSPECTOR_PORT = 5173;
+const DEFAULT_HTTP_PORT = 3000;
+const DEFAULT_HTTP_HOST = "localhost";
+const DEFAULT_HTTP_ENDPOINT = "/mcp";
 
 // Import adapter-based tool registrations
 // import { registerSessionFileTools } from "../../adapters/mcp/session-files";
@@ -42,8 +45,47 @@ export function createMCPCommand(): Command {
     )
     .option("--with-inspector", "Launch MCP inspector alongside the server")
     .option("--inspector-port <port>", "Port for the MCP inspector", INSPECTOR_PORT.toString())
+    .option("--http", "Use HTTP transport for remote connections (default: stdio)")
+    .option(
+      "--port <port>",
+      `HTTP port (default: ${DEFAULT_HTTP_PORT})`,
+      DEFAULT_HTTP_PORT.toString()
+    )
+    .option(
+      "--host <host>",
+      `HTTP host (default: ${DEFAULT_HTTP_HOST})`,
+      DEFAULT_HTTP_HOST
+    )
+    .option(
+      "--endpoint <path>",
+      `HTTP endpoint path (default: ${DEFAULT_HTTP_ENDPOINT})`,
+      DEFAULT_HTTP_ENDPOINT
+    )
     .action(async (options) => {
       try {
+        // Use --http flag to determine transport type
+        const transportType = options.http ? "http" : "stdio";
+
+        // Validate HTTP configuration if using HTTP transport
+        if (transportType === "http") {
+          const port = parseInt(options.port, 10);
+          const host = options.host;
+          const endpoint = options.endpoint;
+
+          if (isNaN(port) || port <= 0) {
+            log.cliError(`Invalid HTTP port: ${options.port}`);
+            exit(1);
+          }
+          if (!host) {
+            log.cliError("HTTP host is required when using HTTP transport.");
+            exit(1);
+          }
+          if (!endpoint) {
+            log.cliError("HTTP endpoint path is required when using HTTP transport.");
+            exit(1);
+          }
+        }
+
         // Validate and prepare repository path if provided
         let projectContext;
         if (options.repo) {
@@ -76,6 +118,10 @@ export function createMCPCommand(): Command {
           repositoryPath: projectContext?.repositoryPath || process.cwd(),
           withInspector: options.withInspector || false,
           inspectorPort: options.inspectorPort,
+          transportType: transportType,
+          httpPort: transportType === "http" ? options.port : undefined,
+          httpHost: transportType === "http" ? options.host : undefined,
+          httpEndpoint: transportType === "http" ? options.endpoint : undefined,
         });
 
         // Create server with stdio transport (official MCP SDK)
@@ -83,6 +129,10 @@ export function createMCPCommand(): Command {
           name: "Minsky MCP Server",
           version: "1.0.0", // TODO: Import from package.json
           projectContext,
+          transportType: transportType,
+          httpPort: transportType === "http" ? parseInt(options.port, 10) : undefined,
+          httpHost: transportType === "http" ? options.host : undefined,
+          httpEndpoint: transportType === "http" ? options.endpoint : undefined,
         });
 
         // Register tools via adapter-based approach
