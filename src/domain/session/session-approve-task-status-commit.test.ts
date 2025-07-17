@@ -16,13 +16,14 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { approveSessionFromParams } from "../session";
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
+import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../../utils/test-utils/index";
 
 describe("Session Approve Task Status Commit", () => {
   test("should commit task status update after successful merge", async () => {
     // Bug reproduction test - this should fail until the bug is fixed
 
     const gitCommands: string[] = [];
-    const mockGitService: Partial<GitServiceInterface> = {
+    const mockGitService = createMockGitService({
       execInRepository: (workdir: string, command: string) => {
         gitCommands.push(command);
 
@@ -67,9 +68,9 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
-    };
+    });
 
-    const mockSessionDB: Partial<SessionProviderInterface> = {
+    const mockSessionDB = createMockSessionProvider({
       getSessionByTaskId: (taskId: string) => Promise.resolve({
         session: `task#${taskId}`,
         repoName: "test-repo",
@@ -84,9 +85,9 @@ describe("Session Approve Task Status Commit", () => {
         createdAt: new Date().toISOString(),
         taskId: "123",
       }),
-    };
+    });
 
-    const mockTaskService = {
+    const mockTaskService = createMockTaskService({
       getTaskStatus: (taskId: string) => {
         // Task is NOT already DONE, so status update should happen
         return Promise.resolve("IN-PROGRESS");
@@ -95,7 +96,7 @@ describe("Session Approve Task Status Commit", () => {
         // This simulates the task status update that modifies tasks.md
         return Promise.resolve();
       },
-    };
+    });
 
     // Execute the session approval
     const result = await approveSessionFromParams(

@@ -11,58 +11,41 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import {
   sessionGet,
-  deleteSessionFromParams,
   updateSessionFromParams,
-  type SessionProviderInterface,
-  type SessionRecord,
-} from "../../session";
+  sessionDelete,
+} from "../session/commands";
+import { type SessionProviderInterface } from "../session";
+import { type SessionRecord } from "../session/types";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
-
-// Mock session provider
-const createMockSessionProvider = (sessions: SessionRecord[] = []): SessionProviderInterface => {
-  return {
-    listSessions: () => Promise.resolve(sessions),
-    getSession: (sessionName: string) => {
-      const session = sessions.find((s: SessionRecord) => s.session === sessionName);
-      return Promise.resolve(session || null);
-    },
-    getSessionByTaskId: (taskId: string) => {
-      const session = sessions.find((s: SessionRecord) => s.taskId === taskId);
-      return Promise.resolve(session || null);
-    },
-    addSession: () => Promise.resolve(),
-    updateSession: () => Promise.resolve(),
-    deleteSession: () => Promise.resolve(true),
-    getRepoPath: () => Promise.resolve("/mock/repo/path"),
-    getSessionWorkdir: () => Promise.resolve("/mock/session/workdir"),
-  };
-};
+import { createMockSessionProvider } from "../../utils/test-utils/index";
 
 describe("Session Command Domain Logic", () => {
   let mockSessionProvider: SessionProviderInterface;
 
   beforeEach(() => {
-    mockSessionProvider = createMockSessionProvider([
-      {
-        session: "test-session",
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: "2024-01-01T00:00:00Z",
-        taskId: "#123",
-      },
-      {
-        session: "task#456",
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: "2024-01-02T00:00:00Z",
-        taskId: "#456",
-      },
-    ]);
+    mockSessionProvider = createMockSessionProvider({
+      sessions: [
+        {
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: "2024-01-01T00:00:00Z",
+          taskId: "#123",
+        },
+        {
+          session: "task#456",
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: "2024-01-02T00:00:00Z",
+          taskId: "#456",
+        },
+      ]
+    });
   });
 
-  describe("getSessionFromParams domain logic", () => {
+  describe("sessionGet domain logic", () => {
     test("resolves session by explicit name", async () => {
-      const result = await getSessionFromParams(
+      const result = await sessionGet(
         {
           name: "test-session",
           json: false,
@@ -78,7 +61,7 @@ describe("Session Command Domain Logic", () => {
     });
 
     test("resolves session by explicit task ID", async () => {
-      const result = await getSessionFromParams(
+      const result = await sessionGet(
         {
           task: "#456",
           json: false,
@@ -95,7 +78,7 @@ describe("Session Command Domain Logic", () => {
 
     test("throws ResourceNotFoundError for non-existent session", async () => {
       await expect(
-        getSessionFromParams(
+        sessionGet(
           {
             name: "non-existent",
             json: false,
@@ -109,7 +92,7 @@ describe("Session Command Domain Logic", () => {
 
     test("throws ResourceNotFoundError for non-existent task", async () => {
       await expect(
-        getSessionFromParams(
+        sessionGet(
           {
             task: "#999",
             json: false,
@@ -122,9 +105,9 @@ describe("Session Command Domain Logic", () => {
     });
   });
 
-  describe("deleteSessionFromParams domain logic", () => {
+  describe("sessionDelete domain logic", () => {
     test("deletes session by explicit name", async () => {
-      const result = await deleteSessionFromParams(
+      const result = await sessionDelete(
         {
           name: "test-session",
           force: true,
@@ -139,7 +122,7 @@ describe("Session Command Domain Logic", () => {
     });
 
     test("deletes session by explicit task ID", async () => {
-      const result = await deleteSessionFromParams(
+      const result = await sessionDelete(
         {
           task: "#456",
           force: true,
@@ -155,7 +138,7 @@ describe("Session Command Domain Logic", () => {
 
     test("throws ResourceNotFoundError for non-existent session", async () => {
       await expect(
-        deleteSessionFromParams(
+        sessionDelete(
           {
             name: "non-existent",
             force: true,
@@ -174,15 +157,15 @@ describe("Session Command Domain Logic", () => {
       const taskId = "#456";
       const expectedSessionName = "task#456";
 
-      // Test getSessionFromParams
-      const getResult = await getSessionFromParams(
+      // Test sessionGet
+      const getResult = await sessionGet(
         { task: taskId, json: false },
         { sessionDB: mockSessionProvider }
       );
       expect(getResult?.session).toBe(expectedSessionName);
 
-      // Test deleteSessionFromParams
-      const deleteResult = await deleteSessionFromParams(
+      // Test sessionDelete
+      const deleteResult = await sessionDelete(
         { task: taskId, force: true, json: false },
         { sessionDB: mockSessionProvider }
       );
@@ -211,7 +194,7 @@ describe("Session Command Domain Logic", () => {
       expect(session?.taskId).toBe("#123");
 
       // Test the same behavior through the domain function
-      const result = await getSessionFromParams(
+      const result = await sessionGet(
         { name: "test-session", json: false },
         { sessionDB: mockSessionProvider }
       );
@@ -221,9 +204,9 @@ describe("Session Command Domain Logic", () => {
     test("session resolution is deterministic with same inputs", async () => {
       // Run the same operation multiple times to ensure deterministic behavior
       const results = await Promise.all([
-        getSessionFromParams({ name: "test-session", json: false }, { sessionDB: mockSessionProvider }),
-        getSessionFromParams({ name: "test-session", json: false }, { sessionDB: mockSessionProvider }),
-        getSessionFromParams({ name: "test-session", json: false }, { sessionDB: mockSessionProvider }),
+        sessionGet({ name: "test-session", json: false }, { sessionDB: mockSessionProvider }),
+        sessionGet({ name: "test-session", json: false }, { sessionDB: mockSessionProvider }),
+        sessionGet({ name: "test-session", json: false }, { sessionDB: mockSessionProvider }),
       ]);
 
       // All results should be identical

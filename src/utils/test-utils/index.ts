@@ -58,25 +58,6 @@ export {
 // Original utilities (avoid conflicts)
 export { createMockFileSystem, setupTestMocks } from "./mocking";
 
-// Dependency injection utilities and individual service mock factories
-export {
-  createTestDeps,
-  createTaskTestDeps,
-  createSessionTestDeps,
-  createGitTestDeps,
-  createMockRepositoryBackend,
-  withMockedDeps,
-  createDeepTestDeps,
-  createPartialTestDeps,
-  // Individual service mock factories
-  createMockSessionProvider,
-  createMockGitService,
-  createMockTaskService,
-  type MockSessionProviderOptions,
-  type MockGitServiceOptions,
-  type MockTaskServiceOptions
-} from "./dependencies";
-
 // Import the functions for use in setupCompleteTestEnvironment
 import { setupTestCleanup } from "./cleanup";
 import { setupEnhancedMocking, validateMockIsolation } from "./enhanced-mocking";
