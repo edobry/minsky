@@ -27,6 +27,10 @@ describe("Session Approve Workflow", () => {
       }
       return Promise.resolve("Successfully merged PR");
     }),
+    getCurrentBranch: createMock((_workdir) => Promise.resolve("pr/task#025")),
+    pullLatest: createMock((_workdir) => Promise.resolve({ success: true, changes: [] })),
+    mergeBranch: createMock((_workdir, _branch) => Promise.resolve({ success: true, conflicts: [] })),
+    push: createMock((_workdir) => Promise.resolve({ success: true })),
   };
 
   const mockTaskService = {

@@ -54,6 +54,10 @@ describe("Session Approve Branch Cleanup", () => {
         // Simulate successful branch operations
         return Promise.resolve("");
       }),
+      getCurrentBranch: createMock((_workdir) => Promise.resolve("pr/task#265")),
+      pullLatest: createMock((_workdir) => Promise.resolve({ success: true, changes: [] })),
+      mergeBranch: createMock((_workdir, _branch) => Promise.resolve({ success: true, conflicts: [] })),
+      push: createMock((_workdir) => Promise.resolve({ success: true })),
     };
 
     const mockTaskService = {
