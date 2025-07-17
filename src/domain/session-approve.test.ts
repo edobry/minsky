@@ -1,65 +1,91 @@
 import { describe, test, expect } from "bun:test";
 import { approveSessionFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
-import { createMock } from "../utils/test-utils/mocking";
-import * as WorkspaceUtils from "./workspace";
+import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/dependencies";
+import type { WorkspaceUtilsInterface } from "./workspace";
 
 const TEST_VALUE = 123;
 
 describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {
-    // Create mocks for dependencies
-    const mockSessionDB = {
-      getSession: createMock((name) =>
-        Promise.resolve({
-          _session: name,
+    // Create trackable spies for methods we need to verify (simplified typing)
+    const getSessionSpy = createMock();
+    getSessionSpy.mockImplementation((name) =>
+      Promise.resolve({
+        session: name, // Fixed: use 'session' instead of '_session' 
+        repoName: "test-repo",
+        repoUrl: "/test/repo/path",
+        taskId: "#TEST_VALUE",
+        createdAt: new Date().toISOString(),
+      })
+    );
+
+    const getSessionByTaskIdSpy = createMock();
+    getSessionByTaskIdSpy.mockImplementation((taskId) => {
+      if (taskId === "#TEST_VALUE") {
+        return Promise.resolve({
+          session: "test-session", // Fixed: use 'session' instead of '_session'
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
           taskId: "#TEST_VALUE",
           createdAt: new Date().toISOString(),
-        })
-      ),
-      getSessionByTaskId: createMock((taskId) => {
-        if (taskId === "#TEST_VALUE") {
-          return Promise.resolve({
-            _session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo/path",
-            taskId: "#TEST_VALUE",
-            createdAt: new Date().toISOString(),
-          });
-        }
-        return Promise.resolve(null);
-      }),
-      getSessionWorkdir: createMock((_sessionName) =>
-        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
-      ),
-    };
+        });
+      }
+      return Promise.resolve(null);
+    });
 
-    const mockGitService = {
-      execInRepository: createMock((_workdir, command) => {
-        if (command.includes("rev-parse HEAD")) {
-          return Promise.resolve("abcdef123456");
-        }
-        if (command.includes("config user.name")) {
-          return Promise.resolve("Test User");
-        }
-        return Promise.resolve("");
-      }),
-    };
+    const getSessionWorkdirSpy = createMock();
+    getSessionWorkdirSpy.mockImplementation(() =>
+      Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+    );
 
-    const mockTaskService = {
-      setTaskStatus: createMock((_id, _status) => Promise.resolve()),
-      getBackendForTask: createMock((_id) =>
-        Promise.resolve({
-          setTaskMetadata: createMock((_id, _metadata) => Promise.resolve()),
-        })
-      ),
-    };
+    const execInRepositorySpy = createMock();
+    execInRepositorySpy.mockImplementation((workdir, command) => {
+      if (command.includes("rev-parse HEAD")) {
+        return Promise.resolve("abcdef123456");
+      }
+      if (command.includes("config user.name")) {
+        return Promise.resolve("Test User");
+      }
+      return Promise.resolve("");
+    });
 
-    const mockWorkspaceUtils = {
-      getCurrentSession: createMock(() => Promise.resolve(null)),
-    };
+    const setTaskStatusSpy = createMock();
+    setTaskStatusSpy.mockImplementation(() => Promise.resolve());
+
+    const getBackendForTaskSpy = createMock();
+    getBackendForTaskSpy.mockImplementation(() =>
+      Promise.resolve({
+        setTaskMetadata: createMock(() => Promise.resolve()),
+      })
+    );
+
+    // Create mocks using centralized factories with spy integration
+    const mockSessionDB = createMockSessionProvider({
+      getSession: getSessionSpy,
+      getSessionByTaskId: getSessionByTaskIdSpy,
+    });
+
+    // Add getSessionWorkdir method not covered by centralized factory
+    (mockSessionDB as any).getSessionWorkdir = getSessionWorkdirSpy;
+
+    const mockGitService = createMockGitService({
+      execInRepository: execInRepositorySpy,
+    });
+
+    const mockTaskService = createMockTaskService({
+      setTaskStatus: setTaskStatusSpy,
+      getBackendForTask: getBackendForTaskSpy,
+    });
+
+    const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
+      isWorkspace: () => Promise.resolve(true),
+      isSessionWorkspace: () => false,
+      getCurrentSession: () => Promise.resolve(undefined),
+      getSessionFromWorkspace: () => Promise.resolve(undefined),
+      resolveWorkspacePath: () => Promise.resolve("/mock/workspace"),
+    });
 
     // Create test dependencies
     const testDeps = {
@@ -72,29 +98,21 @@ describe("Session Approve", () => {
     // Test by session name
     const resultBySession = await approveSessionFromParams(
       {
-        _session: "test-session",
+        session: "test-session", // Fixed: use 'session' instead of '_session'
       },
       testDeps
     );
 
-    // Verify
-    expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
+    // Verify calls with individual spies
+    expect(getSessionSpy).toHaveBeenCalledWith("test-session");
     // BUG FIX: No longer expect getSessionWorkdir to be called since we use originalRepoPath
-    expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
-    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#TEST_VALUE", "DONE");
+    expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
+    expect(setTaskStatusSpy).toHaveBeenCalledWith("#TEST_VALUE", "DONE");
     expect(resultBySession.commitHash).toBe("abcdef123456");
-    expect(resultBySession._session).toBe("test-session");
+    expect(resultBySession.session).toBe("test-session"); // Fixed: expect 'session' property
     expect(resultBySession.taskId).toBe("#TEST_VALUE");
 
-    // Clear mocks
-    mockSessionDB.getSession.mockClear();
-    mockSessionDB.getSessionByTaskId.mockClear();
-    mockSessionDB.getSessionWorkdir.mockClear();
-    mockGitService.execInRepository.mockClear();
-    mockTaskService.setTaskStatus.mockClear();
-    mockTaskService.getBackendForTask.mockClear();
-
-    // Test by task ID
+    // Test by task ID (reusing the same mocks, no .mockClear() needed with fresh spies)
     const resultByTask = await approveSessionFromParams(
       {
         task: "#TEST_VALUE",
@@ -102,10 +120,10 @@ describe("Session Approve", () => {
       testDeps
     );
 
-    // Verify
-    expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#TEST_VALUE");
-    expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
-    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#TEST_VALUE", "DONE");
+    // Verify task ID path
+    expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("#TEST_VALUE");
+    expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
+    expect(setTaskStatusSpy).toHaveBeenCalledWith("#TEST_VALUE", "DONE");
     expect(resultByTask.taskId).toBe("#TEST_VALUE");
   });
 
@@ -159,7 +177,7 @@ describe("Session Approve", () => {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
-      workspaceUtils: WorkspaceUtils,
+      workspaceUtils: {},
       getCurrentSession: mockGetCurrentSession,
     };
 
