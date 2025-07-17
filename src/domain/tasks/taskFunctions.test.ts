@@ -237,7 +237,7 @@ Code block with task-like content:
     });
 
     test("should return original array if status is invalid", () => {
-      const updatedTasks = setTaskStatus(testTasks, "#001", "INVALID" as unknown);
+      const updatedTasks = setTaskStatus(testTasks, "#001", "INVALID" as any);
       expect(updatedTasks).toEqual(testTasks);
     });
   });
