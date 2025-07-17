@@ -46,11 +46,7 @@ export function createMCPCommand(): Command {
     )
     .option("--with-inspector", "Launch MCP inspector alongside the server")
     .option("--inspector-port <port>", "Port for the MCP inspector", INSPECTOR_PORT.toString())
-    .option(
-      "--transport <type>",
-      "Transport type: stdio (for local connections) or http (for remote connections)",
-      "stdio"
-    )
+    .option("--http", "Use HTTP transport for remote connections (default: stdio)")
     .option(
       "--port <port>", 
       `HTTP port (required for http transport, default: ${DEFAULT_HTTP_PORT})`,
@@ -68,14 +64,11 @@ export function createMCPCommand(): Command {
     )
     .action(async (options) => {
       try {
-        // Validate transport type
-        if (!["stdio", "http"].includes(options.transport)) {
-          log.cliError(`Invalid transport type: ${options.transport}. Must be 'stdio' or 'http'`);
-          exit(1);
-        }
+        // Determine transport type from --http flag
+        const transportType = options.http ? "http" : "stdio";
 
         // Validate HTTP configuration if using HTTP transport
-        if (options.transport === "http") {
+        if (transportType === "http") {
           const port = parseInt(options.port, 10);
           if (isNaN(port) || port < 1 || port > 65535) {
             log.cliError(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
@@ -116,8 +109,8 @@ export function createMCPCommand(): Command {
           name: "Minsky MCP Server",
           version: "1.0.0", // TODO: Import from package.json
           projectContext,
-          transportType: options.transport as "stdio" | "http",
-          ...(options.transport === "http" && {
+          transportType: transportType as "stdio" | "http",
+          ...(transportType === "http" && {
             httpConfig: {
               port: parseInt(options.port, 10),
               host: options.host,
@@ -127,7 +120,7 @@ export function createMCPCommand(): Command {
         };
 
         log.debug("Starting MCP server", {
-          transportType: options.transport,
+          transportType: transportType,
           repositoryPath: projectContext?.repositoryPath || process.cwd(),
           withInspector: options.withInspector || false,
           inspectorPort: options.inspectorPort,
@@ -171,15 +164,15 @@ export function createMCPCommand(): Command {
             const inspectorResult = launchInspector({
               port: inspectorPort,
               openBrowser: true,
-              mcpTransportType: options.transport === "http" ? "httpStream" : "stdio",
-              mcpPort: options.transport === "http" ? parseInt(options.port, 10) : undefined,
-              mcpHost: options.transport === "http" ? options.host : undefined,
+              mcpTransportType: transportType === "http" ? "httpStream" : "stdio",
+              mcpPort: transportType === "http" ? parseInt(options.port, 10) : undefined,
+              mcpHost: transportType === "http" ? options.host : undefined,
             });
 
             if (inspectorResult.success) {
               log.cli(`MCP Inspector started on port ${inspectorPort}`);
               log.cli(`Open your browser at ${inspectorResult.url} to access the inspector`);
-              if (options.transport === "http") {
+              if (transportType === "http") {
                 log.cli(`Inspector will connect to MCP server via HTTP at ${options.host}:${options.port}${options.endpoint}`);
               } else {
                 log.cli("The inspector will start its own MCP server instance");
@@ -192,7 +185,7 @@ export function createMCPCommand(): Command {
         }
 
         // Start the server
-        if (options.transport === "http") {
+        if (transportType === "http") {
           // Set up Express app for HTTP transport
           const app = express();
           app.use(express.json());
@@ -281,7 +274,7 @@ export function createMCPCommand(): Command {
       } catch (error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
-          transportType: options.transport,
+          transportType: options.http ? "http" : "stdio",
           withInspector: options.withInspector || false,
           error: getErrorMessage(error as any),
           stack: error instanceof Error ? (error as any).stack : undefined,
