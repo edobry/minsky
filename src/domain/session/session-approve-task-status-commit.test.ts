@@ -67,6 +67,10 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
+      getCurrentBranch: (workdir: string) => Promise.resolve("pr/task#123"),
+      pullLatest: (workdir: string) => Promise.resolve({ workdir, updated: true }),
+      mergeBranch: (workdir: string, branch: string) => Promise.resolve({ workdir, merged: true, conflicts: false }),
+      push: (options: any) => Promise.resolve({ workdir: options.repoPath, pushed: true }),
     };
 
     const mockSessionDB: Partial<SessionProviderInterface> = {
@@ -84,6 +88,7 @@ describe("Session Approve Task Status Commit", () => {
         createdAt: new Date().toISOString(),
         taskId: "123",
       }),
+      getSessionWorkdir: (sessionName: string) => Promise.resolve("/test/repo"),
     };
 
     const mockTaskService = {
@@ -170,6 +175,10 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
+      getCurrentBranch: (workdir: string) => Promise.resolve("pr/task#124"),
+      pullLatest: (workdir: string) => Promise.resolve({ workdir, updated: true }),
+      mergeBranch: (workdir: string, branch: string) => Promise.resolve({ workdir, merged: true, conflicts: false }),
+      push: (options: any) => Promise.resolve({ workdir: options.repoPath, pushed: true }),
     };
 
     const mockSessionDB: Partial<SessionProviderInterface> = {
@@ -187,6 +196,7 @@ describe("Session Approve Task Status Commit", () => {
         createdAt: new Date().toISOString(),
         taskId: "124",
       }),
+      getSessionWorkdir: (sessionName: string) => Promise.resolve("/test/repo"),
     };
 
     const mockTaskService = {
@@ -263,6 +273,10 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
+      getCurrentBranch: (workdir: string) => Promise.resolve("pr/task#125"),
+      pullLatest: (workdir: string) => Promise.resolve({ workdir, updated: true }),
+      mergeBranch: (workdir: string, branch: string) => Promise.resolve({ workdir, merged: true, conflicts: false }),
+      push: (options: any) => Promise.resolve({ workdir: options.repoPath, pushed: true }),
     };
 
     const mockSessionDB: Partial<SessionProviderInterface> = {
@@ -280,6 +294,7 @@ describe("Session Approve Task Status Commit", () => {
         createdAt: new Date().toISOString(),
         taskId: "125",
       }),
+      getSessionWorkdir: (sessionName: string) => Promise.resolve("/test/repo"),
     };
 
     const mockTaskService = {
@@ -353,6 +368,10 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
+      getCurrentBranch: (workdir: string) => Promise.resolve("pr/task#266"),
+      pullLatest: (workdir: string) => Promise.resolve({ workdir, updated: true }),
+      mergeBranch: (workdir: string, branch: string) => Promise.resolve({ workdir, merged: true, conflicts: false }),
+      push: (options: any) => Promise.resolve({ workdir: options.repoPath, pushed: true }),
     };
 
     const mockSessionDB: Partial<SessionProviderInterface> = {
@@ -370,6 +389,7 @@ describe("Session Approve Task Status Commit", () => {
         createdAt: new Date().toISOString(),
         taskId: "266",
       }),
+      getSessionWorkdir: (sessionName: string) => Promise.resolve("/test/repo"),
     };
 
     const mockTaskService = {
