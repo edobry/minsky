@@ -368,3 +368,103 @@ ai:
 This task builds significantly on existing Minsky architecture and should integrate smoothly with established patterns. The AI backend infrastructure is already in place, making the primary work about connecting data gathering with AI analysis and extending the command interface.
 
 The success of this implementation will depend heavily on prompt engineering quality and handling edge cases like very large diffs or AI model failures. A phased approach allows for learning and iteration on the AI integration before adding advanced workflow features.
+
+## Chain-of-Thought Monitoring for Code Review
+
+### Core Principle: Observable AI Reasoning in Code Review
+
+This task implements **Chain-of-Thought monitoring for code review** - making AI reasoning about code quality transparent, intervenable, and auditable. Unlike traditional automated code analysis, this system exposes the AI's reasoning process and allows real-time intervention.
+
+### Chain-of-Thought Integration Patterns
+
+**1. Real-Time Review Reasoning Observation**
+- **Reasoning Chain Visibility**: All AI analysis steps become observable (security analysis → performance review → style checking)
+- **Decision Point Monitoring**: Track when AI makes quality judgments and confidence assessments
+- **Pattern Recognition Alerts**: Detect when AI review reasoning follows problematic patterns
+- **Intervention Triggers**: Automatic alerts when AI reasoning appears to miss critical issues
+
+**2. Interactive Review Guidance**
+- **Mid-Review Intervention**: Human can redirect AI review focus before completion
+- **Reasoning Correction**: Ability to correct AI assumptions and restart analysis
+- **Collaborative Review**: AI reasoning chains become visible to human reviewers for verification
+- **Contextual Guidance**: Human can provide domain-specific context to improve AI reasoning
+
+**3. Review Quality Monitoring**
+- **Consistency Tracking**: Monitor consistency of AI reasoning across similar code patterns
+- **Blind Spot Detection**: Identify areas where AI reasoning consistently misses issues
+- **Confidence Calibration**: Track correlation between AI confidence and actual review quality
+- **Reasoning Pattern Analysis**: Identify and improve suboptimal AI review reasoning patterns
+
+### Implementation Architecture for CoT Monitoring
+
+**Enhanced AI Review Service with CoT:**
+
+```typescript
+interface ChainOfThoughtReviewService {
+  startReview(context: ReviewContext): Promise<ReviewSessionId>;
+  streamReasoningChain(sessionId: ReviewSessionId): AsyncIterable<ReasoningStep>;
+  interruptReview(sessionId: ReviewSessionId, feedback: InterventionFeedback): Promise<void>;
+  resumeReview(sessionId: ReviewSessionId, guidance: ReviewGuidance): Promise<void>;
+  getReasoningTrace(sessionId: ReviewSessionId): Promise<ReasoningTrace>;
+}
+
+interface ReasoningStep {
+  stepType: "analysis" | "judgment" | "confidence_assessment" | "pattern_recognition";
+  content: string;
+  confidence: number;
+  alternatives_considered: string[];
+  decision_rationale: string;
+  intervention_opportunity: boolean;
+}
+```
+
+**Chain-of-Thought Review Workflow:**
+
+1. **Transparent Analysis**: AI externalizes reasoning about code structure, potential issues, quality assessment
+2. **Intervention Points**: Human can interrupt when AI reasoning appears problematic
+3. **Reasoning Validation**: AI must justify its conclusions with visible reasoning chains
+4. **Quality Feedback Loop**: Track human interventions to improve AI reasoning patterns
+
+### Advanced CoT Features for Code Review
+
+**1. Multi-Model Reasoning Consensus with CoT**
+- **Reasoning Chain Comparison**: Compare how different AI models reason about the same code
+- **Consensus Building**: Identify where models agree/disagree in their reasoning
+- **Reasoning Quality Assessment**: Evaluate which models provide better reasoning chains
+- **Ensemble Reasoning**: Combine the best reasoning patterns from multiple models
+
+**2. Domain-Specific CoT Monitoring**
+- **Security Reasoning Chains**: Specialized monitoring for security-focused review reasoning
+- **Performance Analysis CoT**: Track reasoning about performance implications and optimizations
+- **Architecture Decision CoT**: Monitor reasoning about architectural design and patterns
+- **Testing Strategy CoT**: Observe AI reasoning about test coverage and quality
+
+**3. Historical Reasoning Pattern Learning**
+- **Reasoning Pattern Database**: Store successful and problematic reasoning patterns
+- **Pattern Recognition**: Automatically detect when AI reasoning follows known good/bad patterns
+- **Reasoning Template Evolution**: Improve review prompts based on reasoning pattern analysis
+- **Contextual Reasoning Adaptation**: Adapt reasoning patterns to specific codebases and domains
+
+### Integration with Existing Minsky Workflow Orchestration
+
+**Connection to Session Approve Workflow:**
+- AI review results feed into the existing `minsky session approve` workflow
+- Chain-of-Thought review reasoning becomes part of the approval decision audit trail
+- Integration with task status updates includes reasoning quality metrics
+- PR approval can require minimum reasoning quality thresholds
+
+**Enhanced Session Review Commands with CoT:**
+
+```bash
+# Start interactive CoT review session
+minsky session review --ai --interactive --cot
+
+# Monitor AI reasoning in real-time
+minsky session review --ai --stream-reasoning
+
+# Intervene in AI review reasoning
+minsky session review --ai --intervene "Focus more on error handling patterns"
+
+# Audit review reasoning quality
+minsky session review --ai --audit-reasoning --task 123
+```
