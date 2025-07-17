@@ -483,6 +483,7 @@ export async function updatePrStateOnMerge(
 
 /**
  * Helper function to extract title and body from existing PR branch
+ * Fixed to prevent title duplication in body content
  */
 export async function extractPrDescription(
   sessionName: string,
@@ -529,10 +530,29 @@ export async function extractPrDescription(
       }
     }
 
-    // Parse the commit message to extract title and body
+    // Parse the commit message more intelligently to prevent title duplication
     const lines = commitMessage.trim().split("\n");
     const title = lines[0] || "";
-    const body = lines.slice(1).join("\n").trim();
+    
+    // Filter out empty lines and prevent title duplication in body
+    const bodyLines = lines.slice(1).filter(line => line.trim() !== "");
+    
+    // Check if first line of body duplicates the title
+    let body = "";
+    if (bodyLines.length > 0) {
+      // If first body line is identical to title, skip it to prevent duplication
+      const firstBodyLine = bodyLines[0]?.trim() || "";
+      if (firstBodyLine === title.trim()) {
+        body = bodyLines.slice(1).join("\n").trim();
+        log.debug("Removed duplicate title from PR body", {
+          sessionName,
+          originalTitle: title,
+          duplicatedLine: firstBodyLine,
+        });
+      } else {
+        body = bodyLines.join("\n").trim();
+      }
+    }
 
     return { title, body };
   } catch (error) {

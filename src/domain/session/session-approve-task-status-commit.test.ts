@@ -16,13 +16,14 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { approveSessionFromParams } from "../session";
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
+import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../../utils/test-utils/index";
 
 describe("Session Approve Task Status Commit", () => {
   test("should commit task status update after successful merge", async () => {
     // Bug reproduction test - this should fail until the bug is fixed
 
     const gitCommands: string[] = [];
-    const mockGitService: Partial<GitServiceInterface> = {
+    const mockGitService = createMockGitService({
       execInRepository: (workdir: string, command: string) => {
         gitCommands.push(command);
 
@@ -58,7 +59,7 @@ describe("Session Approve Task Status Commit", () => {
         if (command.includes("git add process/tasks.md")) {
           return Promise.resolve("");
         }
-        if (command.includes("git commit -m \"Update task #123 status to DONE\"")) {
+        if (command.includes("git commit -m \"chore(#123): update task status to DONE\"")) {
           return Promise.resolve("");
         }
         if (command.includes("git push")) {
@@ -67,9 +68,9 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
-    };
+    });
 
-    const mockSessionDB: Partial<SessionProviderInterface> = {
+    const mockSessionDB = createMockSessionProvider({
       getSessionByTaskId: (taskId: string) => Promise.resolve({
         session: `task#${taskId}`,
         repoName: "test-repo",
@@ -84,9 +85,9 @@ describe("Session Approve Task Status Commit", () => {
         createdAt: new Date().toISOString(),
         taskId: "123",
       }),
-    };
+    });
 
-    const mockTaskService = {
+    const mockTaskService = createMockTaskService({
       getTaskStatus: (taskId: string) => {
         // Task is NOT already DONE, so status update should happen
         return Promise.resolve("IN-PROGRESS");
@@ -95,7 +96,7 @@ describe("Session Approve Task Status Commit", () => {
         // This simulates the task status update that modifies tasks.md
         return Promise.resolve();
       },
-    };
+    });
 
     // Execute the session approval
     const result = await approveSessionFromParams(
@@ -124,7 +125,7 @@ describe("Session Approve Task Status Commit", () => {
     expect(gitCommands).toContain("git add process/tasks.md");
 
     // Should commit the task status update
-    expect(gitCommands).toContain("git commit -m \"Update task #123 status to DONE\"");
+    expect(gitCommands).toContain("git commit -m \"chore(#123): update task status to DONE\"");
 
     // Should push the commit
     expect(gitCommands).toContain("git push");
@@ -221,7 +222,7 @@ describe("Session Approve Task Status Commit", () => {
 
     // Should NOT try to commit when there are no changes
     expect(gitCommands).not.toContain("git add process/tasks.md");
-    expect(gitCommands).not.toContain("git commit -m \"Update task #124 status to DONE\"");
+    expect(gitCommands).not.toContain("git commit -m \"chore(#124): update task status to DONE\"");
   });
 
   test("should skip task status update when task is already DONE", async () => {
@@ -324,7 +325,7 @@ describe("Session Approve Task Status Commit", () => {
     // Should NOT attempt any task status commit operations
     expect(gitCommands).not.toContain("git status --porcelain");
     expect(gitCommands).not.toContain("git add process/tasks.md");
-    expect(gitCommands).not.toContain("git commit -m \"Update task #125 status to DONE\"");
+    expect(gitCommands).not.toContain("git commit -m \"chore(#125): update task status to DONE\"");
     expect(gitCommands).not.toContain("git push");
   });
 
@@ -414,6 +415,6 @@ describe("Session Approve Task Status Commit", () => {
     // Should NOT attempt any task status commit operations
     expect(gitCommands).not.toContain("git status --porcelain");
     expect(gitCommands).not.toContain("git add process/tasks.md");
-    expect(gitCommands).not.toContain("git commit -m \"Update task #266 status to DONE\"");
+    expect(gitCommands).not.toContain("git commit -m \"chore(#266): update task status to DONE\"");
   });
 });
