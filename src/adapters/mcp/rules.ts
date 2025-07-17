@@ -15,21 +15,20 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
   registerRulesCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      // MCP-specific optimizations
       "rules.list": {
-        description: "List all rules in the workspace (MCP optimized)",
+        description: "List all rules in the workspace",
       },
       "rules.get": {
-        description: "Get a specific rule by ID (MCP optimized)",
+        description: "Get a specific rule by ID",
       },
       "rules.create": {
-        description: "Create a new rule (MCP optimized)",
+        description: "Create a new rule",
       },
       "rules.update": {
-        description: "Update an existing rule (MCP optimized)",
+        description: "Update an existing rule",
       },
       "rules.search": {
-        description: "Search for rules by content or metadata (MCP optimized)",
+        description: "Search for rules by content or metadata",
       },
     },
   });
