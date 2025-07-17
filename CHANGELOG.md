@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Task Creation System**: Fixed bug where createTaskFromTitleAndDescription stored temporary file paths instead of proper task spec paths
+  - Tasks created via `minsky tasks create` now correctly store relative paths (e.g., `process/tasks/285-title.md`) instead of temporary OS paths (e.g., `/var/folders/...`)
+  - Updated markdownTaskBackend.ts to properly move temporary files to standardized locations
+  - Added test coverage with both unit and integration tests following test-driven bugfix approach
+  - Resolves issue where Task #285 and similar tasks had incorrect file paths in tasks.md
 - **Module Resolution Errors**: Implemented directory-structure-aware import path fixing
   - Created comprehensive test suite using actual directory structure analysis
   - Built directory-aware codemod using path.relative() instead of pattern matching
@@ -28,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Resolved export/import naming mismatches in session command modules
   - Command `minsky tasks status set 116` now works correctly without module resolution errors
   - Updated codemod-development-standards.mdc with key learnings about structure-aware transformations
+
+_See: SpecStory history for task creation system bugfix and test-driven development approach for temporary path issue resolution._
 
 _See: SpecStory history for directory-structure-aware import path fixing session for module resolution improvements._
 
