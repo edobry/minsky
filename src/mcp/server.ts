@@ -1,5 +1,9 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { 
+  StreamableHTTPServerTransport,
+  StreamableHTTPServerTransportOptions
+} from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
@@ -12,48 +16,24 @@ import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
 import { getErrorMessage } from "../errors/index";
+import type { Request, Response } from "express";
+import { randomUUID } from "crypto";
 
 /**
- * Tool definition interface for registering tools with the MCP server
+ * Transport type for MCP server
  */
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: any; // JSON Schema
-  handler: (args: any) => Promise<string | Record<string, any>>;
-}
+export type MCPTransportType = "stdio" | "http";
 
 /**
- * Resource definition interface for registering resources with the MCP server
+ * HTTP transport configuration
  */
-export interface ResourceDefinition {
-  uri: string;
-  name: string;
-  description: string;
-  mimeType: string;
-  handler: () => Promise<{ text?: string; blob?: string }>;
-}
-
-/**
- * Prompt definition interface for registering prompts with the MCP server
- */
-export interface PromptDefinition {
-  name: string;
-  description: string;
-  arguments?: Array<{
-    name: string;
-    description: string;
-    required?: boolean;
-  }>;
-  handler: (args: Record<string, string>) => Promise<{
-    messages: Array<{
-      role: "user" | "assistant";
-      content: {
-        type: "text";
-        text: string;
-      };
-    }>;
-  }>;
+export interface MCPHttpTransportConfig {
+  /** Port to listen on @default 3000 */
+  port?: number;
+  /** Host to bind to @default localhost */
+  host?: string;
+  /** HTTP endpoint path @default /mcp */
+  endpoint?: string;
 }
 
 /**
@@ -78,6 +58,38 @@ export interface MinskyMCPServerOptions {
    * @default Context created from process.cwd()
    */
   projectContext?: ProjectContext;
+
+  /**
+   * Transport type to use
+   * @default "stdio"
+   */
+  transportType?: MCPTransportType;
+
+  /**
+   * HTTP transport configuration (required if transportType is "http")
+   */
+  httpConfig?: MCPHttpTransportConfig;
+}
+
+// Tool definitions for MCP server
+interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema?: object;
+  handler: (args: any) => Promise<any>;
+}
+
+interface ResourceDefinition {
+  uri: string;
+  name: string;
+  description?: string;
+  handler: (uri: string) => Promise<any>;
+}
+
+interface PromptDefinition {
+  name: string;
+  description?: string;
+  handler: (args: any) => Promise<any>;
 }
 
 /**
@@ -86,46 +98,41 @@ export interface MinskyMCPServerOptions {
  */
 export class MinskyMCPServer {
   private server: Server;
-  private transport: StdioServerTransport;
-  private options: MinskyMCPServerOptions;
+  private transport: StdioServerTransport | StreamableHTTPServerTransport;
+  private options: MinskyMCPServerOptions & { 
+    name: string; 
+    version: string; 
+    transportType: MCPTransportType;
+  };
   private projectContext: ProjectContext;
   private tools: Map<string, ToolDefinition> = new Map();
   private resources: Map<string, ResourceDefinition> = new Map();
   private prompts: Map<string, PromptDefinition> = new Map();
+
+  // For HTTP transport: map sessionId to transport for multiple clients
+  private httpTransports: Map<string, StreamableHTTPServerTransport> = new Map();
 
   /**
    * Create a new MinskyMCPServer
    * @param options Configuration options for the server
    */
   constructor(options: MinskyMCPServerOptions = {}) {
-    // Store the project context or create a default one
-    try {
-      this.projectContext = options.projectContext || createProjectContextFromCwd();
-      log.debug("Using project context", {
-        repositoryPath: this.projectContext.repositoryPath,
-      });
-    } catch (error) {
-      log.warn(
-        "Failed to create project context from current directory, tools requiring repository context may not work",
-        {
-          error: getErrorMessage(error as any),
-        }
-      );
-      // Create a minimal context with an empty path, tools will need to handle this
-      this.projectContext = { repositoryPath: "" };
-    }
-
+    // Set defaults
     this.options = {
-      name: options.name || "Minsky MCP Server",
-      version: options.version || "1.0.0",
-      projectContext: this.projectContext,
+      name: "Minsky MCP Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      ...options,
     };
 
-    // Create the official MCP server
+    // Set up project context
+    this.projectContext = options.projectContext || createProjectContextFromCwd();
+
+    // Create server instance
     this.server = new Server(
       {
-        name: this.options.name!,
-        version: this.options.version!,
+        name: this.options.name,
+        version: this.options.version,
       },
       {
         capabilities: {
@@ -134,330 +141,315 @@ export class MinskyMCPServer {
           prompts: {},
           logging: {},
         },
-        instructions:
-          "This server provides access to Minsky, a tool for managing AI-assisted development workflows.\n" +
-          "You can use these tools to:\n" +
-          "- Manage tasks and track their status\n" +
-          "- Create and manage development sessions\n" +
-          "- Perform git operations like commit, push, and PR creation\n" +
-          "- Initialize new projects with Minsky\n" +
-          "- Access and apply project rules\n\n" +
-          "All tools return structured JSON responses for easy processing.",
       }
     );
 
-    // Create stdio transport
-    this.transport = new StdioServerTransport();
+    // Create transport based on configuration
+    if (this.options.transportType === "stdio") {
+      this.transport = new StdioServerTransport();
+      log.debug("Created stdio transport");
+    } else {
+      // For HTTP transport, we'll create transports on-demand in handleHttpRequest
+      // This is a placeholder transport that won't be used
+      this.transport = new StdioServerTransport();
+      log.debug("HTTP transport mode - transports will be created on-demand");
+    }
 
     // Set up request handlers
     this.setupRequestHandlers();
-
-    // Set up event handlers
-    this.setupEventHandlers();
-
-    // Add default help resource
-    this.addResource({
-      uri: "minsky://help",
-      name: "Minsky Help",
-      description: "Basic help information for using Minsky MCP server",
-      mimeType: "text/plain",
-      handler: async () => ({
-        text: `Minsky MCP Server Help
-
-Available tools:
-- Use 'tasks.*' commands to manage tasks
-- Use 'session.*' commands to manage development sessions
-- Use 'git.*' commands for git operations
-- Use 'init.*' commands to initialize projects
-- Use 'rules.*' commands to work with project rules
-
-For more information, visit: https://github.com/your-org/minsky
-`,
-      }),
-    });
-
-    // Add default help prompt
-    this.addPrompt({
-      name: "minsky_help",
-      description: "Get help with using Minsky MCP server",
-      arguments: [],
-      handler: async () => ({
-        messages: [
-          {
-            role: "user" as const,
-            content: {
-              type: "text" as const,
-              text: "How can I use the Minsky MCP server to manage my AI-assisted development workflow?",
-            },
-          },
-        ],
-      }),
-    });
   }
 
   /**
-   * Set up MCP protocol request handlers
+   * Handle HTTP requests for StreamableHTTP transport
+   * This handles both GET and POST requests on a single endpoint
+   */
+  async handleHttpRequest(req: Request, res: Response): Promise<void> {
+    if (this.options.transportType !== "http") {
+      res.status(400).json({ error: "Server not configured for HTTP transport" });
+      return;
+    }
+
+    try {
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+      if (req.method === "POST") {
+        await this.handleHttpPost(req, res, sessionId);
+      } else if (req.method === "GET") {
+        await this.handleHttpGet(req, res, sessionId);
+      } else {
+        res.status(405).set("Allow", "GET, POST").send("Method Not Allowed");
+      }
+    } catch (error) {
+      log.error("Error handling HTTP request", { error: getErrorMessage(error) });
+      res.status(500).json({ 
+        error: "Internal server error",
+        message: getErrorMessage(error)
+      });
+    }
+  }
+
+  /**
+   * Handle HTTP POST requests - main MCP message handling
+   */
+  private async handleHttpPost(req: Request, res: Response, sessionId?: string): Promise<void> {
+    let transport: StreamableHTTPServerTransport;
+
+    // Reuse existing transport if we have a session ID
+    if (sessionId && this.httpTransports.has(sessionId)) {
+      transport = this.httpTransports.get(sessionId)!;
+    } else {
+      // Create new transport for new session
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+      });
+
+      // Connect server to transport
+      await this.server.connect(transport);
+      
+      log.debug("Created new HTTP transport", { sessionId: transport.sessionId });
+    }
+
+    // Handle the request
+    await transport.handleRequest(req, res, req.body);
+
+    // Store transport if it has a session ID (only after first request)
+    if (transport.sessionId && !this.httpTransports.has(transport.sessionId)) {
+      this.httpTransports.set(transport.sessionId, transport);
+      log.debug("Stored HTTP transport", { sessionId: transport.sessionId });
+    }
+  }
+
+  /**
+   * Handle HTTP GET requests - SSE streaming
+   */
+  private async handleHttpGet(req: Request, res: Response, sessionId?: string): Promise<void> {
+    if (!sessionId || !this.httpTransports.has(sessionId)) {
+      // Return 405 Method Not Allowed if no SSE stream available
+      res.status(405).set("Allow", "POST").send("Method Not Allowed");
+      return;
+    }
+
+    const transport = this.httpTransports.get(sessionId)!;
+    await transport.handleRequest(req, res);
+    
+    log.debug("Established SSE stream", { sessionId });
+  }
+
+  /**
+   * Set up request handlers for tools, resources, and prompts
    */
   private setupRequestHandlers(): void {
-    // Tools handlers
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      const tools = Array.from(this.tools.values()).map((tool) => ({
+    // List tools
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: Array.from(this.tools.values()).map(tool => ({
         name: tool.name,
         description: tool.description,
-        inputSchema: tool.inputSchema,
-      }));
+        inputSchema: tool.inputSchema || {},
+      })),
+    }));
 
-      log.debug("Listing tools", { toolCount: tools.length });
-      return { tools };
-    });
-
+    // Call tool
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-      
-      log.debug("Calling tool", { name, args });
-
-      const tool = this.tools.get(name);
+      const tool = this.tools.get(request.params.name);
       if (!tool) {
-        throw new Error(`Unknown tool: ${name}`);
+        throw new Error(`Tool '${request.params.name}' not found`);
       }
 
       try {
-        const result = await tool.handler(args || {});
-        
-        // Ensure result is returned in proper format
-        if (typeof result === "string") {
-          return {
-            content: [
-              {
-                type: "text",
-                text: result,
-              },
-            ],
-          };
-        } else {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        }
-      } catch (error) {
-        const errorMessage = getErrorMessage(error as any);
-        log.error("Tool execution failed", { name, error: errorMessage });
-        
+        const result = await tool.handler(request.params.arguments || {});
         return {
           content: [
             {
-              type: "text",
-              text: `Error executing tool '${name}': ${errorMessage}`,
+              type: "text" as const,
+              text: typeof result === "string" ? result : JSON.stringify(result),
             },
           ],
-          isError: true,
         };
+      } catch (error) {
+        log.error("Tool execution failed", { 
+          tool: request.params.name, 
+          error: getErrorMessage(error) 
+        });
+        throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
       }
     });
 
-    // Resources handlers
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
-      const resources = Array.from(this.resources.values()).map((resource) => ({
+    // List resources
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+      resources: Array.from(this.resources.values()).map(resource => ({
         uri: resource.uri,
         name: resource.name,
         description: resource.description,
-        mimeType: resource.mimeType,
-      }));
+      })),
+    }));
 
-      log.debug("Listing resources", { resourceCount: resources.length });
-      return { resources };
-    });
-
+    // Read resource
     this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-      const { uri } = request.params;
-      
-      log.debug("Reading resource", { uri });
-
-      const resource = this.resources.get(uri);
+      const resource = this.resources.get(request.params.uri);
       if (!resource) {
-        throw new Error(`Unknown resource: ${uri}`);
+        throw new Error(`Resource '${request.params.uri}' not found`);
       }
 
       try {
-        const result = await resource.handler();
+        const content = await resource.handler(request.params.uri);
         return {
           contents: [
             {
-              uri,
-              mimeType: resource.mimeType,
-              ...result,
+              uri: request.params.uri,
+              mimeType: "text/plain",
+              text: typeof content === "string" ? content : JSON.stringify(content),
             },
           ],
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error as any);
-        log.error("Resource read failed", { uri, error: errorMessage });
-        throw new Error(`Failed to read resource '${uri}': ${errorMessage}`);
+        log.error("Resource read failed", { 
+          uri: request.params.uri, 
+          error: getErrorMessage(error) 
+        });
+        throw new Error(`Resource read failed: ${getErrorMessage(error)}`);
       }
     });
 
-    // Prompts handlers
-    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
-      const prompts = Array.from(this.prompts.values()).map((prompt) => ({
+    // List prompts
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+      prompts: Array.from(this.prompts.values()).map(prompt => ({
         name: prompt.name,
         description: prompt.description,
-        arguments: prompt.arguments || [],
-      }));
+      })),
+    }));
 
-      log.debug("Listing prompts", { promptCount: prompts.length });
-      return { prompts };
-    });
-
+    // Get prompt
     this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
-      
-      log.debug("Getting prompt", { name, args });
-
-      const prompt = this.prompts.get(name);
+      const prompt = this.prompts.get(request.params.name);
       if (!prompt) {
-        throw new Error(`Unknown prompt: ${name}`);
+        throw new Error(`Prompt '${request.params.name}' not found`);
       }
 
       try {
-        const result = await prompt.handler(args || {});
-        return result;
+        const result = await prompt.handler(request.params.arguments || {});
+        return {
+          description: prompt.description || `Generated prompt: ${prompt.name}`,
+          messages: [
+            {
+              role: "user" as const,
+              content: {
+                type: "text" as const,
+                text: typeof result === "string" ? result : JSON.stringify(result),
+              },
+            },
+          ],
+        };
       } catch (error) {
-        const errorMessage = getErrorMessage(error as any);
-        log.error("Prompt execution failed", { name, error: errorMessage });
-        throw new Error(`Failed to execute prompt '${name}': ${errorMessage}`);
+        log.error("Prompt generation failed", { 
+          prompt: request.params.name, 
+          error: getErrorMessage(error) 
+        });
+        throw new Error(`Prompt generation failed: ${getErrorMessage(error)}`);
       }
     });
-  }
-
-  /**
-   * Set up event handlers for the server
-   */
-  private setupEventHandlers(): void {
-    this.server.onclose = () => {
-      log.agent("MCP Server connection closed");
-    };
-
-    this.server.onerror = (error) => {
-      log.error("MCP Server error", { error: getErrorMessage(error) });
-    };
-
-    this.server.oninitialized = () => {
-      log.agent("MCP Server initialized");
-    };
   }
 
   /**
    * Add a tool to the server
-   * @param tool Tool definition with name, description, schema, and handler
    */
   addTool(tool: ToolDefinition): void {
-    log.debug("Registering MCP tool", {
-      name: tool.name,
-      description: tool.description,
-      hasInputSchema: !!tool.inputSchema,
-    });
-
     this.tools.set(tool.name, tool);
+    log.debug("Added tool", { name: tool.name });
   }
 
   /**
    * Add a resource to the server
-   * @param resource Resource definition with URI, name, description, and handler
    */
   addResource(resource: ResourceDefinition): void {
-    log.debug("Registering MCP resource", {
-      uri: resource.uri,
-      name: resource.name,
-      description: resource.description,
-      mimeType: resource.mimeType,
-    });
-
     this.resources.set(resource.uri, resource);
+    log.debug("Added resource", { uri: resource.uri });
   }
 
   /**
    * Add a prompt to the server
-   * @param prompt Prompt definition with name, description, and handler
    */
   addPrompt(prompt: PromptDefinition): void {
-    log.debug("Registering MCP prompt", {
-      name: prompt.name,
-      description: prompt.description,
-      argumentCount: prompt.arguments?.length || 0,
-    });
-
     this.prompts.set(prompt.name, prompt);
+    log.debug("Added prompt", { name: prompt.name });
   }
 
   /**
-   * Start the server with stdio transport
+   * Start the server with the configured transport
    */
   async start(): Promise<void> {
     try {
-      await this.server.connect(this.transport);
-      
-      log.agent("Minsky MCP Server started with stdio transport");
+      if (this.options.transportType === "stdio") {
+        await this.server.connect(this.transport);
+        log.agent("Minsky MCP Server started with stdio transport");
+      } else {
+        // For HTTP transport, we don't connect here since transports are created on-demand
+        const httpConfig = this.options.httpConfig || {};
+        const host = httpConfig.host || "localhost";
+        const port = httpConfig.port || 3000;
+        log.agent(`Minsky MCP Server ready for HTTP transport (${host}:${port})`);
+      }
       
       // Debug log of registered items
       log.debug("MCP Server registered items", {
+        transportType: this.options.transportType,
+        httpConfig: this.options.transportType === "http" ? this.options.httpConfig : undefined,
         toolCount: this.tools.size,
         resourceCount: this.resources.size,
         promptCount: this.prompts.size,
-        tools: Array.from(this.tools.keys()),
-        resources: Array.from(this.resources.keys()),
-        prompts: Array.from(this.prompts.keys()),
       });
     } catch (error) {
-      log.error("Failed to start Minsky MCP Server", {
-        error: getErrorMessage(error as any),
-        stack: error instanceof Error ? (error as any).stack : undefined,
-      });
-
+      log.error("Failed to start MCP server", { error: getErrorMessage(error) });
       throw error;
     }
   }
 
   /**
-   * Get access to the underlying MCP server instance
+   * Close the server and cleanup resources
    */
-  getServer(): Server {
-    return this.server;
+  async close(): Promise<void> {
+    try {
+      if (this.options.transportType === "http") {
+        // Close all HTTP transports
+        for (const [sessionId, transport] of this.httpTransports.entries()) {
+          try {
+            await transport.close();
+            log.debug("Closed HTTP transport", { sessionId });
+          } catch (error) {
+            log.warn("Error closing HTTP transport", { 
+              sessionId, 
+              error: getErrorMessage(error) 
+            });
+          }
+        }
+        this.httpTransports.clear();
+      }
+      
+      await this.server.close();
+      log.debug("MCP Server closed");
+    } catch (error) {
+      log.error("Error closing MCP server", { error: getErrorMessage(error) });
+      throw error;
+    }
   }
 
   /**
-   * Get the project context for this server instance
-   * @returns The project context containing repository information
+   * Check if the server is using HTTP transport
+   */
+  isHttpTransport(): boolean {
+    return this.options.transportType === "http";
+  }
+
+  /**
+   * Get HTTP transport configuration
+   */
+  getHttpConfig(): MCPHttpTransportConfig | undefined {
+    return this.options.transportType === "http" ? this.options.httpConfig : undefined;
+  }
+
+  /**
+   * Get project context
    */
   getProjectContext(): ProjectContext {
     return this.projectContext;
-  }
-
-  /**
-   * Get the registered tools
-   * @returns Map of tool names to tool definitions
-   */
-  getTools(): Map<string, ToolDefinition> {
-    return new Map(this.tools);
-  }
-
-  /**
-   * Get the registered resources
-   * @returns Map of resource URIs to resource definitions
-   */
-  getResources(): Map<string, ResourceDefinition> {
-    return new Map(this.resources);
-  }
-
-  /**
-   * Get the registered prompts
-   * @returns Map of prompt names to prompt definitions
-   */
-  getPrompts(): Map<string, PromptDefinition> {
-    return new Map(this.prompts);
   }
 }
