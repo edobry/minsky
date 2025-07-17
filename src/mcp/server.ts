@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { 
+import {
   StreamableHTTPServerTransport,
   StreamableHTTPServerTransportOptions
 } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -72,7 +72,7 @@ export interface MinskyMCPServerOptions {
 }
 
 // Tool definitions for MCP server
-interface ToolDefinition {
+export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema?: object;
@@ -99,9 +99,9 @@ interface PromptDefinition {
 export class MinskyMCPServer {
   private server: Server;
   private transport: StdioServerTransport | StreamableHTTPServerTransport;
-  private options: MinskyMCPServerOptions & { 
-    name: string; 
-    version: string; 
+  private options: MinskyMCPServerOptions & {
+    name: string;
+    version: string;
     transportType: MCPTransportType;
   };
   private projectContext: ProjectContext;
@@ -181,7 +181,7 @@ export class MinskyMCPServer {
       }
     } catch (error) {
       log.error("Error handling HTTP request", { error: getErrorMessage(error) });
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Internal server error",
         message: getErrorMessage(error)
       });
@@ -205,7 +205,7 @@ export class MinskyMCPServer {
 
       // Connect server to transport
       await this.server.connect(transport);
-      
+
       log.debug("Created new HTTP transport", { sessionId: transport.sessionId });
     }
 
@@ -231,7 +231,7 @@ export class MinskyMCPServer {
 
     const transport = this.httpTransports.get(sessionId)!;
     await transport.handleRequest(req, res);
-    
+
     log.debug("Established SSE stream", { sessionId });
   }
 
@@ -266,9 +266,9 @@ export class MinskyMCPServer {
           ],
         };
       } catch (error) {
-        log.error("Tool execution failed", { 
-          tool: request.params.name, 
-          error: getErrorMessage(error) 
+        log.error("Tool execution failed", {
+          tool: request.params.name,
+          error: getErrorMessage(error)
         });
         throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
       }
@@ -302,9 +302,9 @@ export class MinskyMCPServer {
           ],
         };
       } catch (error) {
-        log.error("Resource read failed", { 
-          uri: request.params.uri, 
-          error: getErrorMessage(error) 
+        log.error("Resource read failed", {
+          uri: request.params.uri,
+          error: getErrorMessage(error)
         });
         throw new Error(`Resource read failed: ${getErrorMessage(error)}`);
       }
@@ -340,9 +340,9 @@ export class MinskyMCPServer {
           ],
         };
       } catch (error) {
-        log.error("Prompt generation failed", { 
-          prompt: request.params.name, 
-          error: getErrorMessage(error) 
+        log.error("Prompt generation failed", {
+          prompt: request.params.name,
+          error: getErrorMessage(error)
         });
         throw new Error(`Prompt generation failed: ${getErrorMessage(error)}`);
       }
@@ -388,7 +388,7 @@ export class MinskyMCPServer {
         const port = httpConfig.port || 3000;
         log.agent(`Minsky MCP Server ready for HTTP transport (${host}:${port})`);
       }
-      
+
       // Debug log of registered items
       log.debug("MCP Server registered items", {
         transportType: this.options.transportType,
@@ -415,15 +415,15 @@ export class MinskyMCPServer {
             await transport.close();
             log.debug("Closed HTTP transport", { sessionId });
           } catch (error) {
-            log.warn("Error closing HTTP transport", { 
-              sessionId, 
-              error: getErrorMessage(error) 
+            log.warn("Error closing HTTP transport", {
+              sessionId,
+              error: getErrorMessage(error)
             });
           }
         }
         this.httpTransports.clear();
       }
-      
+
       await this.server.close();
       log.debug("MCP Server closed");
     } catch (error) {

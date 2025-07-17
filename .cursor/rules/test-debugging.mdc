@@ -11,7 +11,7 @@ When encountering test failures, follow this process:
 ### 1. **Categorize Issues First (CRITICAL)**
 Before attempting fixes, categorize failures by type:
 - **Timeout/Infinite Loop Issues**: Tests taking >30 seconds or timing out
-- **Variable Naming Issues**: "X is not defined" errors, underscore prefix mismatches  
+- **Variable Naming Issues**: "X is not defined" errors, underscore prefix mismatches
 - **Mock Implementation Issues**: Function signature mismatches, missing methods
 - **Property Naming Issues**: Object property references (_status vs status, _session vs session)
 - **Data Structure Issues**: Mock data not matching test expectations
@@ -47,7 +47,7 @@ Before attempting fixes, categorize failures by type:
 const _result = await someFunction();
 expect(result).toBe(expected); // ERROR: result not defined
 
-// CORRECT: Consistent naming  
+// CORRECT: Consistent naming
 const result = await someFunction();
 expect(result).toBe(expected);
 ```
@@ -71,7 +71,7 @@ expect(result).toBe(expected);
    - Fix variable declaration/usage mismatches
    - Verify execution time improvements
 
-2. **Phase 2: Variable Naming Issues**  
+2. **Phase 2: Variable Naming Issues**
    - Apply variable-naming-protocol systematically
    - Fix _result/_options/_session pattern mismatches
    - Update property references to remove inappropriate underscores
@@ -101,6 +101,7 @@ expect(result).toBe(expected);
 | `mock.fn is not a function` | Use `jest.fn()` instead | Mock Implementation |
 | `mock.restoreAll is not a function` | Use `mock.restore()` | Mock Implementation |
 | Missing mock methods | Use `jest.fn()`, not `mock()` | Mock Implementation |
+| **`log.cli is not a function`** | **Use `createMockLogger()` from logger-mock.ts** | **Mock Implementation** |
 | Tests timeout after 30+ seconds | Check for variable naming mismatches | Timeout/Infinite Loop |
 | "X is not defined" errors | Apply variable-naming-protocol decision tree | Variable Naming |
 | Property access errors | Check _property vs property naming | Property Naming |
@@ -113,10 +114,25 @@ expect(result).toBe(expected);
 - Verify the number of calls with `.mock.calls.length`
 - Inspect call arguments with `.mock.calls[0][0]` syntax
 
+### Logger Mock Issue Detection
+**STANDARD SOLUTION**: For "log.cli is not a function" errors:
+```typescript
+// Import centralized logger mock
+import { createMockLogger } from "../utils/test-utils/logger-mock";
+
+// Create complete logger mock with all methods
+const mockLog = createMockLogger();
+
+// Mock the logger module
+mockModule("../../../src/utils/logger", () => ({
+  log: mockLog
+}));
+```
+
 ### Variable Naming Issue Detection
 **CRITICAL PROTOCOL**: Before any variable name changes:
 - [ ] Check if variable is defined with underscore but used without
-- [ ] Apply variable-naming-protocol decision tree  
+- [ ] Apply variable-naming-protocol decision tree
 - [ ] Remove underscores from definitions, not usage
 - [ ] Verify no infinite loops in execution
 
@@ -140,7 +156,7 @@ expect(result).toBe(expected);
 After debugging:
 1. **Isolation Test**: Verify specific test file passes alone
 2. **Category Test**: Verify all tests in same category pass
-3. **Integration Test**: Verify fixes don't break other test categories  
+3. **Integration Test**: Verify fixes don't break other test categories
 4. **Performance Test**: Confirm no infinite loops (execution <30 seconds)
 5. **Documentation**: Update progress with specific metrics
 
