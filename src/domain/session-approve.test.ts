@@ -193,7 +193,7 @@ describe("Session Approve", () => {
     expect(mockGetCurrentSession).toHaveBeenCalledWith(repoPath);
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("current-session");
     expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
-    expect(result._session).toBe("current-session");
+    expect(result.session).toBe("current-session");
   });
 
   test("throws error when session is not found", async () => {
@@ -221,7 +221,7 @@ describe("Session Approve", () => {
     try {
       await approveSessionFromParams(
         {
-          _session: "non-existent-session",
+          session: "non-existent-session",
         },
         testDeps
       );
@@ -270,43 +270,48 @@ describe("Session Approve", () => {
   });
 
   test("handles errors during task metadata update", async () => {
-    // Create mocks for dependencies
-    const mockSessionDB = {
-      getSession: createMock((name) =>
+    // Create centralized mocks
+    const mockSessionDB = createMockSessionProvider({
+      getSession: (name) =>
         Promise.resolve({
-          _session: name,
+          session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
           taskId: "#TEST_VALUE",
           createdAt: new Date().toISOString(),
-        })
-      ),
-      getSessionByTaskId: createMock(() => Promise.resolve(null)),
-      getSessionWorkdir: createMock(() =>
-        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
-      ),
-    };
+        }),
+      getSessionByTaskId: () => Promise.resolve(null),
+    });
 
-    const mockGitService = {
-      execInRepository: createMock((_workdir, command) => {
-        if (command.includes("rev-parse HEAD")) {
-          return Promise.resolve("abcdef123456");
-        }
-        if (command.includes("config user.name")) {
-          return Promise.resolve("Test User");
+    // Add getSessionWorkdir method not covered by centralized factory
+    (mockSessionDB as any).getSessionWorkdir = createMock(() =>
+      Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+    );
+
+    const mockGitService = createMockGitService({
+      execInRepository: (_workdir, command) => {
+        if (typeof command === "string") {
+          if (command.includes("rev-parse HEAD")) {
+            return Promise.resolve("abcdef123456");
+          }
+          if (command.includes("config user.name")) {
+            return Promise.resolve("Test User");
+          }
         }
         return Promise.resolve("");
-      }),
-    };
+      },
+    });
 
-    const mockTaskService = {
-      setTaskStatus: createMock(() => Promise.reject(new Error("Task update failed"))),
-      getBackendForTask: createMock(() =>
-        Promise.resolve({
-          setTaskMetadata: createMock(() => Promise.resolve()),
-        })
-      ),
-    };
+    const mockTaskService = createMockTaskService({
+      setTaskStatus: () => Promise.reject(new Error("Task update failed")),
+    });
+
+    // Add getBackendForTask method not covered by centralized factory
+    (mockTaskService as any).getBackendForTask = createMock(() =>
+      Promise.resolve({
+        setTaskMetadata: createMock(() => Promise.resolve()),
+      })
+    );
 
     // Create test dependencies
     const testDeps = {
@@ -319,14 +324,14 @@ describe("Session Approve", () => {
     // Should still succeed even if task update fails
     const result = await approveSessionFromParams(
       {
-        _session: "test-session",
+        session: "test-session",
       },
       testDeps
     );
 
     // Verify
     expect(result.commitHash).toBe("abcdef123456");
-    expect(result._session).toBe("test-session");
+    expect(result.session).toBe("test-session");
   });
 
   test("merges from local PR branch and handles missing remote branch gracefully", async () => {
@@ -386,14 +391,14 @@ describe("Session Approve", () => {
     // Test the approval
     const result = await approveSessionFromParams(
       {
-        _session: "test-session",
+        session: "test-session",
       },
       testDeps
     );
 
     // Verify the result
     expect(result.commitHash).toBe("abcdef123456");
-    expect(result._session).toBe("test-session");
+    expect(result.session).toBe("test-session");
     expect(result.prBranch).toBe("pr/test-session");
 
     // Verify git commands were called correctly
