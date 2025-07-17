@@ -16,9 +16,9 @@
 
 - [x] Add `git commit` Command to Stage and Commit Changes [#009](process/tasks/009-add-git-commit-command-to-stage-and-commit-changes.md)
 
-- [x] ~~Enhance `git pr` Command to Create GitHub PRs and Update Task Status~~ (Command removed - functionality moved to `session pr`) [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
+- [x] ~~Enhance `git pr` Command to Create GitHub PRs and Update Task Status~~ (Command removed - functionality moved to `session pr`) [#010](process/tasks/010--enhance-git-pr-command-to-create-github-prs-and-update-task-status-command-removed-functionality-moved-to-session-pr-.md)
 
-- [x] ~~Fix `git pr` Command and Add Proper Tests~~ (Command removed - functionality moved to `session pr`) [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
+- [x] ~~Fix `git pr` Command and Add Proper Tests~~ (Command removed - functionality moved to `session pr`) [#011](process/tasks/011--fix-git-pr-command-and-add-proper-tests-command-removed-functionality-moved-to-session-pr-.md)
 
 - [x] Add `session update` Command [#012](process/tasks/012-add-session-update-command.md)
 
@@ -34,7 +34,7 @@
 
 - [x] Implement Test Suite Improvements [#019](process/tasks/019-implement-test-suite-improvements.md)
 
-- [x] ~~Add `--task` option to `git pr` command~~ (Command removed - functionality moved to `session pr`) [#020](process/tasks/020-add-task-option-to-git-pr-command.md)
+- [x] ~~Add `--task` option to `git pr` command~~ (Command removed - functionality moved to `session pr`) [#020](process/tasks/020--add-task-option-to-git-pr-command-command-removed-functionality-moved-to-session-pr-.md)
 
 - [x] Refactor Large Methods in GitService [#021](process/tasks/021-refactor-large-methods-in-gitservice.md)
 
@@ -506,4 +506,6 @@
 
 - [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
 
-- [x] Fix session PR title duplication bug [#285](/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/temp-task-fix-session-pr-title-duplication-bug-1752771189150.md)
+- [x] Fix session PR title duplication bug [#285](process/tasks/285-fix-session-pr-title-duplication-bug.md)
+
+- [+] Fix MCP Server and CLI Issues Post Task 282 [#286](process/tasks/286-fix-mcp-server-and-cli-issues-post-task-282.md)
