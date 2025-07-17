@@ -15,34 +15,7 @@ For any code change, **record it in the `CHANGELOG.md` file in the nearest ances
 - If there is no `CHANGELOG.md` in the current or any parent directory, use the root `CHANGELOG.md`.
 - Never update more than one changelog for a single change. Always use the most specific (deepest) changelog file in the directory tree.
 
-### SpecStory Conversation History Referencing (Required)
-- For every changegroup (e.g., Added, Changed, Fixed) in the changelog, **add a reference to the relevant SpecStory conversation history file(s) where the change originated**.
-- Place the reference(s) at the end of each changegroup, using the format:
 
-  `_See: SpecStory history [YYYY-MM-DD_HH-MM-topic](mdc:.specstory/history/YYYY-MM-DD_HH-MM-topic.md) for ..._`
-- If multiple changegroups originate from different conversations, reference each appropriately.
-- At the top of the changelog, add a note referencing `.specstory/.what-is-this.md` to explain the SpecStory artifact system.
-
-#### Example
-
-```markdown
-# Changelog
-
-> **Note:** This changelog references SpecStory conversation histories. See [.specstory/.what-is-this.md](mdc:.specstory/.what-is-this.md) for details on the SpecStory artifact system.
-
-## [Unreleased]
-
-### Added
-- New feature X
-- New feature Y
-
-_See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](mdc:.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup._
-
-### Changed
-- Improved logic for Z
-
-_See: SpecStory history [2025-04-26_22-29-task-management-command-design](mdc:.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management._
-```
 
 ## Additional Guidance
 - Only update the `CHANGELOG.md` at the end of an editing session, after testing whether the change worked.

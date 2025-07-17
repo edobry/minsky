@@ -28,9 +28,6 @@ export function registerGitTools(commandMapper: CommandMapper): void {
       "git.branch": {
         description: "Create a new branch (MCP optimized)",
       },
-      "git.pr": {
-        description: "Create a pull request (MCP optimized)",
-      },
       "git.merge": {
         description: "Merge a branch with conflict detection (MCP optimized)",
       },

@@ -4,7 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { startSessionFromParams } from "../start-command";
-import { log } from "../../../../utils/logger";
+import { log } from "../../../../../../utils/logger";
 
 /**
  * Parameters for the session start command

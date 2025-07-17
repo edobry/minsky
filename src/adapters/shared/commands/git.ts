@@ -18,7 +18,6 @@ import {
   pushFromParams,
   cloneFromParams,
   branchFromParams,
-  createPullRequestFromParams,
   mergeFromParams,
   checkoutFromParams,
   rebaseFromParams,
@@ -31,7 +30,6 @@ import {
   GIT_FORCE_DESCRIPTION,
   DEBUG_DESCRIPTION,
   GIT_BRANCH_DESCRIPTION,
-  TASK_ID_DESCRIPTION,
   NO_STATUS_UPDATE_DESCRIPTION,
 } from "../../../utils/option-descriptions";
 
@@ -163,65 +161,12 @@ const branchCommandParams: CommandParameterMap = {
 };
 
 /**
- * Parameters for the pr command
- */
-const prCommandParams: CommandParameterMap = {
-  session: {
-    schema: z.string(),
-    description: SESSION_DESCRIPTION,
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: REPO_DESCRIPTION,
-    required: false,
-  },
-  branch: {
-    schema: z.string(),
-    description: GIT_BRANCH_DESCRIPTION,
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: TASK_ID_DESCRIPTION,
-    required: false,
-  },
-  debug: {
-    schema: z.boolean().default(false),
-    description: DEBUG_DESCRIPTION,
-    required: false,
-  },
-  noStatusUpdate: {
-    schema: z.boolean().default(false),
-    description: NO_STATUS_UPDATE_DESCRIPTION,
-    required: false,
-  },
-  preview: {
-    schema: z.boolean(),
-    description: "Preview potential conflicts before creating the PR",
-    required: false,
-    defaultValue: false,
-  },
-  autoResolve: {
-    schema: z.boolean(),
-    description: "Enable advanced auto-resolution for detected conflicts",
-    required: false,
-    defaultValue: false,
-  },
-  conflictStrategy: {
-    schema: z.enum(["automatic", "guided", "manual"]),
-    description: "Choose conflict resolution strategy",
-    required: false,
-  },
-};
-
-/**
- * NEW: Parameters for the merge command
+ * Parameters for the merge command
  */
 const mergeCommandParams: CommandParameterMap = {
   branch: {
-    schema: z.string(),
-    description: "Branch to merge into the current branch",
+    schema: z.string().min(1),
+    description: "Branch to merge",
     required: true,
   },
   session: {
@@ -250,18 +195,6 @@ const mergeCommandParams: CommandParameterMap = {
     schema: z.enum(["automatic", "guided", "manual"]),
     description: "Choose conflict resolution strategy",
     required: false,
-  },
-  noCommit: {
-    schema: z.boolean(),
-    description: "Perform merge without committing",
-    required: false,
-    defaultValue: false,
-  },
-  fastForwardOnly: {
-    schema: z.boolean(),
-    description: "Only allow fast-forward merges",
-    required: false,
-    defaultValue: false,
   },
 };
 
@@ -363,13 +296,13 @@ export function registerGitCommands(): void {
         noStage: params!.noStage,
         repo: params!.repo,
         session: params!.session,
-      }) as unknown;
+      });
 
       return {
         success: true,
-        commitHash: result!.commitHash,
-        message: result!.message,
-      } as unknown;
+        commitHash: result.commitHash,
+        message: result.message,
+      };
     },
   });
 
@@ -389,12 +322,12 @@ export function registerGitCommands(): void {
         remote: params!.remote,
         force: params!.force,
         debug: params!.debug,
-      }) as unknown;
+      });
 
       return {
-        success: result!.pushed,
-        workdir: result!.workdir,
-      } as unknown;
+        success: result.pushed,
+        workdir: result.workdir,
+      };
     },
   });
 
@@ -413,13 +346,13 @@ export function registerGitCommands(): void {
         workdir: params!.destination || ".",
         session: params!.session,
         branch: params!.branch,
-      }) as unknown;
+      });
 
       return {
         success: true,
-        workdir: result!.workdir,
-        session: result!.session,
-      } as unknown;
+        workdir: result.workdir,
+        session: result.session,
+      };
     },
   });
 
@@ -436,44 +369,17 @@ export function registerGitCommands(): void {
       const result = await branchFromParams({
         session: params!.session,
         name: params!.name,
-      }) as unknown;
+      });
 
       return {
         success: true,
-        workdir: result!.workdir,
-        branch: result!.branch,
-      } as unknown;
+        workdir: result.workdir,
+        branch: result.branch,
+      };
     },
   });
 
-  // Register git pr command
-  sharedCommandRegistry.registerCommand({
-    id: "git.pr",
-    category: CommandCategory.GIT,
-    name: "pr",
-    description: "Create a new pull request",
-    parameters: prCommandParams,
-    execute: async (params, context) => {
-      log.debug("Executing git.pr command", { params });
-
-      const result = await createPullRequestFromParams({
-        session: params!.session,
-        repo: params!.repo,
-        branch: params!.branch,
-        taskId: params!.task,
-        debug: params!.debug,
-        noStatusUpdate: params!.noStatusUpdate,
-      }) as unknown;
-
-      return {
-        success: true,
-        markdown: result!.markdown,
-        statusUpdateResult: result!.statusUpdateResult,
-      } as unknown;
-    },
-  });
-
-  // Register git merge command - NEW
+  // Register git merge command
   sharedCommandRegistry.registerCommand({
     id: "git.merge",
     category: CommandCategory.GIT,
@@ -493,9 +399,9 @@ export function registerGitCommands(): void {
       });
 
       return {
-        success: result!.merged,
-        workdir: result!.workdir,
-        message: result!.conflicts ? result!.conflictDetails || "Merge completed with conflicts" : "Merge completed successfully",
+        success: result.merged,
+        workdir: result.workdir,
+        message: result.conflicts ? result.conflictDetails || "Merge completed with conflicts" : "Merge completed successfully",
       };
     },
   });
