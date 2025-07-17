@@ -112,6 +112,28 @@ Manual creation of test data and mock objects is repetitive and error-prone. The
 - **Update documentation** with Bun test pattern examples
 - **Create guidelines** for future test development
 
+### Phase 4: ESLint Enforcement (Future Enhancement)
+- **Explore adding ESLint rule** to ban Jest-style testing patterns
+- **Prevent future violations** of Bun test pattern requirements
+- **Enforce consistent mocking utilities** across codebase
+
+## PLANNED CHANGES TRACKING
+
+### Phase 1 Targets (TODO Status: Pending)
+- [ ] **session-approve.test.ts** - Replace 9 `mockSessionDB` declarations with `createMockSessionProvider()`
+- [ ] **session-git-clone-bug-regression.test.ts** - Migrate local mocks to centralized factories
+- [ ] **git-pr-workflow.test.ts** - Fix `_session` vs `session` interface alignment
+
+### Phase 2 Targets (TODO Status: Pending) 
+- [ ] **session-review.test.ts** - Eliminate `.mockImplementation()`, `.mockReset()`, `.mockImplementationOnce()`
+- [ ] **session-lookup-bug-reproduction.test.ts** - Replace `.mockResolvedValue()` patterns
+- [ ] **session-start-consistency.test.ts** - Migrate `.toHaveBeenCalled()` tracking patterns
+
+### Phase 3 & 4 (TODO Status: Pending)
+- [ ] **validate-bun-test-compliance** - Full test suite validation
+- [ ] **document-bun-patterns** - Create Bun test pattern documentation
+- [ ] **eslint-jest-ban-rule** - Explore ESLint rule to prevent Jest pattern usage
+
 ## VERIFICATION REQUIREMENTS
 
 - [ ] All test files use Bun test patterns exclusively
@@ -119,6 +141,7 @@ Manual creation of test data and mock objects is repetitive and error-prone. The
 - [ ] All centralized factories are used where applicable
 - [ ] Full test suite passes (all existing functionality preserved)
 - [ ] Net code reduction achieved through duplicate elimination
+- [ ] ESLint rule exploration completed for future prevention
 
 ## TECHNICAL REQUIREMENTS
 
@@ -137,11 +160,69 @@ Manual creation of test data and mock objects is repetitive and error-prone. The
    - Clear test descriptions and organization
    - Consistent error handling patterns
 
+4. **Future Prevention (ESLint Rule Investigation):**
+   - Research creating custom ESLint rule to ban Jest patterns
+   - Consider rules for: `.mockImplementation()`, `.mockResolvedValue()`, `jest.fn()`, etc.
+   - Ensure rule integrates with existing lint configuration
+   - Document rule creation process for future reference
+
 ## ESTIMATED IMPACT
 
 - **Total duplicate code elimination**: ~350+ lines
 - **Jest pattern violations resolved**: 6+ test files
 - **Test reliability improvement**: Consistent Bun test patterns
 - **Maintenance reduction**: Centralized mock implementations
+- **Future violation prevention**: ESLint rule enforcement
 
-This task ensures full standardization of test utilities while eliminating Jest pattern violations and duplicate code across the entire test suite.
+## CURRENT PROGRESS
+
+**✅ Demonstration Complete** - `session-auto-task-creation.test.ts`
+- Successfully migrated from Jest patterns to Bun patterns
+- Demonstrated centralized factory usage
+- All tests passing (3/3 tests, 7 expect() calls)
+- Established migration pattern for remaining files
+
+**🔄 Refactoring Complexity Assessment**
+- **Complex files require careful analysis**: Files like `session-approve.test.ts` have intricate mock patterns that don't directly align with centralized factories
+- **Interface compatibility issues**: Existing tests use specific mocking signatures that may conflict with our centralized implementations
+- **Alternative approach needed**: Simple factory replacement may not work for all files; need helper function strategy
+
+## REVISED IMPLEMENTATION STRATEGY
+
+### Immediate Opportunities (Simple Patterns)
+Files that can be directly migrated using established pattern:
+1. **`session-git-clone-bug-regression.test.ts`** - Simple mock object patterns
+2. **`git-pr-workflow.test.ts`** - Straightforward interface usage
+3. **`session-lookup-bug-reproduction.test.ts`** - Basic Jest → Bun migration
+
+### Complex Files (Require Helper Functions)
+Files needing careful interface analysis:
+1. **`session-approve.test.ts`** - 9 mock declarations with complex signatures
+2. **`session-review.test.ts`** - Heavy Jest pattern usage 
+3. **`session-start-consistency.test.ts`** - Complex call tracking
+
+### Strategy Adjustment
+- **Phase 1A**: Target simple pattern files first (immediate wins)
+- **Phase 1B**: Analyze complex files to create compatible helper functions  
+- **Phase 2**: Systematic migration using appropriate strategy per file
+- **Phase 3**: Jest pattern elimination across all files
+
+## LESSONS LEARNED
+
+### Centralized Factory Limitations
+- **Signature mismatches**: Our factories use different parameter patterns than existing tests
+- **Mock tracking differences**: Tests expect different mock tracking capabilities
+- **Interface completeness**: Some tests need methods not included in our centralized factories
+
+### Successful Patterns
+- **Simple interface replacement**: Works well for straightforward factory usage
+- **Incremental approach**: One test file at a time maintains test integrity
+- **Bun pattern migration**: Successfully demonstrated Jest → Bun transition
+
+### Recommended Next Steps
+1. **Target easy wins first**: Focus on files with simple patterns
+2. **Create helper functions**: For complex files, create specialized helpers that bridge the gap
+3. **Maintain test behavior**: Ensure all tests continue to pass during migration
+4. **Document patterns**: Create migration guidelines for future reference
+
+This task ensures full standardization of test utilities while eliminating Jest pattern violations and duplicate code across the entire test suite, with future prevention mechanisms.
