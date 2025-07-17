@@ -22,22 +22,32 @@ export interface SessionDbFileOptions {
  * Read sessions from the database file
  */
 export function readSessionDbFile(options: SessionDbFileOptions | undefined | null = {}): SessionDbState {
+  const safeOptions = options || {};
   const stateDir = getMinskyStateDir();
-  const dbPath = options!?.dbPath || getDefaultJsonDbPath();
-  const baseDir = options!?.baseDir || stateDir;
+  const dbPath = safeOptions.dbPath || getDefaultJsonDbPath();
+  const baseDir = safeOptions.baseDir || stateDir;
 
   try {
     if (!existsSync(dbPath)) {
-      return { sessions: [], baseDir };
+      return {
+        sessions: [],
+        baseDir: baseDir
+      };
     }
 
     const data = readFileSync(dbPath, "utf8") as string;
     const sessions = JSON.parse(data);
 
-    return { sessions, baseDir };
+    return {
+      sessions: sessions,
+      baseDir: baseDir
+    };
   } catch (error) {
     log.error(`Error reading session database: ${getErrorMessage(error as any)}`);
-    return { sessions: [], baseDir };
+    return {
+      sessions: [],
+      baseDir: baseDir
+    };
   }
 }
 
@@ -46,10 +56,11 @@ export function readSessionDbFile(options: SessionDbFileOptions | undefined | nu
  */
 export async function writeSessionsToFile(
   sessions: SessionRecord[],
-  options?: SessionDbFileOptions | null
+  options: SessionDbFileOptions | undefined | null = {}
 ): Promise<void> {
+  const safeOptions = options || {};
   const stateDir = getMinskyStateDir();
-  const dbPath = options!?.dbPath || getDefaultJsonDbPath();
+  const dbPath = safeOptions.dbPath || getDefaultJsonDbPath();
 
   try {
     // Ensure directory exists

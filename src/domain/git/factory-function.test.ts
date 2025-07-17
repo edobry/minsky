@@ -36,4 +36,4 @@ describe("createGitService Factory Function", () => {
     const gitService = createGitService();
     expect(gitService).toBeDefined();
   });
-}); 
+});
