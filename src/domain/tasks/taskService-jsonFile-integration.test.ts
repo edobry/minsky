@@ -16,7 +16,7 @@ const cleanupManager = setupTestCleanup();
 
 describe("TaskService JsonFile Integration (Enhanced)", () => {
   let workspacePath: string;
-  let taskService: TaskService;
+  let taskServiceInstance: TaskService;
   let dbPath: string;
   let mockEnvironment: any;
 
@@ -56,7 +56,7 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       dbFilePath: dbPath,
     });
 
-    taskService = new TaskService({
+    taskServiceInstance = new TaskService({
       customBackends: [backend],
       backend: "json-file",
       workspacePath,
@@ -77,7 +77,7 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       mockEnvironment.mockFS.writeFile(specPath, specContent);
 
       // Create task
-      const task = await taskService.createTask(taskData.specPath);
+      const task = await taskServiceInstance.createTask(taskData.specPath);
 
       expect(task.id).toMatch(/^#\d+$/); // Should get assigned a sequential ID
       expect(task.id).not.toBe(taskData.id); // Should NOT preserve the test factory ID
@@ -85,11 +85,11 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       expect(task.status).toBe("TODO");
 
       // Verify task can be retrieved using the actual created task ID
-      const retrieved = await taskService.getTask(task.id);
+      const retrieved = await taskServiceInstance.getTask(task.id);
       expect(retrieved).toEqual(task);
 
       // Verify in task list
-      const allTasks = await taskService.listTasks();
+      const allTasks = await taskServiceInstance.listTasks();
       expect(allTasks.length).toBe(1);
       expect(allTasks[0]).toEqual(task);
     });
@@ -107,16 +107,16 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
         const specContent = `# Task ${taskData.id}: ${taskData.title}\n\n## Context\n\n${taskData.description}`;
         mockEnvironment.mockFS.writeFile(specPath, specContent);
 
-        await taskService.createTask(taskData.specPath);
+        await taskServiceInstance.createTask(taskData.specPath);
       }
 
       // Verify all tasks were created
-      const allTasks = await taskService.listTasks();
+      const allTasks = await taskServiceInstance.listTasks();
       expect(allTasks.length).toBe(3);
 
       // Verify each task can be retrieved individually
       for (const taskData of tasks) {
-        const retrieved = await taskService.getTask(taskData.id);
+        const retrieved = await taskServiceInstance.getTask(taskData.id);
         expect(retrieved).toBeDefined();
         expect(retrieved?.id).toBe(taskData.id);
       }
@@ -133,17 +133,17 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       const specContent = `# Task ${taskData.id}: ${taskData.title}\n\n## Context\n\n${taskData.description}`;
       mockEnvironment.mockFS.writeFile(specPath, specContent);
 
-      const task = await taskService.createTask(taskData.specPath);
+      const task = await taskServiceInstance.createTask(taskData.specPath);
       
       // Update status
-      await taskService.updateTaskStatus(taskData.id, "IN-PROGRESS");
+      await taskServiceInstance.updateTaskStatus(taskData.id, "IN-PROGRESS");
       
       // Verify status was updated
-      const status = await taskService.getTaskStatus(taskData.id);
+      const status = await taskServiceInstance.getTaskStatus(taskData.id);
       expect(status).toBe("IN-PROGRESS");
 
       // Verify task reflects the status change
-      const updated = await taskService.getTask(taskData.id);
+      const updated = await taskServiceInstance.getTask(taskData.id);
       expect(updated?.status).toBe("IN-PROGRESS");
     });
   });
@@ -152,14 +152,14 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
     test("should handle invalid task IDs gracefully", async () => {
       const invalidId = "#nonexistent-task";
       
-      const task = await taskService.getTask(invalidId);
+      const task = await taskServiceInstance.getTask(invalidId);
       expect(task).toBe(null);
 
-      const status = await taskService.getTaskStatus(invalidId);
+      const status = await taskServiceInstance.getTaskStatus(invalidId);
       expect(status).toBeUndefined();
 
       // Should throw when setting status on non-existent task
-      await expect(taskService.updateTaskStatus(invalidId, "DONE")).rejects.toThrow("not found");
+      await expect(taskServiceInstance.updateTaskStatus(invalidId, "DONE")).rejects.toThrow("not found");
     });
 
     test("should validate task status values", async () => {
@@ -173,10 +173,10 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       const specContent = `# Task ${taskData.id}: ${taskData.title}\n\n## Context\n\n${taskData.description}`;
       mockEnvironment.mockFS.writeFile(specPath, specContent);
       
-      await taskService.createTask(taskData.specPath);
+      await taskServiceInstance.createTask(taskData.specPath);
 
       // Should reject invalid status
-      await expect(taskService.updateTaskStatus(taskData.id, "INVALID")).rejects.toThrow(
+      await expect(taskServiceInstance.updateTaskStatus(taskData.id, "INVALID")).rejects.toThrow(
         "Status must be one of"
       );
     });
@@ -194,8 +194,8 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       const specContent = `# Task ${taskData.id}: ${taskData.title}\n\n## Context\n\n${taskData.description}`;
       mockEnvironment.mockFS.writeFile(specPath, specContent);
 
-      const createdTask = await taskService.createTask(taskData.specPath);
-      await taskService.updateTaskStatus(createdTask.id, "IN-PROGRESS");
+      const createdTask = await taskServiceInstance.createTask(taskData.specPath);
+      await taskServiceInstance.updateTaskStatus(createdTask.id, "IN-PROGRESS");
 
       // Create new service instance pointing to same database
       const newBackend = createJsonFileTaskBackend({
