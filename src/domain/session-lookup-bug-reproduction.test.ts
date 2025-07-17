@@ -42,9 +42,10 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       listSessions: createMock(async () => []),
       addSession: createMock(async () => undefined),
       deleteSession: createMock(async () => true),
-      getNewSessionRepoPath: createMock((repoName: string, sessionName: string) =>
-        join(tempDir, repoName, "sessions", sessionName)
-      ),
+      getNewSessionRepoPath: createMock((...args: any[]) => {
+        const [repoName, sessionName] = args;
+        return join(tempDir, repoName, "sessions", sessionName);
+      }),
     };
 
     mockTaskService = {
@@ -66,17 +67,23 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       // If git clone fails after mkdir but before session DB registration,
       // we get orphaned directories
 
-      mockGitService = {
-        clone: createMock().mockImplementation(async (options) => {
-          // Simulate GitService.clone behavior:
-          // 1. Creates session directory structure (this happens in real GitService.clone)
-          const sessionDir = join(tempDir, "local-minsky", "sessions", options.session);
-          await mkdir(sessionDir, { recursive: true });
+      const cloneMock = createMock();
+      cloneMock.mockImplementation(async (options: any) => {
+        // Simulate GitService.clone behavior:
+        // 1. Creates session directory structure (this happens in real GitService.clone)
+        const sessionDir = join(tempDir, "local-minsky", "sessions", options.session);
+        await mkdir(sessionDir, { recursive: true });
 
-          // 2. Then git clone fails
-          throw new Error("fatal: remote repository not found");
-        }),
-        branchWithoutSession: createMock().mockResolvedValue({ branch: "test-orphan-session" }),
+        // 2. Then git clone fails
+        throw new Error("fatal: remote repository not found");
+      });
+
+      const branchWithoutSessionMock = createMock();
+      branchWithoutSessionMock.mockImplementation(() => Promise.resolve({ branch: "test-orphan-session" }));
+
+      mockGitService = {
+        clone: cloneMock,
+        branchWithoutSession: branchWithoutSessionMock,
       };
 
       const params = {
@@ -125,16 +132,20 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       // Bug setup: Git clone succeeds, but branch creation fails
       // Session directory exists but session never gets added to DB
 
+      const cloneMock2 = createMock();
+      cloneMock2.mockImplementation(async (options: any) => {
+        // Clone succeeds and creates directory
+        const sessionDir = join(tempDir, "local-minsky", "sessions", options.session);
+        await mkdir(sessionDir, { recursive: true });
+        return { workdir: sessionDir, session: options.session };
+      });
+
+      const branchWithoutSessionMock2 = createMock();
+      branchWithoutSessionMock2.mockImplementation(() => Promise.reject(new Error("fatal: unable to create branch")));
+
       mockGitService = {
-        clone: createMock().mockImplementation(async (options) => {
-          // Clone succeeds and creates directory
-          const sessionDir = join(tempDir, "local-minsky", "sessions", options.session);
-          await mkdir(sessionDir, { recursive: true });
-          return { workdir: sessionDir, session: options.session };
-        }),
-        branchWithoutSession: createMock().mockRejectedValue(
-          new Error("fatal: unable to create branch")
-        ),
+        clone: cloneMock2,
+        branchWithoutSession: branchWithoutSessionMock2,
       };
 
       const params = {
@@ -182,8 +193,8 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       await mkdir(sessionDir, { recursive: true });
 
       // Database doesn't know about this session
-      mockSessionDB.getSession.mockResolvedValue(null);
-      mockSessionDB.listSessions.mockResolvedValue([]);
+      mockSessionDB.getSession.mockImplementation(() => Promise.resolve(null));
+      mockSessionDB.listSessions.mockImplementation(() => Promise.resolve([]));
 
       // Act: Try to list sessions
       const sessions = await listSessionsFromParams({}, { sessionDB: mockSessionDB });
@@ -203,8 +214,11 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
     it("should either succeed completely or fail cleanly with no orphaned directories", async () => {
       // This test documents the expected behavior after the fix
 
+      const cloneMock3 = createMock();
+      cloneMock3.mockImplementation(() => Promise.reject(new Error("git clone failed")));
+
       mockGitService = {
-        clone: createMock().mockRejectedValue(new Error("git clone failed")),
+        clone: cloneMock3,
         branchWithoutSession: createMock(),
       };
 
