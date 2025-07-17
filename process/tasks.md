@@ -500,7 +500,7 @@
 
 - [x] Fix systematic verification failures in AI responses [#281](process/tasks/281-fix-systematic-verification-failures-in-ai-responses.md)
 
-- [x] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)
+- [-] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)
 
 - [ ] Separate Task ID Storage from Display Format [#283](process/tasks/283-separate-task-id-storage-from-display-format.md)
 

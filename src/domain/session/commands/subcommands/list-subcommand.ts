@@ -4,7 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { listSessionsFromParams } from "../list-command";
-import { log } from "../../../../utils/logger";
+import { log } from "../../../../../../utils/logger";
 
 /**
  * Parameters for the session list command
