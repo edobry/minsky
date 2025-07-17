@@ -14,6 +14,7 @@ import {
   getErrorMessage,
 } from "../../errors/index";
 import { log } from "../../utils/logger";
+import { extractPrDescription } from "../session-update-operations";
 
 /**
  * Prepares a PR for a session based on parameters
@@ -104,30 +105,4 @@ async function checkPrBranchExists(
   }
 }
 
-/**
- * Extract PR description from existing PR branch
- */
-async function extractPrDescription(
-  sessionName: string,
-  gitService: any,
-  currentDir: string
-): Promise<{ title: string; body: string } | null> {
-  try {
-    const prBranchName = `pr/${sessionName}`;
-    
-    // Get the first commit message on the PR branch
-    const commitMessage = await gitService.execInRepository(
-      currentDir,
-      `git log --format=%B -n 1 ${prBranchName}`
-    );
-    
-    const lines = commitMessage.trim().split("\n");
-    const title = lines[0] || `PR for ${sessionName}`;
-    const body = lines.slice(1).join("\n").trim();
-    
-    return { title, body };
-  } catch (error) {
-    log.debug("Could not extract PR description", { error });
-    return null;
-  }
-} 
+ 
