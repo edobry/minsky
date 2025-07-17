@@ -26,6 +26,11 @@ describe("session dir command", () => {
     const correctSession = testData.mockSessions[1]; // task#160 session
     testData.mockSessionDB.getSessionByTaskId.mockReturnValue(Promise.resolve(correctSession));
     testData.mockSessionDB.getSession.mockReturnValue(Promise.resolve(correctSession));
+    
+    // Add the missing getRepoPath method to the mock
+    if (!testData.mockSessionDB.getRepoPath) {
+      testData.mockSessionDB.getRepoPath = createMock();
+    }
     testData.mockSessionDB.getRepoPath.mockReturnValue(Promise.resolve("/Users/edobry/.local/state/minsky/sessions/task#160"));
 
     // Act

@@ -55,7 +55,7 @@ export async function mergeFromParams(params: {
     }
   );
   
-  log("Merge operation completed", { 
+  log.info("Merge operation completed", { 
     sourceBranch: params.sourceBranch,
     targetBranch,
     repoPath,
