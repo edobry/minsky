@@ -59,7 +59,7 @@ async function displayConfigurationSources(resolved: any, sources: any[]) {
 
   await Bun.write(Bun.stdout, "\nResolved Configuration:\n");
   await Bun.write(Bun.stdout, `Backend: ${resolved.backend}\n`);
-
+  
   if (resolved.sessiondb) {
     await Bun.write(Bun.stdout, `SessionDB Backend: ${resolved.sessiondb.backend}\n`);
   }
