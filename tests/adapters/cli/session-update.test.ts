@@ -61,11 +61,11 @@ describe("session update command", () => {
       taskId: "#236",
     };
 
-    testData.mockSessionDB.getSession = async (name: string) =>
-      name === sessionName ? sessionRecord : null;
+    (testData.mockSessionDB.getSession as any).mockImplementation(async (name: string) =>
+      name === sessionName ? sessionRecord : null);
 
     // Mock getSessionWorkdir to return a valid path
-    testData.mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
+    (testData.mockSessionDB.getSessionWorkdir as any).mockImplementation(async (sessionName: string) => sessionPath);
 
     // Create the session directory
     await mkdir(sessionPath, { recursive: true });
