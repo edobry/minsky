@@ -115,7 +115,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     const env: Record<string, string | undefined> = {
       ...process.env,
       CLIENT_PORT: port.toString(),
-      SERVER_PORT: "3000", // Standard MCP Inspector proxy server port
+      SERVER_PORT: "6277", // Inspector's internal proxy server port (default for 0.16.1)
     };
 
     // Configure auto-open based on openBrowser option
@@ -166,7 +166,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     });
 
     inspectorProcess.stderr.on("data", (data) => {
-      log.error(`MCP Inspector stderr: ${data.toString()}`);
+      log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);
     });
 
     inspectorProcess.on("exit", (code, signal) => {
