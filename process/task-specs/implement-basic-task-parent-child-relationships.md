@@ -17,12 +17,35 @@ Implement the minimal viable parent-child relationship system that allows:
 
 **Immediate Need**: Task decomposition for test-driven development and complex feature breakdown
 **Future Foundation**: Extensible relationship model for dependencies and other relationship types later
+**NEW: Monitorability Foundation**: Task graph structure that supports Chain-of-Thought monitoring of AI task execution
 
 ## Dependencies
 
 **Task #235**: This task builds on the research and architectural analysis from Task #235 "Add metadata support to tasks (subtasks, priority, dependencies)". Task #235 provides the foundational research on task metadata systems and backend capabilities that inform the implementation approach for this parent-child relationship system.
 
 **⚠️ CRITICAL SEQUENCING**: This task MUST NOT begin implementation until Task #235 has completed its architectural decision and provided implementation guidelines. The implementation approach described below may need to be revised based on #235's architectural recommendations.
+
+## Chain-of-Thought Monitoring Considerations
+
+### Monitorable Task Graph Design
+
+**Execution Transparency Requirements:**
+- Task hierarchy must support real-time monitoring of AI execution at each node
+- Parent-child relationships must enable "Chain-of-Execution" visibility
+- Task state changes must be observable and interventions must be possible
+- Task graph structure must support subgraph preemption and restart capabilities
+
+**Intervention Points:**
+- Each parent-child relationship represents a potential intervention boundary
+- Task execution can be interrupted at any node in the hierarchy
+- Subgraph termination and regeneration must be supported
+- Human oversight can redirect execution at any level of the hierarchy
+
+**Metadata for Monitoring:**
+- Task relationships must store execution context and reasoning traces
+- Parent-child links must support intervention history and decision rationale
+- Task hierarchy must enable rollback to any previous state
+- Execution monitoring metadata must be preserved across task modifications
 
 ## Simplified Solution
 
@@ -176,11 +199,20 @@ tasks.command("tree <task-id>").action(async (taskId) => {
 - [ ] Parent/child relationships are correctly displayed
 - [ ] Root tasks (no parent) are properly identified
 
+### Chain-of-Thought Monitoring Support
+
+- [ ] **NEW: Task hierarchy supports real-time execution monitoring**
+- [ ] **NEW: Parent-child relationships enable intervention at any level**
+- [ ] **NEW: Task graph structure supports subgraph preemption**
+- [ ] **NEW: Execution context and reasoning traces are preservable**
+- [ ] **NEW: Task relationships support rollback and restart capabilities**
+
 ### Data Integrity
 
 - [ ] Relationship constraints prevent orphaned references
 - [ ] Deleting parent tasks handles child tasks appropriately
 - [ ] Database migrations work correctly
+- [ ] **NEW: Intervention history and monitoring metadata is preserved**
 
 ## Future Extensibility
 
@@ -190,8 +222,11 @@ This simple parent-child system provides the foundation for:
 - **Dependencies** - Add BLOCKS/DEPENDS_ON relationship types
 - **Status propagation** - Parent status based on children
 - **Other relationship types** - RELATES_TO, DUPLICATE, etc.
+- **NEW: Chain-of-Thought monitoring** - Real-time observation and intervention in task execution
+- **NEW: Subgraph preemption** - Terminate and restart entire branches of task execution
+- **NEW: Multi-agent supervision** - AI agents monitoring and intervening in other AI agents' task execution
 
-The unified relationship model allows extending without refactoring the core system.
+The unified relationship model allows extending without refactoring the core system, while maintaining **full monitorability** for safety and control.
 
 ## Migration Strategy
 

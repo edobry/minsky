@@ -15,15 +15,15 @@ import {
   type CommandExecutionContext,
 } from "../../shared/command-registry";
 import {
-  getSessionFromParams,
-  listSessionsFromParams,
-  startSessionFromParams,
-  deleteSessionFromParams,
-  getSessionDirFromParams,
-  updateSessionFromParams,
-  approveSessionFromParams,
-  sessionPrFromParams,
-  inspectSessionFromParams,
+  sessionGet,
+  sessionList,
+  sessionStart,
+  sessionDelete,
+  sessionDir,
+  sessionUpdate,
+  sessionApprove,
+  sessionPr,
+  sessionInspect,
 } from "../../../domain/session";
 import { log } from "../../../utils/logger";
 import { MinskyError } from "../../../errors/index";
@@ -62,7 +62,7 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.list command", { params, context });
 
       try {
-        const sessions = await listSessionsFromParams({
+        const sessions = await sessionList({
           repo: params!.repo,
           json: params!.json,
         });
@@ -91,7 +91,7 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.get command", { params, context });
 
       try {
-        const session = await getSessionFromParams({
+        const session = await sessionGet({
           name: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -141,7 +141,7 @@ Examples:
       }
 
       try {
-        const session = await startSessionFromParams({
+        const session = await sessionStart({
           name: params!.name,
           task: params!.task,
           description: params!.description,
@@ -181,7 +181,7 @@ Examples:
       log.debug("Executing session.dir command", { params, context });
 
       try {
-        const directory = await getSessionDirFromParams({
+        const directory = await sessionDir({
           name: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -214,7 +214,7 @@ Examples:
       log.debug("Executing session.delete command", { params, context });
 
       try {
-        const deleted = await deleteSessionFromParams({
+        const deleted = await sessionDelete({
           name: params!.name,
           task: params!.task,
           force: params!.force,
@@ -247,7 +247,7 @@ Examples:
       log.debug("Executing session.update command", { params, context });
 
       try {
-        await updateSessionFromParams({
+        await sessionUpdate({
           name: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -287,7 +287,7 @@ Examples:
       log.debug("Executing session.approve command", { params, context });
 
       try {
-        const result = (await approveSessionFromParams({
+        const result = (await sessionApprove({
           session: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -384,7 +384,7 @@ Example:
       }
 
       try {
-        const result = (await sessionPrFromParams({
+        const result = (await sessionPr({
           title: params!.title,
           body: params!.body,
           bodyPath: params!.bodyPath,
@@ -502,7 +502,7 @@ Need help? Run the command with --debug for detailed error information.`
       log.debug("Executing session.inspect command", { params, context });
 
       try {
-        const session = await inspectSessionFromParams({
+        const session = await sessionInspect({
           json: params!.json,
         });
 

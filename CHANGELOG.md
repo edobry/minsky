@@ -5,7 +5,7 @@ All notable changes to the Minsky project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> **Note:** This changelog references SpecStory conversation histories. See [.specstory/.what-is-this.md](mdc:.specstory/.what-is-this.md) for details on the SpecStory artifact system.
+
 
 ## [Unreleased]
 
@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Supports PR stacks and cascading approvals
   - Includes phased implementation plan with testing strategy
   - Maintains backward compatibility with existing workflows
+
+### Fixed
+
+- **Task Creation System**: Fixed bug where createTaskFromTitleAndDescription stored temporary file paths instead of proper task spec paths
+  - Tasks created via `minsky tasks create` now correctly store relative paths (e.g., `process/tasks/285-title.md`) instead of temporary OS paths (e.g., `/var/folders/...`)
+  - Updated markdownTaskBackend.ts to properly move temporary files to standardized locations
+  - Added test coverage with both unit and integration tests following test-driven bugfix approach
+  - Resolves issue where Task #285 and similar tasks had incorrect file paths in tasks.md
+- **Module Resolution Errors**: Implemented directory-structure-aware import path fixing
+  - Created comprehensive test suite using actual directory structure analysis
+  - Built directory-aware codemod using path.relative() instead of pattern matching
+  - Achieved 100% success rate with 138 import fixes across 70 files (vs 85% with pattern-based)
+  - Fixed module resolution errors by correcting import paths based on actual filesystem structure
+  - Resolved export/import naming mismatches in session command modules
+  - Command `minsky tasks status set 116` now works correctly without module resolution errors
+  - Updated codemod-development-standards.mdc with key learnings about structure-aware transformations
 
 ### Changed
 
@@ -277,8 +293,6 @@ _See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specst
   - Zero breaking changes for development workflow with improved performance
 
 _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
-
-### Fixed
 
 - **Task #255: Fix Session Dependency Installation Error**
   - Fixed critical bug where session startup would fail with "null is not an object" error during dependency installation
@@ -1182,3 +1196,8 @@ _See: SpecStory history [2025-01-16_fix-session-get-output](mdc:.specstory/histo
 - Removed redundant bun-test.d.ts (now using bun-types package)
 
 _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/history/2025-06-18_18-00-continue-linter-fixes.md) for linter cleanup progress._
+
+### Fixed
+- Fixed inconsistent task ID format display in session list output
+- Normalized task#244 from displaying `(task: 244)` to `(task: #244)` for consistency
+- Added script `scripts/normalize-session-task-ids.ts` for future task ID format normalization

@@ -28,6 +28,7 @@ import { ConflictDetectionService } from "./git/conflict-detection";
 import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
 import { execAsync } from "../utils/exec";
+import { extractPrDescription } from "./session/session-update-operations";
 import {
   type WorkspaceUtilsInterface,
   getCurrentSession,
@@ -1065,69 +1066,7 @@ export async function updatePrStateOnMerge(
   });
 }
 
-/**
- * Helper function to extract title and body from existing PR branch
- */
-async function extractPrDescription(
-  sessionName: string,
-  gitService: GitServiceInterface,
-  currentDir: string
-): Promise<{ title: string; body: string } | null> {
-  const prBranch = `pr/${sessionName}`;
 
-  try {
-    // Try to get from remote first
-    const remoteBranchOutput = await gitService.execInRepository(
-      currentDir,
-      `git ls-remote --heads origin ${prBranch}`
-    );
-    const remoteBranchExists = remoteBranchOutput.trim().length > 0;
-
-    let commitMessage = "";
-
-    if (remoteBranchExists) {
-      // Fetch the PR branch to ensure we have latest
-      await gitService.execInRepository(currentDir, `git fetch origin ${prBranch}`);
-
-      // Get the commit message from the remote branch's last commit
-      commitMessage = await gitService.execInRepository(
-        currentDir,
-        `git log -1 --pretty=format:%B origin/${prBranch}`
-      );
-    } else {
-      // Check if branch exists locally
-      const localBranchOutput = await gitService.execInRepository(
-        currentDir,
-        `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
-      );
-      const localBranchExists = localBranchOutput.trim() !== "not-exists";
-
-      if (localBranchExists) {
-        // Get the commit message from the local branch's last commit
-        commitMessage = await gitService.execInRepository(
-          currentDir,
-          `git log -1 --pretty=format:%B ${prBranch}`
-        );
-      } else {
-        return null;
-      }
-    }
-
-    // Parse the commit message to extract title and body
-    const lines = commitMessage.trim().split("\n");
-    const title = lines[0] || "";
-    const body = lines.slice(1).join("\n").trim();
-
-    return { title, body };
-  } catch (error) {
-    log.debug("Error extracting PR description", {
-      error: getErrorMessage(error),
-      prBranch,
-      sessionName,
-    });
-    return null;
-  }
-}
 
 /**
  * Interface-agnostic function for creating a PR for a session
@@ -1483,7 +1422,29 @@ export async function approveSessionFromParams(
     const session = await sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
       throw new ResourceNotFoundError(
-        `No session found for task ${taskIdToUse}`,
+        `🚫 No Session Found for Task ${taskIdToUse}
+
+Task ${taskIdToUse} exists but has no associated session to approve.
+
+💡 Here's what you can do:
+
+1️⃣ Check if the task has a session:
+   minsky session list
+
+2️⃣ Start a session for this task:
+   minsky session start --task ${taskIdToUse}
+
+3️⃣ Or approve a different task that has a session:
+   minsky session list | grep "task:"
+   minsky session approve --task <task-id-with-session>
+
+📋 Current available sessions:
+   Run 'minsky session list' to see which tasks have active sessions.
+
+❓ Need help?
+   • Use 'minsky session start --task ${taskIdToUse}' to create a session
+   • Use 'minsky tasks list' to see all available tasks
+   • Use 'minsky session get --task <id>' to check session details`,
         "task",
         taskIdToUse
       );
@@ -1764,8 +1725,8 @@ export async function approveSessionFromParams(
               // Stage the tasks.md file (or any other changed files from task status update)
               await deps.gitService.execInRepository(workingDirectory, "git add process/tasks.md");
 
-              // Commit the task status update
-              await deps.gitService.execInRepository(workingDirectory, `git commit -m "Update task ${taskId} status to DONE"`);
+              // Commit the task status update with conventional commits format
+              await deps.gitService.execInRepository(workingDirectory, `git commit -m "chore(${taskId}): update task status to DONE"`);
 
               // Push the commit
               await deps.gitService.execInRepository(workingDirectory, "git push");
@@ -2159,3 +2120,14 @@ export { SessionDbAdapter } from "./session/session-db-adapter";
 // Export SessionDB as function for backward compatibility with existing imports
 // This replaces the old class-based compatibility layer with a cleaner function-based approach
 export const SessionDB = createSessionProvider;
+
+// Re-export session command functions with shorter names for adapters
+export { listSessionsFromParams as sessionList };
+export { getSessionFromParams as sessionGet };
+export { startSessionFromParams as sessionStart };
+export { deleteSessionFromParams as sessionDelete };
+export { getSessionDirFromParams as sessionDir };
+export { updateSessionFromParams as sessionUpdate };
+export { approveSessionFromParams as sessionApprove };
+export { sessionPrFromParams as sessionPr };
+export { inspectSessionFromParams as sessionInspect };

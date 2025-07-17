@@ -1,8 +1,60 @@
-import { FastMCP } from "fastmcp";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
 import { getErrorMessage } from "../errors/index";
+
+/**
+ * Tool definition interface for registering tools with the MCP server
+ */
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: any; // JSON Schema
+  handler: (args: any) => Promise<string | Record<string, any>>;
+}
+
+/**
+ * Resource definition interface for registering resources with the MCP server
+ */
+export interface ResourceDefinition {
+  uri: string;
+  name: string;
+  description: string;
+  mimeType: string;
+  handler: () => Promise<{ text?: string; blob?: string }>;
+}
+
+/**
+ * Prompt definition interface for registering prompts with the MCP server
+ */
+export interface PromptDefinition {
+  name: string;
+  description: string;
+  arguments?: Array<{
+    name: string;
+    description: string;
+    required?: boolean;
+  }>;
+  handler: (args: Record<string, string>) => Promise<{
+    messages: Array<{
+      role: "user" | "assistant";
+      content: {
+        type: "text";
+        text: string;
+      };
+    }>;
+  }>;
+}
 
 /**
  * Configuration options for the Minsky MCP server
@@ -16,15 +68,9 @@ export interface MinskyMCPServerOptions {
 
   /**
    * The version of the server
-   * @default "current version of Minsky"
+   * @default "1.0.0"
    */
   version?: string;
-
-  /**
-   * Transport type to use for the server
-   * @default "stdio"
-   */
-  transportType?: "stdio" | "sse" | "httpStream";
 
   /**
    * Project context containing repository information
@@ -32,62 +78,20 @@ export interface MinskyMCPServerOptions {
    * @default Context created from process.cwd()
    */
   projectContext?: ProjectContext;
-
-  /**
-   * SSE configuration options
-   */
-  sse?: {
-    /**
-     * Endpoint for SSE
-     * @default "/sse"
-     */
-    endpoint?: string;
-
-    /**
-     * Port for SSE server
-     * @default 8080
-     */
-    port?: number;
-
-    /**
-     * Host to bind to
-     * @default "localhost"
-     */
-    host?: string;
-
-    /**
-     * Path for SSE endpoint
-     * @default "/sse"
-     */
-    path?: string;
-  };
-
-  /**
-   * HTTP Stream configuration options
-   */
-  httpStream?: {
-    /**
-     * Endpoint for HTTP Stream
-     * @default "/mcp"
-     */
-    endpoint?: string;
-
-    /**
-     * Port for HTTP Stream server
-     * @default 8080
-     */
-    port?: number;
-  };
 }
 
 /**
  * MinskyMCPServer is the main class for the Minsky MCP server
- * It handles the MCP protocol communication and tool registration
+ * It handles the MCP protocol communication and tool registration using the official SDK
  */
 export class MinskyMCPServer {
-  private server: FastMCP;
+  private server: Server;
+  private transport: StdioServerTransport;
   private options: MinskyMCPServerOptions;
   private projectContext: ProjectContext;
+  private tools: Map<string, ToolDefinition> = new Map();
+  private resources: Map<string, ResourceDefinition> = new Map();
+  private prompts: Map<string, PromptDefinition> = new Map();
 
   /**
    * Create a new MinskyMCPServer
@@ -113,65 +117,52 @@ export class MinskyMCPServer {
 
     this.options = {
       name: options.name || "Minsky MCP Server",
-      version: options.version || "1.0.0", // Should be dynamically pulled from package.json
-      /* TODO: Verify if transportType is valid property */ transportType: options.transportType || "stdio",
+      version: options.version || "1.0.0",
       projectContext: this.projectContext,
-      sse: {
-        /* TODO: Verify if endpoint is valid property */ endpoint: options.sse?.endpoint || "/sse",
-        port: options.sse?.port || 8080,
-        host: options.sse?.host || "localhost",
-        path: options.sse?.path || "/sse",
-      },
-      /* TODO: Verify if httpStream is valid property */ httpStream: {
-        endpoint: options.httpStream?.endpoint || "/mcp",
-        port: options.httpStream?.port || 8080,
-      },
     };
 
-    // Ensure name and version are not undefined for FastMCP
-    const serverName = this.options.name || "Minsky MCP Server";
-    // Use a valid semver format for the version string
-    const serverVersion = "1.0.0"; // Hard-coded to meet FastMCP's version type requirement
-
-    this.server = new FastMCP({
-      name: serverName,
-      version: serverVersion,
-      ping: {
-        // Enable pings for network transports, disable for stdio
-        enabled: this.options.transportType !== "stdio",
-        intervalMs: 5000,
+    // Create the official MCP server
+    this.server = new Server(
+      {
+        name: this.options.name!,
+        version: this.options.version!,
       },
-      // Instructions for LLMs on how to use the Minsky MCP server
-      instructions:
-        "This server provides access to Minsky, a tool for managing AI-assisted development workflows.\n" +
-        "You can use these tools to:\n" +
-        "- Manage tasks and track their status\n" +
-        "- Create and manage development sessions\n" +
-        "- Perform git operations like commit, push, and PR creation\n" +
-        "- Initialize new projects with Minsky\n" +
-        "- Access and apply project rules\n\n" +
-        "All tools return structured JSON responses for easy processing.",
-    });
+      {
+        capabilities: {
+          tools: {},
+          resources: {},
+          prompts: {},
+          logging: {},
+        },
+        instructions:
+          "This server provides access to Minsky, a tool for managing AI-assisted development workflows.\n" +
+          "You can use these tools to:\n" +
+          "- Manage tasks and track their status\n" +
+          "- Create and manage development sessions\n" +
+          "- Perform git operations like commit, push, and PR creation\n" +
+          "- Initialize new projects with Minsky\n" +
+          "- Access and apply project rules\n\n" +
+          "All tools return structured JSON responses for easy processing.",
+      }
+    );
 
-    // Listen for client connections
-    this.server.on("connect", () => {
-      log.agent("Client connected to Minsky MCP Server");
-    });
+    // Create stdio transport
+    this.transport = new StdioServerTransport();
 
-    // Listen for client disconnections
-    this.server.on("disconnect", () => {
-      log.agent("Client disconnected from Minsky MCP Server");
-    });
+    // Set up request handlers
+    this.setupRequestHandlers();
 
-    // Add basic resources support to prevent "Method not found" errors
-    this.server.addResource({
+    // Set up event handlers
+    this.setupEventHandlers();
+
+    // Add default help resource
+    this.addResource({
       uri: "minsky://help",
       name: "Minsky Help",
       description: "Basic help information for using Minsky MCP server",
       mimeType: "text/plain",
-      load: async () => {
-        return {
-          text: `Minsky MCP Server Help
+      handler: async () => ({
+        text: `Minsky MCP Server Help
 
 Available tools:
 - Use 'tasks.*' commands to manage tasks
@@ -182,102 +173,259 @@ Available tools:
 
 For more information, visit: https://github.com/your-org/minsky
 `,
-          mimeType: "text/plain"
-        };
-      }
+      }),
     });
 
-    // Add basic prompts support to prevent "Method not found" errors
-    this.server.addPrompt({
+    // Add default help prompt
+    this.addPrompt({
       name: "minsky_help",
       description: "Get help with using Minsky MCP server",
       arguments: [],
-      load: async () => {
-        return {
-          messages: [{
+      handler: async () => ({
+        messages: [
+          {
             role: "user" as const,
             content: {
               type: "text" as const,
-              text: "How can I use the Minsky MCP server to manage my AI-assisted development workflow?"
-            }
-          }]
+              text: "How can I use the Minsky MCP server to manage my AI-assisted development workflow?",
+            },
+          },
+        ],
+      }),
+    });
+  }
+
+  /**
+   * Set up MCP protocol request handlers
+   */
+  private setupRequestHandlers(): void {
+    // Tools handlers
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      const tools = Array.from(this.tools.values()).map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      }));
+
+      log.debug("Listing tools", { toolCount: tools.length });
+      return { tools };
+    });
+
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      
+      log.debug("Calling tool", { name, args });
+
+      const tool = this.tools.get(name);
+      if (!tool) {
+        throw new Error(`Unknown tool: ${name}`);
+      }
+
+      try {
+        const result = await tool.handler(args || {});
+        
+        // Ensure result is returned in proper format
+        if (typeof result === "string") {
+          return {
+            content: [
+              {
+                type: "text",
+                text: result,
+              },
+            ],
+          };
+        } else {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        }
+      } catch (error) {
+        const errorMessage = getErrorMessage(error as any);
+        log.error("Tool execution failed", { name, error: errorMessage });
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error executing tool '${name}': ${errorMessage}`,
+            },
+          ],
+          isError: true,
         };
       }
     });
 
-    // We'll add the debug tool later through the CommandMapper to ensure it gets properly registered
+    // Resources handlers
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      const resources = Array.from(this.resources.values()).map((resource) => ({
+        uri: resource.uri,
+        name: resource.name,
+        description: resource.description,
+        mimeType: resource.mimeType,
+      }));
+
+      log.debug("Listing resources", { resourceCount: resources.length });
+      return { resources };
+    });
+
+    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const { uri } = request.params;
+      
+      log.debug("Reading resource", { uri });
+
+      const resource = this.resources.get(uri);
+      if (!resource) {
+        throw new Error(`Unknown resource: ${uri}`);
+      }
+
+      try {
+        const result = await resource.handler();
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: resource.mimeType,
+              ...result,
+            },
+          ],
+        };
+      } catch (error) {
+        const errorMessage = getErrorMessage(error as any);
+        log.error("Resource read failed", { uri, error: errorMessage });
+        throw new Error(`Failed to read resource '${uri}': ${errorMessage}`);
+      }
+    });
+
+    // Prompts handlers
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+      const prompts = Array.from(this.prompts.values()).map((prompt) => ({
+        name: prompt.name,
+        description: prompt.description,
+        arguments: prompt.arguments || [],
+      }));
+
+      log.debug("Listing prompts", { promptCount: prompts.length });
+      return { prompts };
+    });
+
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      
+      log.debug("Getting prompt", { name, args });
+
+      const prompt = this.prompts.get(name);
+      if (!prompt) {
+        throw new Error(`Unknown prompt: ${name}`);
+      }
+
+      try {
+        const result = await prompt.handler(args || {});
+        return result;
+      } catch (error) {
+        const errorMessage = getErrorMessage(error as any);
+        log.error("Prompt execution failed", { name, error: errorMessage });
+        throw new Error(`Failed to execute prompt '${name}': ${errorMessage}`);
+      }
+    });
   }
 
   /**
-   * Start the server with the configured transport type
+   * Set up event handlers for the server
+   */
+  private setupEventHandlers(): void {
+    this.server.onclose = () => {
+      log.agent("MCP Server connection closed");
+    };
+
+    this.server.onerror = (error) => {
+      log.error("MCP Server error", { error: getErrorMessage(error) });
+    };
+
+    this.server.oninitialized = () => {
+      log.agent("MCP Server initialized");
+    };
+  }
+
+  /**
+   * Add a tool to the server
+   * @param tool Tool definition with name, description, schema, and handler
+   */
+  addTool(tool: ToolDefinition): void {
+    log.debug("Registering MCP tool", {
+      name: tool.name,
+      description: tool.description,
+      hasInputSchema: !!tool.inputSchema,
+    });
+
+    this.tools.set(tool.name, tool);
+  }
+
+  /**
+   * Add a resource to the server
+   * @param resource Resource definition with URI, name, description, and handler
+   */
+  addResource(resource: ResourceDefinition): void {
+    log.debug("Registering MCP resource", {
+      uri: resource.uri,
+      name: resource.name,
+      description: resource.description,
+      mimeType: resource.mimeType,
+    });
+
+    this.resources.set(resource.uri, resource);
+  }
+
+  /**
+   * Add a prompt to the server
+   * @param prompt Prompt definition with name, description, and handler
+   */
+  addPrompt(prompt: PromptDefinition): void {
+    log.debug("Registering MCP prompt", {
+      name: prompt.name,
+      description: prompt.description,
+      argumentCount: prompt.arguments?.length || 0,
+    });
+
+    this.prompts.set(prompt.name, prompt);
+  }
+
+  /**
+   * Start the server with stdio transport
    */
   async start(): Promise<void> {
     try {
-      if (!this.options.transportType) {
-        this.options.transportType = "stdio";
-      }
-
-      if (this.options.transportType === "stdio") {
-        await this.server.start({ transportType: "stdio" });
-      } else if (this.options.transportType === "sse" && this.options.sse) {
-        // FastMCP 3.5.0 doesn't support SSE, fall back to httpStream
-        await this.server.start({
-          transportType: "httpStream",
-          httpStream: {
-            endpoint: "/sse", // Keep original endpoint for compatibility
-            port: this.options.sse.port || 8080,
-          },
-        });
-      } else if (this.options.transportType === "httpStream" && this.options.httpStream) {
-        await this.server.start({
-          transportType: "httpStream",
-          httpStream: {
-            endpoint: "/mcp", // Updated endpoint to /mcp
-            port: this.options.httpStream.port || 8080,
-          },
-        });
-      } else {
-        // Default to stdio if transport type is invalid
-        await this.server.start({ transportType: "stdio" });
-      }
-
-      // Log server started message with structured information for monitoring
-      log.agent("Minsky MCP Server started");
-
-      // Debug log of registered methods
-      try {
-        // Get the tool names
-        const methods = [];
-        // @ts-ignore - Accessing a private property for debugging
-        if ((this.server as any)._tools) {
-          // @ts-ignore
-          methods.push(...Object.keys((this.server as any)._tools));
-        }
-        log.debug("MCP Server registered methods", {
-          methodCount: methods.length,
-          methods,
-        });
-      } catch (e) {
-        log.debug("Could not log MCP server methods", {
-          error: getErrorMessage(e),
-        });
-      }
+      await this.server.connect(this.transport);
+      
+      log.agent("Minsky MCP Server started with stdio transport");
+      
+      // Debug log of registered items
+      log.debug("MCP Server registered items", {
+        toolCount: this.tools.size,
+        resourceCount: this.resources.size,
+        promptCount: this.prompts.size,
+        tools: Array.from(this.tools.keys()),
+        resources: Array.from(this.resources.keys()),
+        prompts: Array.from(this.prompts.keys()),
+      });
     } catch (error) {
-      // Log error with full details (for structured logging/debugging)
       log.error("Failed to start Minsky MCP Server", {
         error: getErrorMessage(error as any),
-        stack: error instanceof Error ? (error as any).stack as any : undefined as any
+        stack: error instanceof Error ? (error as any).stack : undefined,
       });
 
-      // Always rethrow the error - the caller is responsible for user-friendly handling
       throw error;
     }
   }
 
   /**
-   * Get access to the underlying FastMCP server instance
+   * Get access to the underlying MCP server instance
    */
-  getFastMCPServer(): FastMCP {
+  getServer(): Server {
     return this.server;
   }
 
@@ -290,15 +438,26 @@ For more information, visit: https://github.com/your-org/minsky
   }
 
   /**
-   * Initialize MCP Inspector compatibility patches
-   * This is a workaround for MCP Inspector expecting non-standard schema metadata
+   * Get the registered tools
+   * @returns Map of tool names to tool definitions
    */
-  private async initializeInspectorCompatibility() {
-    // Note: The MCP Inspector expects `~standard.vendor` metadata that is not part
-    // of the official MCP specification. This appears to be a compatibility issue
-    // between FastMCP and the Inspector that needs to be addressed upstream.
+  getTools(): Map<string, ToolDefinition> {
+    return new Map(this.tools);
+  }
 
-    // For now, we log this issue and continue without the metadata
-    log.debug("MCP Inspector compatibility note: Inspector may expect non-standard ~standard.vendor metadata");
+  /**
+   * Get the registered resources
+   * @returns Map of resource URIs to resource definitions
+   */
+  getResources(): Map<string, ResourceDefinition> {
+    return new Map(this.resources);
+  }
+
+  /**
+   * Get the registered prompts
+   * @returns Map of prompt names to prompt definitions
+   */
+  getPrompts(): Map<string, PromptDefinition> {
+    return new Map(this.prompts);
   }
 }

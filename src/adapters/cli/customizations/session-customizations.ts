@@ -152,6 +152,55 @@ export function getSessionCustomizations(): { category: CommandCategory; options
               description: "Task ID associated with the session",
             },
           },
+          outputFormatter: (result: any) => {
+            // Check if JSON output was requested
+            if ((result as any).json) {
+              log.cli(JSON.stringify(result as any, null, 2));
+              return;
+            }
+
+            // Format the session approval result
+            if ((result as any).success) {
+              const data = (result as any).result;
+
+              if (data && data.isNewlyApproved) {
+                log.cli("✅ Session approved and merged successfully!");
+              } else if (data) {
+                log.cli("ℹ️  Session was already approved and merged");
+              } else {
+                log.cli("⚠️  Session approval completed but result structure unexpected");
+                log.cli(JSON.stringify(result as any, null, 2));
+                return;
+              }
+
+              if (data) {
+                log.cli("");
+                log.cli("📝 Session Details:");
+                log.cli(`   Session: ${data.session}`);
+                if (data.taskId) {
+                  log.cli(`   Task: ${data.taskId} (status updated to DONE)`);
+                }
+                log.cli(`   Merged by: ${data.mergedBy}`);
+                log.cli(`   Merge date: ${new Date(data.mergeDate).toLocaleString()}`);
+
+                log.cli("");
+                log.cli("🔧 Technical Details:");
+                log.cli(`   Base branch: ${data.baseBranch}`);
+                log.cli(`   PR branch: ${data.prBranch}`);
+                log.cli(`   Commit hash: ${data.commitHash.substring(0, 8)}`);
+
+                log.cli("");
+                if (data.isNewlyApproved) {
+                  log.cli("🎉 Your work has been successfully merged and the session is complete!");
+                } else {
+                  log.cli("✅ Session is already complete - no action needed!");
+                }
+              }
+            } else {
+              // Fallback to JSON output if result structure is unexpected
+              log.cli(JSON.stringify(result as any, null, 2));
+            }
+          },
         },
         "session.pr": {
           useFirstRequiredParamAsArgument: false,
@@ -200,4 +249,4 @@ export function getSessionCustomizations(): { category: CommandCategory; options
       },
     },
   };
-} 
+}

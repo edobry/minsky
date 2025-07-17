@@ -16,7 +16,7 @@ import {
  * Using proper dependency injection for better testability
  * Now includes auto-detection capabilities via unified session context resolver
  */
-export async function getSessionFromParams(
+export async function sessionGet(
   params: SessionGetParams,
   depsInput?: {
     sessionDB?: SessionProviderInterface;

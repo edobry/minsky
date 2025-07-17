@@ -43,6 +43,7 @@ Research and design the architectural foundation for task metadata systems inclu
   - **Workflow**: assignees, reviewers, status transitions
   - **Contextual**: descriptions, attachments, comments, links
   - **Provenance**: original user requirements, prompt evolution history, user intent preservation
+  - **NEW: Chain-of-Thought Monitoring**: execution traces, reasoning chains, intervention history, monitoring metadata
 
 #### 1.2 Backend Capabilities Analysis
 
@@ -53,6 +54,58 @@ Research and design the architectural foundation for task metadata systems inclu
   - **Future backends**: Linear, Jira, Notion, etc.
 - [ ] Document capability matrix showing what each backend supports natively
 - [ ] Identify capability gaps and overlaps
+- [ ] **NEW: Analyze CoT monitoring metadata storage requirements across backends**
+
+## Chain-of-Thought Monitoring Metadata Requirements
+
+### 2.7 CoT Monitoring Architecture Integration
+
+- [ ] **Monitoring Metadata Design**: Research metadata requirements for Chain-of-Thought monitoring:
+  - **Execution Traces**: AI reasoning chains during task execution
+  - **Intervention History**: Record of all interventions, their reasoning, and outcomes
+  - **Pattern Detection Metadata**: Classification of task execution patterns and problems
+  - **Monitoring Context**: State information needed for monitoring continuity
+  - **Safety Metadata**: Compliance tracking, rule violation history, safety assessments
+
+- [ ] **Real-time Monitoring Storage**: Analyze storage requirements for active monitoring:
+  - **Stream Processing State**: Current monitoring context and execution state
+  - **Intervention Points**: Metadata about potential and actual intervention locations
+  - **Reasoning Preservation**: How to store and retrieve AI reasoning chains across interruptions
+  - **Rollback Metadata**: Information needed to restore previous task execution states
+
+- [ ] **CoT Monitoring Integration with Task Hierarchy**: Design how monitoring metadata works with task relationships:
+  - **Multi-level Monitoring**: Metadata for strategic, tactical, and execution level monitoring
+  - **Subgraph Preemption Data**: Metadata needed to terminate and restart task branches
+  - **Cross-Task Monitoring**: How monitoring metadata spans parent-child relationships
+  - **Aggregated Monitoring Views**: Rollup of monitoring data across task hierarchies
+
+### 2.8 Monitoring Backend Integration Strategy
+
+- [ ] **CoT Metadata Storage Strategy**: Determine where monitoring metadata should be stored:
+  - **Database-Only**: Complex monitoring data unsuitable for backend storage
+  - **Backend Integration**: Simple monitoring status that can sync to issue labels/tags
+  - **Hybrid Monitoring**: Monitoring summaries in backends, detailed data in database
+  - **Real-time vs Historical**: Separation of active monitoring state vs archived history
+
+- [ ] **Monitoring Workflow Preservation**: Ensure CoT monitoring doesn't disrupt existing workflows:
+  - **Transparent Monitoring**: Monitoring occurs without backend workflow changes
+  - **Optional Visibility**: Users can choose to see monitoring metadata in backend interfaces
+  - **Backend-Appropriate Display**: Monitoring data formatted appropriately for each backend
+  - **CLI/UI Monitoring Views**: Rich monitoring interfaces for power users
+
+### 2.9 CoT Safety and Control Metadata
+
+- [ ] **Intervention Metadata Schema**: Design metadata for tracking AI-to-AI interventions:
+  - **Intervention Classification**: Type, severity, success rate of interventions
+  - **Reasoning Transparency**: Full audit trail of intervention decision-making
+  - **Human Override Tracking**: When and how humans intervene in automated monitoring
+  - **Learning Metadata**: Data used to improve monitoring effectiveness over time
+
+- [ ] **Safety Compliance Metadata**: Metadata for ensuring CoT monitoring safety:
+  - **Monitor Health**: Metadata tracking the reliability of monitoring agents themselves
+  - **False Positive Tracking**: Analysis of incorrect interventions and their patterns
+  - **Human Oversight Records**: Documentation of human supervision and control
+  - **System Reliability Metrics**: Metadata for measuring and improving monitoring quality
 
 ### 2. Fundamental Architecture Questions
 
