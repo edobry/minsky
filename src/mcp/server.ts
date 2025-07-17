@@ -213,7 +213,7 @@ For more information, visit: https://github.com/your-org/minsky
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      
+
       log.debug("Calling tool", { name, args });
 
       const tool = this.tools.get(name);
@@ -223,7 +223,7 @@ For more information, visit: https://github.com/your-org/minsky
 
       try {
         const result = await tool.handler(args || {});
-        
+
         // Ensure result is returned in proper format
         if (typeof result === "string") {
           return {
@@ -247,7 +247,7 @@ For more information, visit: https://github.com/your-org/minsky
       } catch (error) {
         const errorMessage = getErrorMessage(error as any);
         log.error("Tool execution failed", { name, error: errorMessage });
-        
+
         return {
           content: [
             {
@@ -275,7 +275,7 @@ For more information, visit: https://github.com/your-org/minsky
 
     this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       const { uri } = request.params;
-      
+
       log.debug("Reading resource", { uri });
 
       const resource = this.resources.get(uri);
@@ -315,7 +315,7 @@ For more information, visit: https://github.com/your-org/minsky
 
     this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
-      
+
       log.debug("Getting prompt", { name, args });
 
       const prompt = this.prompts.get(name);
@@ -400,9 +400,9 @@ For more information, visit: https://github.com/your-org/minsky
   async start(): Promise<void> {
     try {
       await this.server.connect(this.transport);
-      
+
       log.agent("Minsky MCP Server started with stdio transport");
-      
+
       // Debug log of registered items
       log.debug("MCP Server registered items", {
         toolCount: this.tools.size,
