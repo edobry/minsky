@@ -140,6 +140,57 @@ Use these types for the PR title:
 4. **Document trade-offs**: Explain any trade-offs or alternative approaches considered
 5. **Include testing information**: Describe how the changes were tested and verified
 
+## Session PR Command Execution Best Practices
+
+### Critical Workflow Requirements
+
+**STOP working on session branch after PR creation.** The session PR command should be the final step in session workflow.
+
+### Command Syntax Best Practices
+
+1. **Use `--body-path` instead of `--body "$(cat file)"`**
+   ```bash
+   # ❌ AVOID: Shell parsing issues, command hangs
+   minsky session pr --body "$(cat process/tasks/285/pr.md)"
+
+   # ✅ PREFER: Clean, reliable execution
+   minsky session pr --body-path "/tmp/pr-description.md"
+   ```
+
+2. **Use temporary directories for PR descriptions**
+   ```bash
+   # Create PR description outside session workspace
+   mkdir -p /tmp/task285-pr
+   cp process/tasks/285/pr.md /tmp/task285-pr/description.md
+
+   # Use with session PR command
+   minsky session pr --title "fix(#285): Fix bug" --body-path "/tmp/task285-pr/description.md"
+
+   # Clean up
+   rm -rf /tmp/task285-pr
+   ```
+
+3. **Prevent title duplication in PR descriptions**
+   - PR description body should NOT start with the same title as the PR
+   - Validation hooks will catch and reject title duplication
+   - Start description with "## Summary" or similar instead of repeating title
+
+### Workflow Sequence
+
+1. **Complete all work** in session workspace
+2. **Commit and push** all session changes
+3. **Create PR** using `minsky session pr` with proper syntax
+4. **STOP** - Do not continue working on session branch after PR creation
+5. **Switch to main workspace** if further work needed
+
+### Common Mistakes to Avoid
+
+- ❌ **Continuing to commit** to session branch after PR creation
+- ❌ **Using problematic shell syntax** with `--body "$(cat file)"`
+- ❌ **Title duplication** in PR description body
+- ❌ **Uncommitted changes** when creating PR
+- ❌ **Wrong prepared merge commit** due to improper command usage
+
 ## Integration with Other Rules
 
 - For task implementation workflow, see [task-implementation-workflow](mdc:.cursor/rules/task-implementation-workflow.mdc)
@@ -147,4 +198,3 @@ Use these types for the PR title:
 - For session creation and management, see [minsky-session-management](mdc:.cursor/rules/minsky-session-management.mdc)
 - For detailed CLI commands, see [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc)
 - For detailed PR description guidelines, see [pr-description-guidelines](mdc:.cursor/rules/pr-description-guidelines.mdc)
-
