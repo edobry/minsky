@@ -11,6 +11,10 @@ import {
   mockModule,
 } from "../../utils/test-utils/mocking";
 import {
+  createMockSessionProvider,
+  createMockGitService,
+} from "../../utils/test-utils/dependencies";
+import {
   expectToHaveBeenCalled,
   expectToHaveBeenCalledWith,
 } from "../../utils/test-utils/assertions";
@@ -87,10 +91,14 @@ describe("PR Workflow with Dependencies", () => {
   });
 
   test("should handle missing session in PR workflow", async () => {
+    const mockSessionProvider = createMockSessionProvider({
+      getSession: () => Promise.resolve(null),
+    });
+    
     const mockDeps = {
-      execAsync: createMock() as unknown,
-      getSession: createMock(() => Promise.resolve(null)) as unknown,
-      getSessionWorkdir: createMock() as unknown,
+      execAsync: async (command: string, options?: any) => ({ stdout: "", stderr: "" }),
+      getSession: mockSessionProvider.getSession,
+      getSessionWorkdir: (session: string) => `/mock/session/${session}`,
     };
 
     const gitService = new GitService();
