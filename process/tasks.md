@@ -504,4 +504,4 @@
 
 - [ ] Separate Task ID Storage from Display Format [#283](process/tasks/283-separate-task-id-storage-from-display-format.md)
 
-- [ ] Integrate Task Graph System with Workflow Orchestration [#284](/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/temp-task-integrate-task-graph-system-with-workflow-orchestration-1752698904125.md)
+- [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
