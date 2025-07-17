@@ -128,6 +128,7 @@ export async function sessionApprove(
       baseBranch,
       prBranch: currentBranch,
       taskId: sessionRecord.taskId,
+      isNewlyApproved: true,
     };
 
     log.info(`Session '${resolvedContext.sessionName}' approved and merged successfully`);

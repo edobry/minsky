@@ -56,4 +56,5 @@ export type { Session, SessionRecord } from "./session/types";
 export { sessionApprove as approveSessionFromParams };
 export { sessionDelete as deleteSessionFromParams };
 export { sessionUpdate as updateSessionFromParams };
+export { sessionGet as getSessionFromParams };
 export { getSessionDirFromParams };
