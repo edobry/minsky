@@ -1,14 +1,14 @@
 {
-  "totalCount": 514,
+  "totalCount": 570,
   "byCategory": {
-    "suspicious": 128,
-    "error-masking": 290,
+    "suspicious": 133,
+    "error-masking": 344,
     "test-mocking": 92,
-    "type-bridging": 4
+    "type-bridging": 1
   },
   "byPriority": {
-    "medium": 157,
-    "high": 290,
+    "medium": 159,
+    "high": 344,
     "low": 67
   },
   "matches": [
@@ -2146,6 +2146,465 @@
       "reason": "Property access masking - should use proper types"
     },
     {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 24,
+      "content": "const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);",
+      "context": "    test(\"should remove sessionProvider cast with non-null assertion\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);\n        if ((sessionProvider as unknown)!.isActive()) {\n          return (sessionProvider as unknown)!.config;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 25,
+      "content": "if ((sessionProvider as unknown)!.isActive()) {",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);\n        if ((sessionProvider as unknown)!.isActive()) {\n          return (sessionProvider as unknown)!.config;\n        }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 26,
+      "content": "return (sessionProvider as unknown)!.config;",
+      "context": "        const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);\n        if ((sessionProvider as unknown)!.isActive()) {\n          return (sessionProvider as unknown)!.config;\n        }\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 40,
+      "content": "if (sessionRecord && (sessionRecord as unknown)!.repoUrl) {",
+      "context": "    test(\"should remove sessionRecord cast with non-null assertion\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        if (sessionRecord && (sessionRecord as unknown)!.repoUrl) {\n          return (sessionRecord as unknown)!.repoUrl;\n        }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 41,
+      "content": "return (sessionRecord as unknown)!.repoUrl;",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        if (sessionRecord && (sessionRecord as unknown)!.repoUrl) {\n          return (sessionRecord as unknown)!.repoUrl;\n        }\n        const taskId = (sessionRecord as unknown)!.taskId;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 43,
+      "content": "const taskId = (sessionRecord as unknown)!.taskId;",
+      "context": "          return (sessionRecord as unknown)!.repoUrl;\n        }\n        const taskId = (sessionRecord as unknown)!.taskId;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 55,
+      "content": "return sessionInfo ? (sessionInfo as unknown)!.session : null;",
+      "context": "    test(\"should remove sessionInfo cast with non-null assertion\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        return sessionInfo ? (sessionInfo as unknown)!.session : null;\n        const name = (sessionInfo as unknown)!.session;\n        const upstream = (sessionInfo as unknown)!.upstreamRepository;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 56,
+      "content": "const name = (sessionInfo as unknown)!.session;",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        return sessionInfo ? (sessionInfo as unknown)!.session : null;\n        const name = (sessionInfo as unknown)!.session;\n        const upstream = (sessionInfo as unknown)!.upstreamRepository;\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 57,
+      "content": "const upstream = (sessionInfo as unknown)!.upstreamRepository;",
+      "context": "        return sessionInfo ? (sessionInfo as unknown)!.session : null;\n        const name = (sessionInfo as unknown)!.session;\n        const upstream = (sessionInfo as unknown)!.upstreamRepository;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 71,
+      "content": "const sessionDb = new ((await import(\"./session.js\")) as unknown).SessionDB();",
+      "context": "    test(\"should fix relative import patterns\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const sessionDb = new ((await import(\"./session.js\")) as unknown).SessionDB();\n        const util = new ((await import(\"../utils/helper.js\")) as unknown).Helper();\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 72,
+      "content": "const util = new ((await import(\"../utils/helper.js\")) as unknown).Helper();",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const sessionDb = new ((await import(\"./session.js\")) as unknown).SessionDB();\n        const util = new ((await import(\"../utils/helper.js\")) as unknown).Helper();\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 84,
+      "content": "const proc = ((await import(\"child_process\")) as unknown).exec;",
+      "context": "    test(\"should NOT fix absolute import patterns (keep them safe)\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const proc = ((await import(\"child_process\")) as unknown).exec;\n        const util = ((await import(\"util\")) as unknown).promisify;\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 85,
+      "content": "const util = ((await import(\"util\")) as unknown).promisify;",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const proc = ((await import(\"child_process\")) as unknown).exec;\n        const util = ((await import(\"util\")) as unknown).promisify;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 91,
+      "content": "expect(sourceFile.getFullText()).toContain('((await import(\"child_process\")) as unknown).exec');",
+      "context": "\n      // Should remain unchanged for absolute imports\n      expect(sourceFile.getFullText()).toContain('((await import(\"child_process\")) as unknown).exec');\n      expect(sourceFile.getFullText()).toContain('((await import(\"util\")) as unknown).promisify');\n      expect(transformations.length).toBe(0);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 92,
+      "content": "expect(sourceFile.getFullText()).toContain('((await import(\"util\")) as unknown).promisify');",
+      "context": "      // Should remain unchanged for absolute imports\n      expect(sourceFile.getFullText()).toContain('((await import(\"child_process\")) as unknown).exec');\n      expect(sourceFile.getFullText()).toContain('((await import(\"util\")) as unknown).promisify');\n      expect(transformations.length).toBe(0);\n    });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 100,
+      "content": "const value = (config as unknown).apiKey;",
+      "context": "    test(\"should remove config object casts\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const value = (config as unknown).apiKey;\n        const timeout = (config as unknown).timeout;\n        const options = (config as unknown).database;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 101,
+      "content": "const timeout = (config as unknown).timeout;",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const value = (config as unknown).apiKey;\n        const timeout = (config as unknown).timeout;\n        const options = (config as unknown).database;\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 102,
+      "content": "const options = (config as unknown).database;",
+      "context": "        const value = (config as unknown).apiKey;\n        const timeout = (config as unknown).timeout;\n        const options = (config as unknown).database;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 115,
+      "content": "const debug = (options as unknown).debug;",
+      "context": "    test(\"should remove options object casts\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const debug = (options as unknown).debug;\n        const verbose = (options as unknown).verbose;\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 116,
+      "content": "const verbose = (options as unknown).verbose;",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const debug = (options as unknown).debug;\n        const verbose = (options as unknown).verbose;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 130,
+      "content": "const message = (error as unknown).message;",
+      "context": "    test(\"should remove error object casts\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const message = (error as unknown).message;\n        const code = (err as unknown).code;\n        const stack = (e as unknown).stack;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 131,
+      "content": "const code = (err as unknown).code;",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const message = (error as unknown).message;\n        const code = (err as unknown).code;\n        const stack = (e as unknown).stack;\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 132,
+      "content": "const stack = (e as unknown).stack;",
+      "context": "        const message = (error as unknown).message;\n        const code = (err as unknown).code;\n        const stack = (e as unknown).stack;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 147,
+      "content": "const data = (taskProvider as unknown).getTasks();",
+      "context": "    test(\"should remove provider/service/backend casts\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const data = (taskProvider as unknown).getTasks();\n        const result = (userService as unknown).getUser();\n        const config = (storageBackend as unknown).getConfig();",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 148,
+      "content": "const result = (userService as unknown).getUser();",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const data = (taskProvider as unknown).getTasks();\n        const result = (userService as unknown).getUser();\n        const config = (storageBackend as unknown).getConfig();\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 149,
+      "content": "const config = (storageBackend as unknown).getConfig();",
+      "context": "        const data = (taskProvider as unknown).getTasks();\n        const result = (userService as unknown).getUser();\n        const config = (storageBackend as unknown).getConfig();\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 164,
+      "content": "const result1 = (output as unknown) as string;",
+      "context": "    test(\"should remove redundant double casts\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const result1 = (output as unknown) as string;\n        const result2 = (result as unknown) as number;\n        const result3 = (data as unknown) as boolean;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 165,
+      "content": "const result2 = (result as unknown) as number;",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const result1 = (output as unknown) as string;\n        const result2 = (result as unknown) as number;\n        const result3 = (data as unknown) as boolean;\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 166,
+      "content": "const result3 = (data as unknown) as boolean;",
+      "context": "        const result1 = (output as unknown) as string;\n        const result2 = (result as unknown) as number;\n        const result3 = (data as unknown) as boolean;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 181,
+      "content": "return Promise.resolve(value) as unknown;",
+      "context": "    test(\"should remove unnecessary Promise casts\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        return Promise.resolve(value) as unknown;\n        return Promise.reject(error) as unknown;\n        const p = Promise.resolve(data) as unknown;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 182,
+      "content": "return Promise.reject(error) as unknown;",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        return Promise.resolve(value) as unknown;\n        return Promise.reject(error) as unknown;\n        const p = Promise.resolve(data) as unknown;\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 183,
+      "content": "const p = Promise.resolve(data) as unknown;",
+      "context": "        return Promise.resolve(value) as unknown;\n        return Promise.reject(error) as unknown;\n        const p = Promise.resolve(data) as unknown;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 198,
+      "content": "const p = (params as unknown);",
+      "context": "    test(\"should remove simple variable casts\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const p = (params as unknown);\n        const r = (result as unknown);\n        const c = (current as unknown);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 199,
+      "content": "const r = (result as unknown);",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const p = (params as unknown);\n        const r = (result as unknown);\n        const c = (current as unknown);\n        const t = (task as unknown);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 200,
+      "content": "const c = (current as unknown);",
+      "context": "        const p = (params as unknown);\n        const r = (result as unknown);\n        const c = (current as unknown);\n        const t = (task as unknown);\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 201,
+      "content": "const t = (task as unknown);",
+      "context": "        const r = (result as unknown);\n        const c = (current as unknown);\n        const t = (task as unknown);\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 217,
+      "content": "const complex = (someObject.deepProperty.methodCall() as unknown).value;",
+      "context": "    test(\"should NOT transform complex expressions\", () => {\n      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const complex = (someObject.deepProperty.methodCall() as unknown).value;\n        const chained = (obj.method().then() as unknown).property;\n      `);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 218,
+      "content": "const chained = (obj.method().then() as unknown).property;",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        const complex = (someObject.deepProperty.methodCall() as unknown).value;\n        const chained = (obj.method().then() as unknown).property;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 224,
+      "content": "expect(sourceFile.getFullText()).toContain(\"(someObject.deepProperty.methodCall() as unknown).value\");",
+      "context": "\n      // Should remain unchanged due to complexity\n      expect(sourceFile.getFullText()).toContain(\"(someObject.deepProperty.methodCall() as unknown).value\");\n      expect(sourceFile.getFullText()).toContain(\"(obj.method().then() as unknown).property\");\n      expect(transformations.length).toBe(0);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 225,
+      "content": "expect(sourceFile.getFullText()).toContain(\"(obj.method().then() as unknown).property\");",
+      "context": "      // Should remain unchanged due to complexity\n      expect(sourceFile.getFullText()).toContain(\"(someObject.deepProperty.methodCall() as unknown).value\");\n      expect(sourceFile.getFullText()).toContain(\"(obj.method().then() as unknown).property\");\n      expect(transformations.length).toBe(0);\n    });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 232,
+      "content": "const session = (sessionInfo as unknown)!.session;",
+      "context": "      const sourceFile = project.createSourceFile(\"test.ts\", `\n        // Session pattern\n        const session = (sessionInfo as unknown)!.session;\n        \n        // Config pattern  ",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 235,
+      "content": "const debug = (config as unknown).debug;",
+      "context": "        \n        // Config pattern  \n        const debug = (config as unknown).debug;\n        \n        // Error pattern",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 238,
+      "content": "const message = (error as unknown).message;",
+      "context": "        \n        // Error pattern\n        const message = (error as unknown).message;\n        \n        // Redundant cast",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 241,
+      "content": "const result = (output as unknown) as string;",
+      "context": "        \n        // Redundant cast\n        const result = (output as unknown) as string;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 257,
+      "content": "const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);",
+      "context": "    test(\"should handle actual workspace.ts patterns\", () => {\n      const sourceFile = project.createSourceFile(\"workspace.ts\", `\n        const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);\n        if (sessionRecord && (sessionRecord as unknown)!.repoUrl) {\n          return (sessionRecord as unknown)!.repoUrl;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 258,
+      "content": "if (sessionRecord && (sessionRecord as unknown)!.repoUrl) {",
+      "context": "      const sourceFile = project.createSourceFile(\"workspace.ts\", `\n        const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);\n        if (sessionRecord && (sessionRecord as unknown)!.repoUrl) {\n          return (sessionRecord as unknown)!.repoUrl;\n        }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 259,
+      "content": "return (sessionRecord as unknown)!.repoUrl;",
+      "context": "        const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);\n        if (sessionRecord && (sessionRecord as unknown)!.repoUrl) {\n          return (sessionRecord as unknown)!.repoUrl;\n        }\n        return sessionInfo ? (sessionInfo as unknown)!.session : null;",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 261,
+      "content": "return sessionInfo ? (sessionInfo as unknown)!.session : null;",
+      "context": "          return (sessionRecord as unknown)!.repoUrl;\n        }\n        return sessionInfo ? (sessionInfo as unknown)!.session : null;\n      `);\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 274,
+      "content": "const sessionDb = new ((await import(\"./session.js\")) as unknown).SessionDB();",
+      "context": "    test(\"should handle actual repository.ts dynamic import patterns\", () => {\n      const sourceFile = project.createSourceFile(\"repository.ts\", `\n        const sessionDb = new ((await import(\"./session.js\")) as unknown).SessionDB();\n        await (await import(\"util\")).promisify(((await import(\"child_process\")) as unknown).exec)(\n          \\`git clone \\${repoUrl}\\`",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 275,
+      "content": "await (await import(\"util\")).promisify(((await import(\"child_process\")) as unknown).exec)(",
+      "context": "      const sourceFile = project.createSourceFile(\"repository.ts\", `\n        const sessionDb = new ((await import(\"./session.js\")) as unknown).SessionDB();\n        await (await import(\"util\")).promisify(((await import(\"child_process\")) as unknown).exec)(\n          \\`git clone \\${repoUrl}\\`\n        );",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.test.ts",
+      "line": 284,
+      "content": "expect(sourceFile.getFullText()).toContain('((await import(\"child_process\")) as unknown).exec');",
+      "context": "      expect(sourceFile.getFullText()).toContain('(await import(\"./session.js\")).SessionDB()');\n      // Child_process should remain unchanged (absolute import)\n      expect(sourceFile.getFullText()).toContain('((await import(\"child_process\")) as unknown).exec');\n      expect(transformations.length).toBe(1);\n    });",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
       "file": "codemods/comprehensive-fixer.ts",
       "line": 8,
       "content": "* - Config object patterns: (config as unknown)",
@@ -2234,6 +2693,204 @@
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 4,
+      "content": "* Comprehensive 'as unknown' Assertion Fixer for Task #280",
+      "context": "\n/**\n * Comprehensive 'as unknown' Assertion Fixer for Task #280\n * \n * A single, extensible codemod following codemod-development-standards:",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 13,
+      "content": "* 1. Session Object Property Access: (sessionProvider as unknown)!.method",
+      "context": " * \n * Patterns Handled:\n * 1. Session Object Property Access: (sessionProvider as unknown)!.method\n * 2. Dynamic Import Patterns: ((await import(\"module\")) as unknown).Class\n * 3. Config Object Patterns: (config as unknown).property",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 14,
+      "content": "* 2. Dynamic Import Patterns: ((await import(\"module\")) as unknown).Class",
+      "context": " * Patterns Handled:\n * 1. Session Object Property Access: (sessionProvider as unknown)!.method\n * 2. Dynamic Import Patterns: ((await import(\"module\")) as unknown).Class\n * 3. Config Object Patterns: (config as unknown).property\n * 4. Error Handling Patterns: (error as unknown).property",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 15,
+      "content": "* 3. Config Object Patterns: (config as unknown).property",
+      "context": " * 1. Session Object Property Access: (sessionProvider as unknown)!.method\n * 2. Dynamic Import Patterns: ((await import(\"module\")) as unknown).Class\n * 3. Config Object Patterns: (config as unknown).property\n * 4. Error Handling Patterns: (error as unknown).property\n * 5. Provider/Service Patterns: (serviceProvider as unknown).method",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 16,
+      "content": "* 4. Error Handling Patterns: (error as unknown).property",
+      "context": " * 2. Dynamic Import Patterns: ((await import(\"module\")) as unknown).Class\n * 3. Config Object Patterns: (config as unknown).property\n * 4. Error Handling Patterns: (error as unknown).property\n * 5. Provider/Service Patterns: (serviceProvider as unknown).method\n * 6. Redundant Cast Patterns: (value as unknown) as Type",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 17,
+      "content": "* 5. Provider/Service Patterns: (serviceProvider as unknown).method",
+      "context": " * 3. Config Object Patterns: (config as unknown).property\n * 4. Error Handling Patterns: (error as unknown).property\n * 5. Provider/Service Patterns: (serviceProvider as unknown).method\n * 6. Redundant Cast Patterns: (value as unknown) as Type\n * 7. Promise Return Patterns: Promise.resolve(value) as unknown",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 18,
+      "content": "* 6. Redundant Cast Patterns: (value as unknown) as Type",
+      "context": " * 4. Error Handling Patterns: (error as unknown).property\n * 5. Provider/Service Patterns: (serviceProvider as unknown).method\n * 6. Redundant Cast Patterns: (value as unknown) as Type\n * 7. Promise Return Patterns: Promise.resolve(value) as unknown\n * 8. Simple Variable Patterns: (variable as unknown)",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 19,
+      "content": "* 7. Promise Return Patterns: Promise.resolve(value) as unknown",
+      "context": " * 5. Provider/Service Patterns: (serviceProvider as unknown).method\n * 6. Redundant Cast Patterns: (value as unknown) as Type\n * 7. Promise Return Patterns: Promise.resolve(value) as unknown\n * 8. Simple Variable Patterns: (variable as unknown)\n */",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 20,
+      "content": "* 8. Simple Variable Patterns: (variable as unknown)",
+      "context": " * 6. Redundant Cast Patterns: (value as unknown) as Type\n * 7. Promise Return Patterns: Promise.resolve(value) as unknown\n * 8. Simple Variable Patterns: (variable as unknown)\n */\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 66,
+      "content": "console.log(\"🔧 Starting comprehensive 'as unknown' fixes...\");",
+      "context": "   */\n  public async fixAllFiles(): Promise<ComprehensiveReport> {\n    console.log(\"🔧 Starting comprehensive 'as unknown' fixes...\");\n    \n    const files = await glob(\"src/**/*.ts\", { ",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 113,
+      "content": "* Fixes: (sessionProvider as unknown)!.method → sessionProvider.method",
+      "context": "  /**\n   * Pattern 1: Session Object Property Access with Non-Null Assertion\n   * Fixes: (sessionProvider as unknown)!.method → sessionProvider.method\n   */\n  public fixSessionObjectPatterns(sourceFile: SourceFile): TransformationResult[] {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 136,
+      "content": "// Look for: (sessionXxx as unknown)! (with any nesting)",
+      "context": "        const expression = node.getExpression();\n        \n        // Look for: (sessionXxx as unknown)! (with any nesting)\n        if (Node.isNonNullExpression(expression)) {\n          const innerExpr = expression.getExpression();",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 174,
+      "content": "// Replace the entire property access: (sessionXxx as unknown)!.prop → sessionXxx.prop",
+      "context": "      });\n      \n      // Replace the entire property access: (sessionXxx as unknown)!.prop → sessionXxx.prop\n      node.replaceWithText(after);\n    }",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 183,
+      "content": "* Fixes: ((await import(\"./module\")) as unknown).Class → (await import(\"./module\")).Class",
+      "context": "  /**\n   * Pattern 2: Dynamic Import Patterns\n   * Fixes: ((await import(\"./module\")) as unknown).Class → (await import(\"./module\")).Class\n   * Only for relative imports (safe)\n   */",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 274,
+      "content": "* Fixes: (config as unknown).property → config.property",
+      "context": "  /**\n   * Pattern 3: Config Object Patterns\n   * Fixes: (config as unknown).property → config.property\n   */\n  public fixConfigObjectPatterns(sourceFile: SourceFile): TransformationResult[] {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 339,
+      "content": "* Fixes: (error as unknown).property → error.property",
+      "context": "  /**\n   * Pattern 4: Error Handling Patterns\n   * Fixes: (error as unknown).property → error.property\n   */\n  public fixErrorHandlingPatterns(sourceFile: SourceFile): TransformationResult[] {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 404,
+      "content": "* Fixes: (serviceProvider as unknown).method → serviceProvider.method",
+      "context": "  /**\n   * Pattern 5: Provider/Service Patterns\n   * Fixes: (serviceProvider as unknown).method → serviceProvider.method\n   */\n  public fixProviderServicePatterns(sourceFile: SourceFile): TransformationResult[] {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 469,
+      "content": "* Fixes: (value as unknown) as Type → value as Type",
+      "context": "  /**\n   * Pattern 6: Redundant Cast Patterns\n   * Fixes: (value as unknown) as Type → value as Type\n   */\n  public fixRedundantCastPatterns(sourceFile: SourceFile): TransformationResult[] {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 481,
+      "content": "// Look for: (variable as unknown) as Type",
+      "context": "        const finalTypeNode = node.getTypeNode();\n        \n        // Look for: (variable as unknown) as Type\n        if (Node.isAsExpression(expression) && finalTypeNode) {\n          const variable = expression.getExpression();",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 517,
+      "content": "* Fixes: Promise.resolve(value) as unknown → Promise.resolve(value)",
+      "context": "  /**\n   * Pattern 7: Promise Return Patterns\n   * Fixes: Promise.resolve(value) as unknown → Promise.resolve(value)\n   */\n  public fixPromiseReturnPatterns(sourceFile: SourceFile): TransformationResult[] {",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 561,
+      "content": "* Fixes: (variable as unknown) → variable",
+      "context": "  /**\n   * Pattern 8: Simple Variable Patterns\n   * Fixes: (variable as unknown) → variable\n   */\n  public fixSimpleVariablePatterns(sourceFile: SourceFile): TransformationResult[] {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "codemods/comprehensive-as-unknown-fixer.ts",
+      "line": 680,
+      "content": "console.log(`\\n✅ Comprehensive 'as unknown' fixes completed!`);",
+      "context": "    writeFileSync(reportPath, JSON.stringify(report, null, 2));\n\n    console.log(`\\n✅ Comprehensive 'as unknown' fixes completed!`);\n    console.log(`📊 Total transformations: ${this.transformations.length}`);\n    console.log(`📁 Files modified: ${filesModified}/${totalFiles}`);",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "codemods/fix-explicit-any-types-proven.ts",
@@ -3406,6 +4063,24 @@
       "reason": "Property access masking - should use proper types"
     },
     {
+      "file": "src/mcp/server.ts",
+      "line": 262,
+      "content": "error: getErrorMessage(e as unknown),",
+      "context": "      } catch (e) {\n        log.debug(\"Could not log MCP server methods\", {\n          error: getErrorMessage(e as unknown),\n        });\n      }",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/mcp/command-mapper.test.ts",
+      "line": 31,
+      "content": "commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);",
+      "context": "    } as ProjectContext;\n\n    commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);\n  });\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
       "file": "src/utils/type-guards.ts",
       "line": 4,
       "content": "* This module provides type guards and utility functions to help avoid 'as unknown' assertions",
@@ -3505,42 +4180,6 @@
       "reason": "JSON parsing - may need proper type guards"
     },
     {
-      "file": "src/mcp/server.ts",
-      "line": 262,
-      "content": "error: getErrorMessage(e as unknown),",
-      "context": "      } catch (e) {\n        log.debug(\"Could not log MCP server methods\", {\n          error: getErrorMessage(e as unknown),\n        });\n      }",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/mcp/command-mapper.test.ts",
-      "line": 31,
-      "content": "commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);",
-      "context": "    } as ProjectContext;\n\n    commandMapper = new CommandMapper(mockServer as unknown, mockProjectContext);\n  });\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/adapters/shared/legacy-command-registry.ts",
-      "line": 171,
-      "content": "this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);",
-      "context": "    }\n\n    this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);\n  }\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/ai/config-service.ts",
-      "line": 46,
-      "content": "provider: provider as unknown,",
-      "context": "      // Create provider config from unified configuration\n      return {\n        provider: provider as unknown,\n        apiKey,\n        baseURL: providerConfig.base_url,",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
       "file": "src/domain/session/session-db-io.test.ts",
       "line": 67,
       "content": "const result = readSessionDbFile(undefined as unknown);",
@@ -3586,6 +4225,15 @@
       "reason": "Test assertion masking type errors - should be fixed"
     },
     {
+      "file": "src/domain/ai/config-service.ts",
+      "line": 46,
+      "content": "provider: provider as unknown,",
+      "context": "      // Create provider config from unified configuration\n      return {\n        provider: provider as unknown,\n        apiKey,\n        baseURL: providerConfig.base_url,",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
       "file": "src/domain/git/factory-function.test.ts",
       "line": 19,
       "content": "createGitService(null as unknown as { baseDir?: string });",
@@ -3599,6 +4247,15 @@
       "line": 123,
       "content": "throw new MinskyError(createSessionNotFoundMessage(sessionName, context as unknown));",
       "context": "    const context = createErrorContext().addCommand(\"minsky git pr\").build();\n\n    throw new MinskyError(createSessionNotFoundMessage(sessionName, context as unknown));\n  }\n  const workdir = deps.getSessionWorkdir(sessionName);",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/domain/storage/json-file-storage.ts",
+      "line": 452,
+      "content": "return new JsonFileStorage<T, S>(options as unknown);",
+      "context": "  options: JsonFileStorageOptions<S>\n): DatabaseStorage<T, S> {\n  return new JsonFileStorage<T, S>(options as unknown);\n}\n",
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
@@ -3865,15 +4522,6 @@
       "reason": "Property access masking - should use proper types"
     },
     {
-      "file": "src/domain/storage/json-file-storage.ts",
-      "line": 452,
-      "content": "return new JsonFileStorage<T, S>(options as unknown);",
-      "context": "  options: JsonFileStorageOptions<S>\n): DatabaseStorage<T, S> {\n  return new JsonFileStorage<T, S>(options as unknown);\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
       "file": "src/domain/tasks/jsonFileTaskBackend.ts",
       "line": 554,
       "content": "return new JsonFileTaskBackend(config as unknown);",
@@ -3926,51 +4574,6 @@
       "category": "error-masking",
       "priority": "high",
       "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "src/domain/tasks/githubBackendFactory.ts",
-      "line": 26,
-      "content": "if (!config || !(config as unknown)!.githubToken || !(config as unknown)!.owner || !(config as unknown)!.repo) {",
-      "context": "\n    const config = getGitHubBackendConfig(workspacePath, { logErrors: shouldLogErrors });\n    if (!config || !(config as unknown)!.githubToken || !(config as unknown)!.owner || !(config as unknown)!.repo) {\n      return null;\n    }",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/tasks/githubBackendFactory.ts",
-      "line": 33,
-      "content": "githubToken: (config as unknown)!.githubToken,",
-      "context": "      name: \"github-issues\",\n      workspacePath: workspacePath,\n      githubToken: (config as unknown)!.githubToken,\n      owner: (config as unknown)!.owner,\n      repo: (config as unknown)!.repo,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/tasks/githubBackendFactory.ts",
-      "line": 34,
-      "content": "owner: (config as unknown)!.owner,",
-      "context": "      workspacePath: workspacePath,\n      githubToken: (config as unknown)!.githubToken,\n      owner: (config as unknown)!.owner,\n      repo: (config as unknown)!.repo,\n      statusLabels: (config as unknown)!.statusLabels,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/tasks/githubBackendFactory.ts",
-      "line": 35,
-      "content": "repo: (config as unknown)!.repo,",
-      "context": "      githubToken: (config as unknown)!.githubToken,\n      owner: (config as unknown)!.owner,\n      repo: (config as unknown)!.repo,\n      statusLabels: (config as unknown)!.statusLabels,\n    });",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/domain/tasks/githubBackendFactory.ts",
-      "line": 36,
-      "content": "statusLabels: (config as unknown)!.statusLabels,",
-      "context": "      owner: (config as unknown)!.owner,\n      repo: (config as unknown)!.repo,\n      statusLabels: (config as unknown)!.statusLabels,\n    });\n  } catch (_error) {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
     },
     {
       "file": "src/domain/tasks/taskService.test.ts",
@@ -4034,6 +4637,177 @@
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
+    },
+    {
+      "file": "tests/adapters/cli/session.test.ts",
+      "line": 87,
+      "content": "} as unknown as SessionProviderInterface;",
+      "context": "        return Promise.resolve(mockSessions.find((s) => s.session === name) || null);\n      }),\n    } as unknown as SessionProviderInterface;\n  });\n",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "tests/adapters/cli/session-test-utilities.ts",
+      "line": 76,
+      "content": "} as unknown as SessionProviderInterface;",
+      "context": "    }),\n    save: jest.fn().mockResolvedValue(undefined),\n  } as unknown as SessionProviderInterface;\n\n  return {",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "tests/adapters/cli/session-test-utilities.ts",
+      "line": 109,
+      "content": "} as unknown as GitServiceInterface;",
+      "context": "    stashPop: jest.fn().mockResolvedValue(undefined),\n    getCommitHash: jest.fn().mockResolvedValue(\"abc123\"),\n  } as unknown as GitServiceInterface;\n}\n",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 41,
+      "content": "} as unknown;",
+      "context": "        registeredTools[name] = { name, description, schema, handler };\n      }),\n    } as unknown;\n\n    // Register the tools",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Test assertion masking type errors - should be fixed"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 71,
+      "content": "const mockStat = stat as unknown;",
+      "context": "\n      // Mock file doesn't exist\n      const mockStat = stat as unknown;\n      mockStat.mockRejectedValueOnce(new Error(\"ENOENT\"));\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 75,
+      "content": "const mockWriteFile = writeFile as unknown;",
+      "context": "\n      // Mock successful write\n      const mockWriteFile = writeFile as unknown;\n      mockWriteFile.mockResolvedValueOnce(undefined);\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 79,
+      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
+      "context": "\n      // Mock path resolver\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockResolvedValue(\"/session/path/test.ts\");\n      mockPathResolver.getSessionWorkspacePath.mockResolvedValue(\"/session/path\");",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 100,
+      "content": "const mockStat = stat as unknown;",
+      "context": "\n      // Mock file exists\n      const mockStat = stat as unknown;\n      mockStat.mockResolvedValueOnce({ isFile: () => true });\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 104,
+      "content": "const mockReadFile = readFile as unknown;",
+      "context": "\n      // Mock file content\n      const mockReadFile = readFile as unknown;\n      mockReadFile.mockResolvedValueOnce(`function oldFunc() {\n  console.log('old');",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 114,
+      "content": "const mockWriteFile = writeFile as unknown;",
+      "context": "\n      // Mock successful write\n      const mockWriteFile = writeFile as unknown;\n      mockWriteFile.mockResolvedValueOnce(undefined);\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 118,
+      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
+      "context": "\n      // Mock path resolver\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockResolvedValue(\"/session/path/test.ts\");\n      mockPathResolver.getSessionWorkspacePath.mockResolvedValue(\"/session/path\");",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 145,
+      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
+      "context": "\n      // Mock path resolver error\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockRejectedValue(new Error(\"Invalid path\"));\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 186,
+      "content": "const mockReadFile = readFile as unknown;",
+      "context": "\n      // Mock file content\n      const mockReadFile = readFile as unknown;\n      mockReadFile.mockResolvedValueOnce(\"This is oldText in the file\");\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 190,
+      "content": "const mockWriteFile = writeFile as unknown;",
+      "context": "\n      // Mock successful write\n      const mockWriteFile = writeFile as unknown;\n      mockWriteFile.mockResolvedValueOnce(undefined);\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 194,
+      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
+      "context": "\n      // Mock path resolver\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockResolvedValue(\"/session/path/test.ts\");\n      mockPathResolver.validatePathExists.mockResolvedValue(undefined);",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 218,
+      "content": "const mockReadFile = readFile as unknown;",
+      "context": "\n      // Mock file content\n      const mockReadFile = readFile as unknown;\n      mockReadFile.mockResolvedValueOnce(\"This is some text in the file\");\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 222,
+      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
+      "context": "\n      // Mock path resolver\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockResolvedValue(\"/session/path/test.ts\");\n      mockPathResolver.validatePathExists.mockResolvedValue(undefined);",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 241,
+      "content": "const mockReadFile = readFile as unknown;",
+      "context": "\n      // Mock file content with multiple occurrences\n      const mockReadFile = readFile as unknown;\n      mockReadFile.mockResolvedValueOnce(\"This is oldText and another oldText in the file\");\n",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
+    },
+    {
+      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
+      "line": 245,
+      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
+      "context": "\n      // Mock path resolver\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockResolvedValue(\"/session/path/test.ts\");\n      mockPathResolver.validatePathExists.mockResolvedValue(undefined);",
+      "category": "test-mocking",
+      "priority": "low",
+      "reason": "Test mocking - may be legitimate for test setup"
     },
     {
       "file": "tests/domain/commands/workspace.commands.test.ts",
@@ -4207,294 +4981,6 @@
       "reason": "Test mocking - may be legitimate for test setup"
     },
     {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 41,
-      "content": "} as unknown;",
-      "context": "        registeredTools[name] = { name, description, schema, handler };\n      }),\n    } as unknown;\n\n    // Register the tools",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 71,
-      "content": "const mockStat = stat as unknown;",
-      "context": "\n      // Mock file doesn't exist\n      const mockStat = stat as unknown;\n      mockStat.mockRejectedValueOnce(new Error(\"ENOENT\"));\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 75,
-      "content": "const mockWriteFile = writeFile as unknown;",
-      "context": "\n      // Mock successful write\n      const mockWriteFile = writeFile as unknown;\n      mockWriteFile.mockResolvedValueOnce(undefined);\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 79,
-      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
-      "context": "\n      // Mock path resolver\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockResolvedValue(\"/session/path/test.ts\");\n      mockPathResolver.getSessionWorkspacePath.mockResolvedValue(\"/session/path\");",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 100,
-      "content": "const mockStat = stat as unknown;",
-      "context": "\n      // Mock file exists\n      const mockStat = stat as unknown;\n      mockStat.mockResolvedValueOnce({ isFile: () => true });\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 104,
-      "content": "const mockReadFile = readFile as unknown;",
-      "context": "\n      // Mock file content\n      const mockReadFile = readFile as unknown;\n      mockReadFile.mockResolvedValueOnce(`function oldFunc() {\n  console.log('old');",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 114,
-      "content": "const mockWriteFile = writeFile as unknown;",
-      "context": "\n      // Mock successful write\n      const mockWriteFile = writeFile as unknown;\n      mockWriteFile.mockResolvedValueOnce(undefined);\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 118,
-      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
-      "context": "\n      // Mock path resolver\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockResolvedValue(\"/session/path/test.ts\");\n      mockPathResolver.getSessionWorkspacePath.mockResolvedValue(\"/session/path\");",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 145,
-      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
-      "context": "\n      // Mock path resolver error\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockRejectedValue(new Error(\"Invalid path\"));\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 186,
-      "content": "const mockReadFile = readFile as unknown;",
-      "context": "\n      // Mock file content\n      const mockReadFile = readFile as unknown;\n      mockReadFile.mockResolvedValueOnce(\"This is oldText in the file\");\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 190,
-      "content": "const mockWriteFile = writeFile as unknown;",
-      "context": "\n      // Mock successful write\n      const mockWriteFile = writeFile as unknown;\n      mockWriteFile.mockResolvedValueOnce(undefined);\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 194,
-      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
-      "context": "\n      // Mock path resolver\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockResolvedValue(\"/session/path/test.ts\");\n      mockPathResolver.validatePathExists.mockResolvedValue(undefined);",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 218,
-      "content": "const mockReadFile = readFile as unknown;",
-      "context": "\n      // Mock file content\n      const mockReadFile = readFile as unknown;\n      mockReadFile.mockResolvedValueOnce(\"This is some text in the file\");\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 222,
-      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
-      "context": "\n      // Mock path resolver\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockResolvedValue(\"/session/path/test.ts\");\n      mockPathResolver.validatePathExists.mockResolvedValue(undefined);",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 241,
-      "content": "const mockReadFile = readFile as unknown;",
-      "context": "\n      // Mock file content with multiple occurrences\n      const mockReadFile = readFile as unknown;\n      mockReadFile.mockResolvedValueOnce(\"This is oldText and another oldText in the file\");\n",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "tests/adapters/mcp/session-edit-tools.test.ts",
-      "line": 245,
-      "content": "const mockPathResolver = new SessionPathResolver() as unknown;",
-      "context": "\n      // Mock path resolver\n      const mockPathResolver = new SessionPathResolver() as unknown;\n      mockPathResolver.resolvePath.mockResolvedValue(\"/session/path/test.ts\");\n      mockPathResolver.validatePathExists.mockResolvedValue(undefined);",
-      "category": "test-mocking",
-      "priority": "low",
-      "reason": "Test mocking - may be legitimate for test setup"
-    },
-    {
-      "file": "src/adapters/cli/customizations/config-customizations.ts",
-      "line": 31,
-      "content": "flatten(obj as unknown);",
-      "context": "  }\n\n  flatten(obj as unknown);\n  return flattened;\n}",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/cli/customizations/config-customizations.ts",
-      "line": 113,
-      "content": "log.cli(output as unknown);",
-      "context": "              }\n\n              log.cli(output as unknown);\n            } else if (result.error) {\n              log.cli(`Failed to load configuration: ${result.error}`);",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/customizations/config-customizations.ts",
-      "line": 117,
-      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
-      "context": "              log.cli(`Failed to load configuration: ${result.error}`);\n            } else {\n              log.cli(JSON.stringify(result as unknown, null, 2));\n            }\n          },",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/adapters/cli/customizations/config-customizations.ts",
-      "line": 125,
-      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
-      "context": "            // Check if JSON output was requested\n            if (result.json) {\n              log.cli(JSON.stringify(result as unknown, null, 2));\n              return;\n            }",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "src/adapters/cli/customizations/config-customizations.ts",
-      "line": 142,
-      "content": "log.cli(output as unknown);",
-      "context": "              }\n\n              log.cli(output as unknown);\n            } else if (result.error) {\n              log.cli(`Failed to load configuration: ${result.error}`);",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/cli/customizations/config-customizations.ts",
-      "line": 146,
-      "content": "log.cli(JSON.stringify(result as unknown, null, 2));",
-      "context": "              log.cli(`Failed to load configuration: ${result.error}`);\n            } else {\n              log.cli(JSON.stringify(result as unknown, null, 2));\n            }\n          },",
-      "category": "type-bridging",
-      "priority": "medium",
-      "reason": "JSON parsing - may need proper type guards"
-    },
-    {
-      "file": "tests/adapters/cli/session.test.ts",
-      "line": 87,
-      "content": "} as unknown as SessionProviderInterface;",
-      "context": "        return Promise.resolve(mockSessions.find((s) => s.session === name) || null);\n      }),\n    } as unknown as SessionProviderInterface;\n  });\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Test assertion masking type errors - should be fixed"
-    },
-    {
-      "file": "tests/adapters/cli/session-test-utilities.ts",
-      "line": 76,
-      "content": "} as unknown as SessionProviderInterface;",
-      "context": "    }),\n    save: jest.fn().mockResolvedValue(undefined),\n  } as unknown as SessionProviderInterface;\n\n  return {",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "tests/adapters/cli/session-test-utilities.ts",
-      "line": 109,
-      "content": "} as unknown as GitServiceInterface;",
-      "context": "    stashPop: jest.fn().mockResolvedValue(undefined),\n    getCommitHash: jest.fn().mockResolvedValue(\"abc123\"),\n  } as unknown as GitServiceInterface;\n}\n",
-      "category": "suspicious",
-      "priority": "medium",
-      "reason": "Needs manual review"
-    },
-    {
-      "file": "src/adapters/cli/utils/error-handler.ts",
-      "line": 136,
-      "content": "log.agent({ message: \"Command result\", result } as unknown);",
-      "context": "    if (isStructuredMode()) {\n      // In structured mode, log to agent logger\n      log.agent({ message: \"Command result\", result } as unknown);\n    } else {\n      // In human mode or when json is explicitly requested, write directly to stdout",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/commands/tasks.ts",
-      "line": 644,
-      "content": "if (!(params as unknown as TasksDeleteParams).force && !(params as unknown as TasksDeleteParams).json) {",
-      "context": "\n    // Handle confirmation if force is not set and we're in interactive mode\n    if (!(params as unknown as TasksDeleteParams).force && !(params as unknown as TasksDeleteParams).json) {\n      // Get task details for confirmation\n      const task = await getTaskFromParams({",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/commands/tasks.ts",
-      "line": 658,
-      "content": "message: `Are you sure you want to delete task ${(task as unknown as { id: string; title: string }).id}: \"${(task as unknown as { id: string; title: string }).title}\"?`,",
-      "context": "\n      const shouldDelete = await confirm({\n        message: `Are you sure you want to delete task ${(task as unknown as { id: string; title: string }).id}: \"${(task as unknown as { id: string; title: string }).title}\"?`,\n      });\n",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/commands/tasks.ts",
-      "line": 684,
-      "content": "if ((params as unknown as TasksDeleteParams).json) {",
-      "context": "\n    // Return different formats based on --json flag\n    if ((params as unknown as TasksDeleteParams).json) {\n      // Structured output for programmatic use\n      return {",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/commands/tasks.ts",
-      "line": 687,
-      "content": "success: (result as unknown as { success: boolean; taskId: string; task?: any }).success,",
-      "context": "      // Structured output for programmatic use\n      return {\n        success: (result as unknown as { success: boolean; taskId: string; task?: any }).success,\n        taskId: (result as unknown as { taskId: string }).taskId,\n        task: (result as unknown as { task?: any }).task,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/commands/tasks.ts",
-      "line": 688,
-      "content": "taskId: (result as unknown as { taskId: string }).taskId,",
-      "context": "      return {\n        success: (result as unknown as { success: boolean; taskId: string; task?: any }).success,\n        taskId: (result as unknown as { taskId: string }).taskId,\n        task: (result as unknown as { task?: any }).task,\n        message: message,",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
-      "file": "src/adapters/shared/commands/tasks.ts",
-      "line": 689,
-      "content": "task: (result as unknown as { task?: any }).task,",
-      "context": "        success: (result as unknown as { success: boolean; taskId: string; task?: any }).success,\n        taskId: (result as unknown as { taskId: string }).taskId,\n        task: (result as unknown as { task?: any }).task,\n        message: message,\n      };",
-      "category": "error-masking",
-      "priority": "high",
-      "reason": "Property access masking - should use proper types"
-    },
-    {
       "file": "src/domain/storage/backends/error-handling.ts",
       "line": 113,
       "content": "error as unknown",
@@ -4637,13 +5123,31 @@
       "category": "suspicious",
       "priority": "medium",
       "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/cli/customizations/config-customizations.ts",
+      "line": 31,
+      "content": "flatten(obj as unknown);",
+      "context": "  }\n\n  flatten(obj as unknown);\n  return flattened;\n}",
+      "category": "suspicious",
+      "priority": "medium",
+      "reason": "Needs manual review"
+    },
+    {
+      "file": "src/adapters/cli/utils/error-handler.ts",
+      "line": 136,
+      "content": "log.agent({ message: \"Command result\", result } as unknown);",
+      "context": "    if (isStructuredMode()) {\n      // In structured mode, log to agent logger\n      log.agent({ message: \"Command result\", result } as unknown);\n    } else {\n      // In human mode or when json is explicitly requested, write directly to stdout",
+      "category": "error-masking",
+      "priority": "high",
+      "reason": "Property access masking - should use proper types"
     }
   ],
   "recommendations": [
-    "🚨 HIGH PRIORITY: 290 assertions are masking type errors and should be fixed immediately",
-    "⚠️  290 assertions are masking type errors - these reduce TypeScript effectiveness",
+    "🚨 HIGH PRIORITY: 344 assertions are masking type errors and should be fixed immediately",
+    "⚠️  344 assertions are masking type errors - these reduce TypeScript effectiveness",
     "🧪 92 assertions in tests - review for proper type alternatives",
-    "🌉 4 assertions for type bridging - consider proper type guards",
+    "🌉 1 assertions for type bridging - consider proper type guards",
     "📋 Start with high priority items, then medium, then low",
     "🔍 Focus on production code before test code",
     "📚 Document any legitimate uses that must remain"

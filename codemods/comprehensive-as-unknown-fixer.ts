@@ -105,6 +105,13 @@ export class ComprehensiveAsUnknownFixer {
     this.fixPromiseReturnPatterns(sourceFile);
     this.fixSimpleVariablePatterns(sourceFile);
     
+    // NEW PHASE 6 patterns for remaining assertions
+    this.fixConstructorCallPatterns(sourceFile);
+    this.fixMockObjectPatterns(sourceFile);
+    this.fixConditionalCheckPatterns(sourceFile);
+    this.fixLogAndResultPatterns(sourceFile);
+    this.fixRemainingSimplePatterns(sourceFile);
+    
     return this.transformations.slice(initialCount);
   }
 
@@ -695,6 +702,238 @@ export class ComprehensiveAsUnknownFixer {
 
     return report;
   }
+
+  /**
+   * PHASE 6: Additional Pattern Methods for Remaining Assertions
+   * Added to handle the specific patterns found in the remaining 102 'as unknown' assertions
+   */
+
+  fixConstructorCallPatterns(sourceFile: SourceFile): void {
+    const candidates: Array<{ node: AsExpression, before: string, after: string }> = [];
+    
+    // First pass: collect transformation candidates
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isAsExpression(node)) {
+        const typeNode = node.getTypeNode();
+        if (typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+          const parent = node.getParent();
+          
+          // Check if direct child of NewExpression or in CallExpression that's part of constructor
+          if (Node.isNewExpression(parent)) {
+            // Direct constructor call: new CommandMapper(mockServer as unknown, ...)
+            const before = node.getText();
+            const after = node.getExpression().getText();
+            candidates.push({ node, before, after });
+          } else if (Node.isCallExpression(parent)) {
+            const grandparent = parent.getParent();
+            const functionName = parent.getExpression().getText();
+            if (Node.isNewExpression(grandparent) || 
+                functionName.includes("Service") ||
+                functionName.includes("Backend") ||
+                functionName.includes("TaskService") ||
+                functionName.includes("GitHubIssuesTaskBackend")) {
+              
+              const before = node.getText();
+              const after = node.getExpression().getText();
+              candidates.push({ node, before, after });
+            }
+          }
+        }
+      }
+    });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "constructor-call-cast",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(after);
+    }
+  }
+
+  fixMockObjectPatterns(sourceFile: SourceFile): void {
+    const candidates: Array<{ node: AsExpression, before: string, after: string }> = [];
+    
+    // First pass: collect transformation candidates
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isAsExpression(node)) {
+        const typeNode = node.getTypeNode();
+        if (typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+          const expression = node.getExpression();
+          const expressionText = expression.getText();
+          
+          if (expressionText.startsWith("mock") || expressionText.includes("Mock")) {
+            const parent = node.getParent();
+            
+            // Handle mock patterns in PropertyAssignment, NewExpression, ParenthesizedExpression, CallExpression
+            if (Node.isPropertyAssignment(parent) || 
+                Node.isNewExpression(parent) ||
+                Node.isParenthesizedExpression(parent) ||
+                Node.isCallExpression(parent)) {
+              
+              const before = node.getText();
+              const after = expressionText;
+              candidates.push({ node, before, after });
+            }
+          }
+        }
+      }
+    });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "mock-object-cast",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(after);
+    }
+  }
+
+
+
+  fixConditionalCheckPatterns(sourceFile: SourceFile): void {
+    const candidates: Array<{ node: AsExpression, before: string, after: string }> = [];
+    
+    // First pass: collect transformation candidates
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isAsExpression(node)) {
+        const typeNode = node.getTypeNode();
+        if (typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+          const parent = node.getParent();
+          
+          // Check direct BinaryExpression parent or through ParenthesizedExpression
+          let binaryParent = parent;
+          if (Node.isParenthesizedExpression(parent)) {
+            binaryParent = parent.getParent();
+          }
+          
+          if (Node.isBinaryExpression(binaryParent) && 
+              binaryParent.getOperatorToken().getKind() === SyntaxKind.InKeyword) {
+            const before = node.getText();
+            const after = node.getExpression().getText();
+            candidates.push({ node, before, after });
+          }
+        }
+      }
+    });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "conditional-check-cast",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(after);
+    }
+  }
+
+  fixLogAndResultPatterns(sourceFile: SourceFile): void {
+    const candidates: Array<{ node: AsExpression, before: string, after: string }> = [];
+    
+    // First pass: collect transformation candidates
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isAsExpression(node)) {
+        const typeNode = node.getTypeNode();
+        if (typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+          const parent = node.getParent();
+          
+          if (Node.isCallExpression(parent)) {
+            const functionText = parent.getExpression().getText();
+            if (functionText.includes("log") || functionText.includes("Log")) {
+              const before = node.getText();
+              const after = node.getExpression().getText();
+              candidates.push({ node, before, after });
+            }
+          }
+        }
+      }
+    });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "log-result-cast",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(after);
+    }
+  }
+
+  fixRemainingSimplePatterns(sourceFile: SourceFile): void {
+    const candidates: Array<{ node: AsExpression, before: string, after: string }> = [];
+    
+    // First pass: collect transformation candidates
+    sourceFile.forEachDescendant((node) => {
+      if (Node.isAsExpression(node)) {
+        const typeNode = node.getTypeNode();
+        if (typeNode?.getKind() === SyntaxKind.UnknownKeyword) {
+          const expression = node.getExpression();
+          const parent = node.getParent();
+          
+          // Only simple identifiers in safe contexts (including ParenthesizedExpression)
+          if (Node.isIdentifier(expression) && 
+              (Node.isVariableDeclaration(parent) || 
+               Node.isReturnStatement(parent) ||
+               Node.isPropertyAssignment(parent) ||
+               Node.isCallExpression(parent) ||
+               Node.isParenthesizedExpression(parent) ||
+               Node.isNewExpression(parent))) {
+            
+            // Skip mock patterns (they're handled by mock pattern method)
+            const expressionText = expression.getText();
+            if (!expressionText.startsWith("mock") && !expressionText.includes("Mock")) {
+              const before = node.getText();
+              const after = expressionText;
+              candidates.push({ node, before, after });
+            }
+          }
+        }
+      }
+    });
+    
+    // Second pass: apply transformations in reverse order
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const { node, before, after } = candidates[i];
+      
+      this.recordTransformation({
+        pattern: "remaining-simple-cast",
+        before,
+        after,
+        line: node.getStartLineNumber(),
+        file: sourceFile.getFilePath()
+      });
+      
+      node.replaceWithText(after);
+    }
+  }
+
+
 }
 
 // CLI execution

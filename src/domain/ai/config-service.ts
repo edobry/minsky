@@ -43,7 +43,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // Create provider config from unified configuration
       return {
-        provider: provider as unknown,
+        provider: provider,
         apiKey,
         baseURL: providerConfig.base_url,
         defaultModel: providerConfig.default_model,
