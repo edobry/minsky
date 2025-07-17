@@ -81,7 +81,29 @@ export async function approveSessionImpl(
     const session = await sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
       throw new ResourceNotFoundError(
-        `No session found for task ${taskIdToUse}`,
+        `🚫 No Session Found for Task ${taskIdToUse}
+
+Task ${taskIdToUse} exists but has no associated session to approve.
+
+💡 Here's what you can do:
+
+1️⃣ Check if the task has a session:
+   minsky session list
+
+2️⃣ Start a session for this task:
+   minsky session start --task ${taskIdToUse}
+
+3️⃣ Or approve a different task that has a session:
+   minsky session list | grep "task:"
+   minsky session approve --task <task-id-with-session>
+
+📋 Current available sessions:
+   Run 'minsky session list' to see which tasks have active sessions.
+
+❓ Need help?
+   • Use 'minsky session start --task ${taskIdToUse}' to create a session
+   • Use 'minsky tasks list' to see all available tasks
+   • Use 'minsky session get --task <id>' to check session details`,
         "task",
         taskIdToUse
       );
@@ -503,51 +525,82 @@ async function cleanupLocalBranches(
   sessionName: string,
   taskId?: string
 ): Promise<void> {
-  // Extract task ID from session name if not provided and session follows task# pattern
-  const taskBranchName = taskId ? taskId.replace("#", "") : sessionName.replace("task#", "");
-
   // Clean up the PR branch (e.g., pr/task#265)
   try {
     await gitService.execInRepository(workingDirectory, `git branch -d ${prBranch}`);
     log.debug(`Successfully deleted local PR branch: ${prBranch}`);
   } catch (error) {
-    // Log but don't fail the operation if branch cleanup fails
-    log.debug(`Failed to delete local PR branch ${prBranch}: ${getErrorMessage(error)}`);
-  }
-
-  // Clean up the task branch (e.g., task#265 or 265)
-  // Try various possible branch name formats
-  const possibleTaskBranches = [];
-
-  // Add sessionName if it looks like a task branch (task#265)
-  if (sessionName && sessionName !== prBranch) {
-    possibleTaskBranches.push(sessionName);
-  }
-
-  // Add numeric version if we have a task ID (265)
-  if (taskBranchName && taskBranchName !== sessionName) {
-    possibleTaskBranches.push(taskBranchName);
-  }
-
-  // Add task prefix version (task265, task#265)
-  if (taskBranchName) {
-    possibleTaskBranches.push(`task${taskBranchName}`);
-    possibleTaskBranches.push(`task#${taskBranchName}`);
-  }
-
-  // Filter out duplicates, empty strings, PR branch, and invalid branch names
-  const uniqueBranches = [...new Set(possibleTaskBranches)].filter(
-    branch => branch && branch !== prBranch && !branch.startsWith("#")
-  );
-
-  for (const branch of uniqueBranches) {
-    try {
-      await gitService.execInRepository(workingDirectory, `git branch -d ${branch}`);
-      log.debug(`Successfully deleted local task branch: ${branch}`);
-      break; // Stop after first successful deletion
-    } catch (error) {
-      // Log but continue trying other branch names
-      log.debug(`Failed to delete local task branch ${branch}: ${getErrorMessage(error)}`);
+    // Check if it's because branch is not fully merged
+    const errorMessage = getErrorMessage(error);
+    if (errorMessage.includes("not fully merged")) {
+      // Try force delete
+      try {
+        await gitService.execInRepository(workingDirectory, `git branch -D ${prBranch}`);
+        log.debug(`Successfully force-deleted local PR branch: ${prBranch}`);
+      } catch (forceError) {
+        log.debug(`Failed to force-delete local PR branch ${prBranch}: ${getErrorMessage(forceError)}`);
+      }
+    } else {
+      log.debug(`Failed to delete local PR branch ${prBranch}: ${errorMessage}`);
     }
+  }
+
+  // For task branches, be smarter about which ones to try
+  // First, check what branches actually exist locally
+  try {
+    const allBranchesOutput = await gitService.execInRepository(workingDirectory, "git branch --format=\"%(refname:short)\"");
+    const existingBranches: string[] = allBranchesOutput.split("\n").map(b => b.trim()).filter(b => b && b !== prBranch);
+
+    // Extract task ID from session name if not provided and session follows task# pattern
+    const taskBranchName = taskId ? taskId.replace("#", "") : sessionName.replace("task#", "");
+
+    // Build list of possible task branch names
+    const possibleTaskBranches: string[] = [];
+
+    // Add sessionName if it looks like a task branch and exists
+    if (sessionName && sessionName !== prBranch && existingBranches.includes(sessionName)) {
+      possibleTaskBranches.push(sessionName);
+    }
+
+    // Add numeric version if it exists
+    if (taskBranchName && taskBranchName !== sessionName && existingBranches.includes(taskBranchName)) {
+      possibleTaskBranches.push(taskBranchName);
+    }
+
+    // Add task prefix versions if they exist
+    if (taskBranchName) {
+      const taskVariants: string[] = [`task${taskBranchName}`, `task#${taskBranchName}`];
+      for (const variant of taskVariants) {
+        if (variant !== sessionName && existingBranches.includes(variant)) {
+          possibleTaskBranches.push(variant);
+        }
+      }
+    }
+
+    // Only try to delete branches that actually exist
+    for (const branch of possibleTaskBranches) {
+      try {
+        await gitService.execInRepository(workingDirectory, `git branch -d ${branch}`);
+        log.debug(`Successfully deleted local task branch: ${branch}`);
+        break; // Stop after first successful deletion
+      } catch (error) {
+        const errorMessage = getErrorMessage(error);
+        if (errorMessage.includes("not fully merged")) {
+          // Try force delete
+          try {
+            await gitService.execInRepository(workingDirectory, `git branch -D ${branch}`);
+            log.debug(`Successfully force-deleted local task branch: ${branch}`);
+            break; // Stop after successful force deletion
+          } catch (forceError) {
+            log.debug(`Failed to force-delete local task branch ${branch}: ${getErrorMessage(forceError)}`);
+          }
+        } else {
+          log.debug(`Failed to delete local task branch ${branch}: ${errorMessage}`);
+        }
+      }
+    }
+  } catch (listError) {
+    // If we can't list branches, fall back to trying common patterns (but only warn, don't error)
+    log.debug(`Could not list local branches for cleanup: ${getErrorMessage(listError)}`);
   }
 }
