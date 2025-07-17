@@ -62,18 +62,37 @@ export function createSessionTestData(): SessionTestData {
   ];
 
   const mockSessionDB = {
-    findAll: jest.fn().mockResolvedValue(mockSessions),
-    findByName: jest.fn().mockImplementation((name: string) => {
-      return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
-    }),
-    findByTaskId: jest.fn().mockImplementation((taskId: string) => {
-      return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
-    }),
-    findByRepoPath: jest.fn().mockImplementation((repoPath: string) => {
-      return Promise.resolve(mockSessions.find((s) => s.repoPath === repoPath) || null);
-    }),
-    save: jest.fn().mockResolvedValue(undefined),
+    findAll: createMock(),
+    findByName: createMock(),
+    findByTaskId: createMock(),
+    findByRepoPath: createMock(),
+    save: createMock(),
+    getSessionByTaskId: createMock(),
+    getSession: createMock(),
+    getSessionWorkdir: createMock(),
   } as unknown as SessionProviderInterface;
+
+  // Set up mock implementations manually to avoid type issues
+  mockSessionDB.findAll.mockResolvedValue(mockSessions);
+  mockSessionDB.findByName.mockImplementation((name: string) => {
+    return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
+  });
+  mockSessionDB.findByTaskId.mockImplementation((taskId: string) => {
+    return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
+  });
+  mockSessionDB.findByRepoPath.mockImplementation((repoPath: string) => {
+    return Promise.resolve(mockSessions.find((s) => s.repoPath === repoPath) || null);
+  });
+  mockSessionDB.save.mockResolvedValue(undefined);
+  mockSessionDB.getSessionByTaskId.mockImplementation((taskId: string) => {
+    return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
+  });
+  mockSessionDB.getSession.mockImplementation((name: string) => {
+    return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
+  });
+  mockSessionDB.getSessionWorkdir.mockImplementation((sessionName: string) => {
+    return Promise.resolve(join(tempDir, sessionName));
+  });
 
   return {
     mockSessionDB,
@@ -90,22 +109,22 @@ export async function cleanupSessionTestData(tempDir: string): Promise<void> {
 
 export function createGitServiceMock(): GitServiceInterface {
   return {
-    getCurrentBranch: jest.fn().mockResolvedValue("main"),
-    getRemoteUrl: jest.fn().mockResolvedValue("https://github.com/edobry/minsky"),
-    getRepoPath: jest.fn().mockResolvedValue("/Users/edobry/Projects/minsky"),
-    clone: jest.fn().mockResolvedValue(undefined),
-    checkout: jest.fn().mockResolvedValue(undefined),
-    createBranch: jest.fn().mockResolvedValue(undefined),
-    push: jest.fn().mockResolvedValue(undefined),
-    pull: jest.fn().mockResolvedValue(undefined),
-    merge: jest.fn().mockResolvedValue(undefined),
-    getStatus: jest.fn().mockResolvedValue({ hasChanges: false, changes: [] }),
-    add: jest.fn().mockResolvedValue(undefined),
-    commit: jest.fn().mockResolvedValue(undefined),
-    reset: jest.fn().mockResolvedValue(undefined),
-    stash: jest.fn().mockResolvedValue(undefined),
-    stashPop: jest.fn().mockResolvedValue(undefined),
-    getCommitHash: jest.fn().mockResolvedValue("abc123"),
+    getCurrentBranch: createMock().mockResolvedValue("main"),
+    getRemoteUrl: createMock().mockResolvedValue("https://github.com/edobry/minsky"),
+    getRepoPath: createMock().mockResolvedValue("/Users/edobry/Projects/minsky"),
+    clone: createMock().mockResolvedValue(undefined),
+    checkout: createMock().mockResolvedValue(undefined),
+    createBranch: createMock().mockResolvedValue(undefined),
+    push: createMock().mockResolvedValue(undefined),
+    pull: createMock().mockResolvedValue(undefined),
+    merge: createMock().mockResolvedValue(undefined),
+    getStatus: createMock().mockResolvedValue({ hasChanges: false, changes: [] }),
+    add: createMock().mockResolvedValue(undefined),
+    commit: createMock().mockResolvedValue(undefined),
+    reset: createMock().mockResolvedValue(undefined),
+    stash: createMock().mockResolvedValue(undefined),
+    stashPop: createMock().mockResolvedValue(undefined),
+    getCommitHash: createMock().mockResolvedValue("abc123"),
   } as unknown as GitServiceInterface;
 }
 
