@@ -1,6 +1,18 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
+
+// Mock logger
+const mockLog = {
+  debug: mock(() => {}),
+  info: mock(() => {}),
+  warn: mock(() => {}),
+  error: mock(() => {})
+};
+
+mock.module("../utils/logger", () => ({
+  log: mockLog
+}));
 
 // Set up automatic mock cleanup
 setupTestMocks();

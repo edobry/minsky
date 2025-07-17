@@ -18,7 +18,7 @@ mock.module("fs/promises", () => ({
 }));
 
 // Mock SessionPathResolver
-mock.module("../session-files", () => ({
+mock.module("../../../src/adapters/mcp/session-files", () => ({
   SessionPathResolver: mock(() => ({
     resolvePath: mock(),
     validatePathExists: mock(),

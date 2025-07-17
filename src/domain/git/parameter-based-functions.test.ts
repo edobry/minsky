@@ -35,6 +35,13 @@ mockModule("../../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
 
+// Mock node:child_process exec to prevent real git commands
+const mockExec = createMock() as any;
+mockModule("node:child_process", () => ({
+  exec: mockExec,
+  promisify: (fn: any) => mockExecAsync, // Return our mock when promisify is called on exec
+}));
+
 describe("Parameter-Based Git Functions", () => {
   beforeEach(() => {
     // CRITICAL: Mock GitService methods to prevent real git commands
