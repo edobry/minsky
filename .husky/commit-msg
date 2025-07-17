@@ -3,3 +3,6 @@
 
 # Validate commit message format and prevent placeholder messages
 bun scripts/validate-commit-message.ts "$1"
+
+# Check for title duplication in commit messages
+bun scripts/check-title-duplication.ts "$1"

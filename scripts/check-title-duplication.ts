@@ -1,244 +1,127 @@
 #!/usr/bin/env bun
 /**
- * Title Duplication Checker
- * Checks staged files for title duplication patterns in PR descriptions and commit messages
- * Uses the same validation logic as the session PR workflow
+ * Title Duplication Checker for Commit Messages
+ * Validates commit messages to prevent title duplication in body
+ * Reuses validation logic from session PR workflow
+ * 
+ * NOTE: This duplicates validation logic from src/domain/session/pr-validation.ts
+ * due to import complexity in bun scripts. Keep in sync when logic changes.
  */
 
-import { execSync } from "child_process";
-import { readFileSync, existsSync } from "fs";
-
-interface ValidationResult {
-  file: string;
-  issues: string[];
-}
+import { readFileSync } from "fs";
 
 /**
  * Checks if a string appears to be a duplicate of another string
- * with different formatting (reused from pr-validation.ts)
+ * with different formatting (duplicated from pr-validation.ts)
  */
 function isDuplicateContent(content1: string, content2: string): boolean {
-  if (!content1 || !content2) return false;
-
   // Normalize both strings for comparison
-  const normalize = (str: string) => 
-    str.trim().toLowerCase().replace(/\s+/g, " ");
+  const normalize = (str: string) =>
+    str
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ") // Replace punctuation with spaces
+      .replace(/\s+/g, " ") // Collapse multiple spaces
+      .trim();
 
-  return normalize(content1) === normalize(content2);
+  const normalized1 = normalize(content1);
+  const normalized2 = normalize(content2);
+
+  // Check if one is contained in the other (accounting for minor differences)
+  return normalized1.includes(normalized2) || normalized2.includes(normalized1);
 }
 
 /**
- * Validates PR title and body to prevent duplication patterns
- * (reused from pr-validation.ts)
+ * Validates PR content for title duplication issues (duplicated from pr-validation.ts)
  */
-function validatePrContent(title: string, body?: string): {
-  isValid: boolean;
-  errors: string[];
-  sanitizedBody?: string;
-} {
-  const errors: string[] = [];
-  let sanitizedBody = body;
-
-  if (!title.trim()) {
-    errors.push("PR title cannot be empty");
-    return { isValid: false, errors };
-  }
-
-  // Check if body starts with the title (duplication pattern)
-  if (body && body.trim()) {
-    const bodyLines = body.trim().split("\n");
-    const firstBodyLine = bodyLines[0]?.trim();
-
-    if (firstBodyLine === title.trim()) {
-      // Remove the duplicated title from body
-      sanitizedBody = bodyLines.slice(1).join("\n").trim();
-      console.log(`⚠️  Detected duplicate title in body: "${firstBodyLine}"`);
-    }
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors,
-    sanitizedBody,
-  };
-}
-
-function getStagedFiles(): string[] {
-  try {
-    const output = execSync("git diff --cached --name-only", { encoding: "utf8" });
-    return output.trim().split("\n").filter(Boolean);
-  } catch (error) {
-    console.error("Failed to get staged files:", error);
-    return [];
-  }
-}
-
-function checkPrDescriptionFile(filePath: string): string[] {
+function validatePrContent(title: string, body: string): string[] {
   const issues: string[] = [];
-  
-  try {
-    const content = readFileSync(filePath, "utf8");
-    const lines = content.trim().split("\n");
-    
-    if (lines.length < 2) return issues;
-    
-    const title = lines[0]?.trim();
-    const body = lines.slice(1).join("\n").trim();
-    
-    if (!title) return issues;
-    
-    // Use our existing validation logic
-    const validation = validatePrContent(title, body);
-    
-    if (!validation.isValid) {
-      issues.push(...validation.errors);
-    }
-    
-    // Additional check: if sanitized body is different, there was duplication
-    if (validation.sanitizedBody !== undefined && validation.sanitizedBody !== body) {
-      issues.push(`Title duplication detected: "${title}" appears both as title and first line of body`);
-    }
-    
-    // Check for title repeated multiple times in body
-    if (body) {
-      const bodyLines = body.split("\n");
-      let duplicateCount = 0;
-      
-      for (const line of bodyLines) {
-        if (line.trim() && isDuplicateContent(line, title)) {
-          duplicateCount++;
-        }
-      }
-      
-      if (duplicateCount > 1) {
-        issues.push(`Title "${title}" appears ${duplicateCount} times in the body (should appear 0 times)`);
-      }
-    }
-    
-  } catch (error) {
-    issues.push(`Failed to read file: ${error}`);
+
+  if (!title?.trim() || !body?.trim()) {
+    return issues; // Skip validation if either is empty
   }
-  
+
+  const lines = body.trim().split("\n");
+  const firstLine = lines[0]?.trim();
+
+  // Check if title appears as first line of body
+  if (firstLine && isDuplicateContent(title.trim(), firstLine)) {
+    issues.push(`Title "${title.trim()}" appears to be duplicated as the first line of the body: "${firstLine}"`);
+  }
+
   return issues;
 }
 
-function checkMarkdownFile(filePath: string): string[] {
-  const issues: string[] = [];
-  
-  try {
-    const content = readFileSync(filePath, "utf8");
-    
-    // Look for PR description patterns in markdown files
-    const prSectionMatch = content.match(/^#\s+(.+?)$/m);
-    if (!prSectionMatch) return issues;
-    
-    const title = prSectionMatch[1]?.trim();
-    if (!title) return issues;
-    
-    // Extract content after the title
-    const titleIndex = content.indexOf(prSectionMatch[0]);
-    const afterTitle = content.slice(titleIndex + prSectionMatch[0].length).trim();
-    
-    if (afterTitle) {
-      const validation = validatePrContent(title, afterTitle);
-      
-      if (!validation.isValid) {
-        issues.push(...validation.errors.map(err => `In markdown section: ${err}`));
-      }
-      
-      if (validation.sanitizedBody !== undefined && validation.sanitizedBody !== afterTitle) {
-        issues.push(`Title duplication in markdown: "${title}" appears in both heading and content`);
-      }
-    }
-    
-  } catch (error) {
-    issues.push(`Failed to read markdown file: ${error}`);
-  }
-  
-  return issues;
-}
-
-function checkCommitMessage(): string[] {
-  const issues: string[] = [];
-  
-  try {
-    // Check if we're in a commit context by looking for COMMIT_EDITMSG
-    const commitMsgPath = ".git/COMMIT_EDITMSG";
-    if (!existsSync(commitMsgPath)) return issues;
-    
-    const content = readFileSync(commitMsgPath, "utf8");
-    const lines = content.trim().split("\n").filter(line => !line.startsWith("#"));
-    
-    if (lines.length < 2) return issues;
-    
-    const title = lines[0]?.trim();
-    const body = lines.slice(1).join("\n").trim();
-    
-    if (!title || !body) return issues;
-    
-    const validation = validatePrContent(title, body);
-    
-    if (!validation.isValid) {
-      issues.push(...validation.errors.map(err => `In commit message: ${err}`));
-    }
-    
-    if (validation.sanitizedBody !== undefined && validation.sanitizedBody !== body) {
-      issues.push(`Commit message title duplication: "${title}" appears in both subject and body`);
-    }
-    
-  } catch (error) {
-    // Silently ignore if we can't read commit message (not in commit context)
-  }
-  
-  return issues;
-}
-
+/**
+ * Main function to check commit message
+ */
 function main(): void {
-  console.log("🔍 Checking for title duplication patterns...");
+  const commitMsgFile = process.argv[2];
   
-  const stagedFiles = getStagedFiles();
-  const results: ValidationResult[] = [];
-  
-  // Check staged files for potential PR description patterns
-  for (const file of stagedFiles) {
-    const issues: string[] = [];
-    
-    if (file.endsWith("/pr.md") || file.includes("pr-description") || file.includes("pull-request")) {
-      issues.push(...checkPrDescriptionFile(file));
-    } else if (file.endsWith(".md") && (file.includes("task") || file.includes("spec"))) {
-      issues.push(...checkMarkdownFile(file));
-    }
-    
-    if (issues.length > 0) {
-      results.push({ file, issues });
-    }
+  if (!commitMsgFile) {
+    console.error("Usage: bun check-title-duplication.ts <commit-msg-file>");
+    process.exit(1);
   }
-  
-  // Check commit message if we're in a commit context
-  const commitIssues = checkCommitMessage();
-  if (commitIssues.length > 0) {
-    results.push({ file: "commit message", issues: commitIssues });
+
+  let commitMessage: string;
+  try {
+    commitMessage = readFileSync(commitMsgFile, "utf-8").trim();
+  } catch (error) {
+    console.error(`Error reading commit message file: ${error}`);
+    process.exit(1);
   }
-  
-  // Report results
-  if (results.length === 0) {
-    console.log("✅ No title duplication patterns found!");
+
+  if (!commitMessage) {
+    console.log("✅ Empty commit message, skipping title duplication check");
     process.exit(0);
   }
+
+  // Parse commit message into title and body
+  const lines = commitMessage.split("\n");
+  const title = lines[0]?.trim();
   
-  console.log("❌ Title duplication issues found:");
-  console.log("");
-  
-  for (const result of results) {
-    console.log(`📄 ${result.file}:`);
-    for (const issue of result.issues) {
-      console.log(`   • ${issue}`);
-    }
-    console.log("");
+  // Body starts after the first blank line (standard git commit format)
+  let bodyStartIndex = 1;
+  while (bodyStartIndex < lines.length && lines[bodyStartIndex]?.trim() === "") {
+    bodyStartIndex++;
   }
   
-  console.log("💡 Please fix these title duplication issues before committing.");
-  console.log("   The same logic used by the session PR workflow will detect and prevent these patterns.");
+  const body = lines.slice(bodyStartIndex).join("\n").trim();
+
+  if (!title) {
+    console.log("✅ No title found, skipping title duplication check");
+    process.exit(0);
+  }
+
+  if (!body) {
+    console.log("✅ No body found, skipping title duplication check");
+    process.exit(0);
+  }
+
+  // Use the same validation logic as session PR workflow
+  const issues = validatePrContent(title, body);
+
+  if (issues.length === 0) {
+    console.log("✅ No title duplication found in commit message");
+    process.exit(0);
+  }
+
+  console.log("❌ Title duplication detected in commit message:");
+  console.log("");
+  
+  for (const issue of issues) {
+    console.log(`   • ${issue}`);
+  }
+  
+  console.log("");
+  console.log("💡 Please fix the title duplication before committing.");
+  console.log("   Example:");
+  console.log("   Instead of:");
+  console.log("     Title: fix: Fix user authentication bug");
+  console.log("     Body:  Fix user authentication bug");
+  console.log("");
+  console.log("   Use:");
+  console.log("     Title: fix: Fix user authentication bug");
+  console.log("     Body:  Resolves issue where users couldn't log in...");
   
   process.exit(1);
 }
