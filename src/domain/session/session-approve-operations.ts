@@ -181,8 +181,66 @@ export async function approveSessionImpl(
 
   try {
     // Execute git commands to merge the PR branch in the main repository
+
+    // First, check for uncommitted changes before attempting git operations
+    try {
+      const statusOutput = await deps.gitService.execInRepository(workingDirectory, "git status --porcelain");
+      const hasUncommittedChanges = statusOutput.trim().length > 0;
+
+      if (hasUncommittedChanges) {
+        // Get detailed status for user guidance
+        const fullStatus = await deps.gitService.execInRepository(workingDirectory, "git status");
+
+        throw new MinskyError(`
+🚫 Cannot approve session with uncommitted changes
+
+You have uncommitted changes in your working directory that need to be handled first.
+
+${fullStatus}
+
+💡 To fix this, choose one of these options:
+
+📝 Commit your changes:
+   git add .
+   git commit -m "Your commit message"
+
+📦 Stash your changes temporarily:
+   git stash
+
+🗑️  Or discard your changes (be careful!):
+   git reset --hard HEAD
+
+Then try the session approve command again.
+        `.trim());
+      }
+    } catch (statusError) {
+      // If we can't check status, continue but might fail later with less friendly error
+      log.debug("Could not check git status before approval", { error: getErrorMessage(statusError) });
+    }
+
     // First, check out the base branch
-    await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
+    try {
+      await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
+    } catch (checkoutError) {
+      const errorMessage = getErrorMessage(checkoutError);
+      if (errorMessage.includes("would be overwritten") || errorMessage.includes("uncommitted changes")) {
+        throw new MinskyError(`
+🚫 Cannot switch to ${baseBranch} branch due to uncommitted changes
+
+${errorMessage}
+
+💡 Please commit or stash your changes first:
+   git add .
+   git commit -m "Your commit message"
+   # OR
+   git stash
+
+Then try the session approve command again.
+        `.trim());
+      }
+      throw checkoutError;
+    }
+
     // Fetch latest changes
     await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
 
@@ -248,8 +306,25 @@ export async function approveSessionImpl(
         await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
 
       } catch (mergeError) {
-        // Merge failed - check if it's because already merged
+        // Merge failed - check if it's because already merged or other issues
         const errorMessage = getErrorMessage(mergeError as Error);
+
+        // Check for uncommitted changes causing merge failure
+        if (errorMessage.includes("would be overwritten") || errorMessage.includes("uncommitted changes")) {
+          throw new MinskyError(`
+🚫 Cannot merge PR branch due to uncommitted changes
+
+${errorMessage}
+
+💡 Please commit or stash your changes first:
+   git add .
+   git commit -m "Your commit message"
+   # OR
+   git stash
+
+Then try the session approve command again.
+          `.trim());
+        }
 
         if (errorMessage.includes("Already up to date") || errorMessage.includes("nothing to commit")) {
           // PR branch has already been merged
@@ -353,8 +428,8 @@ export async function approveSessionImpl(
               // Stage the tasks.md file (or any other changed files from task status update)
               await deps.gitService.execInRepository(workingDirectory, "git add process/tasks.md");
 
-              // Commit the task status update
-              await deps.gitService.execInRepository(workingDirectory, `git commit -m "Update task ${taskId} status to DONE"`);
+              // Commit the task status update with conventional commits format
+              await deps.gitService.execInRepository(workingDirectory, `git commit -m "chore(${taskId}): update task status to DONE"`);
 
               // Push the commit
               await deps.gitService.execInRepository(workingDirectory, "git push");
@@ -451,4 +526,4 @@ async function cleanupLocalBranches(
       log.debug(`Failed to delete local task branch ${branch}: ${getErrorMessage(error)}`);
     }
   }
-} 
+}

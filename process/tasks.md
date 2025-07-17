@@ -506,5 +506,9 @@
 <<<<<<< HEAD
 =======
 
+<<<<<<< HEAD
 - [ ] Integrate Task Graph System with Workflow Orchestration [#284](/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/temp-task-integrate-task-graph-system-with-workflow-orchestration-1752698904125.md)
+>>>>>>> origin/main
+=======
+- [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
 >>>>>>> origin/main

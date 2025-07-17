@@ -1764,8 +1764,8 @@ export async function approveSessionFromParams(
               // Stage the tasks.md file (or any other changed files from task status update)
               await deps.gitService.execInRepository(workingDirectory, "git add process/tasks.md");
 
-              // Commit the task status update
-              await deps.gitService.execInRepository(workingDirectory, `git commit -m "Update task ${taskId} status to DONE"`);
+              // Commit the task status update with conventional commits format
+              await deps.gitService.execInRepository(workingDirectory, `git commit -m "chore(${taskId}): update task status to DONE"`);
 
               // Push the commit
               await deps.gitService.execInRepository(workingDirectory, "git push");
