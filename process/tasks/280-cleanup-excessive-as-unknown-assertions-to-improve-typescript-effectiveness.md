@@ -6,7 +6,7 @@ COMPLETED - PHASE 5: COMPREHENSIVE CODEMOD FRAMEWORK PRODUCTION SUCCESS - 95.5% 
 
 ## Priority
 
-HIGH - Systematic cleanup successfully completed with comprehensive framework
+HIGH - Leveraging task #061 individual service mock factories to eliminate remaining patterns
 
 ## Description
 
@@ -293,3 +293,54 @@ COMPLETED - This technical debt has been systematically addressed with exception
 **Final Achievement**: Reduced from 2,495 original assertions to 113 final count (95.5% reduction) with comprehensive test-driven codemod framework successfully applied to production. User feedback successfully integrated to create proper consolidation approach following development standards. Complete task delivery with framework tested, applied, and all changes committed/pushed.
 
 Target exceeded: Original 50% target achieved 95.5% reduction with production-validated comprehensive framework. Task completed with exceptional results, proper methodology following user guidance, and complete delivery including production application and version control.
+
+CONTINUING - PHASE 6: AGGRESSIVE FINAL CLEANUP USING TASK #061 MOCK FACTORIES
+
+## Priority
+
+HIGH - Leveraging task #061 individual service mock factories to eliminate remaining patterns
+
+## Phase 6 - Integration with Task #061 Mock Factory Patterns
+
+**BREAKTHROUGH DISCOVERY**: Task #061 individual service mock factories provide the perfect solution to eliminate remaining `as unknown` patterns in tests.
+
+### Current State (Post-Integration)
+- **90 'as unknown' assertions remaining** (down from 246+)
+- **Task #061 successfully integrated** with new mock factory patterns
+- **Clear solution identified** for remaining test patterns
+
+### Key Problem and Solution Identified
+
+**PROBLEM**: Tests using old patterns requiring `as unknown` casts:
+```typescript
+const mockDeps = {
+  execAsync: createMock() as unknown,
+  getSession: createMock(() => Promise.resolve(null)) as unknown,
+  getSessionWorkdir: createMock() as unknown,
+};
+```
+
+**SOLUTION**: New task #061 individual service factories with proper typing:
+```typescript
+const mockDeps = createMockSessionProvider({
+  getSession: () => Promise.resolve(null)
+});
+// No 'as unknown' needed - proper typing built-in!
+```
+
+### Available Mock Factories (from Task #061)
+- `createMockGitService(options?: MockGitServiceOptions)`
+- `createMockTaskService(options?: MockTaskServiceOptions)`  
+- `createMockSessionProvider(options?: MockSessionProviderOptions)`
+- `createTestDeps()`, `createSessionTestDeps()`, `createTaskTestDeps()`
+
+### Targeted Files for Cleanup
+- `src/domain/__tests__/git-pr-workflow.test.ts` - 13+ patterns identified
+- `src/domain/__tests__/tasks.test.ts` - mock service patterns
+- `src/utils/test-utils/mocking.ts` - double cast pattern in mockFunction
+
+### Next Steps
+1. **Systematic replacement** of old `createMock() as unknown` patterns
+2. **Update test imports** to use new factory patterns  
+3. **Verify type safety** - no more forced compatibility with `as unknown`
+4. **Final count verification** and documentation
