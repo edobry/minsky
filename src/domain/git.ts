@@ -1224,7 +1224,7 @@ export async function pushFromParams(params: {
  * @param options Optional configuration options for the git service
  * @returns A GitServiceInterface implementation
  */
-export function createGitService(options?: { baseDir?: string }): GitServiceInterface {
+export function createGitService(options?: { baseDir?: string } | null): GitServiceInterface {
   return new GitService(options?.baseDir);
 }
 

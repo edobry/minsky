@@ -5,7 +5,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
-import { SessionRecord } from "./session-db";
+import { SessionRecord, SessionDbState } from "./session-db";
 import { getErrorMessage } from "../../errors";
 import { log } from "../../utils/logger";
 import { getMinskyStateDir, getDefaultJsonDbPath } from "../../utils/paths";
@@ -21,23 +21,23 @@ export interface SessionDbFileOptions {
 /**
  * Read sessions from the database file
  */
-export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionRecord[] {
+export function readSessionDbFile(options: SessionDbFileOptions | undefined | null = {}): SessionDbState {
   const stateDir = getMinskyStateDir();
   const dbPath = options!?.dbPath || getDefaultJsonDbPath();
   const baseDir = options!?.baseDir || stateDir;
 
   try {
     if (!existsSync(dbPath)) {
-      return [];
+      return { sessions: [], baseDir };
     }
 
     const data = readFileSync(dbPath, "utf8") as string;
     const sessions = JSON.parse(data);
 
-    return sessions;
+    return { sessions, baseDir };
   } catch (error) {
     log.error(`Error reading session database: ${getErrorMessage(error as any)}`);
-    return [];
+    return { sessions: [], baseDir };
   }
 }
 
@@ -46,7 +46,7 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionRe
  */
 export async function writeSessionsToFile(
   sessions: SessionRecord[],
-  options?: SessionDbFileOptions
+  options?: SessionDbFileOptions | null
 ): Promise<void> {
   const stateDir = getMinskyStateDir();
   const dbPath = options!?.dbPath || getDefaultJsonDbPath();

@@ -210,7 +210,7 @@ describe("interface-agnostic task functions", () => {
     test("should throw ValidationError when status is invalid", async () => {
       const params = {
         taskId: "#TEST_VALUE",
-        status: "INVALID-STATUS" as unknown,
+        status: "INVALID-STATUS" as any,
         backend: "markdown",
       };
 
