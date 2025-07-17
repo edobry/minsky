@@ -12,35 +12,35 @@ import {
   type SessionProviderInterface
 } from "./session";
 import { type GitServiceInterface } from "./git";
+import { createMockSessionProvider, createMockGitService } from "../utils/test-utils/index";
 
-// Mock implementations
-const createMockSessionDB = () => {
+// Mock session DB helper for this specific test's needs
+const createMockSessionDBWithHelpers = () => {
   const sessions = new Map<string, any>();
   
-  return {
-    listSessions: () => Promise.resolve([]),
+  const mockSessionDB = createMockSessionProvider({
     getSession: (sessionName: string) => Promise.resolve(sessions.get(sessionName) || null),
-    getSessionByTaskId: () => Promise.resolve(null),
-    addSession: (record: any) => Promise.resolve(),
-    updateSession: (sessionName: string, updates: any) => {
-      const existing = sessions.get(sessionName) || {};
-      sessions.set(sessionName, { ...existing, ...updates });
-      return Promise.resolve();
-    },
-    deleteSession: () => Promise.resolve(true),
-    getRepoPath: () => Promise.resolve("/test/repo"),
-    getSessionWorkdir: () => Promise.resolve("/test/workdir"),
-    // Helper to set initial session data
-    _setSession: (sessionName: string, data: any) => {
-      sessions.set(sessionName, data);
-    }
+  });
+  
+  // Override updateSession with custom logic for this test
+  (mockSessionDB as any).updateSession = (sessionName: string, updates: any) => {
+    const existing = sessions.get(sessionName) || {};
+    sessions.set(sessionName, { ...existing, ...updates });
+    return Promise.resolve();
   };
+  
+  // Add helper method for test setup
+  (mockSessionDB as any)._setSession = (sessionName: string, data: any) => {
+    sessions.set(sessionName, data);
+  };
+  
+  return mockSessionDB;
 };
 
-const createMockGitService = (branchExists: boolean = true) => {
+const createMockGitServiceWithCallTracking = (branchExists: boolean = true) => {
   let gitCallCount = 0;
   
-  return {
+  const mockGitService = createMockGitService({
     execInRepository: (workdir: string, command: string) => {
       gitCallCount++;
       if (command.includes("show-ref") && command.includes("pr/")) {
@@ -51,9 +51,13 @@ const createMockGitService = (branchExists: boolean = true) => {
       }
       return Promise.resolve("");
     },
-    getGitCallCount: () => gitCallCount,
-    resetGitCallCount: () => { gitCallCount = 0; }
-  };
+  });
+  
+  // Add call tracking methods
+  (mockGitService as any).getGitCallCount = () => gitCallCount;
+  (mockGitService as any).resetGitCallCount = () => { gitCallCount = 0; };
+  
+  return mockGitService;
 };
 
 describe("PR State Optimization (Task #275)", () => {
@@ -61,8 +65,8 @@ describe("PR State Optimization (Task #275)", () => {
   let mockGitService: any;
   
   beforeEach(() => {
-    mockSessionDB = createMockSessionDB();
-    mockGitService = createMockGitService(true);
+    mockSessionDB = createMockSessionDBWithHelpers();
+    mockGitService = createMockGitServiceWithCallTracking(true);
   });
 
   describe("checkPrBranchExistsOptimized", () => {

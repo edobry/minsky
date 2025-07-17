@@ -9,7 +9,8 @@ import { startSessionFromParams, type SessionProviderInterface } from "./session
 import type { TaskServiceInterface } from "./tasks";
 import type { GitServiceInterface } from "./git";
 import type { WorkspaceUtilsInterface } from "./workspace";
-import { createPartialMock, createMock } from "../utils/test-utils/mocking";
+import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/dependencies";
 
 describe("Session Auto-Task Creation", () => {
   let mockSessionDB: SessionProviderInterface;
@@ -20,24 +21,25 @@ describe("Session Auto-Task Creation", () => {
   let createTaskFromTitleAndDescriptionSpy: any;
 
   beforeEach(() => {
-    // Create spy for the method we want to track
-    createTaskFromTitleAndDescriptionSpy = createMock((title: string, description: string) => Promise.resolve({
+    // Create spy for the method we want to track using createMock for proper Bun test tracking
+    createTaskFromTitleAndDescriptionSpy = createMock();
+    createTaskFromTitleAndDescriptionSpy.mockImplementation((title: string, description: string) => Promise.resolve({
       id: "#001",
       title,
       description,
       status: "TODO",
     }));
 
-    // Mock session database
-    mockSessionDB = createPartialMock<SessionProviderInterface>({
+    // Mock session database using centralized factory
+    mockSessionDB = createMockSessionProvider({
       getSession: () => Promise.resolve(null),
       addSession: () => Promise.resolve(void 0),
       listSessions: () => Promise.resolve([]),
       deleteSession: () => Promise.resolve(true),
     });
 
-    // Mock git service
-    mockGitService = createPartialMock<GitServiceInterface>({
+    // Mock git service using centralized factory
+    mockGitService = createMockGitService({
       clone: () => Promise.resolve({
         session: "test-session",
         repoUrl: "test-repo",
@@ -45,20 +47,17 @@ describe("Session Auto-Task Creation", () => {
         branch: "test-session",
         workdir: "/test/workdir",
       }),
-      branchWithoutSession: () => Promise.resolve({
-        branch: "test-session",
-        workdir: "/test/workdir",
-      }),
     });
 
-    // Mock task service with auto-creation functionality
-    mockTaskService = createPartialMock<TaskServiceInterface>({
+    // Add the branchWithoutSession method that's not in our centralized factory
+    (mockGitService as any).branchWithoutSession = () => Promise.resolve({
+      branch: "test-session",
+      workdir: "/test/workdir",
+    });
+
+    // Mock task service using centralized factory
+    mockTaskService = createMockTaskService({
       createTaskFromTitleAndDescription: createTaskFromTitleAndDescriptionSpy,
-      getTask: () => Promise.resolve({
-        id: "#001",
-        title: "Test Task",
-        status: "TODO",
-      }),
       setTaskStatus: () => Promise.resolve(void 0),
       listTasks: () => Promise.resolve([]),
       getTaskStatus: () => Promise.resolve("TODO"),
@@ -72,7 +71,14 @@ describe("Session Auto-Task Creation", () => {
       getBackendForTask: () => Promise.resolve("markdown"),
     });
 
-    // Mock workspace utils
+    // Add the getTask method that's not in our centralized factory
+    (mockTaskService as any).getTask = () => Promise.resolve({
+      id: "#001",
+      title: "Test Task",
+      status: "TODO",
+    });
+
+    // Mock workspace utils using createPartialMock since we don't have a centralized factory for this
     mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
       isSessionWorkspace: () => false,
     });
