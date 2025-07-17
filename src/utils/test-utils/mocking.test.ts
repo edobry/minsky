@@ -10,7 +10,7 @@ describe("Mocking Utilities", () => {
     const mockFn = createMock((arg: unknown) => `Hello, ${arg}!`);
 
     // Should work as a function
-    expect((mockFn as unknown)("World")).toBe("Hello, World!");
+    expect(mockFn("World")).toBe("Hello, World!");
 
     // Should track calls
     expect(mockFn.mock.calls.length).toBe(1);
@@ -21,7 +21,7 @@ describe("Mocking Utilities", () => {
   test("createMock without implementation returns a mock that returns undefined", () => {
     const mockFn = createMock();
 
-    expect((mockFn as unknown)()).toBeUndefined();
+    expect(mockFn()).toBeUndefined();
     expect(mockFn.mock.calls.length).toBe(1);
   });
 

@@ -395,7 +395,7 @@ export const asymmetricMatchers = {
 export function registerAsymmetricMatchers(expectObj: unknown): void {
   // Add each matcher to the expect object
   for (const [key, value] of Object.entries(asymmetricMatchers)) {
-    if (!(key in (expectObj as unknown))) {
+    if (!(key in (expectObj))) {
       expectObj[key] = value;
     }
   }

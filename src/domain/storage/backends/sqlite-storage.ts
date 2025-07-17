@@ -355,5 +355,5 @@ implements DatabaseStorage<TEntity, TState>
 export function createSqliteStorage<TEntity extends Record<string, any>, TState>(
   config: SqliteStorageConfig
 ): DatabaseStorage<TEntity, TState> {
-  return new SqliteStorage<TEntity, TState>(config as unknown);
+  return new SqliteStorage<TEntity, TState>(config);
 }

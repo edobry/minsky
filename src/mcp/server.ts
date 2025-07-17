@@ -259,7 +259,7 @@ For more information, visit: https://github.com/your-org/minsky
         });
       } catch (e) {
         log.debug("Could not log MCP server methods", {
-          error: getErrorMessage(e as unknown),
+          error: getErrorMessage(e),
         });
       }
     } catch (error) {

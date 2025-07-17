@@ -1,25 +1,25 @@
 # "as unknown" Analysis Report
 
 ## Summary
-- **Total assertions found**: 514
-- **Analysis date**: 2025-07-16T19:02:47.329Z
+- **Total assertions found**: 570
+- **Analysis date**: 2025-07-17T15:54:56.845Z
 
 ## Distribution by Category
-- **suspicious**: 128
-- **error-masking**: 290
+- **suspicious**: 133
+- **error-masking**: 344
 - **test-mocking**: 92
-- **type-bridging**: 4
+- **type-bridging**: 1
 
 ## Distribution by Priority
-- **medium**: 157
-- **high**: 290
+- **medium**: 159
+- **high**: 344
 - **low**: 67
 
 ## Recommendations
-- 🚨 HIGH PRIORITY: 290 assertions are masking type errors and should be fixed immediately
-- ⚠️  290 assertions are masking type errors - these reduce TypeScript effectiveness
+- 🚨 HIGH PRIORITY: 344 assertions are masking type errors and should be fixed immediately
+- ⚠️  344 assertions are masking type errors - these reduce TypeScript effectiveness
 - 🧪 92 assertions in tests - review for proper type alternatives
-- 🌉 4 assertions for type bridging - consider proper type guards
+- 🌉 1 assertions for type bridging - consider proper type guards
 - 📋 Start with high priority items, then medium, then low
 - 🔍 Focus on production code before test code
 - 📚 Document any legitimate uses that must remain
@@ -895,6 +895,261 @@
   // This transforms (config as unknown)!.title to config.title
   ```
 
+- **codemods/comprehensive-as-unknown-fixer.test.ts:24** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:25** - Test assertion masking type errors - should be fixed
+  ```typescript
+  if ((sessionProvider as unknown)!.isActive()) {
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:26** - Test assertion masking type errors - should be fixed
+  ```typescript
+  return (sessionProvider as unknown)!.config;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:40** - Test assertion masking type errors - should be fixed
+  ```typescript
+  if (sessionRecord && (sessionRecord as unknown)!.repoUrl) {
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:41** - Test assertion masking type errors - should be fixed
+  ```typescript
+  return (sessionRecord as unknown)!.repoUrl;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:43** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const taskId = (sessionRecord as unknown)!.taskId;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:55** - Test assertion masking type errors - should be fixed
+  ```typescript
+  return sessionInfo ? (sessionInfo as unknown)!.session : null;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:56** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const name = (sessionInfo as unknown)!.session;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:57** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const upstream = (sessionInfo as unknown)!.upstreamRepository;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:71** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:72** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const util = new ((await import("../utils/helper.js")) as unknown).Helper();
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:84** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const proc = ((await import("child_process")) as unknown).exec;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:85** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const util = ((await import("util")) as unknown).promisify;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:91** - Test assertion masking type errors - should be fixed
+  ```typescript
+  expect(sourceFile.getFullText()).toContain('((await import("child_process")) as unknown).exec');
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:92** - Test assertion masking type errors - should be fixed
+  ```typescript
+  expect(sourceFile.getFullText()).toContain('((await import("util")) as unknown).promisify');
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:100** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const value = (config as unknown).apiKey;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:101** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const timeout = (config as unknown).timeout;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:102** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const options = (config as unknown).database;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:115** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const debug = (options as unknown).debug;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:116** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const verbose = (options as unknown).verbose;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:130** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const message = (error as unknown).message;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:131** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const code = (err as unknown).code;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:132** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const stack = (e as unknown).stack;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:147** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const data = (taskProvider as unknown).getTasks();
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:148** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const result = (userService as unknown).getUser();
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:149** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const config = (storageBackend as unknown).getConfig();
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:164** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const result1 = (output as unknown) as string;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:165** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const result2 = (result as unknown) as number;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:166** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const result3 = (data as unknown) as boolean;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:181** - Test assertion masking type errors - should be fixed
+  ```typescript
+  return Promise.resolve(value) as unknown;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:182** - Test assertion masking type errors - should be fixed
+  ```typescript
+  return Promise.reject(error) as unknown;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:183** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const p = Promise.resolve(data) as unknown;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:198** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const p = (params as unknown);
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:199** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const r = (result as unknown);
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:200** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const c = (current as unknown);
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:201** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const t = (task as unknown);
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:217** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const complex = (someObject.deepProperty.methodCall() as unknown).value;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:218** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const chained = (obj.method().then() as unknown).property;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:224** - Test assertion masking type errors - should be fixed
+  ```typescript
+  expect(sourceFile.getFullText()).toContain("(someObject.deepProperty.methodCall() as unknown).value");
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:225** - Test assertion masking type errors - should be fixed
+  ```typescript
+  expect(sourceFile.getFullText()).toContain("(obj.method().then() as unknown).property");
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:232** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const session = (sessionInfo as unknown)!.session;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:235** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const debug = (config as unknown).debug;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:238** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const message = (error as unknown).message;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:241** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const result = (output as unknown) as string;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:257** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:258** - Test assertion masking type errors - should be fixed
+  ```typescript
+  if (sessionRecord && (sessionRecord as unknown)!.repoUrl) {
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:259** - Test assertion masking type errors - should be fixed
+  ```typescript
+  return (sessionRecord as unknown)!.repoUrl;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:261** - Test assertion masking type errors - should be fixed
+  ```typescript
+  return sessionInfo ? (sessionInfo as unknown)!.session : null;
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:274** - Test assertion masking type errors - should be fixed
+  ```typescript
+  const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:275** - Test assertion masking type errors - should be fixed
+  ```typescript
+  await (await import("util")).promisify(((await import("child_process")) as unknown).exec)(
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.test.ts:284** - Test assertion masking type errors - should be fixed
+  ```typescript
+  expect(sourceFile.getFullText()).toContain('((await import("child_process")) as unknown).exec');
+  ```
+
 - **codemods/comprehensive-fixer.ts:37** - Property access masking - should use proper types
   ```typescript
   console.log("🔧 Starting comprehensive 'as unknown' pattern fixes...");
@@ -913,6 +1168,91 @@
 - **codemods/comprehensive-fixer.ts:231** - Property access masking - should use proper types
   ```typescript
   // Pattern: (obj.prop as unknown) for simple property access
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:13** - Property access masking - should use proper types
+  ```typescript
+  * 1. Session Object Property Access: (sessionProvider as unknown)!.method
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:14** - Property access masking - should use proper types
+  ```typescript
+  * 2. Dynamic Import Patterns: ((await import("module")) as unknown).Class
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:15** - Property access masking - should use proper types
+  ```typescript
+  * 3. Config Object Patterns: (config as unknown).property
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:16** - Property access masking - should use proper types
+  ```typescript
+  * 4. Error Handling Patterns: (error as unknown).property
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:17** - Property access masking - should use proper types
+  ```typescript
+  * 5. Provider/Service Patterns: (serviceProvider as unknown).method
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:18** - Property access masking - should use proper types
+  ```typescript
+  * 6. Redundant Cast Patterns: (value as unknown) as Type
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:19** - Property access masking - should use proper types
+  ```typescript
+  * 7. Promise Return Patterns: Promise.resolve(value) as unknown
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:20** - Property access masking - should use proper types
+  ```typescript
+  * 8. Simple Variable Patterns: (variable as unknown)
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:66** - Property access masking - should use proper types
+  ```typescript
+  console.log("🔧 Starting comprehensive 'as unknown' fixes...");
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:113** - Property access masking - should use proper types
+  ```typescript
+  * Fixes: (sessionProvider as unknown)!.method → sessionProvider.method
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:174** - Property access masking - should use proper types
+  ```typescript
+  // Replace the entire property access: (sessionXxx as unknown)!.prop → sessionXxx.prop
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:183** - Property access masking - should use proper types
+  ```typescript
+  * Fixes: ((await import("./module")) as unknown).Class → (await import("./module")).Class
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:274** - Property access masking - should use proper types
+  ```typescript
+  * Fixes: (config as unknown).property → config.property
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:339** - Property access masking - should use proper types
+  ```typescript
+  * Fixes: (error as unknown).property → error.property
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:404** - Property access masking - should use proper types
+  ```typescript
+  * Fixes: (serviceProvider as unknown).method → serviceProvider.method
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:517** - Property access masking - should use proper types
+  ```typescript
+  * Fixes: Promise.resolve(value) as unknown → Promise.resolve(value)
+  ```
+
+- **codemods/comprehensive-as-unknown-fixer.ts:680** - Property access masking - should use proper types
+  ```typescript
+  console.log(`\n✅ Comprehensive 'as unknown' fixes completed!`);
   ```
 
 - **codemods/fix-explicit-any-types-proven.ts:96** - Property access masking - should use proper types
@@ -1240,11 +1580,6 @@
   * Instead of: Boolean(process.env.VARIABLE as unknown)
   ```
 
-- **src/adapters/shared/legacy-command-registry.ts:171** - Property access masking - should use proper types
-  ```typescript
-  this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);
-  ```
-
 - **src/domain/session/session-db.test.ts:195** - Test assertion masking type errors - should be fixed
   ```typescript
   } as unknown;
@@ -1335,29 +1670,14 @@
   } as unknown;
   ```
 
-- **src/domain/tasks/githubBackendFactory.ts:26** - Property access masking - should use proper types
+- **tests/adapters/cli/session.test.ts:87** - Test assertion masking type errors - should be fixed
   ```typescript
-  if (!config || !(config as unknown)!.githubToken || !(config as unknown)!.owner || !(config as unknown)!.repo) {
+  } as unknown as SessionProviderInterface;
   ```
 
-- **src/domain/tasks/githubBackendFactory.ts:33** - Property access masking - should use proper types
+- **tests/adapters/mcp/session-edit-tools.test.ts:41** - Test assertion masking type errors - should be fixed
   ```typescript
-  githubToken: (config as unknown)!.githubToken,
-  ```
-
-- **src/domain/tasks/githubBackendFactory.ts:34** - Property access masking - should use proper types
-  ```typescript
-  owner: (config as unknown)!.owner,
-  ```
-
-- **src/domain/tasks/githubBackendFactory.ts:35** - Property access masking - should use proper types
-  ```typescript
-  repo: (config as unknown)!.repo,
-  ```
-
-- **src/domain/tasks/githubBackendFactory.ts:36** - Property access masking - should use proper types
-  ```typescript
-  statusLabels: (config as unknown)!.statusLabels,
+  } as unknown;
   ```
 
 - **tests/domain/commands/workspace.commands.test.ts:115** - Test assertion masking type errors - should be fixed
@@ -1373,61 +1693,6 @@
 - **tests/domain/commands/workspace.commands.test.ts:225** - Test assertion masking type errors - should be fixed
   ```typescript
   } as unknown;
-  ```
-
-- **tests/adapters/mcp/session-edit-tools.test.ts:41** - Test assertion masking type errors - should be fixed
-  ```typescript
-  } as unknown;
-  ```
-
-- **src/adapters/cli/customizations/config-customizations.ts:113** - Property access masking - should use proper types
-  ```typescript
-  log.cli(output as unknown);
-  ```
-
-- **src/adapters/cli/customizations/config-customizations.ts:142** - Property access masking - should use proper types
-  ```typescript
-  log.cli(output as unknown);
-  ```
-
-- **tests/adapters/cli/session.test.ts:87** - Test assertion masking type errors - should be fixed
-  ```typescript
-  } as unknown as SessionProviderInterface;
-  ```
-
-- **src/adapters/cli/utils/error-handler.ts:136** - Property access masking - should use proper types
-  ```typescript
-  log.agent({ message: "Command result", result } as unknown);
-  ```
-
-- **src/adapters/shared/commands/tasks.ts:644** - Property access masking - should use proper types
-  ```typescript
-  if (!(params as unknown as TasksDeleteParams).force && !(params as unknown as TasksDeleteParams).json) {
-  ```
-
-- **src/adapters/shared/commands/tasks.ts:658** - Property access masking - should use proper types
-  ```typescript
-  message: `Are you sure you want to delete task ${(task as unknown as { id: string; title: string }).id}: "${(task as unknown as { id: string; title: string }).title}"?`,
-  ```
-
-- **src/adapters/shared/commands/tasks.ts:684** - Property access masking - should use proper types
-  ```typescript
-  if ((params as unknown as TasksDeleteParams).json) {
-  ```
-
-- **src/adapters/shared/commands/tasks.ts:687** - Property access masking - should use proper types
-  ```typescript
-  success: (result as unknown as { success: boolean; taskId: string; task?: any }).success,
-  ```
-
-- **src/adapters/shared/commands/tasks.ts:688** - Property access masking - should use proper types
-  ```typescript
-  taskId: (result as unknown as { taskId: string }).taskId,
-  ```
-
-- **src/adapters/shared/commands/tasks.ts:689** - Property access masking - should use proper types
-  ```typescript
-  task: (result as unknown as { task?: any }).task,
   ```
 
 - **src/domain/storage/backends/error-handling.ts:574** - Property access masking - should use proper types
@@ -1475,8 +1740,13 @@
   let query = (this.drizzleDb.select() as unknown).from(sessionsTable);
   ```
 
+- **src/adapters/cli/utils/error-handler.ts:136** - Property access masking - should use proper types
+  ```typescript
+  log.agent({ message: "Command result", result } as unknown);
+  ```
+
 ## Next Steps
-1. Start with high priority items (290 items)
+1. Start with high priority items (344 items)
 2. Review error-masking assertions first
 3. Fix underlying type issues rather than masking them
 4. Consider proper type guards for legitimate type bridging

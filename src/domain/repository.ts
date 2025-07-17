@@ -243,11 +243,11 @@ export async function createRepositoryBackend(
   switch (config.type) {
   case RepositoryBackendType.LOCAL: {
     const { LocalGitBackend } = await import("./localGitBackend.js");
-    return new LocalGitBackend(config as unknown);
+    return new LocalGitBackend(config);
   }
   case RepositoryBackendType.REMOTE: {
     const { RemoteGitBackend } = await import("./remoteGitBackend.js");
-    return new RemoteGitBackend(config as unknown);
+    return new RemoteGitBackend(config);
   }
   case RepositoryBackendType.GITHUB: {
     const { GitService } = await import("./git.js");

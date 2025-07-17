@@ -449,5 +449,5 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 export function createJsonFileStorage<T, S>(
   options: JsonFileStorageOptions<S>
 ): DatabaseStorage<T, S> {
-  return new JsonFileStorage<T, S>(options as unknown);
+  return new JsonFileStorage<T, S>(options);
 }

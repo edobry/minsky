@@ -28,7 +28,7 @@ function flattenObjectToKeyValue(obj: any): any {
     }
   }
 
-  flatten(obj as unknown);
+  flatten(obj);
   return flattened;
 }
 

@@ -290,5 +290,5 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
  * Create a new PostgreSQL storage instance
  */
 export function createPostgresStorage(config: PostgresStorageConfig): DatabaseStorage<SessionRecord, SessionDbState> {
-  return new PostgresStorage(config as unknown);
+  return new PostgresStorage(config);
 }

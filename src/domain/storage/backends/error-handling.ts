@@ -110,7 +110,7 @@ export class StorageErrorClassifier {
       classification.severity,
       context,
       classification.recoveryActions,
-      error as unknown
+      error
     );
   }
 

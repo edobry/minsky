@@ -655,5 +655,5 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
  * @returns GitHubIssuesTaskBackend instance
  */
 export function createGitHubIssuesTaskBackend(config: GitHubIssuesTaskBackendOptions): TaskBackend {
-  return new GitHubIssuesTaskBackend(config as unknown);
+  return new GitHubIssuesTaskBackend(config);
 }

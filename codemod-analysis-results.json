@@ -1,370 +1,128 @@
 {
-  "timestamp": "2025-07-09T21:18:35.624Z",
+  "timestamp": "2025-07-16T20:51:16.717Z",
   "results": {
-    "totalCodemods": 97,
+    "totalCodemods": 42,
     "byRiskLevel": {
       "HIGH": [
         {
-          "name": "fix-mocking-safe-ast",
-          "path": "codemods/fix-mocking-safe-ast.ts",
-          "size": 6760,
-          "approach": "AST",
+          "name": "systematic-refactor-all",
+          "path": "codemods/systematic-refactor-all.ts",
+          "size": 6170,
+          "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
+            "Heuristic pattern matching detected",
+            "Bulk/generic fixer pattern"
+          ],
+          "hasTest": false,
+          "flags": [
+            "HARDCODED_PATHS",
+            "HEURISTIC_APPROACH",
+            "BULK_FIXER"
+          ]
+        },
+        {
+          "name": "enhanced-safe-fixer",
+          "path": "codemods/enhanced-safe-fixer.ts",
+          "size": 7662,
+          "approach": "AST",
+          "riskLevel": "HIGH",
+          "riskFactors": [
             "Hardcoded file paths detected",
             "Complex regex patterns: 4"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
             "COMPLEX_REGEX"
           ]
         },
         {
-          "name": "fix-undef-variables",
-          "path": "codemods/fix-undef-variables.ts",
-          "size": 2548,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 15",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "fix-this-prefix",
-          "path": "codemods/fix-this-prefix.ts",
-          "size": 3193,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 18"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
-        },
-        {
-          "name": "fix-mocking-comprehensive-ast",
-          "path": "codemods/fix-mocking-comprehensive-ast.ts",
-          "size": 6151,
+          "name": "ast-type-cast-fixer",
+          "path": "codemods/ast-type-cast-fixer.ts",
+          "size": 26403,
           "approach": "AST",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 11",
-            "Bulk/generic fixer pattern"
+            "Heuristic pattern matching detected"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER"
+            "HEURISTIC_APPROACH"
           ]
         },
         {
-          "name": "fix-repository-naming-issues-improved",
-          "path": "codemods/fix-repository-naming-issues-improved.ts",
-          "size": 5365,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "cleanup-triple-underscore-vars",
-          "path": "codemods/cleanup-triple-underscore-vars.ts",
-          "size": 3565,
+          "name": "explicit-any-types-fixer-consolidated",
+          "path": "codemods/explicit-any-types-fixer-consolidated.ts",
+          "size": 14707,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-undefined-variables-ast",
-          "path": "codemods/fix-undefined-variables-ast.ts",
-          "size": 8731,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
+            "Complex regex patterns: 25"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "fix-unused-simple",
-          "path": "codemods/fix-unused-simple.ts",
-          "size": 2194,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "fix-unused-variables-simple",
-          "path": "codemods/fix-unused-variables-simple.ts",
-          "size": 3238,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "simple-underscore-fix",
-          "path": "codemods/simple-underscore-fix.ts",
-          "size": 5062,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-unused-vars-targeted",
-          "path": "codemods/fix-unused-vars-targeted.ts",
-          "size": 4626,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Heuristic pattern matching detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HEURISTIC_APPROACH",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "comprehensive-underscore-fix",
-          "path": "codemods/comprehensive-underscore-fix.ts",
-          "size": 11002,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 38",
-            "Bulk/generic fixer pattern",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-parameter-underscore-mismatch",
-          "path": "codemods/fix-parameter-underscore-mismatch.ts",
-          "size": 5286,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 6",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-variable-naming-ast",
-          "path": "codemods/fix-variable-naming-ast.ts",
-          "size": 9487,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-unused-vars-patterns",
-          "path": "codemods/fix-unused-vars-patterns.ts",
-          "size": 2563,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 5",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-ts2322-type-assignments-enhanced",
-          "path": "codemods/fix-ts2322-type-assignments-enhanced.ts",
-          "size": 6685,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 8",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-remaining-variable-issues",
-          "path": "codemods/fix-remaining-variable-issues.ts",
-          "size": 4041,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 15",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "fix-magic-numbers",
-          "path": "codemods/fix-magic-numbers.ts",
-          "size": 5996,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
             "HARDCODED_PATHS",
             "COMPLEX_REGEX"
           ]
         },
         {
-          "name": "surgical-bulk-fixer",
-          "path": "codemods/surgical-bulk-fixer.ts",
-          "size": 6821,
-          "approach": "AST",
+          "name": "enhanced-pattern-fixer",
+          "path": "codemods/enhanced-pattern-fixer.ts",
+          "size": 7502,
+          "approach": "HYBRID",
           "riskLevel": "HIGH",
           "riskFactors": [
-            "Complex regex patterns: 14",
-            "Bulk/generic fixer pattern"
+            "Hardcoded file paths detected",
+            "Complex regex patterns: 16"
           ],
           "hasTest": false,
           "flags": [
-            "COMPLEX_REGEX",
-            "BULK_FIXER"
-          ],
-          "consolidationGroup": "bulk-fixers"
+            "HARDCODED_PATHS",
+            "COMPLEX_REGEX"
+          ]
         },
         {
-          "name": "fix-magic-numbers-domain",
-          "path": "codemods/fix-magic-numbers-domain.ts",
-          "size": 3140,
-          "approach": "REGEX",
+          "name": "risk-aware-type-cast-fixer",
+          "path": "codemods/risk-aware-type-cast-fixer.ts",
+          "size": 17584,
+          "approach": "AST",
+          "riskLevel": "HIGH",
+          "riskFactors": [
+            "Hardcoded file paths detected",
+            "Complex regex patterns: 33"
+          ],
+          "hasTest": false,
+          "flags": [
+            "HARDCODED_PATHS",
+            "COMPLEX_REGEX"
+          ]
+        },
+        {
+          "name": "syntax-parsing-errors-fixer-consolidated",
+          "path": "codemods/syntax-parsing-errors-fixer-consolidated.ts",
+          "size": 20193,
+          "approach": "AST",
+          "riskLevel": "HIGH",
+          "riskFactors": [
+            "Hardcoded file paths detected",
+            "Complex regex patterns: 28"
+          ],
+          "hasTest": false,
+          "flags": [
+            "HARDCODED_PATHS",
+            "COMPLEX_REGEX"
+          ]
+        },
+        {
+          "name": "pattern-based-fixer",
+          "path": "codemods/pattern-based-fixer.ts",
+          "size": 4741,
+          "approach": "HYBRID",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
@@ -377,110 +135,38 @@
           ]
         },
         {
-          "name": "fix-remaining-unused-vars",
-          "path": "codemods/fix-remaining-unused-vars.ts",
-          "size": 2672,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-repository-naming-issues",
-          "path": "codemods/fix-repository-naming-issues.ts",
-          "size": 3408,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "fix-ts2552-proper-resolution",
-          "path": "codemods/fix-ts2552-proper-resolution.ts",
-          "size": 5243,
+          "name": "comprehensive-as-unknown-fixer",
+          "path": "codemods/comprehensive-as-unknown-fixer.ts",
+          "size": 24510,
           "approach": "AST",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "Complex regex patterns: 3",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-magic-numbers-focused",
-          "path": "codemods/fix-magic-numbers-focused.ts",
-          "size": 4012,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
             "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7"
+            "Bulk/generic fixer pattern"
           ],
-          "hasTest": false,
+          "hasTest": true,
           "flags": [
             "HARDCODED_PATHS",
             "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
+            "BULK_FIXER"
           ]
         },
         {
-          "name": "fix-syntax-errors",
-          "path": "codemods/fix-syntax-errors.ts",
-          "size": 3019,
+          "name": "variable-naming-fixer-consolidated",
+          "path": "codemods/variable-naming-fixer-consolidated.ts",
+          "size": 18275,
           "approach": "AST",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "Complex regex patterns: 7"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
-        },
-        {
-          "name": "fix-incorrect-underscore-prefixes",
-          "path": "codemods/fix-incorrect-underscore-prefixes.ts",
-          "size": 3248,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 21",
+            "Heuristic pattern matching detected",
             "Variable/unused parameter fixer"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
+            "HEURISTIC_APPROACH",
             "VARIABLE_FIXER"
           ],
           "consolidationGroup": "variable-naming"
@@ -504,67 +190,19 @@
           ]
         },
         {
-          "name": "targeted-bulk-fixer",
-          "path": "codemods/targeted-bulk-fixer.ts",
-          "size": 5146,
+          "name": "comprehensive-fixer",
+          "path": "codemods/comprehensive-fixer.ts",
+          "size": 12679,
           "approach": "AST",
           "riskLevel": "HIGH",
           "riskFactors": [
+            "Heuristic pattern matching detected",
+            "Complex regex patterns: 5",
             "Bulk/generic fixer pattern"
           ],
           "hasTest": false,
           "flags": [
-            "BULK_FIXER"
-          ],
-          "consolidationGroup": "bulk-fixers"
-        },
-        {
-          "name": "fix-bun-compatibility-ast",
-          "path": "codemods/fix-bun-compatibility-ast.ts",
-          "size": 4181,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Heuristic pattern matching detected"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HEURISTIC_APPROACH"
-          ]
-        },
-        {
-          "name": "fix-unused-vars-simple",
-          "path": "codemods/fix-unused-vars-simple.ts",
-          "size": 4524,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-explicit-any-comprehensive",
-          "path": "codemods/fix-explicit-any-comprehensive.ts",
-          "size": 3595,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 19",
-            "Bulk/generic fixer pattern"
-          ],
-          "hasTest": false,
-          "flags": [
+            "HEURISTIC_APPROACH",
             "COMPLEX_REGEX",
             "BULK_FIXER"
           ]
@@ -586,105 +224,9 @@
             "HARDCODED_PATHS",
             "COMPLEX_REGEX"
           ]
-        },
-        {
-          "name": "fix-common-undef",
-          "path": "codemods/fix-common-undef.ts",
-          "size": 4074,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 29"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
-        },
-        {
-          "name": "fix-unused-vars-comprehensive",
-          "path": "codemods/fix-unused-vars-comprehensive.ts",
-          "size": 5365,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 18",
-            "Bulk/generic fixer pattern",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-variables-targeted",
-          "path": "codemods/fix-unused-variables-targeted.ts",
-          "size": 2286,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
         }
       ],
       "MEDIUM": [
-        {
-          "name": "fix-ts2322-type-assignment-errors",
-          "path": "codemods/fix-ts2322-type-assignment-errors.ts",
-          "size": 5565,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "eliminate-ts2322-completely",
-          "path": "codemods/eliminate-ts2322-completely.ts",
-          "size": 12885,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
         {
           "name": "fix-unknown-type-assertions",
           "path": "codemods/fix-unknown-type-assertions.ts",
@@ -700,21 +242,18 @@
           ]
         },
         {
-          "name": "fix-ts2339-property-not-exist",
-          "path": "codemods/fix-ts2339-property-not-exist.ts",
-          "size": 9459,
+          "name": "mocking-fixer-consolidated",
+          "path": "codemods/mocking-fixer-consolidated.ts",
+          "size": 13641,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
+            "HARDCODED_PATHS"
+          ]
         },
         {
           "name": "source-files-fixer",
@@ -731,43 +270,9 @@
           ]
         },
         {
-          "name": "fix-ts2552-name-resolution",
-          "path": "codemods/fix-ts2552-name-resolution.ts",
-          "size": 3811,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "eliminate-ts2345-completely",
-          "path": "codemods/eliminate-ts2345-completely.ts",
-          "size": 7623,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
           "name": "fix-missing-required-properties",
           "path": "codemods/fix-missing-required-properties.ts",
-          "size": 7642,
+          "size": 7675,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -793,9 +298,9 @@
           ]
         },
         {
-          "name": "fix-property-name-corrections",
-          "path": "codemods/fix-property-name-corrections.ts",
-          "size": 3900,
+          "name": "bun-compatibility-fixer-consolidated",
+          "path": "codemods/bun-compatibility-fixer-consolidated.ts",
+          "size": 15821,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -821,37 +326,9 @@
           ]
         },
         {
-          "name": "fix-mocking-unknown-types",
-          "path": "codemods/fix-mocking-unknown-types.ts",
-          "size": 3176,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
-        },
-        {
-          "name": "fix-magic-numbers-remaining",
-          "path": "codemods/fix-magic-numbers-remaining.ts",
-          "size": 3910,
-          "approach": "REGEX",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 6"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
-        },
-        {
           "name": "fix-current-globals",
           "path": "codemods/fix-current-globals.ts",
-          "size": 2417,
+          "size": 2414,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -860,22 +337,6 @@
           "hasTest": false,
           "flags": [
             "COMPLEX_REGEX"
-          ]
-        },
-        {
-          "name": "fix-unused-ts-expect-error",
-          "path": "codemods/fix-unused-ts-expect-error.ts",
-          "size": 3077,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
           ]
         },
         {
@@ -893,86 +354,20 @@
           ]
         },
         {
-          "name": "conservative-ts2345-round2",
-          "path": "codemods/conservative-ts2345-round2.ts",
-          "size": 9257,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "fix-ts2345-targeted",
-          "path": "codemods/fix-ts2345-targeted.ts",
-          "size": 5706,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
           "name": "fix-type-assertions",
           "path": "codemods/fix-type-assertions.ts",
           "size": 6504,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
+            "Hardcoded file paths detected",
             "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
+            "HARDCODED_PATHS",
             "HARDCODED_PATHS"
           ]
-        },
-        {
-          "name": "fix-ts2322-remaining-ast",
-          "path": "codemods/fix-ts2322-remaining-ast.ts",
-          "size": 8484,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-type-assignments",
-          "path": "codemods/fix-ts2322-type-assignments.ts",
-          "size": 7803,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
         },
         {
           "name": "fix-explicit-any-types-proven",
@@ -989,41 +384,9 @@
           ]
         },
         {
-          "name": "fix-ts2322-type-not-assignable",
-          "path": "codemods/fix-ts2322-type-not-assignable.ts",
-          "size": 12366,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "conservative-ts2345-fixer",
-          "path": "codemods/conservative-ts2345-fixer.ts",
-          "size": 7977,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
           "name": "fix-command-registration-overloads",
           "path": "codemods/fix-command-registration-overloads.ts",
-          "size": 5212,
+          "size": 5241,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -1033,40 +396,6 @@
           "flags": [
             "HARDCODED_PATHS"
           ]
-        },
-        {
-          "name": "modern-variable-naming-fix",
-          "path": "codemods/modern-variable-naming-fix.ts",
-          "size": 5004,
-          "approach": "HYBRID",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-ts2322-corrected-patterns",
-          "path": "codemods/fix-ts2322-corrected-patterns.ts",
-          "size": 6984,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
         },
         {
           "name": "fix-session-ts-issues",
@@ -1083,27 +412,24 @@
           ]
         },
         {
-          "name": "fix-ts2769-overload-mismatch",
-          "path": "codemods/fix-ts2769-overload-mismatch.ts",
-          "size": 10390,
+          "name": "fix-import-extensions",
+          "path": "codemods/fix-import-extensions.ts",
+          "size": 13715,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Hardcoded file paths detected"
           ],
-          "hasTest": false,
+          "hasTest": true,
           "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
+            "HARDCODED_PATHS"
+          ]
         },
         {
-          "name": "fix-arrow-function-parameters",
-          "path": "codemods/fix-arrow-function-parameters.ts",
-          "size": 2534,
-          "approach": "REGEX",
+          "name": "fix-bun-process-types",
+          "path": "codemods/fix-bun-process-types.ts",
+          "size": 2298,
+          "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
             "Hardcoded file paths detected"
@@ -1112,40 +438,6 @@
           "flags": [
             "HARDCODED_PATHS"
           ]
-        },
-        {
-          "name": "fix-ts2564-property-initialization",
-          "path": "codemods/fix-ts2564-property-initialization.ts",
-          "size": 4334,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2564-errors"
-        },
-        {
-          "name": "fix-ts18046-unknown-types",
-          "path": "codemods/fix-ts18046-unknown-types.ts",
-          "size": 7017,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
         },
         {
           "name": "fix-rules-type-assertions",
@@ -1162,69 +454,18 @@
           ]
         },
         {
-          "name": "fix-mocking-simple",
-          "path": "codemods/fix-mocking-simple.ts",
-          "size": 3743,
-          "approach": "HYBRID",
+          "name": "fix-syntax-errors",
+          "path": "codemods/fix-syntax-errors.ts",
+          "size": 3052,
+          "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Complex regex patterns: 6"
+            "Complex regex patterns: 7"
           ],
           "hasTest": false,
           "flags": [
             "COMPLEX_REGEX"
           ]
-        },
-        {
-          "name": "fix-ts2345-argument-errors",
-          "path": "codemods/fix-ts2345-argument-errors.ts",
-          "size": 6044,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "fix-ts2322-targeted-ast",
-          "path": "codemods/fix-ts2322-targeted-ast.ts",
-          "size": 6552,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-targeted",
-          "path": "codemods/fix-ts2322-targeted.ts",
-          "size": 9436,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
         },
         {
           "name": "fix-final-syntax-errors",
@@ -1264,82 +505,30 @@
             "Hardcoded file paths detected",
             "Hardcoded file paths detected"
           ],
-          "hasTest": true,
+          "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
             "HARDCODED_PATHS"
           ]
         },
         {
-          "name": "fix-ts2322-remaining",
-          "path": "codemods/fix-ts2322-remaining.ts",
-          "size": 7679,
+          "name": "fix-bun-compatibility-ast",
+          "path": "codemods/fix-bun-compatibility-ast.ts",
+          "size": 4181,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
+            "HARDCODED_PATHS"
+          ]
         },
         {
-          "name": "fix-underscore-prefix",
-          "path": "codemods/fix-underscore-prefix.ts",
-          "size": 3298,
-          "approach": "REGEX",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-ts2322-precise-ast",
-          "path": "codemods/fix-ts2322-precise-ast.ts",
-          "size": 7094,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-current-patterns",
-          "path": "codemods/fix-ts2322-current-patterns.ts",
-          "size": 8369,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-bun-types-simple-ast",
-          "path": "codemods/fix-bun-types-simple-ast.ts",
-          "size": 3927,
+          "name": "magic-numbers-fixer-consolidated",
+          "path": "codemods/magic-numbers-fixer-consolidated.ts",
+          "size": 12706,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -1359,32 +548,15 @@
           "riskFactors": [
             "Complex regex patterns: 4"
           ],
-          "hasTest": true,
+          "hasTest": false,
           "flags": [
             "COMPLEX_REGEX"
           ]
         },
         {
-          "name": "fix-ts18048-precise-patterns",
-          "path": "codemods/fix-ts18048-precise-patterns.ts",
-          "size": 6593,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-mock-object-properties",
-          "path": "codemods/fix-mock-object-properties.ts",
-          "size": 3329,
+          "name": "fix-buffer-string-issues",
+          "path": "codemods/fix-buffer-string-issues.ts",
+          "size": 2965,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -1396,135 +568,23 @@
           ]
         },
         {
-          "name": "fix-result-underscore-mismatch",
-          "path": "codemods/fix-result-underscore-mismatch.ts",
-          "size": 1833,
-          "approach": "REGEX",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-ts2353-object-literals",
-          "path": "codemods/fix-ts2353-object-literals.ts",
-          "size": 7801,
+          "name": "safe-ast-fixer",
+          "path": "codemods/safe-ast-fixer.ts",
+          "size": 6789,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
+            "HARDCODED_PATHS"
+          ]
         },
         {
           "name": "main-source-fixer",
           "path": "codemods/main-source-fixer.ts",
           "size": 5832,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS"
-          ]
-        },
-        {
-          "name": "eliminate-ts2353-completely",
-          "path": "codemods/eliminate-ts2353-completely.ts",
-          "size": 4820,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-mock-function-signatures",
-          "path": "codemods/fix-mock-function-signatures.ts",
-          "size": 10987,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
-        },
-        {
-          "name": "fix-ts2345-argument-types",
-          "path": "codemods/fix-ts2345-argument-types.ts",
-          "size": 9203,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "fix-ts18048-undefined-errors",
-          "path": "codemods/fix-ts18048-undefined-errors.ts",
-          "size": 6783,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-ts2322-ast-based",
-          "path": "codemods/fix-ts2322-ast-based.ts",
-          "size": 9579,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-mocking-unknown-ast",
-          "path": "codemods/fix-mocking-unknown-ast.ts",
-          "size": 4854,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -1538,16 +598,6 @@
       ],
       "LOW": [
         {
-          "name": "fix-mocking-unknown-types-ast",
-          "path": "codemods/fix-mocking-unknown-types-ast.ts",
-          "size": 4876,
-          "approach": "AST",
-          "riskLevel": "LOW",
-          "riskFactors": [],
-          "hasTest": false,
-          "flags": []
-        },
-        {
           "name": "fix-indentation",
           "path": "codemods/fix-indentation.ts",
           "size": 2441,
@@ -1559,19 +609,9 @@
           "consolidationGroup": "formatting"
         },
         {
-          "name": "fix-bun-process-types",
-          "path": "codemods/fix-bun-process-types.ts",
-          "size": 2298,
-          "approach": "AST",
-          "riskLevel": "LOW",
-          "riskFactors": [],
-          "hasTest": false,
-          "flags": []
-        },
-        {
-          "name": "fix-buffer-string-issues",
-          "path": "codemods/fix-buffer-string-issues.ts",
-          "size": 2965,
+          "name": "fix-bun-types-simple-ast",
+          "path": "codemods/fix-bun-types-simple-ast.ts",
+          "size": 3927,
           "approach": "AST",
           "riskLevel": "LOW",
           "riskFactors": [],
@@ -1593,40 +633,6 @@
     "byApproach": {
       "AST": [
         {
-          "name": "fix-ts2322-type-assignment-errors",
-          "path": "codemods/fix-ts2322-type-assignment-errors.ts",
-          "size": 5565,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "eliminate-ts2322-completely",
-          "path": "codemods/eliminate-ts2322-completely.ts",
-          "size": 12885,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
           "name": "fix-unknown-type-assertions",
           "path": "codemods/fix-unknown-type-assertions.ts",
           "size": 4784,
@@ -1641,21 +647,18 @@
           ]
         },
         {
-          "name": "fix-ts2339-property-not-exist",
-          "path": "codemods/fix-ts2339-property-not-exist.ts",
-          "size": 9459,
+          "name": "mocking-fixer-consolidated",
+          "path": "codemods/mocking-fixer-consolidated.ts",
+          "size": 13641,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
+            "HARDCODED_PATHS"
+          ]
         },
         {
           "name": "source-files-fixer",
@@ -1672,43 +675,25 @@
           ]
         },
         {
-          "name": "fix-ts2552-name-resolution",
-          "path": "codemods/fix-ts2552-name-resolution.ts",
-          "size": 3811,
+          "name": "enhanced-safe-fixer",
+          "path": "codemods/enhanced-safe-fixer.ts",
+          "size": 7662,
           "approach": "AST",
-          "riskLevel": "MEDIUM",
+          "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Complex regex patterns: 4"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "eliminate-ts2345-completely",
-          "path": "codemods/eliminate-ts2345-completely.ts",
-          "size": 7623,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
+            "COMPLEX_REGEX"
+          ]
         },
         {
           "name": "fix-missing-required-properties",
           "path": "codemods/fix-missing-required-properties.ts",
-          "size": 7642,
+          "size": 7675,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -1720,69 +705,25 @@
           ]
         },
         {
-          "name": "fix-mocking-safe-ast",
-          "path": "codemods/fix-mocking-safe-ast.ts",
-          "size": 6760,
+          "name": "ast-type-cast-fixer",
+          "path": "codemods/ast-type-cast-fixer.ts",
+          "size": 26403,
           "approach": "AST",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 4"
+            "Heuristic pattern matching detected"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
+            "HEURISTIC_APPROACH"
           ]
         },
         {
-          "name": "fix-mocking-comprehensive-ast",
-          "path": "codemods/fix-mocking-comprehensive-ast.ts",
-          "size": 6151,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 11",
-            "Bulk/generic fixer pattern"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER"
-          ]
-        },
-        {
-          "name": "fix-repository-naming-issues-improved",
-          "path": "codemods/fix-repository-naming-issues-improved.ts",
-          "size": 5365,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "fix-property-name-corrections",
-          "path": "codemods/fix-property-name-corrections.ts",
-          "size": 3900,
+          "name": "bun-compatibility-fixer-consolidated",
+          "path": "codemods/bun-compatibility-fixer-consolidated.ts",
+          "size": 15821,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -1808,54 +749,6 @@
           ]
         },
         {
-          "name": "fix-mocking-unknown-types",
-          "path": "codemods/fix-mocking-unknown-types.ts",
-          "size": 3176,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
-        },
-        {
-          "name": "fix-undefined-variables-ast",
-          "path": "codemods/fix-undefined-variables-ast.ts",
-          "size": 8731,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "fix-unused-ts-expect-error",
-          "path": "codemods/fix-unused-ts-expect-error.ts",
-          "size": 3077,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
           "name": "fix-undefined-issues",
           "path": "codemods/fix-undefined-issues.ts",
           "size": 6241,
@@ -1870,169 +763,57 @@
           ]
         },
         {
-          "name": "conservative-ts2345-round2",
-          "path": "codemods/conservative-ts2345-round2.ts",
-          "size": 9257,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "fix-ts2345-targeted",
-          "path": "codemods/fix-ts2345-targeted.ts",
-          "size": 5706,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
           "name": "fix-type-assertions",
           "path": "codemods/fix-type-assertions.ts",
           "size": 6504,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
+            "Hardcoded file paths detected",
             "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
+            "HARDCODED_PATHS",
             "HARDCODED_PATHS"
           ]
         },
         {
-          "name": "fix-ts2322-remaining-ast",
-          "path": "codemods/fix-ts2322-remaining-ast.ts",
-          "size": 8484,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-mocking-unknown-types-ast",
-          "path": "codemods/fix-mocking-unknown-types-ast.ts",
-          "size": 4876,
-          "approach": "AST",
-          "riskLevel": "LOW",
-          "riskFactors": [],
-          "hasTest": false,
-          "flags": []
-        },
-        {
-          "name": "fix-ts2322-type-assignments",
-          "path": "codemods/fix-ts2322-type-assignments.ts",
-          "size": 7803,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-type-assignments-enhanced",
-          "path": "codemods/fix-ts2322-type-assignments-enhanced.ts",
-          "size": 6685,
+          "name": "risk-aware-type-cast-fixer",
+          "path": "codemods/risk-aware-type-cast-fixer.ts",
+          "size": 17584,
           "approach": "AST",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "Complex regex patterns: 8",
-            "TypeScript error fixer"
+            "Complex regex patterns: 33"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
+            "COMPLEX_REGEX"
+          ]
         },
         {
-          "name": "surgical-bulk-fixer",
-          "path": "codemods/surgical-bulk-fixer.ts",
-          "size": 6821,
+          "name": "syntax-parsing-errors-fixer-consolidated",
+          "path": "codemods/syntax-parsing-errors-fixer-consolidated.ts",
+          "size": 20193,
           "approach": "AST",
           "riskLevel": "HIGH",
           "riskFactors": [
-            "Complex regex patterns: 14",
-            "Bulk/generic fixer pattern"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "BULK_FIXER"
-          ],
-          "consolidationGroup": "bulk-fixers"
-        },
-        {
-          "name": "fix-ts2322-type-not-assignable",
-          "path": "codemods/fix-ts2322-type-not-assignable.ts",
-          "size": 12366,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
             "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Complex regex patterns: 28"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "conservative-ts2345-fixer",
-          "path": "codemods/conservative-ts2345-fixer.ts",
-          "size": 7977,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
+            "COMPLEX_REGEX"
+          ]
         },
         {
           "name": "fix-command-registration-overloads",
           "path": "codemods/fix-command-registration-overloads.ts",
-          "size": 5212,
+          "size": 5241,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -2042,23 +823,6 @@
           "flags": [
             "HARDCODED_PATHS"
           ]
-        },
-        {
-          "name": "fix-ts2322-corrected-patterns",
-          "path": "codemods/fix-ts2322-corrected-patterns.ts",
-          "size": 6984,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
         },
         {
           "name": "fix-session-ts-issues",
@@ -2075,84 +839,32 @@
           ]
         },
         {
-          "name": "fix-ts2769-overload-mismatch",
-          "path": "codemods/fix-ts2769-overload-mismatch.ts",
-          "size": 10390,
+          "name": "fix-import-extensions",
+          "path": "codemods/fix-import-extensions.ts",
+          "size": 13715,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-ts2564-property-initialization",
-          "path": "codemods/fix-ts2564-property-initialization.ts",
-          "size": 4334,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Hardcoded file paths detected"
           ],
           "hasTest": true,
           "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2564-errors"
-        },
-        {
-          "name": "fix-ts2552-proper-resolution",
-          "path": "codemods/fix-ts2552-proper-resolution.ts",
-          "size": 5243,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 3",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
+            "HARDCODED_PATHS"
+          ]
         },
         {
           "name": "fix-bun-process-types",
           "path": "codemods/fix-bun-process-types.ts",
           "size": 2298,
           "approach": "AST",
-          "riskLevel": "LOW",
-          "riskFactors": [],
-          "hasTest": false,
-          "flags": []
-        },
-        {
-          "name": "fix-ts18046-unknown-types",
-          "path": "codemods/fix-ts18046-unknown-types.ts",
-          "size": 7017,
-          "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
+            "HARDCODED_PATHS"
+          ]
         },
         {
           "name": "fix-rules-type-assertions",
@@ -2169,71 +881,55 @@
           ]
         },
         {
-          "name": "fix-ts2345-argument-errors",
-          "path": "codemods/fix-ts2345-argument-errors.ts",
-          "size": 6044,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "fix-ts2322-targeted-ast",
-          "path": "codemods/fix-ts2322-targeted-ast.ts",
-          "size": 6552,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-syntax-errors",
-          "path": "codemods/fix-syntax-errors.ts",
-          "size": 3019,
+          "name": "comprehensive-as-unknown-fixer",
+          "path": "codemods/comprehensive-as-unknown-fixer.ts",
+          "size": 24510,
           "approach": "AST",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
+            "Hardcoded file paths detected",
+            "Bulk/generic fixer pattern"
+          ],
+          "hasTest": true,
+          "flags": [
+            "HARDCODED_PATHS",
+            "HARDCODED_PATHS",
+            "BULK_FIXER"
+          ]
+        },
+        {
+          "name": "fix-syntax-errors",
+          "path": "codemods/fix-syntax-errors.ts",
+          "size": 3052,
+          "approach": "AST",
+          "riskLevel": "MEDIUM",
+          "riskFactors": [
             "Complex regex patterns: 7"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
             "COMPLEX_REGEX"
           ]
         },
         {
-          "name": "fix-ts2322-targeted",
-          "path": "codemods/fix-ts2322-targeted.ts",
-          "size": 9436,
+          "name": "variable-naming-fixer-consolidated",
+          "path": "codemods/variable-naming-fixer-consolidated.ts",
+          "size": 18275,
           "approach": "AST",
-          "riskLevel": "MEDIUM",
+          "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Heuristic pattern matching detected",
+            "Variable/unused parameter fixer"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
+            "HEURISTIC_APPROACH",
+            "VARIABLE_FIXER"
           ],
-          "consolidationGroup": "ts2322-errors"
+          "consolidationGroup": "variable-naming"
         },
         {
           "name": "fix-dependencies-mocks",
@@ -2250,134 +946,55 @@
           ]
         },
         {
-          "name": "fix-ts2322-remaining",
-          "path": "codemods/fix-ts2322-remaining.ts",
-          "size": 7679,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "targeted-bulk-fixer",
-          "path": "codemods/targeted-bulk-fixer.ts",
-          "size": 5146,
+          "name": "comprehensive-fixer",
+          "path": "codemods/comprehensive-fixer.ts",
+          "size": 12679,
           "approach": "AST",
           "riskLevel": "HIGH",
           "riskFactors": [
+            "Heuristic pattern matching detected",
+            "Complex regex patterns: 5",
             "Bulk/generic fixer pattern"
           ],
           "hasTest": false,
           "flags": [
+            "HEURISTIC_APPROACH",
+            "COMPLEX_REGEX",
             "BULK_FIXER"
-          ],
-          "consolidationGroup": "bulk-fixers"
-        },
-        {
-          "name": "fix-ts2322-precise-ast",
-          "path": "codemods/fix-ts2322-precise-ast.ts",
-          "size": 7094,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
+          ]
         },
         {
           "name": "fix-bun-compatibility-ast",
           "path": "codemods/fix-bun-compatibility-ast.ts",
           "size": 4181,
           "approach": "AST",
-          "riskLevel": "HIGH",
+          "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Heuristic pattern matching detected"
+            "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
-            "HEURISTIC_APPROACH"
+            "HARDCODED_PATHS"
           ]
         },
         {
-          "name": "fix-ts2322-current-patterns",
-          "path": "codemods/fix-ts2322-current-patterns.ts",
-          "size": 8369,
+          "name": "magic-numbers-fixer-consolidated",
+          "path": "codemods/magic-numbers-fixer-consolidated.ts",
+          "size": 12706,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
+            "HARDCODED_PATHS"
+          ]
         },
         {
           "name": "fix-bun-types-simple-ast",
           "path": "codemods/fix-bun-types-simple-ast.ts",
           "size": 3927,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
-        },
-        {
-          "name": "fix-ts18048-precise-patterns",
-          "path": "codemods/fix-ts18048-precise-patterns.ts",
-          "size": 6593,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-mock-object-properties",
-          "path": "codemods/fix-mock-object-properties.ts",
-          "size": 3329,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
-        },
-        {
-          "name": "fix-buffer-string-issues",
-          "path": "codemods/fix-buffer-string-issues.ts",
-          "size": 2965,
           "approach": "AST",
           "riskLevel": "LOW",
           "riskFactors": [],
@@ -2385,120 +1002,37 @@
           "flags": []
         },
         {
-          "name": "fix-ts2353-object-literals",
-          "path": "codemods/fix-ts2353-object-literals.ts",
-          "size": 7801,
+          "name": "fix-buffer-string-issues",
+          "path": "codemods/fix-buffer-string-issues.ts",
+          "size": 2965,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
+            "Hardcoded file paths detected"
           ],
           "hasTest": false,
           "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
+            "HARDCODED_PATHS"
+          ]
+        },
+        {
+          "name": "safe-ast-fixer",
+          "path": "codemods/safe-ast-fixer.ts",
+          "size": 6789,
+          "approach": "AST",
+          "riskLevel": "MEDIUM",
+          "riskFactors": [
+            "Hardcoded file paths detected"
           ],
-          "consolidationGroup": "typescript-errors"
+          "hasTest": false,
+          "flags": [
+            "HARDCODED_PATHS"
+          ]
         },
         {
           "name": "main-source-fixer",
           "path": "codemods/main-source-fixer.ts",
           "size": 5832,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS"
-          ]
-        },
-        {
-          "name": "eliminate-ts2353-completely",
-          "path": "codemods/eliminate-ts2353-completely.ts",
-          "size": 4820,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-mock-function-signatures",
-          "path": "codemods/fix-mock-function-signatures.ts",
-          "size": 10987,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
-        },
-        {
-          "name": "fix-ts2345-argument-types",
-          "path": "codemods/fix-ts2345-argument-types.ts",
-          "size": 9203,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "fix-ts18048-undefined-errors",
-          "path": "codemods/fix-ts18048-undefined-errors.ts",
-          "size": 6783,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-ts2322-ast-based",
-          "path": "codemods/fix-ts2322-ast-based.ts",
-          "size": 9579,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-mocking-unknown-ast",
-          "path": "codemods/fix-mocking-unknown-ast.ts",
-          "size": 4854,
           "approach": "AST",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -2512,37 +1046,21 @@
       ],
       "REGEX": [
         {
-          "name": "fix-undef-variables",
-          "path": "codemods/fix-undef-variables.ts",
-          "size": 2548,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 15",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "fix-this-prefix",
-          "path": "codemods/fix-this-prefix.ts",
-          "size": 3193,
+          "name": "systematic-refactor-all",
+          "path": "codemods/systematic-refactor-all.ts",
+          "size": 6170,
           "approach": "REGEX",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 18"
+            "Heuristic pattern matching detected",
+            "Bulk/generic fixer pattern"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
+            "HEURISTIC_APPROACH",
+            "BULK_FIXER"
           ]
         },
         {
@@ -2560,56 +1078,9 @@
           ]
         },
         {
-          "name": "fix-magic-numbers-remaining",
-          "path": "codemods/fix-magic-numbers-remaining.ts",
-          "size": 3910,
-          "approach": "REGEX",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 6"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
-        },
-        {
-          "name": "fix-unused-simple",
-          "path": "codemods/fix-unused-simple.ts",
-          "size": 2194,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "fix-unused-variables-simple",
-          "path": "codemods/fix-unused-variables-simple.ts",
-          "size": 3238,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
           "name": "fix-current-globals",
           "path": "codemods/fix-current-globals.ts",
-          "size": 2417,
+          "size": 2414,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
           "riskFactors": [
@@ -2619,227 +1090,6 @@
           "flags": [
             "COMPLEX_REGEX"
           ]
-        },
-        {
-          "name": "simple-underscore-fix",
-          "path": "codemods/simple-underscore-fix.ts",
-          "size": 5062,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-unused-vars-targeted",
-          "path": "codemods/fix-unused-vars-targeted.ts",
-          "size": 4626,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Heuristic pattern matching detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HEURISTIC_APPROACH",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "comprehensive-underscore-fix",
-          "path": "codemods/comprehensive-underscore-fix.ts",
-          "size": 11002,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 38",
-            "Bulk/generic fixer pattern",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-parameter-underscore-mismatch",
-          "path": "codemods/fix-parameter-underscore-mismatch.ts",
-          "size": 5286,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 6",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-unused-vars-patterns",
-          "path": "codemods/fix-unused-vars-patterns.ts",
-          "size": 2563,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 5",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-remaining-variable-issues",
-          "path": "codemods/fix-remaining-variable-issues.ts",
-          "size": 4041,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 15",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
-          "name": "fix-magic-numbers",
-          "path": "codemods/fix-magic-numbers.ts",
-          "size": 5996,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
-        },
-        {
-          "name": "fix-magic-numbers-domain",
-          "path": "codemods/fix-magic-numbers-domain.ts",
-          "size": 3140,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 8"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
-        },
-        {
-          "name": "fix-arrow-function-parameters",
-          "path": "codemods/fix-arrow-function-parameters.ts",
-          "size": 2534,
-          "approach": "REGEX",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
-        },
-        {
-          "name": "fix-remaining-unused-vars",
-          "path": "codemods/fix-remaining-unused-vars.ts",
-          "size": 2672,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-magic-numbers-focused",
-          "path": "codemods/fix-magic-numbers-focused.ts",
-          "size": 4012,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
-        },
-        {
-          "name": "fix-incorrect-underscore-prefixes",
-          "path": "codemods/fix-incorrect-underscore-prefixes.ts",
-          "size": 3248,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 21",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
         },
         {
           "name": "fix-final-syntax-errors",
@@ -2883,88 +1133,23 @@
             "Hardcoded file paths detected",
             "Hardcoded file paths detected"
           ],
-          "hasTest": true,
+          "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
             "HARDCODED_PATHS"
           ]
-        },
+        }
+      ],
+      "HYBRID": [
         {
-          "name": "fix-underscore-prefix",
-          "path": "codemods/fix-underscore-prefix.ts",
-          "size": 3298,
-          "approach": "REGEX",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-unused-vars-simple",
-          "path": "codemods/fix-unused-vars-simple.ts",
-          "size": 4524,
-          "approach": "REGEX",
+          "name": "explicit-any-types-fixer-consolidated",
+          "path": "codemods/explicit-any-types-fixer-consolidated.ts",
+          "size": 14707,
+          "approach": "HYBRID",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-explicit-any-comprehensive",
-          "path": "codemods/fix-explicit-any-comprehensive.ts",
-          "size": 3595,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 19",
-            "Bulk/generic fixer pattern"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "BULK_FIXER"
-          ]
-        },
-        {
-          "name": "fix-result-underscore-mismatch",
-          "path": "codemods/fix-result-underscore-mismatch.ts",
-          "size": 1833,
-          "approach": "REGEX",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-common-undef",
-          "path": "codemods/fix-common-undef.ts",
-          "size": 4074,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 29"
+            "Complex regex patterns: 25"
           ],
           "hasTest": false,
           "flags": [
@@ -2973,92 +1158,36 @@
           ]
         },
         {
-          "name": "fix-unused-vars-comprehensive",
-          "path": "codemods/fix-unused-vars-comprehensive.ts",
-          "size": 5365,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 18",
-            "Bulk/generic fixer pattern",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-variables-targeted",
-          "path": "codemods/fix-unused-variables-targeted.ts",
-          "size": 2286,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        }
-      ],
-      "HYBRID": [
-        {
-          "name": "cleanup-triple-underscore-vars",
-          "path": "codemods/cleanup-triple-underscore-vars.ts",
-          "size": 3565,
+          "name": "enhanced-pattern-fixer",
+          "path": "codemods/enhanced-pattern-fixer.ts",
+          "size": 7502,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
           "riskFactors": [
             "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-variable-naming-ast",
-          "path": "codemods/fix-variable-naming-ast.ts",
-          "size": 9487,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
+            "Complex regex patterns: 16"
           ],
           "hasTest": false,
           "flags": [
             "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
+            "COMPLEX_REGEX"
+          ]
+        },
+        {
+          "name": "pattern-based-fixer",
+          "path": "codemods/pattern-based-fixer.ts",
+          "size": 4741,
+          "approach": "HYBRID",
+          "riskLevel": "HIGH",
+          "riskFactors": [
+            "Hardcoded file paths detected",
+            "Complex regex patterns: 8"
           ],
-          "consolidationGroup": "variable-naming"
+          "hasTest": false,
+          "flags": [
+            "HARDCODED_PATHS",
+            "COMPLEX_REGEX"
+          ]
         },
         {
           "name": "fix-explicit-any-types-proven",
@@ -3075,41 +1204,6 @@
           ]
         },
         {
-          "name": "modern-variable-naming-fix",
-          "path": "codemods/modern-variable-naming-fix.ts",
-          "size": 5004,
-          "approach": "HYBRID",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-repository-naming-issues",
-          "path": "codemods/fix-repository-naming-issues.ts",
-          "size": 3408,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ]
-        },
-        {
           "name": "fix-indentation",
           "path": "codemods/fix-indentation.ts",
           "size": 2441,
@@ -3119,20 +1213,6 @@
           "hasTest": true,
           "flags": [],
           "consolidationGroup": "formatting"
-        },
-        {
-          "name": "fix-mocking-simple",
-          "path": "codemods/fix-mocking-simple.ts",
-          "size": 3743,
-          "approach": "HYBRID",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 6"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
         },
         {
           "name": "fix-explicit-any",
@@ -3161,7 +1241,7 @@
           "riskFactors": [
             "Complex regex patterns: 4"
           ],
-          "hasTest": true,
+          "hasTest": false,
           "flags": [
             "COMPLEX_REGEX"
           ]
@@ -3181,851 +1261,6 @@
       ]
     },
     "consolidationGroups": {
-      "ts2322-errors": [
-        {
-          "name": "fix-ts2322-type-assignment-errors",
-          "path": "codemods/fix-ts2322-type-assignment-errors.ts",
-          "size": 5565,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "eliminate-ts2322-completely",
-          "path": "codemods/eliminate-ts2322-completely.ts",
-          "size": 12885,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-remaining-ast",
-          "path": "codemods/fix-ts2322-remaining-ast.ts",
-          "size": 8484,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-type-assignments",
-          "path": "codemods/fix-ts2322-type-assignments.ts",
-          "size": 7803,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-type-assignments-enhanced",
-          "path": "codemods/fix-ts2322-type-assignments-enhanced.ts",
-          "size": 6685,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 8",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-type-not-assignable",
-          "path": "codemods/fix-ts2322-type-not-assignable.ts",
-          "size": 12366,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-corrected-patterns",
-          "path": "codemods/fix-ts2322-corrected-patterns.ts",
-          "size": 6984,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-targeted-ast",
-          "path": "codemods/fix-ts2322-targeted-ast.ts",
-          "size": 6552,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-targeted",
-          "path": "codemods/fix-ts2322-targeted.ts",
-          "size": 9436,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-remaining",
-          "path": "codemods/fix-ts2322-remaining.ts",
-          "size": 7679,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-precise-ast",
-          "path": "codemods/fix-ts2322-precise-ast.ts",
-          "size": 7094,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-current-patterns",
-          "path": "codemods/fix-ts2322-current-patterns.ts",
-          "size": 8369,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        },
-        {
-          "name": "fix-ts2322-ast-based",
-          "path": "codemods/fix-ts2322-ast-based.ts",
-          "size": 9579,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2322-errors"
-        }
-      ],
-      "typescript-errors": [
-        {
-          "name": "fix-ts2339-property-not-exist",
-          "path": "codemods/fix-ts2339-property-not-exist.ts",
-          "size": 9459,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-ts2552-name-resolution",
-          "path": "codemods/fix-ts2552-name-resolution.ts",
-          "size": 3811,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-ts2769-overload-mismatch",
-          "path": "codemods/fix-ts2769-overload-mismatch.ts",
-          "size": 10390,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-ts2552-proper-resolution",
-          "path": "codemods/fix-ts2552-proper-resolution.ts",
-          "size": 5243,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 3",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-ts18046-unknown-types",
-          "path": "codemods/fix-ts18046-unknown-types.ts",
-          "size": 7017,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-ts18048-precise-patterns",
-          "path": "codemods/fix-ts18048-precise-patterns.ts",
-          "size": 6593,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-ts2353-object-literals",
-          "path": "codemods/fix-ts2353-object-literals.ts",
-          "size": 7801,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "eliminate-ts2353-completely",
-          "path": "codemods/eliminate-ts2353-completely.ts",
-          "size": 4820,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        },
-        {
-          "name": "fix-ts18048-undefined-errors",
-          "path": "codemods/fix-ts18048-undefined-errors.ts",
-          "size": 6783,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "typescript-errors"
-        }
-      ],
-      "ts2345-errors": [
-        {
-          "name": "eliminate-ts2345-completely",
-          "path": "codemods/eliminate-ts2345-completely.ts",
-          "size": 7623,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "conservative-ts2345-round2",
-          "path": "codemods/conservative-ts2345-round2.ts",
-          "size": 9257,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "fix-ts2345-targeted",
-          "path": "codemods/fix-ts2345-targeted.ts",
-          "size": 5706,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "conservative-ts2345-fixer",
-          "path": "codemods/conservative-ts2345-fixer.ts",
-          "size": 7977,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "fix-ts2345-argument-errors",
-          "path": "codemods/fix-ts2345-argument-errors.ts",
-          "size": 6044,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        },
-        {
-          "name": "fix-ts2345-argument-types",
-          "path": "codemods/fix-ts2345-argument-types.ts",
-          "size": 9203,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2345-errors"
-        }
-      ],
-      "variable-naming": [
-        {
-          "name": "cleanup-triple-underscore-vars",
-          "path": "codemods/cleanup-triple-underscore-vars.ts",
-          "size": 3565,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "simple-underscore-fix",
-          "path": "codemods/simple-underscore-fix.ts",
-          "size": 5062,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "comprehensive-underscore-fix",
-          "path": "codemods/comprehensive-underscore-fix.ts",
-          "size": 11002,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 38",
-            "Bulk/generic fixer pattern",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-parameter-underscore-mismatch",
-          "path": "codemods/fix-parameter-underscore-mismatch.ts",
-          "size": 5286,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 6",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-variable-naming-ast",
-          "path": "codemods/fix-variable-naming-ast.ts",
-          "size": 9487,
-          "approach": "HYBRID",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "modern-variable-naming-fix",
-          "path": "codemods/modern-variable-naming-fix.ts",
-          "size": 5004,
-          "approach": "HYBRID",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-incorrect-underscore-prefixes",
-          "path": "codemods/fix-incorrect-underscore-prefixes.ts",
-          "size": 3248,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 21",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-underscore-prefix",
-          "path": "codemods/fix-underscore-prefix.ts",
-          "size": 3298,
-          "approach": "REGEX",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        },
-        {
-          "name": "fix-result-underscore-mismatch",
-          "path": "codemods/fix-result-underscore-mismatch.ts",
-          "size": 1833,
-          "approach": "REGEX",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "variable-naming"
-        }
-      ],
-      "unused-variables": [
-        {
-          "name": "fix-unused-variables-simple",
-          "path": "codemods/fix-unused-variables-simple.ts",
-          "size": 3238,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-vars-targeted",
-          "path": "codemods/fix-unused-vars-targeted.ts",
-          "size": 4626,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Heuristic pattern matching detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HEURISTIC_APPROACH",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-vars-patterns",
-          "path": "codemods/fix-unused-vars-patterns.ts",
-          "size": 2563,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 5",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-remaining-unused-vars",
-          "path": "codemods/fix-remaining-unused-vars.ts",
-          "size": 2672,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-vars-simple",
-          "path": "codemods/fix-unused-vars-simple.ts",
-          "size": 4524,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 4",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-vars-comprehensive",
-          "path": "codemods/fix-unused-vars-comprehensive.ts",
-          "size": 5365,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 18",
-            "Bulk/generic fixer pattern",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        },
-        {
-          "name": "fix-unused-variables-targeted",
-          "path": "codemods/fix-unused-variables-targeted.ts",
-          "size": 2286,
-          "approach": "REGEX",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 7",
-            "Variable/unused parameter fixer"
-          ],
-          "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "VARIABLE_FIXER"
-          ],
-          "consolidationGroup": "unused-variables"
-        }
-      ],
-      "bulk-fixers": [
-        {
-          "name": "surgical-bulk-fixer",
-          "path": "codemods/surgical-bulk-fixer.ts",
-          "size": 6821,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Complex regex patterns: 14",
-            "Bulk/generic fixer pattern"
-          ],
-          "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX",
-            "BULK_FIXER"
-          ],
-          "consolidationGroup": "bulk-fixers"
-        },
-        {
-          "name": "targeted-bulk-fixer",
-          "path": "codemods/targeted-bulk-fixer.ts",
-          "size": 5146,
-          "approach": "AST",
-          "riskLevel": "HIGH",
-          "riskFactors": [
-            "Bulk/generic fixer pattern"
-          ],
-          "hasTest": false,
-          "flags": [
-            "BULK_FIXER"
-          ],
-          "consolidationGroup": "bulk-fixers"
-        }
-      ],
-      "ts2564-errors": [
-        {
-          "name": "fix-ts2564-property-initialization",
-          "path": "codemods/fix-ts2564-property-initialization.ts",
-          "size": 4334,
-          "approach": "AST",
-          "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "TypeScript error fixer"
-          ],
-          "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "TS_ERROR_FIXER"
-          ],
-          "consolidationGroup": "ts2564-errors"
-        }
-      ],
       "formatting": [
         {
           "name": "fix-indentation",
@@ -4038,46 +1273,87 @@
           "flags": [],
           "consolidationGroup": "formatting"
         }
+      ],
+      "variable-naming": [
+        {
+          "name": "variable-naming-fixer-consolidated",
+          "path": "codemods/variable-naming-fixer-consolidated.ts",
+          "size": 18275,
+          "approach": "AST",
+          "riskLevel": "HIGH",
+          "riskFactors": [
+            "Hardcoded file paths detected",
+            "Heuristic pattern matching detected",
+            "Variable/unused parameter fixer"
+          ],
+          "hasTest": false,
+          "flags": [
+            "HARDCODED_PATHS",
+            "HEURISTIC_APPROACH",
+            "VARIABLE_FIXER"
+          ],
+          "consolidationGroup": "variable-naming"
+        }
       ]
     },
-    "flaggedForRemoval": [],
-    "summary": "\nSTRATEGY RECOMMENDATIONS:\n- Immediately remove 0 flagged codemods\n- Priority test 35 high-risk codemods\n- Batch test 57 medium-risk codemods\n- Consolidate 8 groups\n- Expected final count: ~39 codemods\n"
+    "flaggedForRemoval": [
+      {
+        "name": "systematic-refactor-all",
+        "path": "codemods/systematic-refactor-all.ts",
+        "size": 6170,
+        "approach": "REGEX",
+        "riskLevel": "HIGH",
+        "riskFactors": [
+          "Hardcoded file paths detected",
+          "Heuristic pattern matching detected",
+          "Bulk/generic fixer pattern"
+        ],
+        "hasTest": false,
+        "flags": [
+          "HARDCODED_PATHS",
+          "HEURISTIC_APPROACH",
+          "BULK_FIXER"
+        ]
+      },
+      {
+        "name": "ast-type-cast-fixer",
+        "path": "codemods/ast-type-cast-fixer.ts",
+        "size": 26403,
+        "approach": "AST",
+        "riskLevel": "HIGH",
+        "riskFactors": [
+          "Hardcoded file paths detected",
+          "Heuristic pattern matching detected"
+        ],
+        "hasTest": false,
+        "flags": [
+          "HARDCODED_PATHS",
+          "HEURISTIC_APPROACH"
+        ]
+      },
+      {
+        "name": "variable-naming-fixer-consolidated",
+        "path": "codemods/variable-naming-fixer-consolidated.ts",
+        "size": 18275,
+        "approach": "AST",
+        "riskLevel": "HIGH",
+        "riskFactors": [
+          "Hardcoded file paths detected",
+          "Heuristic pattern matching detected",
+          "Variable/unused parameter fixer"
+        ],
+        "hasTest": false,
+        "flags": [
+          "HARDCODED_PATHS",
+          "HEURISTIC_APPROACH",
+          "VARIABLE_FIXER"
+        ],
+        "consolidationGroup": "variable-naming"
+      }
+    ],
+    "summary": "\nSTRATEGY RECOMMENDATIONS:\n- Immediately remove 3 flagged codemods\n- Priority test 13 high-risk codemods\n- Batch test 26 medium-risk codemods\n- Consolidate 2 groups\n- Expected final count: ~17 codemods\n"
   },
   "detailedAnalyses": [
-    {
-      "name": "fix-ts2322-type-assignment-errors",
-      "path": "codemods/fix-ts2322-type-assignment-errors.ts",
-      "size": 5565,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
-      "name": "eliminate-ts2322-completely",
-      "path": "codemods/eliminate-ts2322-completely.ts",
-      "size": 12885,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
     {
       "name": "fix-unknown-type-assertions",
       "path": "codemods/fix-unknown-type-assertions.ts",
@@ -4093,21 +1369,36 @@
       ]
     },
     {
-      "name": "fix-ts2339-property-not-exist",
-      "path": "codemods/fix-ts2339-property-not-exist.ts",
-      "size": 9459,
+      "name": "mocking-fixer-consolidated",
+      "path": "codemods/mocking-fixer-consolidated.ts",
+      "size": 13641,
       "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
+        "Hardcoded file paths detected"
+      ],
+      "hasTest": false,
+      "flags": [
+        "HARDCODED_PATHS"
+      ]
+    },
+    {
+      "name": "systematic-refactor-all",
+      "path": "codemods/systematic-refactor-all.ts",
+      "size": 6170,
+      "approach": "REGEX",
+      "riskLevel": "HIGH",
+      "riskFactors": [
         "Hardcoded file paths detected",
-        "TypeScript error fixer"
+        "Heuristic pattern matching detected",
+        "Bulk/generic fixer pattern"
       ],
       "hasTest": false,
       "flags": [
         "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "typescript-errors"
+        "HEURISTIC_APPROACH",
+        "BULK_FIXER"
+      ]
     },
     {
       "name": "source-files-fixer",
@@ -4124,43 +1415,25 @@
       ]
     },
     {
-      "name": "fix-ts2552-name-resolution",
-      "path": "codemods/fix-ts2552-name-resolution.ts",
-      "size": 3811,
+      "name": "enhanced-safe-fixer",
+      "path": "codemods/enhanced-safe-fixer.ts",
+      "size": 7662,
       "approach": "AST",
-      "riskLevel": "MEDIUM",
+      "riskLevel": "HIGH",
       "riskFactors": [
         "Hardcoded file paths detected",
-        "TypeScript error fixer"
+        "Complex regex patterns: 4"
       ],
       "hasTest": false,
       "flags": [
         "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "typescript-errors"
-    },
-    {
-      "name": "eliminate-ts2345-completely",
-      "path": "codemods/eliminate-ts2345-completely.ts",
-      "size": 7623,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2345-errors"
+        "COMPLEX_REGEX"
+      ]
     },
     {
       "name": "fix-missing-required-properties",
       "path": "codemods/fix-missing-required-properties.ts",
-      "size": 7642,
+      "size": 7675,
       "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
@@ -4169,82 +1442,6 @@
       "hasTest": false,
       "flags": [
         "HARDCODED_PATHS"
-      ]
-    },
-    {
-      "name": "fix-mocking-safe-ast",
-      "path": "codemods/fix-mocking-safe-ast.ts",
-      "size": 6760,
-      "approach": "AST",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 4"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
-    },
-    {
-      "name": "fix-undef-variables",
-      "path": "codemods/fix-undef-variables.ts",
-      "size": 2548,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Complex regex patterns: 15",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ]
-    },
-    {
-      "name": "fix-this-prefix",
-      "path": "codemods/fix-this-prefix.ts",
-      "size": 3193,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 18"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
-    },
-    {
-      "name": "fix-mocking-comprehensive-ast",
-      "path": "codemods/fix-mocking-comprehensive-ast.ts",
-      "size": 6151,
-      "approach": "AST",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 11",
-        "Bulk/generic fixer pattern"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "BULK_FIXER"
       ]
     },
     {
@@ -4262,27 +1459,25 @@
       ]
     },
     {
-      "name": "fix-repository-naming-issues-improved",
-      "path": "codemods/fix-repository-naming-issues-improved.ts",
-      "size": 5365,
+      "name": "ast-type-cast-fixer",
+      "path": "codemods/ast-type-cast-fixer.ts",
+      "size": 26403,
       "approach": "AST",
       "riskLevel": "HIGH",
       "riskFactors": [
         "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Variable/unused parameter fixer"
+        "Heuristic pattern matching detected"
       ],
       "hasTest": false,
       "flags": [
         "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "VARIABLE_FIXER"
+        "HEURISTIC_APPROACH"
       ]
     },
     {
-      "name": "fix-property-name-corrections",
-      "path": "codemods/fix-property-name-corrections.ts",
-      "size": 3900,
+      "name": "bun-compatibility-fixer-consolidated",
+      "path": "codemods/bun-compatibility-fixer-consolidated.ts",
+      "size": 15821,
       "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
@@ -4308,109 +1503,9 @@
       ]
     },
     {
-      "name": "fix-mocking-unknown-types",
-      "path": "codemods/fix-mocking-unknown-types.ts",
-      "size": 3176,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
-    },
-    {
-      "name": "cleanup-triple-underscore-vars",
-      "path": "codemods/cleanup-triple-underscore-vars.ts",
-      "size": 3565,
-      "approach": "HYBRID",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 4",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": true,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "variable-naming"
-    },
-    {
-      "name": "fix-magic-numbers-remaining",
-      "path": "codemods/fix-magic-numbers-remaining.ts",
-      "size": 3910,
-      "approach": "REGEX",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Complex regex patterns: 6"
-      ],
-      "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX"
-      ]
-    },
-    {
-      "name": "fix-undefined-variables-ast",
-      "path": "codemods/fix-undefined-variables-ast.ts",
-      "size": 8731,
-      "approach": "AST",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "VARIABLE_FIXER"
-      ]
-    },
-    {
-      "name": "fix-unused-simple",
-      "path": "codemods/fix-unused-simple.ts",
-      "size": 2194,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Complex regex patterns: 4",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ]
-    },
-    {
-      "name": "fix-unused-variables-simple",
-      "path": "codemods/fix-unused-variables-simple.ts",
-      "size": 3238,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Complex regex patterns: 4",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "unused-variables"
-    },
-    {
       "name": "fix-current-globals",
       "path": "codemods/fix-current-globals.ts",
-      "size": 2417,
+      "size": 2414,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
       "riskFactors": [
@@ -4420,60 +1515,6 @@
       "flags": [
         "COMPLEX_REGEX"
       ]
-    },
-    {
-      "name": "fix-unused-ts-expect-error",
-      "path": "codemods/fix-unused-ts-expect-error.ts",
-      "size": 3077,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "VARIABLE_FIXER"
-      ]
-    },
-    {
-      "name": "simple-underscore-fix",
-      "path": "codemods/simple-underscore-fix.ts",
-      "size": 5062,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": true,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "variable-naming"
-    },
-    {
-      "name": "fix-unused-vars-targeted",
-      "path": "codemods/fix-unused-vars-targeted.ts",
-      "size": 4626,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Heuristic pattern matching detected",
-        "Complex regex patterns: 4",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HEURISTIC_APPROACH",
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "unused-variables"
     },
     {
       "name": "fix-undefined-issues",
@@ -4490,248 +1531,100 @@
       ]
     },
     {
-      "name": "conservative-ts2345-round2",
-      "path": "codemods/conservative-ts2345-round2.ts",
-      "size": 9257,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2345-errors"
-    },
-    {
-      "name": "fix-ts2345-targeted",
-      "path": "codemods/fix-ts2345-targeted.ts",
-      "size": 5706,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2345-errors"
-    },
-    {
       "name": "fix-type-assertions",
       "path": "codemods/fix-type-assertions.ts",
       "size": 6504,
       "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
+        "Hardcoded file paths detected",
         "Hardcoded file paths detected"
       ],
       "hasTest": false,
       "flags": [
+        "HARDCODED_PATHS",
         "HARDCODED_PATHS"
       ]
     },
     {
-      "name": "comprehensive-underscore-fix",
-      "path": "codemods/comprehensive-underscore-fix.ts",
-      "size": 11002,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 38",
-        "Bulk/generic fixer pattern",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "BULK_FIXER",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "variable-naming"
-    },
-    {
-      "name": "fix-parameter-underscore-mismatch",
-      "path": "codemods/fix-parameter-underscore-mismatch.ts",
-      "size": 5286,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Complex regex patterns: 6",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "variable-naming"
-    },
-    {
-      "name": "fix-ts2322-remaining-ast",
-      "path": "codemods/fix-ts2322-remaining-ast.ts",
-      "size": 8484,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
-      "name": "fix-variable-naming-ast",
-      "path": "codemods/fix-variable-naming-ast.ts",
-      "size": 9487,
+      "name": "explicit-any-types-fixer-consolidated",
+      "path": "codemods/explicit-any-types-fixer-consolidated.ts",
+      "size": 14707,
       "approach": "HYBRID",
       "riskLevel": "HIGH",
       "riskFactors": [
         "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Variable/unused parameter fixer"
+        "Complex regex patterns: 25"
       ],
       "hasTest": false,
       "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "variable-naming"
-    },
-    {
-      "name": "fix-mocking-unknown-types-ast",
-      "path": "codemods/fix-mocking-unknown-types-ast.ts",
-      "size": 4876,
-      "approach": "AST",
-      "riskLevel": "LOW",
-      "riskFactors": [],
-      "hasTest": false,
-      "flags": []
-    },
-    {
-      "name": "fix-unused-vars-patterns",
-      "path": "codemods/fix-unused-vars-patterns.ts",
-      "size": 2563,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 5",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "unused-variables"
-    },
-    {
-      "name": "fix-ts2322-type-assignments",
-      "path": "codemods/fix-ts2322-type-assignments.ts",
-      "size": 7803,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
-      "name": "fix-ts2322-type-assignments-enhanced",
-      "path": "codemods/fix-ts2322-type-assignments-enhanced.ts",
-      "size": 6685,
-      "approach": "AST",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 8",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
-      "name": "fix-remaining-variable-issues",
-      "path": "codemods/fix-remaining-variable-issues.ts",
-      "size": 4041,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 15",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ]
-    },
-    {
-      "name": "fix-magic-numbers",
-      "path": "codemods/fix-magic-numbers.ts",
-      "size": 5996,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 7"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
         "HARDCODED_PATHS",
         "COMPLEX_REGEX"
       ]
     },
     {
-      "name": "surgical-bulk-fixer",
-      "path": "codemods/surgical-bulk-fixer.ts",
-      "size": 6821,
-      "approach": "AST",
+      "name": "enhanced-pattern-fixer",
+      "path": "codemods/enhanced-pattern-fixer.ts",
+      "size": 7502,
+      "approach": "HYBRID",
       "riskLevel": "HIGH",
       "riskFactors": [
-        "Complex regex patterns: 14",
-        "Bulk/generic fixer pattern"
+        "Hardcoded file paths detected",
+        "Complex regex patterns: 16"
       ],
       "hasTest": false,
       "flags": [
-        "COMPLEX_REGEX",
-        "BULK_FIXER"
+        "HARDCODED_PATHS",
+        "COMPLEX_REGEX"
+      ]
+    },
+    {
+      "name": "risk-aware-type-cast-fixer",
+      "path": "codemods/risk-aware-type-cast-fixer.ts",
+      "size": 17584,
+      "approach": "AST",
+      "riskLevel": "HIGH",
+      "riskFactors": [
+        "Hardcoded file paths detected",
+        "Complex regex patterns: 33"
       ],
-      "consolidationGroup": "bulk-fixers"
+      "hasTest": false,
+      "flags": [
+        "HARDCODED_PATHS",
+        "COMPLEX_REGEX"
+      ]
+    },
+    {
+      "name": "syntax-parsing-errors-fixer-consolidated",
+      "path": "codemods/syntax-parsing-errors-fixer-consolidated.ts",
+      "size": 20193,
+      "approach": "AST",
+      "riskLevel": "HIGH",
+      "riskFactors": [
+        "Hardcoded file paths detected",
+        "Complex regex patterns: 28"
+      ],
+      "hasTest": false,
+      "flags": [
+        "HARDCODED_PATHS",
+        "COMPLEX_REGEX"
+      ]
+    },
+    {
+      "name": "pattern-based-fixer",
+      "path": "codemods/pattern-based-fixer.ts",
+      "size": 4741,
+      "approach": "HYBRID",
+      "riskLevel": "HIGH",
+      "riskFactors": [
+        "Hardcoded file paths detected",
+        "Complex regex patterns: 8"
+      ],
+      "hasTest": false,
+      "flags": [
+        "HARDCODED_PATHS",
+        "COMPLEX_REGEX"
+      ]
     },
     {
       "name": "fix-explicit-any-types-proven",
@@ -4748,41 +1641,9 @@
       ]
     },
     {
-      "name": "fix-ts2322-type-not-assignable",
-      "path": "codemods/fix-ts2322-type-not-assignable.ts",
-      "size": 12366,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
-      "name": "conservative-ts2345-fixer",
-      "path": "codemods/conservative-ts2345-fixer.ts",
-      "size": 7977,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2345-errors"
-    },
-    {
       "name": "fix-command-registration-overloads",
       "path": "codemods/fix-command-registration-overloads.ts",
-      "size": 5212,
+      "size": 5241,
       "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
@@ -4792,56 +1653,6 @@
       "flags": [
         "HARDCODED_PATHS"
       ]
-    },
-    {
-      "name": "modern-variable-naming-fix",
-      "path": "codemods/modern-variable-naming-fix.ts",
-      "size": 5004,
-      "approach": "HYBRID",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": true,
-      "flags": [
-        "HARDCODED_PATHS",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "variable-naming"
-    },
-    {
-      "name": "fix-magic-numbers-domain",
-      "path": "codemods/fix-magic-numbers-domain.ts",
-      "size": 3140,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 8"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
-    },
-    {
-      "name": "fix-ts2322-corrected-patterns",
-      "path": "codemods/fix-ts2322-corrected-patterns.ts",
-      "size": 6984,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
     },
     {
       "name": "fix-session-ts-issues",
@@ -4858,89 +1669,18 @@
       ]
     },
     {
-      "name": "fix-ts2769-overload-mismatch",
-      "path": "codemods/fix-ts2769-overload-mismatch.ts",
-      "size": 10390,
+      "name": "fix-import-extensions",
+      "path": "codemods/fix-import-extensions.ts",
+      "size": 13715,
       "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "typescript-errors"
-    },
-    {
-      "name": "fix-arrow-function-parameters",
-      "path": "codemods/fix-arrow-function-parameters.ts",
-      "size": 2534,
-      "approach": "REGEX",
       "riskLevel": "MEDIUM",
       "riskFactors": [
         "Hardcoded file paths detected"
       ],
-      "hasTest": false,
+      "hasTest": true,
       "flags": [
         "HARDCODED_PATHS"
       ]
-    },
-    {
-      "name": "fix-remaining-unused-vars",
-      "path": "codemods/fix-remaining-unused-vars.ts",
-      "size": 2672,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 7",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "unused-variables"
-    },
-    {
-      "name": "fix-repository-naming-issues",
-      "path": "codemods/fix-repository-naming-issues.ts",
-      "size": 3408,
-      "approach": "HYBRID",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "VARIABLE_FIXER"
-      ]
-    },
-    {
-      "name": "fix-ts2564-property-initialization",
-      "path": "codemods/fix-ts2564-property-initialization.ts",
-      "size": 4334,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": true,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2564-errors"
     },
     {
       "name": "fix-indentation",
@@ -4954,50 +1694,18 @@
       "consolidationGroup": "formatting"
     },
     {
-      "name": "fix-ts2552-proper-resolution",
-      "path": "codemods/fix-ts2552-proper-resolution.ts",
-      "size": 5243,
-      "approach": "AST",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 3",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "typescript-errors"
-    },
-    {
       "name": "fix-bun-process-types",
       "path": "codemods/fix-bun-process-types.ts",
       "size": 2298,
       "approach": "AST",
-      "riskLevel": "LOW",
-      "riskFactors": [],
-      "hasTest": false,
-      "flags": []
-    },
-    {
-      "name": "fix-ts18046-unknown-types",
-      "path": "codemods/fix-ts18046-unknown-types.ts",
-      "size": 7017,
-      "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
+        "Hardcoded file paths detected"
       ],
       "hasTest": false,
       "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "typescript-errors"
+        "HARDCODED_PATHS"
+      ]
     },
     {
       "name": "fix-rules-type-assertions",
@@ -5014,119 +1722,52 @@
       ]
     },
     {
-      "name": "fix-mocking-simple",
-      "path": "codemods/fix-mocking-simple.ts",
-      "size": 3743,
-      "approach": "HYBRID",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Complex regex patterns: 6"
-      ],
-      "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX"
-      ]
-    },
-    {
-      "name": "fix-magic-numbers-focused",
-      "path": "codemods/fix-magic-numbers-focused.ts",
-      "size": 4012,
-      "approach": "REGEX",
+      "name": "comprehensive-as-unknown-fixer",
+      "path": "codemods/comprehensive-as-unknown-fixer.ts",
+      "size": 24510,
+      "approach": "AST",
       "riskLevel": "HIGH",
       "riskFactors": [
         "Hardcoded file paths detected",
         "Hardcoded file paths detected",
-        "Complex regex patterns: 7"
+        "Bulk/generic fixer pattern"
       ],
-      "hasTest": false,
+      "hasTest": true,
       "flags": [
         "HARDCODED_PATHS",
         "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
+        "BULK_FIXER"
       ]
-    },
-    {
-      "name": "fix-ts2345-argument-errors",
-      "path": "codemods/fix-ts2345-argument-errors.ts",
-      "size": 6044,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2345-errors"
-    },
-    {
-      "name": "fix-ts2322-targeted-ast",
-      "path": "codemods/fix-ts2322-targeted-ast.ts",
-      "size": 6552,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
     },
     {
       "name": "fix-syntax-errors",
       "path": "codemods/fix-syntax-errors.ts",
-      "size": 3019,
+      "size": 3052,
       "approach": "AST",
-      "riskLevel": "HIGH",
+      "riskLevel": "MEDIUM",
       "riskFactors": [
-        "Hardcoded file paths detected",
         "Complex regex patterns: 7"
       ],
       "hasTest": false,
       "flags": [
-        "HARDCODED_PATHS",
         "COMPLEX_REGEX"
       ]
     },
     {
-      "name": "fix-ts2322-targeted",
-      "path": "codemods/fix-ts2322-targeted.ts",
-      "size": 9436,
+      "name": "variable-naming-fixer-consolidated",
+      "path": "codemods/variable-naming-fixer-consolidated.ts",
+      "size": 18275,
       "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
-      "name": "fix-incorrect-underscore-prefixes",
-      "path": "codemods/fix-incorrect-underscore-prefixes.ts",
-      "size": 3248,
-      "approach": "REGEX",
       "riskLevel": "HIGH",
       "riskFactors": [
         "Hardcoded file paths detected",
-        "Complex regex patterns: 21",
+        "Heuristic pattern matching detected",
         "Variable/unused parameter fixer"
       ],
       "hasTest": false,
       "flags": [
         "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
+        "HEURISTIC_APPROACH",
         "VARIABLE_FIXER"
       ],
       "consolidationGroup": "variable-naming"
@@ -5187,148 +1828,34 @@
         "Hardcoded file paths detected",
         "Hardcoded file paths detected"
       ],
-      "hasTest": true,
+      "hasTest": false,
       "flags": [
         "HARDCODED_PATHS",
         "HARDCODED_PATHS"
       ]
     },
     {
-      "name": "fix-ts2322-remaining",
-      "path": "codemods/fix-ts2322-remaining.ts",
-      "size": 7679,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
-      "name": "fix-underscore-prefix",
-      "path": "codemods/fix-underscore-prefix.ts",
-      "size": 3298,
-      "approach": "REGEX",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "variable-naming"
-    },
-    {
-      "name": "targeted-bulk-fixer",
-      "path": "codemods/targeted-bulk-fixer.ts",
-      "size": 5146,
+      "name": "comprehensive-fixer",
+      "path": "codemods/comprehensive-fixer.ts",
+      "size": 12679,
       "approach": "AST",
       "riskLevel": "HIGH",
       "riskFactors": [
+        "Heuristic pattern matching detected",
+        "Complex regex patterns: 5",
         "Bulk/generic fixer pattern"
       ],
       "hasTest": false,
       "flags": [
+        "HEURISTIC_APPROACH",
+        "COMPLEX_REGEX",
         "BULK_FIXER"
-      ],
-      "consolidationGroup": "bulk-fixers"
-    },
-    {
-      "name": "fix-ts2322-precise-ast",
-      "path": "codemods/fix-ts2322-precise-ast.ts",
-      "size": 7094,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
+      ]
     },
     {
       "name": "fix-bun-compatibility-ast",
       "path": "codemods/fix-bun-compatibility-ast.ts",
       "size": 4181,
-      "approach": "AST",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Heuristic pattern matching detected"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HEURISTIC_APPROACH"
-      ]
-    },
-    {
-      "name": "fix-unused-vars-simple",
-      "path": "codemods/fix-unused-vars-simple.ts",
-      "size": 4524,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 4",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "unused-variables"
-    },
-    {
-      "name": "fix-ts2322-current-patterns",
-      "path": "codemods/fix-ts2322-current-patterns.ts",
-      "size": 8369,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
-      "name": "fix-explicit-any-comprehensive",
-      "path": "codemods/fix-explicit-any-comprehensive.ts",
-      "size": 3595,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Complex regex patterns: 19",
-        "Bulk/generic fixer pattern"
-      ],
-      "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX",
-        "BULK_FIXER"
-      ]
-    },
-    {
-      "name": "fix-bun-types-simple-ast",
-      "path": "codemods/fix-bun-types-simple-ast.ts",
-      "size": 3927,
       "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
@@ -5338,6 +1865,30 @@
       "flags": [
         "HARDCODED_PATHS"
       ]
+    },
+    {
+      "name": "magic-numbers-fixer-consolidated",
+      "path": "codemods/magic-numbers-fixer-consolidated.ts",
+      "size": 12706,
+      "approach": "AST",
+      "riskLevel": "MEDIUM",
+      "riskFactors": [
+        "Hardcoded file paths detected"
+      ],
+      "hasTest": false,
+      "flags": [
+        "HARDCODED_PATHS"
+      ]
+    },
+    {
+      "name": "fix-bun-types-simple-ast",
+      "path": "codemods/fix-bun-types-simple-ast.ts",
+      "size": 3927,
+      "approach": "AST",
+      "riskLevel": "LOW",
+      "riskFactors": [],
+      "hasTest": false,
+      "flags": []
     },
     {
       "name": "fix-explicit-any",
@@ -5366,32 +1917,15 @@
       "riskFactors": [
         "Complex regex patterns: 4"
       ],
-      "hasTest": true,
+      "hasTest": false,
       "flags": [
         "COMPLEX_REGEX"
       ]
     },
     {
-      "name": "fix-ts18048-precise-patterns",
-      "path": "codemods/fix-ts18048-precise-patterns.ts",
-      "size": 6593,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "typescript-errors"
-    },
-    {
-      "name": "fix-mock-object-properties",
-      "path": "codemods/fix-mock-object-properties.ts",
-      "size": 3329,
+      "name": "fix-buffer-string-issues",
+      "path": "codemods/fix-buffer-string-issues.ts",
+      "size": 2965,
       "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
@@ -5401,89 +1935,6 @@
       "flags": [
         "HARDCODED_PATHS"
       ]
-    },
-    {
-      "name": "fix-buffer-string-issues",
-      "path": "codemods/fix-buffer-string-issues.ts",
-      "size": 2965,
-      "approach": "AST",
-      "riskLevel": "LOW",
-      "riskFactors": [],
-      "hasTest": false,
-      "flags": []
-    },
-    {
-      "name": "fix-result-underscore-mismatch",
-      "path": "codemods/fix-result-underscore-mismatch.ts",
-      "size": 1833,
-      "approach": "REGEX",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "variable-naming"
-    },
-    {
-      "name": "fix-ts2353-object-literals",
-      "path": "codemods/fix-ts2353-object-literals.ts",
-      "size": 7801,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "typescript-errors"
-    },
-    {
-      "name": "fix-common-undef",
-      "path": "codemods/fix-common-undef.ts",
-      "size": 4074,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 29"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
-    },
-    {
-      "name": "fix-unused-vars-comprehensive",
-      "path": "codemods/fix-unused-vars-comprehensive.ts",
-      "size": 5365,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 18",
-        "Bulk/generic fixer pattern",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "BULK_FIXER",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "unused-variables"
     },
     {
       "name": "fix-common-type-issues",
@@ -5496,124 +1947,23 @@
       "flags": []
     },
     {
+      "name": "safe-ast-fixer",
+      "path": "codemods/safe-ast-fixer.ts",
+      "size": 6789,
+      "approach": "AST",
+      "riskLevel": "MEDIUM",
+      "riskFactors": [
+        "Hardcoded file paths detected"
+      ],
+      "hasTest": false,
+      "flags": [
+        "HARDCODED_PATHS"
+      ]
+    },
+    {
       "name": "main-source-fixer",
       "path": "codemods/main-source-fixer.ts",
       "size": 5832,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS"
-      ]
-    },
-    {
-      "name": "eliminate-ts2353-completely",
-      "path": "codemods/eliminate-ts2353-completely.ts",
-      "size": 4820,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "typescript-errors"
-    },
-    {
-      "name": "fix-mock-function-signatures",
-      "path": "codemods/fix-mock-function-signatures.ts",
-      "size": 10987,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
-    },
-    {
-      "name": "fix-ts2345-argument-types",
-      "path": "codemods/fix-ts2345-argument-types.ts",
-      "size": 9203,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2345-errors"
-    },
-    {
-      "name": "fix-ts18048-undefined-errors",
-      "path": "codemods/fix-ts18048-undefined-errors.ts",
-      "size": 6783,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "typescript-errors"
-    },
-    {
-      "name": "fix-unused-variables-targeted",
-      "path": "codemods/fix-unused-variables-targeted.ts",
-      "size": 2286,
-      "approach": "REGEX",
-      "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 7",
-        "Variable/unused parameter fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "VARIABLE_FIXER"
-      ],
-      "consolidationGroup": "unused-variables"
-    },
-    {
-      "name": "fix-ts2322-ast-based",
-      "path": "codemods/fix-ts2322-ast-based.ts",
-      "size": 9579,
-      "approach": "AST",
-      "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "TypeScript error fixer"
-      ],
-      "hasTest": false,
-      "flags": [
-        "TS_ERROR_FIXER"
-      ],
-      "consolidationGroup": "ts2322-errors"
-    },
-    {
-      "name": "fix-mocking-unknown-ast",
-      "path": "codemods/fix-mocking-unknown-ast.ts",
-      "size": 4854,
       "approach": "AST",
       "riskLevel": "MEDIUM",
       "riskFactors": [
