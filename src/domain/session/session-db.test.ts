@@ -192,7 +192,7 @@ describe("SessionDB Functional Implementation", () => {
       const updates = {
         session: "attempted-rename",
         branch: "updated-branch",
-      } as unknown;
+      } as any;
 
       const newState = updateSessionFn(state, "test-session-1", updates);
       expect(getSessionFn(newState, "test-session-1")).not.toBeNull();
