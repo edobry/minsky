@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task #280**: Completed aggressive cleanup of excessive 'as unknown' assertions with exceptional results
+  - **96.9% total reduction** achieved: from 2,495 original assertions to 78 final count
+  - Extended comprehensive-as-unknown-fixer.ts with 5 new Phase 6 pattern methods for advanced cleanup
+  - Implemented proper two-pass AST traversal preventing node invalidation errors
+  - Applied 13 automated transformations plus 2 manual fixes in final cleanup phase
+  - Analyzed and justified remaining 78 assertions as legitimate use cases for test infrastructure and error handling
+  - Maintained zero TypeScript compilation errors throughout aggressive cleanup process
+  - Enhanced framework ready for future maintenance with production-validated pattern detection
+
 - **Task #277**: Created comprehensive task specification for stacked PR workflow implementation
   - Enables sessions to start from existing session branches instead of always starting from main
   - Adds dependency tracking and visualization for session relationships
@@ -19,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Maintains backward compatibility with existing workflows
 
 ### Fixed
+
+- **Task #285**: Fixed session PR title duplication bug in the extractPrDescription function
+  - Enhanced parsing logic to detect and remove duplicate title lines in PR body content
+  - Consolidated multiple implementations of extractPrDescription into a single fixed version
+  - Added comprehensive test coverage with 21 tests to prevent regression
+  - Added PR validation utilities for content sanitization
+  - **Added husky commit-msg hook** that uses the same validation logic to prevent title duplication in commit messages
+  - Maintains backward compatibility for existing valid PR descriptions
 
 - **Task Creation System**: Fixed bug where createTaskFromTitleAndDescription stored temporary file paths instead of proper task spec paths
   - Tasks created via `minsky tasks create` now correctly store relative paths (e.g., `process/tasks/285-title.md`) instead of temporary OS paths (e.g., `/var/folders/...`)
