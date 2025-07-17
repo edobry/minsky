@@ -48,7 +48,7 @@ export function createMCPCommand(): Command {
     .option("--inspector-port <port>", "Port for the MCP inspector", INSPECTOR_PORT.toString())
     .option("--http", "Use HTTP transport for remote connections (default: stdio)")
     .option(
-      "--port <port>", 
+      "--port <port>",
       `HTTP port (required for http transport, default: ${DEFAULT_HTTP_PORT})`,
       DEFAULT_HTTP_PORT.toString()
     )
@@ -130,6 +130,9 @@ export function createMCPCommand(): Command {
         // Create server with the specified transport
         const server = new MinskyMCPServer(serverConfig);
 
+        // Shared commands are already registered by CLI initialization
+        // No need to register them again here
+
         // Register tools via adapter-based approach
         const commandMapper = new CommandMapper(
           server,
@@ -209,7 +212,7 @@ export function createMCPCommand(): Command {
             } catch (error) {
               log.error("HTTP request handling failed", { error: getErrorMessage(error) });
               if (!res.headersSent) {
-                res.status(500).json({ 
+                res.status(500).json({
                   error: "Internal server error",
                   message: getErrorMessage(error)
                 });
@@ -219,8 +222,8 @@ export function createMCPCommand(): Command {
 
           // Health check endpoint
           app.get("/health", (req, res) => {
-            res.json({ 
-              status: "ok", 
+            res.json({
+              status: "ok",
               server: "Minsky MCP Server",
               transport: "http",
               endpoint: options.endpoint,
