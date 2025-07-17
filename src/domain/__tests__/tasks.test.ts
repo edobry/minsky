@@ -55,7 +55,7 @@ const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
   resolveMainWorkspacePath: mockResolveMainWorkspacePath,
   createTaskService: mockCreateTaskService,
-} as unknown; // Cast to any to avoid TypeScript errors with the deps parameter
+} as any; // Cast to any to avoid TypeScript errors with the deps parameter
 
 describe("interface-agnostic task functions", () => {
   // No beforeEach needed - setupTestMocks() handles automatic cleanup after each test
@@ -211,7 +211,7 @@ describe("interface-agnostic task functions", () => {
     test("should throw ValidationError when status is invalid", async () => {
       const params = {
         taskId: "#TEST_VALUE",
-        status: "INVALID-STATUS" as unknown,
+        status: "INVALID-STATUS" as any,
         backend: "markdown",
       };
 

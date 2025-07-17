@@ -267,7 +267,7 @@ describe("TaskBackendRouter", () => {
       const mockSqliteBackend = {
         name: "sqlite",
         constructor: { name: "SqliteTaskBackend" }
-      } as unknown;
+      } as any;
 
       const routingInfo = router.getBackendRoutingInfo(mockSqliteBackend);
       
