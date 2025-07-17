@@ -57,6 +57,11 @@ export async function approveSessionImpl(
   taskId?: string;
   isNewlyApproved: boolean;
 }> {
+  // Provide immediate user feedback - don't wait for operations to start
+  if (!params.json) {
+    log.cli("🔄 Starting session approval...");
+  }
+
   let sessionNameToUse = params.session;
   let taskId: string | undefined;
 
@@ -65,6 +70,10 @@ export async function approveSessionImpl(
 
   // Try to get session from task ID if provided
   if (params.task && !sessionNameToUse) {
+    if (!params.json) {
+      log.cli("🔍 Resolving session from task ID...");
+    }
+
     const taskIdToUse = taskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
@@ -82,6 +91,10 @@ export async function approveSessionImpl(
 
   // Try to auto-detect session from repo path if no session name or task is provided
   if (!sessionNameToUse && params.repo) {
+    if (!params.json) {
+      log.cli("🔍 Auto-detecting session from repository...");
+    }
+
     const getCurrentSessionFunc = depsInput?.getCurrentSession || getCurrentSession;
     const detectedSession = await getCurrentSessionFunc(params.repo);
     if (detectedSession) {
