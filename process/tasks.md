@@ -509,3 +509,5 @@
 - [x] Fix session PR title duplication bug [#285](process/tasks/285-fix-session-pr-title-duplication-bug.md)
 
 - [x] Fix MCP Server and CLI Issues Post Task 282 [#286](process/tasks/286-fix-mcp-server-and-cli-issues-post-task-282.md)
+
+- [ ] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
