@@ -99,7 +99,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
 
     // Add transport-specific arguments
     if (mcpTransportType === "httpStream") {
-      serverCommand.push("--http-stream");
+      serverCommand.push("--http");
       if (mcpPort) {
         serverCommand.push("--port", mcpPort.toString());
       }
@@ -112,10 +112,12 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     }
 
     // Configure environment variables for the inspector
+    // Inspector needs its own proxy port that doesn't conflict with MCP server
+    const inspectorProxyPort = mcpPort ? (parseInt(mcpPort.toString()) + 1000).toString() : "6277";
     const env: Record<string, string | undefined> = {
       ...process.env,
       CLIENT_PORT: port.toString(),
-      SERVER_PORT: "3000", // Standard MCP Inspector proxy server port
+      SERVER_PORT: inspectorProxyPort, // Dynamic proxy port to avoid conflicts
     };
 
     // Configure auto-open based on openBrowser option
@@ -128,7 +130,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
 
     log.debug("Launching MCP Inspector", {
       clientPort: port,
-      serverPort: 3000,
+      inspectorProxyPort,
       openBrowser,
       mcpTransportType,
       mcpPort,
