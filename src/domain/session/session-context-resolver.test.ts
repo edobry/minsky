@@ -12,49 +12,31 @@ import {
   type ResolvedSessionContext,
 } from "./session-context-resolver";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
-import { createMock } from "../../utils/test-utils/mocking";
+import { createMockSessionProvider } from "../../utils/test-utils/index";
 import type { SessionProviderInterface } from "../session";
-
-// Mock session provider with basic functionality
-const createMockSessionProvider = (sessions: any[] = []): SessionProviderInterface => {
-  return {
-    listSessions: createMock(() => Promise.resolve(sessions)),
-    getSession: createMock((sessionName: string) => {
-      const session = sessions.find((s: any) => s.session === sessionName);
-      return Promise.resolve(session || null);
-    }),
-    getSessionByTaskId: createMock((taskId: string) => {
-      const session = sessions.find((s: any) => s.taskId === taskId);
-      return Promise.resolve(session || null);
-    }),
-    addSession: createMock(() => Promise.resolve()),
-    updateSession: createMock(() => Promise.resolve()),
-    deleteSession: createMock(() => Promise.resolve(true)),
-    getRepoPath: createMock(() => Promise.resolve("/mock/repo/path")),
-    getSessionWorkdir: createMock(() => Promise.resolve("/mock/session/workdir")),
-  };
-};
 
 describe("resolveSessionContext", () => {
   let mockSessionProvider: SessionProviderInterface;
 
   beforeEach(() => {
-    mockSessionProvider = createMockSessionProvider([
-      {
-        session: "test-session",
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: "2024-01-01T00:00:00Z",
-        taskId: "#123",
-      },
-      {
-        session: "task#456",
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: "2024-01-02T00:00:00Z",
-        taskId: "#456",
-      },
-    ]);
+    mockSessionProvider = createMockSessionProvider({
+      sessions: [
+        {
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: "2024-01-01T00:00:00Z",
+          taskId: "#123",
+        },
+        {
+          session: "task#456",
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: "2024-01-02T00:00:00Z",
+          taskId: "#456",
+        },
+      ]
+    });
   });
 
   describe("explicit session resolution", () => {
@@ -139,15 +121,17 @@ describe("resolveSessionContext", () => {
 
 describe("resolveSessionName", () => {
   test("returns just the session name", async () => {
-    const mockSessionProvider = createMockSessionProvider([
-      {
-        session: "test-session",
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: "2024-01-01T00:00:00Z",
-        taskId: "#123",
-      },
-    ]);
+    const mockSessionProvider = createMockSessionProvider({
+      sessions: [
+        {
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: "2024-01-01T00:00:00Z",
+          taskId: "#123",
+        },
+      ]
+    });
 
     const sessionName = await resolveSessionName({
       session: "test-session",
@@ -161,15 +145,17 @@ describe("resolveSessionName", () => {
 
 describe("validateSessionContext", () => {
   test("returns true for valid session", async () => {
-    const mockSessionProvider = createMockSessionProvider([
-      {
-        session: "test-session",
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: "2024-01-01T00:00:00Z",
-        taskId: "#123",
-      },
-    ]);
+    const mockSessionProvider = createMockSessionProvider({
+      sessions: [
+        {
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: "2024-01-01T00:00:00Z",
+          taskId: "#123",
+        },
+      ]
+    });
 
     const isValid = await validateSessionContext({
       session: "test-session",
