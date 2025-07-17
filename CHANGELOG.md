@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Includes phased implementation plan with testing strategy
   - Maintains backward compatibility with existing workflows
 
+- Integrated title duplication checking into husky commit-msg hook to prevent commit messages with title/body duplication patterns
+- Added `scripts/check-title-duplication.ts` script that validates commit messages using same logic as session PR workflow
+
 ### Fixed
 
 - **Task Creation System**: Fixed bug where createTaskFromTitleAndDescription stored temporary file paths instead of proper task spec paths
@@ -33,24 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Resolved export/import naming mismatches in session command modules
   - Command `minsky tasks status set 116` now works correctly without module resolution errors
   - Updated codemod-development-standards.mdc with key learnings about structure-aware transformations
-
-### Changed
-
-- **MCP Inspector Upgrade**: Upgraded @modelcontextprotocol/inspector from 0.14.3 to 0.16.1
-  - Fixed server command execution to use 'bun run minsky' instead of 'minsky' directly
-  - Resolved StreamableHTTPError and connection issues with new inspector version
-  - Added explicit working directory configuration for proper execution context
-  - Inspector now properly launches Minsky MCP server as subprocess for debugging HTTP Stream and stdio transports
-
-- **Task #181**: Completed configuration system migration to idiomatic node-config implementation (Phase 6)
-  - Removed NodeConfigAdapter anti-pattern that was fighting against idiomatic node-config usage
-  - Implemented comprehensive Zod validation schemas for all configuration sections
-  - Converted all configuration access to direct `config.get()` calls throughout codebase
-  - Removed ConfigurationService interface and unnecessary abstraction layers
-  - Achieved true idiomatic node-config implementation with runtime validation and full TypeScript type safety
-  - All 10 configuration tests passing with zero regressions
-
-### Fixed
 
 - **Linter Issues**: Resolved all 119 linter errors using AST-based codemod approach
   - Created comprehensive AST-based import extension fixer using ts-morph for safe, precise transformations
@@ -78,8 +63,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed architectural confusion between integration tests and adapter tests
   - Updated cursor rules (`test-organization`, `testing-router`, `bun-test-patterns`) to promote co-location
 
-### Fixed
-
 - **Session Directory Command Path Resolution**
   - Fixed session dir command returning incorrect old per-repo structure paths
   - Changed from `/minsky/local-minsky/sessions/task#181` (old/wrong) to `/minsky/sessions/task#181` (correct)
@@ -100,8 +83,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed misleading "Command execution failed" error messages that appeared even when operations succeeded
   - Added proper CLI formatting with clear success indicators and structured information display
 
-### Improved
-
 - **Session Approve Command Idempotency**
   - Made `minsky session approve` command fully idempotent - can be run multiple times safely
   - Added detection of already-approved sessions by checking git merge ancestry
@@ -110,8 +91,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Already approved: "ℹ️ Session was already approved and merged"
   - Added `isNewlyApproved` flag to JSON output for programmatic usage
   - Preserves existing merge information when session is already approved
-
-### Added
 
 - **Task Relationship Establishment (#251 and #252)**
 
@@ -172,8 +151,6 @@ _See: SpecStory history [2025-07-04_task-189-restore-init-command-interactivity]
 
 _See: SpecStory history [2025-01-28_task-229-mandatory-session-task-association](mdc:.specstory/history/2025-01-28_task-229-mandatory-session-task-association.md) for implementation details._
 
-### Changed
-
 - **Task #244: Refactored Task Specification to Focus on Testing-Boundaries Compliance**
 
   - Completely rewrote task specification to address real root causes of test failures
@@ -200,8 +177,6 @@ _See: SpecStory history [2025-01-28_task-229-mandatory-session-task-association]
 - Task 182: Reduced scope to MVP functionality (1-2 weeks effort) with advanced features moved to Task 183
 
 _See: SpecStory history [2025-01-29_task-244-testing-boundaries-compliance](mdc:.specstory/history/2025-01-29_task-244-testing-boundaries-compliance.md) for task specification refactoring._
-
-### Added
 
 - **Task #158: Implement Session-Aware Versions of Cursor Built-in Tools**
   - Implemented Phase 1: Critical File Operations
@@ -264,8 +239,6 @@ _See: SpecStory history [2025-01-17_github-issues-task-backend](mdc:.specstory/h
   - Additional commands for analysis, prioritization, and similarity detection
 
 _See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specstory/history/2025-01-24_13-58-start-working-on-task-166.md) for task creation._
-
-### Changed
 
 - **Improved user experience for session PR command uncommitted changes error**
 
@@ -407,8 +380,6 @@ _See: SpecStory history [2025-01-26_fix-dependency-installation-error](mdc:.spec
 
 _See: SpecStory history [2025-01-20_improve-ci-test-stability](mdc:.specstory/history/2025-01-20_improve-ci-test-stability.md) for CI stability verification._
 
-### Added
-
 - Task #114: Migrate High-Priority Tests to Native Bun Patterns
   - Created robust custom assertion helpers to bridge Jest and Bun differences
   - Implemented comprehensive ESM import compatibility fixes
@@ -542,8 +513,6 @@ _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/h
 - Updated CLI entrypoint to use shared command registry and CLI bridge for all commands
 
 _See: SpecStory history [2023-07-05_15-45-cli-bridge-implementation](mdc:.specstory/history/2023-07-05_15-45-cli-bridge-implementation.md) for CLI bridge implementation._
-
-### Changed
 
 - **Task #133: Fix CLI Flag Naming Inconsistency for Task Identification**
   - Standardized CLI flag naming for task identification across all Minsky commands
@@ -832,8 +801,6 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
 
 _See: SpecStory history [2023-07-18_20-15-test-utility-documentation](mdc:.specstory/history/2023-07-18_20-15-test-utility-documentation.md) for test utilities documentation._
 
-### Changed
-
 - Refactored CLI command implementations to use shared option utilities
 - Improved error handling with centralized utilities
 
@@ -910,8 +877,6 @@ _See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/hist
 - Improved test module isolation using centralized test utilities
 
 _See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods](mdc:.specstory/history/2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods.md) for test migration work._
-
-### Fixed
 
 - Fixed session command issues after merge
 
@@ -1026,8 +991,6 @@ _See: This task was implemented as part of Task #014._
   - Fixed parameter types to match the schema definitions
   - Restored ability to use tasks status set command
 
-### Changed
-
 - Updated README-MCP.md to remove documentation for unimplemented task commands (tasks.filter, tasks.update, tasks.delete, tasks.info) and moved them to the "Planned Features" section
 - Removed test blocks for unimplemented task command features in MCP integration tests
 - Identified missing MCP adapters for init and rules commands
@@ -1038,14 +1001,10 @@ _See: This task was implemented as part of Task #014._
   - URI parsing, normalization, validation, and conversion
   - Full test coverage
 
-### Changed
-
 - Updated repository backends (GitHub, Remote, Local) to use the new URI handling system
 - Improved repository name normalization with better error handling
 - Repository URI detection and validation
 - Removed deprecated normalizeRepoName function in favor of normalizeRepositoryURI
-
-### Fixed
 
 - Inconsistent handling of repository references
 - Confusion between file paths and URLs in repository references
@@ -1090,8 +1049,6 @@ _See: SpecStory history [YYYY-MM-DD_HH-MM-topic](mdc:.specstory/history/YYYY-MM-
   - Ensured all tests pass reliably on Bun test framework
   - Fixed mocking utility to work correctly with Bun's native mock functionality
   - Added test coverage for the mocking utility itself
-
-### Changed
 
 - Updated workspace test approach to ensure proper dependency injection.
 - Fixed issue with getCurrentSession in integration tests by using proper mocking patterns.
@@ -1197,7 +1154,10 @@ _See: SpecStory history [2025-01-16_fix-session-get-output](mdc:.specstory/histo
 
 _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/history/2025-06-18_18-00-continue-linter-fixes.md) for linter cleanup progress._
 
-### Fixed
 - Fixed inconsistent task ID format display in session list output
 - Normalized task#244 from displaying `(task: 244)` to `(task: #244)` for consistency
 - Added script `scripts/normalize-session-task-ids.ts` for future task ID format normalization
+
+- Session PR title duplication bug in extractPrDescription function where title was inadvertently duplicated in body
+- Consolidated duplicate session PR implementations into single source of truth
+- Enhanced PR description parsing to prevent title/body content overlap
