@@ -41,7 +41,7 @@ import {
 } from "./conflict-detection-types";
 
 // Re-export key types for external use
-export { FileConflictStatus };
+export { FileConflictStatus, ConflictSeverity, ConflictType };
 
 export class ConflictDetectionService {
   /**
@@ -793,7 +793,7 @@ export class ConflictDetectionService {
 
   private generateUserGuidance(
     conflictType: ConflictType,
-    _severity: ConflictSeverity,
+    severity: ConflictSeverity,
     conflictFiles: ConflictFile[]
   ): string {
     return generateUserGuidance(conflictType, severity, conflictFiles);

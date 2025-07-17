@@ -50,4 +50,10 @@ export { SessionDbAdapter } from "./session/session-db-adapter";
 export { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
 
 // Legacy compatibility - ensure all existing imports continue to work
-export type { Session, SessionRecord, SessionListItem } from "./session/types";
+export type { Session, SessionRecord } from "./session/types";
+
+// Legacy exports with FromParams naming convention for backward compatibility
+export { sessionApprove as approveSessionFromParams };
+export { sessionDelete as deleteSessionFromParams };
+export { sessionUpdate as updateSessionFromParams };
+export { getSessionDirFromParams };
