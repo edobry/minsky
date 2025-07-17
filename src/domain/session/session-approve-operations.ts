@@ -57,6 +57,11 @@ export async function approveSessionImpl(
   taskId?: string;
   isNewlyApproved: boolean;
 }> {
+  // Provide immediate user feedback - don't wait for operations to start
+  if (!params.json) {
+    log.cli("🔄 Starting session approval...");
+  }
+
   let sessionNameToUse = params.session;
   let taskId: string | undefined;
 
@@ -65,6 +70,10 @@ export async function approveSessionImpl(
 
   // Try to get session from task ID if provided
   if (params.task && !sessionNameToUse) {
+    if (!params.json) {
+      log.cli("🔍 Resolving session from task ID...");
+    }
+
     const taskIdToUse = taskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
@@ -72,7 +81,29 @@ export async function approveSessionImpl(
     const session = await sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
       throw new ResourceNotFoundError(
-        `No session found for task ${taskIdToUse}`,
+        `🚫 No Session Found for Task ${taskIdToUse}
+
+Task ${taskIdToUse} exists but has no associated session to approve.
+
+💡 Here's what you can do:
+
+1️⃣ Check if the task has a session:
+   minsky session list
+
+2️⃣ Start a session for this task:
+   minsky session start --task ${taskIdToUse}
+
+3️⃣ Or approve a different task that has a session:
+   minsky session list | grep "task:"
+   minsky session approve --task <task-id-with-session>
+
+📋 Current available sessions:
+   Run 'minsky session list' to see which tasks have active sessions.
+
+❓ Need help?
+   • Use 'minsky session start --task ${taskIdToUse}' to create a session
+   • Use 'minsky tasks list' to see all available tasks
+   • Use 'minsky session get --task <id>' to check session details`,
         "task",
         taskIdToUse
       );
@@ -82,6 +113,10 @@ export async function approveSessionImpl(
 
   // Try to auto-detect session from repo path if no session name or task is provided
   if (!sessionNameToUse && params.repo) {
+    if (!params.json) {
+      log.cli("🔍 Auto-detecting session from repository...");
+    }
+
     const getCurrentSessionFunc = depsInput?.getCurrentSession || getCurrentSession;
     const detectedSession = await getCurrentSessionFunc(params.repo);
     if (detectedSession) {
@@ -181,9 +216,74 @@ export async function approveSessionImpl(
 
   try {
     // Execute git commands to merge the PR branch in the main repository
+
+    // First, check for uncommitted changes before attempting git operations
+    try {
+      const statusOutput = await deps.gitService.execInRepository(workingDirectory, "git status --porcelain");
+      const hasUncommittedChanges = statusOutput.trim().length > 0;
+
+      if (hasUncommittedChanges) {
+        // Get detailed status for user guidance
+        const fullStatus = await deps.gitService.execInRepository(workingDirectory, "git status");
+
+        throw new MinskyError(`
+🚫 Cannot approve session with uncommitted changes
+
+You have uncommitted changes in your working directory that need to be handled first.
+
+${fullStatus}
+
+💡 To fix this, choose one of these options:
+
+📝 Commit your changes:
+   git add .
+   git commit -m "Your commit message"
+
+📦 Stash your changes temporarily:
+   git stash
+
+🗑️  Or discard your changes (be careful!):
+   git reset --hard HEAD
+
+Then try the session approve command again.
+        `.trim());
+      }
+    } catch (statusError) {
+      // If we can't check status, continue but might fail later with less friendly error
+      log.debug("Could not check git status before approval", { error: getErrorMessage(statusError) });
+    }
+
     // First, check out the base branch
-    await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
+    if (!params.json) {
+      log.cli("🔄 Switching to base branch...");
+    }
+
+    try {
+      await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
+    } catch (checkoutError) {
+      const errorMessage = getErrorMessage(checkoutError);
+      if (errorMessage.includes("would be overwritten") || errorMessage.includes("uncommitted changes")) {
+        throw new MinskyError(`
+🚫 Cannot switch to ${baseBranch} branch due to uncommitted changes
+
+${errorMessage}
+
+💡 Please commit or stash your changes first:
+   git add .
+   git commit -m "Your commit message"
+   # OR
+   git stash
+
+Then try the session approve command again.
+        `.trim());
+      }
+      throw checkoutError;
+    }
+
     // Fetch latest changes
+    if (!params.json) {
+      log.cli("📡 Fetching latest changes...");
+    }
     await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
 
     // Check if the PR branch has already been merged
@@ -206,6 +306,10 @@ export async function approveSessionImpl(
       // This avoids the race condition where the check can fail during merge process
 
       // Attempt the merge - if it fails because already merged, git will tell us
+      if (!params.json) {
+        log.cli(`🔀 Merging PR branch ${prBranch}...`);
+      }
+
       try {
         await deps.gitService.execInRepository(workingDirectory, `git merge --ff-only ${prBranch}`);
 
@@ -248,8 +352,25 @@ export async function approveSessionImpl(
         await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
 
       } catch (mergeError) {
-        // Merge failed - check if it's because already merged
+        // Merge failed - check if it's because already merged or other issues
         const errorMessage = getErrorMessage(mergeError as Error);
+
+        // Check for uncommitted changes causing merge failure
+        if (errorMessage.includes("would be overwritten") || errorMessage.includes("uncommitted changes")) {
+          throw new MinskyError(`
+🚫 Cannot merge PR branch due to uncommitted changes
+
+${errorMessage}
+
+💡 Please commit or stash your changes first:
+   git add .
+   git commit -m "Your commit message"
+   # OR
+   git stash
+
+Then try the session approve command again.
+          `.trim());
+        }
 
         if (errorMessage.includes("Already up to date") || errorMessage.includes("nothing to commit")) {
           // PR branch has already been merged
@@ -353,8 +474,8 @@ export async function approveSessionImpl(
               // Stage the tasks.md file (or any other changed files from task status update)
               await deps.gitService.execInRepository(workingDirectory, "git add process/tasks.md");
 
-              // Commit the task status update
-              await deps.gitService.execInRepository(workingDirectory, `git commit -m "Update task ${taskId} status to DONE"`);
+              // Commit the task status update with conventional commits format
+              await deps.gitService.execInRepository(workingDirectory, `git commit -m "chore(${taskId}): update task status to DONE"`);
 
               // Push the commit
               await deps.gitService.execInRepository(workingDirectory, "git push");
@@ -404,51 +525,82 @@ async function cleanupLocalBranches(
   sessionName: string,
   taskId?: string
 ): Promise<void> {
-  // Extract task ID from session name if not provided and session follows task# pattern
-  const taskBranchName = taskId ? taskId.replace("#", "") : sessionName.replace("task#", "");
-
   // Clean up the PR branch (e.g., pr/task#265)
   try {
     await gitService.execInRepository(workingDirectory, `git branch -d ${prBranch}`);
     log.debug(`Successfully deleted local PR branch: ${prBranch}`);
   } catch (error) {
-    // Log but don't fail the operation if branch cleanup fails
-    log.debug(`Failed to delete local PR branch ${prBranch}: ${getErrorMessage(error)}`);
-  }
-
-  // Clean up the task branch (e.g., task#265 or 265)
-  // Try various possible branch name formats
-  const possibleTaskBranches = [];
-
-  // Add sessionName if it looks like a task branch (task#265)
-  if (sessionName && sessionName !== prBranch) {
-    possibleTaskBranches.push(sessionName);
-  }
-
-  // Add numeric version if we have a task ID (265)
-  if (taskBranchName && taskBranchName !== sessionName) {
-    possibleTaskBranches.push(taskBranchName);
-  }
-
-  // Add task prefix version (task265, task#265)
-  if (taskBranchName) {
-    possibleTaskBranches.push(`task${taskBranchName}`);
-    possibleTaskBranches.push(`task#${taskBranchName}`);
-  }
-
-  // Filter out duplicates, empty strings, PR branch, and invalid branch names
-  const uniqueBranches = [...new Set(possibleTaskBranches)].filter(
-    branch => branch && branch !== prBranch && !branch.startsWith("#")
-  );
-
-  for (const branch of uniqueBranches) {
-    try {
-      await gitService.execInRepository(workingDirectory, `git branch -d ${branch}`);
-      log.debug(`Successfully deleted local task branch: ${branch}`);
-      break; // Stop after first successful deletion
-    } catch (error) {
-      // Log but continue trying other branch names
-      log.debug(`Failed to delete local task branch ${branch}: ${getErrorMessage(error)}`);
+    // Check if it's because branch is not fully merged
+    const errorMessage = getErrorMessage(error);
+    if (errorMessage.includes("not fully merged")) {
+      // Try force delete
+      try {
+        await gitService.execInRepository(workingDirectory, `git branch -D ${prBranch}`);
+        log.debug(`Successfully force-deleted local PR branch: ${prBranch}`);
+      } catch (forceError) {
+        log.debug(`Failed to force-delete local PR branch ${prBranch}: ${getErrorMessage(forceError)}`);
+      }
+    } else {
+      log.debug(`Failed to delete local PR branch ${prBranch}: ${errorMessage}`);
     }
   }
-} 
+
+  // For task branches, be smarter about which ones to try
+  // First, check what branches actually exist locally
+  try {
+    const allBranchesOutput = await gitService.execInRepository(workingDirectory, "git branch --format=\"%(refname:short)\"");
+    const existingBranches: string[] = allBranchesOutput.split("\n").map(b => b.trim()).filter(b => b && b !== prBranch);
+
+    // Extract task ID from session name if not provided and session follows task# pattern
+    const taskBranchName = taskId ? taskId.replace("#", "") : sessionName.replace("task#", "");
+
+    // Build list of possible task branch names
+    const possibleTaskBranches: string[] = [];
+
+    // Add sessionName if it looks like a task branch and exists
+    if (sessionName && sessionName !== prBranch && existingBranches.includes(sessionName)) {
+      possibleTaskBranches.push(sessionName);
+    }
+
+    // Add numeric version if it exists
+    if (taskBranchName && taskBranchName !== sessionName && existingBranches.includes(taskBranchName)) {
+      possibleTaskBranches.push(taskBranchName);
+    }
+
+    // Add task prefix versions if they exist
+    if (taskBranchName) {
+      const taskVariants: string[] = [`task${taskBranchName}`, `task#${taskBranchName}`];
+      for (const variant of taskVariants) {
+        if (variant !== sessionName && existingBranches.includes(variant)) {
+          possibleTaskBranches.push(variant);
+        }
+      }
+    }
+
+    // Only try to delete branches that actually exist
+    for (const branch of possibleTaskBranches) {
+      try {
+        await gitService.execInRepository(workingDirectory, `git branch -d ${branch}`);
+        log.debug(`Successfully deleted local task branch: ${branch}`);
+        break; // Stop after first successful deletion
+      } catch (error) {
+        const errorMessage = getErrorMessage(error);
+        if (errorMessage.includes("not fully merged")) {
+          // Try force delete
+          try {
+            await gitService.execInRepository(workingDirectory, `git branch -D ${branch}`);
+            log.debug(`Successfully force-deleted local task branch: ${branch}`);
+            break; // Stop after successful force deletion
+          } catch (forceError) {
+            log.debug(`Failed to force-delete local task branch ${branch}: ${getErrorMessage(forceError)}`);
+          }
+        } else {
+          log.debug(`Failed to delete local task branch ${branch}: ${errorMessage}`);
+        }
+      }
+    }
+  } catch (listError) {
+    // If we can't list branches, fall back to trying common patterns (but only warn, don't error)
+    log.debug(`Could not list local branches for cleanup: ${getErrorMessage(listError)}`);
+  }
+}

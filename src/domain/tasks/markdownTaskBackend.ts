@@ -3,7 +3,8 @@
  * Uses functional patterns with clear separation of concerns
  */
 
-import { join } from "path";
+import { join, dirname } from "path";
+import { promises as fs } from "fs";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 // @ts-ignore - matter is a third-party library
@@ -142,12 +143,40 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     const newId = `#${maxId + 1}`;
 
+    // Generate proper spec path and move the temporary file
+    const properSpecPath = getTaskSpecRelativePath(newId, spec.title, this.workspacePath);
+    const fullProperPath = join(this.workspacePath, properSpecPath);
+
+    // Ensure the tasks directory exists
+    const tasksDir = dirname(fullProperPath);
+    try {
+      await fs.mkdir(tasksDir, { recursive: true });
+    } catch (error) {
+      // Directory already exists, continue
+    }
+
+    // Move the temporary file to the proper location
+    try {
+      // Read the spec file content
+      const specContent = await fs.readFile(specPath, "utf-8");
+      // Write to the proper location
+      await fs.writeFile(fullProperPath, specContent, "utf-8");
+      // Delete the temporary file
+      try {
+        await fs.unlink(specPath);
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+    } catch (error) {
+      throw new Error(`Failed to move spec file from ${specPath} to ${properSpecPath}: ${getErrorMessage(error)}`);
+    }
+
     const newTaskData: TaskData = {
       id: newId,
       title: spec.title,
       description: spec.description,
       status: "TODO" as TaskStatus,
-      specPath,
+      specPath: properSpecPath,
     };
 
     // Add the new task to the list

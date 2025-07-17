@@ -5,16 +5,16 @@
  * allowing shared commands to be executed via MCP requests.
  */
 import { sharedCommandRegistry, type CommandExecutionContext } from "../command-registry";
-import { 
-  validateMcpCommandRequest, 
-  validateCommandDefinition, 
+import {
+  validateMcpCommandRequest,
+  validateCommandDefinition,
   validateCommandRegistry,
   validateParameterDefinition,
   validateZodParseResult,
   type McpCommandRequest,
   type McpCommandResponse,
   type ParameterDefinition,
-  type ZodParseResult 
+  type ZodParseResult
 } from "../../../schemas/runtime";
 import { validateError } from "../../../schemas/error";
 import { ensureError } from "../../../errors/index";
@@ -34,11 +34,11 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
   try {
     // Validate the request
     const validatedRequest = validateMcpCommandRequest(request);
-    
+
     // Validate the command registry
     const registry = validateCommandRegistry(sharedCommandRegistry);
     const commandDef = registry.getCommand(validatedRequest.commandId);
-    
+
     if (!commandDef) {
       return {
         success: false,
@@ -74,21 +74,27 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
 
       const parseResult = paramDef.schema.safeParse(valueToParse);
       const validatedParseResult = validateZodParseResult(parseResult);
-      
+
       if (validatedParseResult.success) {
         parsedParams[paramName] = validatedParseResult.data;
       } else {
         if (!validationErrors[paramName]) {
           validationErrors[paramName] = [];
         }
-        
+
         // Process validation errors
         const errorObj = validatedParseResult.error;
         if (errorObj && errorObj.errors) {
           errorObj.errors.forEach((validationIssue) => {
+            if (!validationErrors[paramName]) {
+              validationErrors[paramName] = [];
+            }
             validationErrors[paramName].push(validationIssue.message);
           });
         } else {
+          if (!validationErrors[paramName]) {
+            validationErrors[paramName] = [];
+          }
           validationErrors[paramName].push("Invalid value, and Zod error details are unavailable.");
         }
       }
@@ -129,7 +135,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     }
   } catch (error) {
     const validatedError = validateError(error);
-    
+
     // Create a safe reference to the validated request for error handling
     let debugMode = false;
     try {
@@ -138,7 +144,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     } catch {
       // Ignore validation errors in error handling
     }
-    
+
     return {
       success: false,
       error: {
@@ -150,23 +156,3 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     };
   }
 }
-
-// Example of how this might be registered or used with an MCP server (e.g., FastMCP)
-// This is highly dependent on the MCP framework being used.
-/*
-export function registerMcpCommands(mcpServer: FastMcpServer) {
-  const commands = sharedCommandRegistry.getAllCommands();
-  commands.forEach(commandDef => {
-    mcpServer.addCommandHandler(commandDef.id, async (payload: unknown) => {
-      const request: McpCommandRequest = {
-        commandId: commandDef.id,
-        _parameters: payload.params || {},
-        mcpContext: payload.context || {},
-        debug: !!payload.debug,
-        format: payload.format as string || "json",
-      };
-      return executeMcpCommand(request);
-    });
-  });
-}
-*/
