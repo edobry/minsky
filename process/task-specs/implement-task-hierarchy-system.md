@@ -21,13 +21,13 @@ The current task system treats all tasks as independent entities. To support eff
 
 ## Future Direction Considerations
 
-### Multi-Level Task Graph Architecture
+### Multi-Level Task Graph Architecture with Chain-of-Thought Monitoring
 
-**RESEARCH REQUIRED**: This implementation should be designed to support future extension to a multi-level task graph with the following hierarchy:
+**RESEARCH REQUIRED**: This implementation should be designed to support future extension to a multi-level task graph with **full Chain-of-Thought (CoT) monitoring capabilities** at each level:
 
-1. **User-specified tasks** (from user requirements)
-2. **AI-decomposed strategic subtasks** (high-level breakdown)
-3. **Tactical subtasks/todos** (immediate action items: tool calls, code generation, thinking steps)
+1. **User-specified tasks** (from user requirements) - **Strategic CoT monitoring**
+2. **AI-decomposed strategic subtasks** (high-level breakdown) - **Tactical CoT monitoring**
+3. **Tactical subtasks/todos** (immediate action items: tool calls, code generation, thinking steps) - **Execution CoT monitoring**
 
 **Key architectural questions to preserve in this implementation:**
 
@@ -35,6 +35,9 @@ The current task system treats all tasks as independent entities. To support eff
 - How to support human-in-the-loop intervention at any graph level?
 - How to enable subgraph recomputation when user requirements change?
 - How to integrate with ephemeral git branches for rollback capabilities?
+- **NEW: How to ensure CoT monitorability at each level of the task graph?**
+- **NEW: What intervention patterns are needed for safe multi-level AI task execution?**
+- **NEW: How to maintain reasoning transparency across task graph levels?**
 
 **Design Constraint**: Implementation must not preclude future addition of:
 
@@ -42,8 +45,51 @@ The current task system treats all tasks as independent entities. To support eff
 - **Intervention points** - Human review/modification between execution phases
 - **Requirement iteration** - Ability to modify user requirements and recompute affected subgraphs
 - **Execution rollback** - Using ephemeral git branches for safe experimentation
+- **NEW: Chain-of-Thought monitoring** - Real-time observation of AI reasoning at each task level
+- **NEW: Multi-level intervention** - Ability to interrupt and redirect at strategic, tactical, or execution levels
+- **NEW: Reasoning pattern detection** - Automated detection of problematic planning across all levels
 
-**Architecture Impact**: The parent-child relationship system designed here should be extensible to support different relationship types and task weights (heavyweight strategic vs lightweight tactical).
+**Architecture Impact**: The parent-child relationship system designed here should be extensible to support different relationship types and task weights (heavyweight strategic vs lightweight tactical), with **full Chain-of-Thought monitorability** enabling safe and transparent AI-driven task execution.
+
+## Chain-of-Thought Monitoring Integration
+
+### Monitorable Task Graph Design
+
+**Multi-Level CoT Architecture:**
+- **Strategic Level**: Monitor AI reasoning about high-level task decomposition and planning
+- **Tactical Level**: Monitor AI reasoning about task dependencies, sequencing, and resource allocation
+- **Execution Level**: Monitor AI reasoning about specific implementation approaches and decisions
+
+**Intervention Capabilities:**
+- **Subgraph Preemption**: Terminate and restart entire branches of task execution based on CoT analysis
+- **Real-time Redirection**: Interrupt AI task planning mid-stream when problematic reasoning is detected
+- **Context Preservation**: Maintain reasoning context across interventions for seamless resumption
+
+**Safety Through Transparency:**
+- All AI reasoning about task hierarchy creation and modification must be observable
+- Decision rationale for task relationships must be externalized and monitorable
+- Alternative approaches considered must be visible for human oversight
+- Confidence levels and uncertainty must be explicitly acknowledged
+
+### Monitorability Requirements for Task Hierarchy
+
+**Transparent Reasoning:**
+- AI must externalize reasoning about task complexity, dependencies, and hierarchy design
+- Parent-child relationship decisions must include observable decision rationale
+- Task decomposition choices must be justified with visible reasoning chains
+- Alternative hierarchy structures considered must be documented
+
+**Intervention Points:**
+- Each level of the task hierarchy represents a potential intervention boundary
+- Real-time monitoring can detect problematic hierarchy decisions as they occur
+- Human can redirect AI planning before inappropriate task structures are committed
+- Rollback capabilities allow reverting to previous hierarchy states
+
+**Pattern Detection:**
+- Monitor for over-decomposition (unnecessary complexity) or under-decomposition (insufficient breakdown)
+- Detect circular dependencies or inappropriate task relationships
+- Identify scope creep or boundary violations in task definition
+- Recognize when AI planning is stuck or producing poor hierarchy designs
 
 ## Goal
 

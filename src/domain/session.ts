@@ -2159,3 +2159,14 @@ export { SessionDbAdapter } from "./session/session-db-adapter";
 // Export SessionDB as function for backward compatibility with existing imports
 // This replaces the old class-based compatibility layer with a cleaner function-based approach
 export const SessionDB = createSessionProvider;
+
+// Re-export session command functions with shorter names for adapters
+export { listSessionsFromParams as sessionList };
+export { getSessionFromParams as sessionGet };
+export { startSessionFromParams as sessionStart };
+export { deleteSessionFromParams as sessionDelete };
+export { getSessionDirFromParams as sessionDir };
+export { updateSessionFromParams as sessionUpdate };
+export { approveSessionFromParams as sessionApprove };
+export { sessionPrFromParams as sessionPr };
+export { inspectSessionFromParams as sessionInspect };
