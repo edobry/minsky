@@ -52,22 +52,22 @@ describe("Session Start Consistency Tests", () => {
     mockResolveRepoPath = createMock();
 
     // Setup default successful responses
-    mockSessionDB.getSession.mockResolvedValue(null); // No existing session
-    mockSessionDB.listSessions.mockResolvedValue([]);
-    mockSessionDB.addSession.mockResolvedValue(undefined);
-    mockSessionDB.deleteSession.mockResolvedValue(true);
-    mockSessionDB.getNewSessionRepoPath.mockReturnValue("/test/sessions/task160");
+    mockSessionDB.getSession.mockImplementation(() => Promise.resolve(null)); // No existing session
+    mockSessionDB.listSessions.mockImplementation(() => Promise.resolve([]));
+    mockSessionDB.addSession.mockImplementation(() => Promise.resolve(undefined));
+    mockSessionDB.deleteSession.mockImplementation(() => Promise.resolve(true));
+    mockSessionDB.getNewSessionRepoPath.mockImplementation(() => "/test/sessions/task160");
 
-    mockGitService.clone.mockResolvedValue({ workdir: "/test/sessions/task160" });
-    mockGitService.branch.mockResolvedValue({ branch: "task160" });
-    mockGitService.branchWithoutSession.mockResolvedValue({ branch: "task160", workdir: "/test/sessions/task160" });
+    mockGitService.clone.mockImplementation(() => Promise.resolve({ workdir: "/test/sessions/task160" }));
+    mockGitService.branch.mockImplementation(() => Promise.resolve({ branch: "task160" }));
+    mockGitService.branchWithoutSession.mockImplementation(() => Promise.resolve({ branch: "task160", workdir: "/test/sessions/task160" }));
 
-    mockTaskService.getTask.mockResolvedValue({ id: "160", title: "Test Task" });
-    mockTaskService.getTaskStatus.mockResolvedValue("TODO");
-    mockTaskService.setTaskStatus.mockResolvedValue(undefined);
+    mockTaskService.getTask.mockImplementation(() => Promise.resolve({ id: "160", title: "Test Task" }));
+    mockTaskService.getTaskStatus.mockImplementation(() => Promise.resolve("TODO"));
+    mockTaskService.setTaskStatus.mockImplementation(() => Promise.resolve(undefined));
 
-    mockWorkspaceUtils.isSessionWorkspace.mockResolvedValue(false);
-    mockResolveRepoPath.mockResolvedValue("local/minsky");
+    mockWorkspaceUtils.isSessionWorkspace.mockImplementation(() => Promise.resolve(false));
+    mockResolveRepoPath.mockImplementation(() => Promise.resolve("local/minsky"));
   });
 
   describe("Successful session creation", () => {
@@ -281,11 +281,11 @@ describe("Session Start Consistency Tests", () => {
 
     it("should prevent session creation when session already exists", async () => {
       // Arrange
-      mockSessionDB.getSession.mockResolvedValue({
+      mockSessionDB.getSession.mockImplementation(() => Promise.resolve({
         session: "task#160",
         repoUrl: "local/minsky",
         repoName: "local-minsky",
-      });
+      }));
 
       const params = {
         task: "160",
@@ -313,13 +313,13 @@ describe("Session Start Consistency Tests", () => {
 
     it("should prevent session creation when task session already exists", async () => {
       // Arrange
-      mockSessionDB.listSessions.mockResolvedValue([
+      mockSessionDB.listSessions.mockImplementation(() => Promise.resolve([
         {
           session: "existing-task160",
           taskId: "#160",
           repoUrl: "local/minsky",
         },
-      ]);
+      ]));
 
       const params = {
         task: "160",
@@ -347,7 +347,7 @@ describe("Session Start Consistency Tests", () => {
 
     it("should handle task not found gracefully", async () => {
       // Arrange
-      mockTaskService.getTask.mockResolvedValue(null);
+      mockTaskService.getTask.mockImplementation(() => Promise.resolve(null));
 
       const params = {
         task: "999",
