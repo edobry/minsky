@@ -40,6 +40,9 @@ import {
   FileConflictStatus,
 } from "./conflict-detection-types";
 
+// Re-export key types for external use
+export { FileConflictStatus };
+
 export class ConflictDetectionService {
   /**
    * Static method to predict merge conflicts
