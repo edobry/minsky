@@ -1236,3 +1236,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ### Reverted
 
 - **Bad MCP rule conversion attempt (commits e0066506/dde789d7)**: Reverted mechanical find-and-replace conversion that incorrectly treated MCP tools like CLI commands with flags, created nonsensical references like "# Use MCP tool: session.pr --title", demonstrated need for proper MCP interface understanding before conversion
+
+### Fixed
+
+- **Session Database**: Fixed critical "undefined is not an object (evaluating 'sessions.find')" error in JSON file storage backend. The issue was caused by a structural mismatch where `readState()` was returning a sessions array instead of a proper `SessionDbState` object with a `sessions` property. This affected all session commands including `minsky session dir --task X`, `minsky session list`, and `minsky session get --task X`.
