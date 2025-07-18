@@ -30,6 +30,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Session Tools API Compatibility**: Fixed `commandMapper.addTool is not a function` error preventing MCP server startup
+  - **CRITICAL**: Fixed incompatible API usage in session-files.ts and session-edit-tools.ts
+  - **Root Cause**: Session tools were using deprecated `addTool()` method instead of `addCommand()`
+  - **Resolution**: Updated all session tools to use `addCommand()` with proper parameters object structure
+  - **Result**: MCP server now starts correctly, inspector opens properly, all session tools functional
+  - **Files Fixed**: `src/adapters/mcp/session-files.ts`, `src/adapters/mcp/session-edit-tools.ts`
+
 - **HTTP Transport Restoration**: Fixed complete loss of HTTP transport functionality during merge
   - **CRITICAL**: Restored missing `handleHttpRequest()` method that was lost during task 286 merge
   - **CRITICAL**: Restored `--http` CLI flag that was replaced with older `--transport` syntax
