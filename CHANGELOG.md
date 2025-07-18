@@ -7,8 +7,14 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Task #289: Implement Template-Based Rules Generation System - Created comprehensive task specification for converting static cursor rules to template literals with conditional CLI/MCP command references, extracting rules generation logic to rules domain, and implementing `minsky rules generate` command
+- Context-aware rule conversion script (`scripts/convert-rules-to-mcp.ts`) with smart pattern matching for different contexts and grammatical preservation
 
 ### Changed
+
+- **BREAKING**: All cursor rules now reference MCP tools instead of CLI commands (124 replacements across 14 rule files)
+- Rules now use "Use MCP tool `tool.name`" instead of "Run `minsky command`" for improved MCP integration
+- Code blocks in rules converted to MCP tool instruction comments
+- Rule conversion script exports mappings for future use in template system (Task #289)
 
 - **HTTP Transport Restoration**: Fixed complete loss of HTTP transport functionality during merge
   - **CRITICAL**: Restored missing `handleHttpRequest()` method that was lost during task 286 merge
