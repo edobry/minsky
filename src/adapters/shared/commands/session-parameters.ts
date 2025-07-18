@@ -276,6 +276,12 @@ export const sessionApproveCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
+  noStash: {
+    schema: z.boolean(),
+    description: "Skip automatic stashing of uncommitted changes",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
