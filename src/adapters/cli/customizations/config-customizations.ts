@@ -2,9 +2,14 @@
  * Config and SessionDB Command Customizations
  * @migrated Extracted from cli-command-factory.ts for focused responsibility
  */
+import { z } from "zod";
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
 import { log } from "../../../utils/logger";
+import {
+  formatResolvedConfiguration,
+  formatConfigurationSources
+} from "../utilities/formatting-utilities";
 
 /**
  * Utility function to flatten object to key-value pairs
@@ -33,9 +38,24 @@ function flattenObjectToKeyValue(obj: any): any {
 }
 
 /**
- * Format flattened configuration for display
- * @param resolved Resolved configuration object
- * @returns Formatted string
+ * Determine config category name from command ID
+ * @param commandId Command identifier
+ * @returns Config category name
+ */
+function getConfigCategory(commandId: string): string {
+  const categoryMap: { [key: string]: string } = {
+    "config.list": "CONFIG",
+    "config.show": "CONFIG",
+  };
+
+  return categoryMap[commandId] || "CONFIG";
+}
+
+/**
+ * Flatten nested object into key=value pairs suitable for display
+ * @param obj Object to flatten
+ * @param prefix Prefix for keys
+ * @returns Flattened key-value string
  */
 function formatFlattenedConfiguration(resolved: any): string {
   const flatten = (obj: any, prefix = ""): string[] => {
@@ -131,12 +151,10 @@ export function getConfigCustomizations(): { category: CommandCategory; options:
 
               // Show sources if explicitly requested
               if (result.showSources && result.sources) {
-                // Note: formatConfigurationSources needs to be imported from utilities
-                output += "Configuration sources view not available in extracted module";
+                output += formatConfigurationSources(result.configuration, result.sources);
               } else {
                 // Default human-friendly structured view
-                // Note: formatResolvedConfiguration needs to be imported from utilities
-                output += "Structured configuration view not available in extracted module";
+                output += formatResolvedConfiguration(result.configuration);
               }
 
               log.cli(output);
@@ -193,4 +211,4 @@ export function getSessiondbCustomizations(): { category: string; options: Categ
       },
     },
   };
-} 
+}
