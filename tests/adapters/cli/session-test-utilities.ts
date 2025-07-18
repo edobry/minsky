@@ -1,6 +1,6 @@
 /**
  * Session Test Utilities
- * 
+ *
  * Common mocks, test data, and setup functions for session command tests
  */
 
@@ -123,4 +123,4 @@ export function createSessionRecord(overrides?: any): any {
     remote: { authMethod: "ssh", depth: 1 },
     ...overrides,
   };
-} 
+}
