@@ -31,6 +31,7 @@ import {
   formatRuleDetails,
   formatRuleSummary,
 } from "./cli-result-formatters";
+import { CLISessionContextResolver } from "../../session-context-resolver";
 
 /**
  * CLI-specific execution context
@@ -209,10 +210,15 @@ export class CliCommandBridge {
         };
 
         // Normalize parameters
-        const normalizedParams = normalizeCliParameters(
+        let normalizedParams = normalizeCliParameters(
           (commandDef as any).parameters!,
           rawParameters
         );
+
+        // Apply CLI session context resolution for session commands
+        if ((commandDef as any).id.startsWith("session.")) {
+          normalizedParams = CLISessionContextResolver.resolveSessionContext(normalizedParams);
+        }
 
         // Execute the command with parameters and context
         const result = await (commandDef as any).execute(normalizedParams, context as any);
