@@ -23,15 +23,15 @@ A Minsky session is an isolated workspace for implementing a specific task. It e
 
 1. **Start a session for a task**:
    ```bash
-   # Use MCP tool: session.start with --task <task-id>
+   minsky session start --task <task-id>
    ```
-   Example: `session` MCP tools
+   Example: `minsky session start --task 067`
 
 2. **Alternatively, start a session with auto-created task**:
    ```bash
-   # Use MCP tool: session.start with --description "<description>"
+   minsky session start --description "<description>"
    ```
-   Example: `session` MCP tools
+   Example: `minsky session start --description "Implement user authentication"`
 
 3. **Enter the session directory**:
    ```bash
@@ -52,20 +52,20 @@ A Minsky session is an isolated workspace for implementing a specific task. It e
 
 - **List all available sessions**:
   ```bash
-  # Use MCP tool: session.list
+  minsky session list
   ```
 
 - **Get details of a specific session**:
   ```bash
   minsky session get <session-name>
   ```
-  Or by task ID: `session` MCP tools
+  Or by task ID: `minsky session get --task <task-id>`
 
 - **Find the directory of a session**:
   ```bash
   minsky session dir
   ```
-  Or by task ID: `session` MCP tools
+  Or by task ID: `minsky session dir --task <task-id>`
 
 ### Updating a Session
 

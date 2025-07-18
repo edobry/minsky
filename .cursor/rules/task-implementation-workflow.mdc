@@ -8,29 +8,29 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
 
 1. **List available tasks**:
    ```bash
-   # Use MCP tool: tasks.list
+   minsky tasks list --json
    ```
 
 2. **View task details**:
    ```bash
-   # Use MCP tool: tasks.get with taskId: <task-id>
+   minsky tasks get <task-id>
    ```
 
    You can also view the full task specification content:
    ```bash
-   # Use MCP tool: tasks.spec with taskId: <task-id>
+   minsky tasks spec <task-id>
    ```
 
 3. **Check the current status**:
    ```bash
-   # Use MCP tool: tasks.status.get with taskId: <task-id>
+   minsky tasks status get <task-id>
    ```
 
 ### 2. Session Setup
 
 1. **Start a new session for the task**:
    ```bash
-   # Use MCP tool: session.start with --task <task-id>
+   minsky session start --task <task-id>
    ```
    This will automatically set the task status to IN-PROGRESS.
 
@@ -50,7 +50,7 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
 1. **Read the task specification**:
    - Use the Minsky CLI to view the task specification:
      ```bash
-     # Use MCP tool: tasks.spec with taskId: <task-id>
+     minsky tasks spec <task-id>
      ```
    - Alternatively, locate the task spec file at `process/tasks/<task-id>-<task-name>.md`
    - Review all requirements and acceptance criteria
@@ -221,7 +221,7 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
    ```bash
    minsky tasks status set <task-id> IN-REVIEW
    ```
-   This can also happen automatically when using `git` MCP tools.
+   This can also happen automatically when using `minsky git pr`.
 
 ## Work Log Guidelines
 

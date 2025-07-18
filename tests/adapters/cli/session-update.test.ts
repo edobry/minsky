@@ -1,6 +1,6 @@
 /**
  * Session Update Command Tests
- *
+ * 
  * Tests for session update command functionality
  */
 
@@ -19,7 +19,7 @@ describe("session update command", () => {
 
   beforeEach(() => {
     testData = createSessionTestData();
-
+    
     mockGitService = {
       getSessionWorkdir: (repoName: string, sessionName: string) =>
         join(testData.tempDir, repoName, "sessions", sessionName),
@@ -45,12 +45,27 @@ describe("session update command", () => {
   });
 
   test("TASK #168 FIX: should auto-detect session name from current directory when not provided", async () => {
-    // Arrange: Use a session that exists in our mock data
-    const sessionName = "task#170"; // Use existing session from mock data
+    // Arrange: Setup session workspace path
+    const sessionName = "task#236"; // Use actual current session for auto-detection test
     const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
 
-    // Mock getCurrentSession to return the session name for auto-detection
+    // Mock getCurrentSession to return the session name
     const mockGetCurrentSession = async () => sessionName;
+
+    // Mock session record
+    const sessionRecord: SessionRecord = {
+      session: sessionName,
+      repoName: "local-minsky",
+      repoUrl: "/test/repo",
+      createdAt: new Date().toISOString(),
+      taskId: "#236",
+    };
+
+    testData.mockSessionDB.getSession = async (name: string) =>
+      name === sessionName ? sessionRecord : null;
+
+    // Mock getSessionWorkdir to return a valid path
+    testData.mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
 
     // Create the session directory
     await mkdir(sessionPath, { recursive: true });
@@ -66,10 +81,6 @@ describe("session update command", () => {
         autoResolveDeleteConflicts: false,
         dryRun: false,
         skipIfAlreadyMerged: false,
-        branch: undefined,
-        repo: undefined,
-        task: undefined,
-        workspace: undefined,
       },
       {
         sessionDB: testData.mockSessionDB,
@@ -78,8 +89,7 @@ describe("session update command", () => {
       }
     );
 
-    // Assert: Should complete successfully
-    expect(result).toBeDefined();
+    // Assert: Auto-detection should work
     expect(result.session).toBe(sessionName);
   });
 
@@ -129,14 +139,6 @@ describe("session update command", () => {
         noStash: false,
         noPush: false,
         force: true, // Use force to bypass git conflict detection
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-        dryRun: false,
-        skipIfAlreadyMerged: false,
-        branch: undefined,
-        repo: undefined,
-        task: undefined,
-        workspace: undefined,
       },
       {
         sessionDB: testData.mockSessionDB,
@@ -183,14 +185,6 @@ describe("session update command", () => {
             noStash: false,
             noPush: false,
             force: false,
-            skipConflictCheck: false,
-            autoResolveDeleteConflicts: false,
-            dryRun: false,
-            skipIfAlreadyMerged: false,
-            branch: undefined,
-            repo: undefined,
-            task: undefined,
-            workspace: undefined,
           },
           {
             sessionDB: testData.mockSessionDB,
@@ -247,14 +241,6 @@ describe("session update command", () => {
         noStash: false,
         noPush: false,
         force: true, // Use force to bypass git conflict detection
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-        dryRun: false,
-        skipIfAlreadyMerged: false,
-        branch: undefined,
-        repo: undefined,
-        task: undefined,
-        workspace: undefined,
       },
       {
         sessionDB: testData.mockSessionDB,
@@ -292,14 +278,6 @@ describe("session update command", () => {
         noStash: false,
         noPush: false,
         force: true, // Use force to bypass git conflict detection
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-        dryRun: false,
-        skipIfAlreadyMerged: false,
-        branch: undefined,
-        repo: undefined,
-        task: undefined,
-        workspace: undefined,
       },
       {
         sessionDB: testData.mockSessionDB,
@@ -345,14 +323,6 @@ describe("session update command", () => {
         noStash: false,
         noPush: false,
         force: true, // Use force to bypass git conflict detection
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-        dryRun: false,
-        skipIfAlreadyMerged: false,
-        branch: undefined,
-        repo: undefined,
-        task: undefined,
-        workspace: undefined,
       },
       {
         sessionDB: testData.mockSessionDB,
@@ -363,4 +333,4 @@ describe("session update command", () => {
     // Assert: Force flag should allow update to succeed
     expect(result.session).toBe(sessionName);
   });
-});
+}); 

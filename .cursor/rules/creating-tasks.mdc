@@ -15,15 +15,15 @@ alwaysApply: false
 
 ### Task Creation Workflow
 
-1. **Check for existing tasks first**: Use MCP tool `tasks.list` to verify no duplicate exists
+1. **Check for existing tasks first**: Run `minsky tasks list | grep "relevant-keywords"` to verify no duplicate exists
 2. **Create task with title and description**:
 
    ```bash
    # Method 1: Inline description (for short descriptions)
-   # Use MCP tool: tasks.create with --title "Task Title" --description "Task description text"
+   minsky tasks create --title "Task Title" --description "Task description text"
 
    # Method 2: Description from file (for comprehensive descriptions)
-   # Use MCP tool: tasks.create with --title "Task Title" --description-path path/to/description.md
+   minsky tasks create --title "Task Title" --description-path path/to/description.md
    ```
 
 3. The CLI will:
@@ -59,7 +59,7 @@ alwaysApply: false
 2. **Use --description-path flag** to create the complete task in one operation:
 
    ```bash
-   # Use MCP tool: tasks.create with --title "Setup semantic-release..." --description-path temp-task-desc.md
+   minsky tasks create --title "Setup semantic-release..." --description-path temp-task-desc.md
    ```
 
 3. **Clean up temporary file**:
@@ -81,7 +81,7 @@ The old spec-path interface is still supported but deprecated:
 
 ```bash
 # Legacy method (still works but discouraged)
-# Use MCP tool: tasks.create with process/tasks/temp-task-spec.md
+minsky tasks create process/tasks/temp-task-spec.md
 ```
 
 ### Viewing Task Specifications
@@ -89,7 +89,7 @@ The old spec-path interface is still supported but deprecated:
 To view an existing task specification:
 
 ```bash
-# Use MCP tool: tasks.spec with taskId: <task-id>
+minsky tasks spec <task-id>
 ```
 
 This command displays the full content of the task specification document, allowing you to review task details without needing to locate or open the file directly.
@@ -136,10 +136,10 @@ All tasks and work items must be tracked using the canonical process described h
 
 ```bash
 # Create task with inline description
-# Use MCP tool: tasks.create with --title "Task Title" --description "Task description text"
+minsky tasks create --title "Task Title" --description "Task description text"
 
 # Create task with description from file
-# Use MCP tool: tasks.create with --title "Task Title" path/to/description.md
+minsky tasks create --title "Task Title" path/to/description.md
 ```
 
 **Legacy Interface (Deprecated):**
@@ -159,7 +159,7 @@ touch process/tasks/temp-task-spec.md
 # Edit the spec file...
 
 # 2. Register the task and get the ID
-# Use MCP tool: tasks.create with process/tasks/temp-task-spec.md
+minsky tasks create process/tasks/temp-task-spec.md
 # Output: Task #042 created: Add New Feature
 
 # 3. Rename the file to use the assigned ID
@@ -227,7 +227,7 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
 
    - Command signature:
      ```
-     # Use MCP tool: tasks.create with --title "Title" --description "Description"
+     minsky tasks create --title "Title" --description "Description"
      ```
    - The command should:
      - Accept title and description parameters

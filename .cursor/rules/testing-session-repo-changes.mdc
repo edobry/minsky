@@ -16,7 +16,7 @@ To test code changes made in a session repository:
 1. **Use `bun run` directly for local execution**:
    ```bash
    # WRONG - This runs the globally installed version, not your modified code
-   # Use MCP tool: tasks.list
+   minsky tasks list
    
    # CORRECT - This runs your modified code directly
    bun run ./src/cli.ts tasks list
@@ -51,7 +51,7 @@ To test code changes made in a session repository:
 
 As demonstrated in task #016 (Enforce task operations in main workspace):
 
-1. The `tasks.status` MCP tool command executed from a session repository used the global installation, not our modified code.
+1. The `minsky tasks status set` command executed from a session repository used the global installation, not our modified code.
 2. We created a test script (`test-workspace-detection.ts`) that imported our modified modules directly.
 3. Running `bun run test-workspace-detection.ts` executed our modified code, demonstrating that our changes worked correctly.
 
