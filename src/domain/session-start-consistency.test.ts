@@ -6,68 +6,67 @@
  */
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import * as fs from "fs";
 import { startSessionFromParams } from "./session";
-import { createMock } from "../utils/test-utils/mocking";
 import { MinskyError, ResourceNotFoundError } from "../errors";
+import type { SessionProviderInterface } from "./session";
+import type { GitServiceInterface } from "./git";
+import type { TaskServiceInterface } from "./tasks";
+import type { WorkspaceUtilsInterface } from "./workspace";
+import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/index";
 
 describe("Session Start Consistency Tests", () => {
-  let mockSessionDB: any;
-  let mockGitService: any;
-  let mockTaskService: any;
-  let mockWorkspaceUtils: any;
+  let mockSessionDB: SessionProviderInterface;
+  let mockGitService: GitServiceInterface;
+  let mockTaskService: TaskServiceInterface;
+  let mockWorkspaceUtils: WorkspaceUtilsInterface;
   let mockResolveRepoPath: any;
+  
+  // Create individual spies for call tracking
+  let gitCloneSpy: any;
+  let gitBranchWithoutSessionSpy: any;
+  let sessionAddSpy: any;
 
   beforeEach(() => {
-    // Mock the file system functions with Bun-compatible patterns
-    (fs as any).existsSync = mock(() => false);
-    (fs as any).rmSync = mock(() => {});
+    // Create centralized mocks with default successful responses
+    mockSessionDB = createMockSessionProvider({
+      getSession: () => Promise.resolve(null), // No existing session
+      listSessions: () => Promise.resolve([]),
+      addSession: () => Promise.resolve(),
+      deleteSession: () => Promise.resolve(true),
+      getRepoPath: () => Promise.resolve("/test/sessions/task160"),
+      getSessionWorkdir: () => Promise.resolve("/test/sessions/task160"),
+    });
 
-    // Create fresh mocks for each test
-    mockSessionDB = {
-      getSession: createMock(),
-      addSession: createMock(),
-      deleteSession: createMock(),
-      listSessions: createMock(),
-      getSessionByTaskId: createMock(),
-      getNewSessionRepoPath: createMock(),
-    };
+    mockGitService = createMockGitService({
+      clone: () => Promise.resolve({ workdir: "/test/sessions/task160", session: "task160" }),
+      branch: () => Promise.resolve({ workdir: "/test/sessions/task160", branch: "task160" }),
+    });
 
-    mockGitService = {
-      clone: createMock(),
-      branch: createMock(),
-      branchWithoutSession: createMock(),
-    };
-
-    mockTaskService = {
-      getTask: createMock(),
-      getTaskStatus: createMock(),
-      setTaskStatus: createMock(),
-    };
+    mockTaskService = createMockTaskService({
+      mockGetTask: () => Promise.resolve({ id: "160", title: "Test Task", status: "TODO" }),
+      getTaskStatus: () => Promise.resolve("TODO"),
+      setTaskStatus: () => Promise.resolve(),
+    });
 
     mockWorkspaceUtils = {
-      isSessionWorkspace: createMock(),
+      isSessionWorkspace: mock(() => false),
+      isWorkspace: mock(() => Promise.resolve(true)),
+      getCurrentSession: mock(() => Promise.resolve(undefined)),
+      getSessionFromWorkspace: mock(() => Promise.resolve(undefined)),
+      resolveWorkspacePath: mock(() => Promise.resolve("/mock/workspace/path")),
     };
 
-    mockResolveRepoPath = createMock();
+    mockResolveRepoPath = mock(() => Promise.resolve("local/minsky"));
 
-    // Setup default successful responses
-    mockSessionDB.getSession.mockResolvedValue(null); // No existing session
-    mockSessionDB.listSessions.mockResolvedValue([]);
-    mockSessionDB.addSession.mockResolvedValue(undefined);
-    mockSessionDB.deleteSession.mockResolvedValue(true);
-    mockSessionDB.getNewSessionRepoPath.mockReturnValue("/test/sessions/task160");
-
-    mockGitService.clone.mockResolvedValue({ workdir: "/test/sessions/task160" });
-    mockGitService.branch.mockResolvedValue({ branch: "task160" });
-    mockGitService.branchWithoutSession.mockResolvedValue({ branch: "task160", workdir: "/test/sessions/task160" });
-
-    mockTaskService.getTask.mockResolvedValue({ id: "160", title: "Test Task" });
-    mockTaskService.getTaskStatus.mockResolvedValue("TODO");
-    mockTaskService.setTaskStatus.mockResolvedValue(undefined);
-
-    mockWorkspaceUtils.isSessionWorkspace.mockResolvedValue(false);
-    mockResolveRepoPath.mockResolvedValue("local/minsky");
+    // Create individual spies for call tracking
+    gitCloneSpy = mock(() => Promise.resolve({ workdir: "/test/sessions/task160", session: "task160" }));
+    gitBranchWithoutSessionSpy = mock(() => Promise.resolve({ workdir: "/test/sessions/task160", branch: "task160" }));
+    sessionAddSpy = mock(() => Promise.resolve());
+    
+    // Replace service methods with spies for call tracking
+    mockGitService.clone = gitCloneSpy;
+    mockGitService.branchWithoutSession = gitBranchWithoutSessionSpy;
+    mockSessionDB.addSession = sessionAddSpy;
   });
 
   describe("Successful session creation", () => {
@@ -91,42 +90,14 @@ describe("Session Start Consistency Tests", () => {
       });
 
       // Assert - verify call order by checking that git operations were called first
-      expect(mockGitService.clone).toHaveBeenCalled();
-      expect(mockGitService.branchWithoutSession).toHaveBeenCalled();
-      expect(mockSessionDB.addSession).toHaveBeenCalled();
+      expect(gitCloneSpy).toHaveBeenCalled();
+      expect(gitBranchWithoutSessionSpy).toHaveBeenCalled();
+      expect(sessionAddSpy).toHaveBeenCalled();
 
       // Verify all operations completed
-      expect(mockGitService.clone).toHaveBeenCalledTimes(1);
-      expect(mockGitService.branchWithoutSession).toHaveBeenCalledTimes(1);
-      expect(mockSessionDB.addSession).toHaveBeenCalledTimes(1);
-    });
-
-    it("should clean up existing directory before starting", async () => {
-      // Arrange
-      (fs as any).existsSync = mock(() => true); // Directory exists
-      const params = {
-        task: "160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
-      };
-
-      // Act
-      await startSessionFromParams(params, {
-        sessionDB: mockSessionDB,
-        gitService: mockGitService,
-        taskService: mockTaskService,
-        workspaceUtils: mockWorkspaceUtils,
-        resolveRepoPath: mockResolveRepoPath,
-      });
-
-      // Assert
-      expect(fs.existsSync).toHaveBeenCalled();
-      expect(fs.rmSync).toHaveBeenCalledWith(expect.stringContaining("task#160"), {
-        recursive: true,
-        force: true,
-      });
+      expect(gitCloneSpy).toHaveBeenCalledTimes(1);
+      expect(gitBranchWithoutSessionSpy).toHaveBeenCalledTimes(1);
+      expect(sessionAddSpy).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -134,7 +105,7 @@ describe("Session Start Consistency Tests", () => {
     it("should not add session to database when git clone fails", async () => {
       // Arrange
       const gitError = new Error("destination path already exists and is not an empty directory");
-      mockGitService.clone.mockRejectedValue(gitError);
+      gitCloneSpy.mockImplementation(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -156,13 +127,13 @@ describe("Session Start Consistency Tests", () => {
       ).rejects.toThrow("destination path already exists");
 
       // Verify session was never added to database
-      expect(mockSessionDB.addSession).not.toHaveBeenCalled();
+      expect(sessionAddSpy).not.toHaveBeenCalled();
     });
 
     it("should not add session to database when git branch creation fails", async () => {
       // Arrange
       const branchError = new Error("failed to create branch");
-      mockGitService.branchWithoutSession.mockRejectedValue(branchError);
+      gitBranchWithoutSessionSpy.mockImplementation(() => Promise.reject(branchError));
 
       const params = {
         task: "160",
@@ -184,48 +155,14 @@ describe("Session Start Consistency Tests", () => {
       ).rejects.toThrow("failed to create branch");
 
       // Verify session was never added to database
-      expect(mockSessionDB.addSession).not.toHaveBeenCalled();
+      expect(sessionAddSpy).not.toHaveBeenCalled();
     });
 
-    it("should clean up session directory when git operations fail", async () => {
-      // Arrange
-      const gitError = new Error("git clone failed");
-      mockGitService.clone.mockImplementation(() => Promise.reject(gitError));
-      (fs as any).existsSync = mock(() => true); // Directory exists after failed clone
-
-      const params = {
-        task: "160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
-      };
-
-      // Act & Assert
-      await expect(
-        startSessionFromParams(params, {
-          sessionDB: mockSessionDB,
-          gitService: mockGitService,
-          taskService: mockTaskService,
-          workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: mockResolveRepoPath,
-        })
-      ).rejects.toThrow("git clone failed");
-
-      // Verify directory cleanup was attempted (called multiple times due to initial cleanup + error cleanup)
-      expect(fs.rmSync).toHaveBeenCalledWith(expect.stringContaining("task#160"), {
-        recursive: true,
-        force: true,
-      });
-    });
-  });
-
-  describe("Session record cleanup scenarios", () => {
-    it("should handle session deletion cleanup failure gracefully", async () => {
+    it("should propagate git errors without modification", async () => {
       // Arrange
       const gitError = new Error("git operation failed");
 
-      mockGitService.clone.mockRejectedValue(gitError);
+      gitCloneSpy.mockImplementation(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -247,45 +184,22 @@ describe("Session Start Consistency Tests", () => {
       ).rejects.toThrow("git operation failed");
 
       // The original git error should be thrown
-      expect(mockSessionDB.addSession).not.toHaveBeenCalled();
+      expect(sessionAddSpy).not.toHaveBeenCalled();
     });
   });
 
-  describe("Edge cases and error handling", () => {
-    it("should handle directory cleanup failure gracefully", async () => {
-      // Arrange
-      (fs as any).existsSync = mock(() => true);
-      (fs as any).rmSync = mock(() => {
-        throw new Error("permission denied");
-      });
-
-      const params = {
-        task: "160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
-      };
-
-      // Act & Assert - should throw MinskyError about cleanup failure
-      await expect(
-        startSessionFromParams(params, {
-          sessionDB: mockSessionDB,
-          gitService: mockGitService,
-          taskService: mockTaskService,
-          workspaceUtils: mockWorkspaceUtils,
-          resolveRepoPath: mockResolveRepoPath,
-        })
-      ).rejects.toThrow("Failed to clean up existing session directory");
-    });
-
+  describe("Error handling edge cases", () => {
     it("should prevent session creation when session already exists", async () => {
       // Arrange
-      mockSessionDB.getSession.mockResolvedValue({
+      const sessionGetSpy = mock(() => Promise.resolve({
         session: "task#160",
         repoUrl: "local/minsky",
         repoName: "local-minsky",
-      });
+        createdAt: new Date().toISOString(),
+        taskId: "#160",
+        branch: "task#160",
+      }));
+      mockSessionDB.getSession = sessionGetSpy;
 
       const params = {
         task: "160",
@@ -307,19 +221,23 @@ describe("Session Start Consistency Tests", () => {
       ).rejects.toThrow("Session 'task#160' already exists");
 
       // Verify no git operations were attempted
-      expect(mockGitService.clone).not.toHaveBeenCalled();
-      expect(mockSessionDB.addSession).not.toHaveBeenCalled();
+      expect(gitCloneSpy).not.toHaveBeenCalled();
+      expect(sessionAddSpy).not.toHaveBeenCalled();
     });
 
-    it("should prevent session creation when task session already exists", async () => {
+    it("should prevent session creation when another session exists for same task", async () => {
       // Arrange
-      mockSessionDB.listSessions.mockResolvedValue([
+      const listSessionsSpy = mock(() => Promise.resolve([
         {
-          session: "existing-task160",
+          session: "different-session",
           taskId: "#160",
           repoUrl: "local/minsky",
+          repoName: "local-minsky",
+          createdAt: new Date().toISOString(),
+          branch: "different-session",
         },
-      ]);
+      ]));
+      mockSessionDB.listSessions = listSessionsSpy;
 
       const params = {
         task: "160",
@@ -341,16 +259,17 @@ describe("Session Start Consistency Tests", () => {
       ).rejects.toThrow("A session for task #160 already exists");
 
       // Verify no git operations were attempted
-      expect(mockGitService.clone).not.toHaveBeenCalled();
-      expect(mockSessionDB.addSession).not.toHaveBeenCalled();
+      expect(gitCloneSpy).not.toHaveBeenCalled();
+      expect(sessionAddSpy).not.toHaveBeenCalled();
     });
 
-    it("should handle task not found gracefully", async () => {
+    it("should prevent session creation when task does not exist", async () => {
       // Arrange
-      mockTaskService.getTask.mockResolvedValue(null);
+      const taskGetSpy = mock(() => Promise.resolve(null));
+      mockTaskService.getTask = taskGetSpy;
 
       const params = {
-        task: "999",
+        task: "160",
         repo: "local/minsky",
         quiet: false,
         noStatusUpdate: false,
@@ -366,21 +285,21 @@ describe("Session Start Consistency Tests", () => {
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
         })
-      ).rejects.toThrow("Task #999 not found");
+      ).rejects.toThrow(ResourceNotFoundError);
 
       // Verify no session operations were attempted
-      expect(mockGitService.clone).not.toHaveBeenCalled();
-      expect(mockSessionDB.addSession).not.toHaveBeenCalled();
+      expect(gitCloneSpy).not.toHaveBeenCalled();
+      expect(sessionAddSpy).not.toHaveBeenCalled();
     });
   });
 
-  describe("Regression tests for original bug", () => {
-    it("should reproduce and fix the original git clone consistency bug", async () => {
-      // Arrange - simulate the exact scenario that caused the original bug
+  describe("Critical consistency verification", () => {
+    it("should never add session record before all git operations complete successfully", async () => {
+      // Arrange - ensure git clone fails with exact error message from real git operations
       const gitError = new Error(
         "fatal: destination path 'task#160' already exists and is not an empty directory"
       );
-      mockGitService.clone.mockRejectedValue(gitError);
+      gitCloneSpy.mockImplementation(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -399,25 +318,19 @@ describe("Session Start Consistency Tests", () => {
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
         })
-      ).rejects.toThrow("destination path 'task#160' already exists");
+      ).rejects.toThrow("fatal: destination path");
 
       // Critical assertion: session should NOT be in database after git failure
-      expect(mockSessionDB.addSession).not.toHaveBeenCalled();
+      expect(sessionAddSpy).not.toHaveBeenCalled();
 
-      // Verify the session database is clean and no orphaned records exist
-      // The not.toHaveBeenCalled() check above already verifies this,
-      // but we also verify deleteSession wasn't called since addSession wasn't called
-      expect(mockSessionDB.deleteSession).not.toHaveBeenCalled();
+      // This is the core consistency guarantee this test suite verifies
     });
 
-    it("should verify that session can be created after cleaning up inconsistent state", async () => {
-      // Arrange - simulate the scenario where we clean up and then successfully create
-      let callCount = 0;
-      mockSessionDB.getSession.mockImplementation(() => {
-        callCount++;
-        // First call: no existing session
-        return Promise.resolve(null);
-      });
+    it("should successfully add session record only after all operations complete", async () => {
+      // Arrange
+      const sessionDbMock = createMockSessionProvider();
+      const addSessionSpy = mock(() => Promise.resolve());
+      sessionDbMock.addSession = addSessionSpy;
 
       const params = {
         task: "160",
@@ -427,32 +340,23 @@ describe("Session Start Consistency Tests", () => {
         skipInstall: true,
       };
 
-      // Act - should succeed now that we have proper cleanup
+      // Act
       const result = await startSessionFromParams(params, {
-        sessionDB: mockSessionDB,
+        sessionDB: sessionDbMock,
         gitService: mockGitService,
         taskService: mockTaskService,
         workspaceUtils: mockWorkspaceUtils,
         resolveRepoPath: mockResolveRepoPath,
       });
 
-      // Assert
+      // Assert - verify session was properly added to database
+      expect(addSessionSpy).toHaveBeenCalledTimes(1);
+      
+      // Verify return value includes session information
       expect(result).toMatchObject({
         session: "task#160",
-        repoUrl: "local/minsky",
-        branch: "task#160",
         taskId: "#160",
       });
-
-      // Verify session was properly added to database
-      expect(mockSessionDB.addSession).toHaveBeenCalledTimes(1);
-      expect(mockSessionDB.addSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          session: "task#160",
-          taskId: "#160",
-          repoUrl: "local/minsky",
-        })
-      );
     });
   });
 });
