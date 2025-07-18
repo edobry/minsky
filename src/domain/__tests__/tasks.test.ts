@@ -16,6 +16,7 @@ import {
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { expectToBeInstanceOf } from "../../utils/test-utils/assertions";
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
+import { createMockTaskService } from "../../utils/test-utils/dependencies";
 
 const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
 

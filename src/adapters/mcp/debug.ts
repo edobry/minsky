@@ -16,16 +16,14 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
   registerDebugCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      // MCP-specific optimizations
       "debug.listMethods": {
-        description: "List all registered MCP methods for debugging (MCP optimized)",
+        description: "List all registered MCP methods for debugging",
       },
       "debug.echo": {
-        description:
-          "Echo back the provided parameters for testing MCP communication (MCP optimized)",
+        description: "Echo back the provided parameters for testing MCP communication",
       },
       "debug.systemInfo": {
-        description: "Get system information about the MCP server (MCP optimized)",
+        description: "Get system information about the MCP server",
       },
     },
   });

@@ -511,3 +511,7 @@
 - [x] Fix MCP Server and CLI Issues Post Task 282 [#286](process/tasks/286-fix-mcp-server-and-cli-issues-post-task-282.md)
 
 - [ ] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
+
+- [ ] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
+
+- [ ] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
