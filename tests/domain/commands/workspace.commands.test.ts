@@ -45,7 +45,7 @@ describe("Workspace Domain Methods", () => {
     test("returns false for a path not in a session repository", async () => {
       // Arrange
       const repoPath = "/Users/test/projects/non-session-repo";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       // Act
       const result = await isSessionWorkspace(repoPath);
@@ -71,7 +71,7 @@ describe("Workspace Domain Methods", () => {
     test("verifies isSessionRepository is an alias for isSessionWorkspace", async () => {
       // Arrange
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       // Override environment variables for testing
       const originalHome = process.env.HOME;
@@ -95,7 +95,7 @@ describe("Workspace Domain Methods", () => {
     test("gets session information for a valid session repository", async () => {
       // Arrange
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       // Set up environment for testing
       const originalHome = process.env.HOME;
@@ -111,7 +111,7 @@ describe("Workspace Domain Methods", () => {
           taskId: "TEST_VALUE",
           createdAt: new Date().toISOString(),
         }),
-      } as unknown;
+      } as any;
 
       try {
         // Act
@@ -132,7 +132,7 @@ describe("Workspace Domain Methods", () => {
     test("returns null for a non-session repository", async () => {
       // Arrange
       const repoPath = "/Users/test/projects/non-session-repo";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       // Act
       const result = await getSessionFromWorkspace(repoPath, execAsyncMock);
@@ -144,7 +144,7 @@ describe("Workspace Domain Methods", () => {
     test("returns null when session record is not found", async () => {
       // Arrange
       const repoPath = "/Users/test/.local/state/minsky/sessions/unknown-session";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       // Set up environment for testing
       const originalHome = process.env.HOME;
@@ -170,7 +170,7 @@ describe("Workspace Domain Methods", () => {
     test("verifies getSessionFromRepo is an alias for getSessionFromWorkspace", async () => {
       // Arrange
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       // Set up environment for testing
       const originalHome = process.env.HOME;
@@ -185,7 +185,7 @@ describe("Workspace Domain Methods", () => {
           taskId: "TEST_VALUE",
           createdAt: new Date().toISOString(),
         }),
-      } as unknown;
+      } as any;
 
       try {
         // Act
@@ -205,7 +205,7 @@ describe("Workspace Domain Methods", () => {
     test("returns session name when in a session directory", async () => {
       // Arrange
       const sessionPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(sessionPath) as any;
 
       // Set up environment for testing
       const originalHome = process.env.HOME;
@@ -221,7 +221,7 @@ describe("Workspace Domain Methods", () => {
           taskId: "TEST_VALUE",
           createdAt: new Date().toISOString(),
         }),
-      } as unknown;
+      } as any;
 
       try {
         // Act
@@ -238,7 +238,7 @@ describe("Workspace Domain Methods", () => {
     test("returns null when not in a session directory", async () => {
       // Arrange
       const notSessionPath = "/Users/test/projects/non-session";
-      const execAsyncMock = mockGitRootExecAsync(notSessionPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(notSessionPath) as any;
 
       // Act
       const result = await getCurrentSession(notSessionPath, execAsyncMock);
@@ -249,7 +249,7 @@ describe("Workspace Domain Methods", () => {
 
     test("getCurrentSession returns null when repo path does not exist", async () => {
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       const result = await getCurrentSession(repoPath, execAsyncMock);
       expect(result).toBeNull();
@@ -257,7 +257,7 @@ describe("Workspace Domain Methods", () => {
 
     test("getCurrentSession returns null when repoUrl is not found", async () => {
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       const result = await getCurrentSession(repoPath, execAsyncMock);
       expect(result).toBeNull();
@@ -265,7 +265,7 @@ describe("Workspace Domain Methods", () => {
 
     test("getCurrentSession returns null when session data doesn't match file structure", async () => {
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       const result = await getCurrentSession(repoPath, execAsyncMock);
       expect(result).toBeNull();
@@ -273,7 +273,7 @@ describe("Workspace Domain Methods", () => {
 
     test("getCurrentSession returns null when session doesn't exist", async () => {
       const repoPath = "/Users/test/.local/state/minsky/sessions/unknown-session";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       const result = await getCurrentSession(repoPath, execAsyncMock);
       expect(result).toBeNull();
@@ -281,7 +281,7 @@ describe("Workspace Domain Methods", () => {
 
     test("getCurrentSession returns session info when valid", async () => {
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(repoPath) as any;
 
       const result = await getCurrentSession(repoPath, execAsyncMock);
       expect(result).toBeNull();
@@ -366,7 +366,7 @@ describe("Workspace Domain Methods", () => {
       const sessionPath = "/Users/test/.local/state/minsky/sessions/session-name";
       const testPath = `${sessionPath}/some/nested/path`;
 
-      const execAsyncMock = mockGitRootExecAsync(sessionPath) as unknown;
+      const execAsyncMock = mockGitRootExecAsync(sessionPath) as any;
 
       const result = await getSessionFromWorkspace(testPath, execAsyncMock);
       expect(result).toBeNull();

@@ -167,10 +167,11 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
     try {
-      const result = await (this.drizzle
+      const result = await this.drizzle
         .select()
         .from(postgresSessions)
-        .where(eq(postgresSessions.session, id)) as unknown).limit(1);
+        .where(eq(postgresSessions.session, id))
+        .limit(1) as any;
 
       return result.length > 0 ? fromPostgresSelect(result[0]) : null;
     } catch (error) {
@@ -184,7 +185,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
     try {
-      const results = await (this.drizzle.select() as unknown).from(postgresSessions);
+      const results = await this.drizzle.select().from(postgresSessions) as any;
       return results.map(fromPostgresSelect);
     } catch (error) {
       log.error("Failed to get sessions from PostgreSQL:", error as Error);
@@ -222,9 +223,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       const updateData = toPostgresInsert(updated);
 
       // Update in database
-      await (this.drizzle
+      await this.drizzle
         .update(postgresSessions)
-        .set(updateData) as unknown).where(eq(postgresSessions.session, id));
+        .set(updateData)
+        .where(eq(postgresSessions.session, id)) as any;
 
       return updated;
     } catch (error) {
@@ -238,8 +240,9 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async deleteEntity(id: string): Promise<boolean> {
     try {
-      const result = await (this.drizzle
-        .delete(postgresSessions) as unknown).where(eq(postgresSessions.session, id));
+      const result = await this.drizzle
+        .delete(postgresSessions)
+        .where(eq(postgresSessions.session, id)) as any;
 
       return result.rowCount !== null && result.rowCount > 0;
     } catch (error) {
@@ -253,10 +256,11 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async entityExists(id: string): Promise<boolean> {
     try {
-      const result = await (this.drizzle
+      const result = await this.drizzle
         .select({ session: postgresSessions.session })
         .from(postgresSessions)
-        .where(eq(postgresSessions.session, id)) as unknown).limit(1);
+        .where(eq(postgresSessions.session, id))
+        .limit(1) as any;
 
       return result.length > 0;
     } catch (error) {
