@@ -22,11 +22,7 @@ export function formatSessionDetails(session: Record<string, any>): void {
   if (session.id) log.cli(`   ID: ${session.id}`);
   if (session.name) log.cli(`   Name: ${session.name}`);
   if (session.status) log.cli(`   Status: ${session.status}`);
-  if (session.taskId) {
-    // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix
-    const displayTaskId = formatTaskIdForDisplay(session.taskId);
-    log.cli(`   Task ID: ${displayTaskId}`);
-  }
+  if (session.taskId) log.cli(`   Task ID: ${formatTaskIdForDisplay(session.taskId)}`);
   if (session.branchName) log.cli(`   Branch: ${session.branchName}`);
   if (session.workspacePath) log.cli(`   Workspace: ${session.workspacePath}`);
   if (session.repoUrl) log.cli(`   Repository: ${session.repoUrl}`);
@@ -79,9 +75,7 @@ export function formatSessionPrDetails(result: Record<string, any>): void {
   log.cli("📝 Session Information:");
   log.cli(`   Session: ${sessionName}`);
   if (taskId) {
-    // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix
-    const displayTaskId = formatTaskIdForDisplay(taskId);
-    log.cli(`   Task: ${displayTaskId}`);
+    log.cli(`   Task: ${formatTaskIdForDisplay(taskId)}`);
   }
   log.cli("");
 
@@ -132,7 +126,7 @@ export function formatSessionApprovalDetails(result: Record<string, any>): void 
   log.cli(`   Session: ${sessionName}`);
   if (taskId) {
     const taskStatusMessage = isNewlyApproved ? "(status updated to DONE)" : "(already marked as DONE)";
-    log.cli(`   Task: ${taskId} ${taskStatusMessage}`);
+    log.cli(`   Task: ${formatTaskIdForDisplay(taskId)} ${taskStatusMessage}`);
   }
   log.cli(`   Merged by: ${mergedBy}`);
   if (mergeDate) {

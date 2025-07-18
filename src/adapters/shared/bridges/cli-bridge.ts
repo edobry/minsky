@@ -459,10 +459,8 @@ export class CliCommandBridge {
               // For objects in arrays, try to display meaningful information
               if ((item as any).id && (item as any).title) {
                 // Looks like a task or similar entity
-                // TASK 283: Use formatTaskIdForDisplay() for task ID display
-                const displayId = formatTaskIdForDisplay((item as any).id);
                 log.cli(
-                  `- ${displayId}: ${(item as any).title}${(item as any).status ? ` [${(item as any).status}]` : ""}`
+                  `- ${formatTaskIdForDisplay((item as any).id)}: ${(item as any).title}${(item as any).status ? ` [${(item as any).status}]` : ""}`
                 );
               } else {
                 // Generic object display
@@ -483,22 +481,18 @@ export class CliCommandBridge {
           const resultObj = result as Record<string, any>;
           const taskId = String((resultObj as any).taskId || "unknown");
           const status = String((resultObj as any).status || "unknown");
-          // TASK 283: Use formatTaskIdForDisplay() for task ID display
-          const displayTaskId = formatTaskIdForDisplay(taskId);
-          log.cli(`Task ${displayTaskId} is ${status.toLowerCase()}`);
+          log.cli(`Task ${formatTaskIdForDisplay(taskId)} is ${status.toLowerCase()}`);
         } else if ((commandDef as any).id === "tasks.status.set") {
           // Handle tasks status set results with friendly formatting
           const resultObj = result as Record<string, any>;
           const taskId = String((resultObj as any).taskId || "unknown");
           const status = String((resultObj as any).status || "unknown");
           const previousStatus = String((resultObj as any).previousStatus || "unknown");
-          // TASK 283: Use formatTaskIdForDisplay() for task ID display
-          const displayTaskId = formatTaskIdForDisplay(taskId);
           if (status === previousStatus) {
-            log.cli(`Task ${displayTaskId} status is already ${status.toLowerCase()}`);
+            log.cli(`Task ${formatTaskIdForDisplay(taskId)} status is already ${status.toLowerCase()}`);
           } else {
             log.cli(
-              `Task ${displayTaskId} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
+              `Task ${formatTaskIdForDisplay(taskId)} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
             );
           }
         } else if ((commandDef as any).id === "session.get" && "session" in result) {
