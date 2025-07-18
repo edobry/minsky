@@ -7,6 +7,7 @@ import {
   getCurrentSession,
   resolveWorkspacePath,
 } from "../../../src/domain/workspace.js";
+import { join } from "path";
 
 const TEST_VALUE = 123;
 
@@ -323,7 +324,8 @@ describe("Workspace Domain Methods", () => {
 
   describe("isSessionWorkspace returns true for session workspace", () => {
     test("returns true for session workspace", () => {
-      const sessionRepoPath = "/Users/test/.local/state/minsky/sessions/some-session";
+      const { getSessionsDir } = require("../../../src/utils/paths");
+      const sessionRepoPath = join(getSessionsDir(), "some-session");
       expect(isSessionWorkspace(sessionRepoPath)).toBe(true);
     });
 
