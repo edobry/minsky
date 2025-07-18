@@ -570,12 +570,12 @@ export class StorageErrorMonitor {
 
     // Log error with context
     log.error("Storage error recorded", {
-      backend: error.context.backend as unknown,
-      type: (error).type as unknown,
-      severity: (error).severity as unknown,
-      operation: error.context.operation as unknown,
+      backend: error.context.backend,
+      type: error.type,
+      severity: error.severity,
+      operation: error.context.operation,
       count: currentCount + 1,
-      message: (error as any).message as any,
+      message: error.message,
     });
 
     // Check for error patterns that need attention
