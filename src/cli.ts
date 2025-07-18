@@ -1,12 +1,20 @@
 #!/usr/bin/env bun
 
-// Set NODE_CONFIG_DIR to point to user config directory before any imports
-// This must be done before any module imports that might load node-config
+// Set configuration directory FIRST before any imports that might use node-config
+// Use minimal imports to avoid triggering config loading prematurely
 import { homedir } from "os";
 import { join } from "path";
-const userConfigDir = join(homedir(), ".config", "minsky");
-process.env.NODE_CONFIG_DIR = userConfigDir;
 
+// Calculate config directory manually to avoid importing utils that might import config
+const xdgConfigHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+const minskyConfigDir = join(xdgConfigHome, "minsky");
+const userProvidedConfigDir = process.env.NODE_CONFIG_DIR;
+
+// Force our config directory before ANY other imports
+process.env.NODE_CONFIG_DIR = minskyConfigDir;
+
+// NOW we can safely import config and everything else
+import config from "config";
 import { Command } from "commander";
 import { log } from "./utils/logger";
 import { exit } from "./utils/process";
@@ -18,6 +26,12 @@ import {
 } from "./adapters/cli/cli-command-factory";
 import { validateProcess } from "./schemas/runtime";
 import { validateError, getErrorMessage, getErrorStack } from "./schemas/error";
+
+// Detect if user tried to override config directory and warn them
+if (userProvidedConfigDir && userProvidedConfigDir !== minskyConfigDir) {
+  console.warn(`Warning: NODE_CONFIG_DIR was set to "${userProvidedConfigDir}" but Minsky uses "${minskyConfigDir}"`);
+  console.warn("Minsky manages its own configuration directory and cannot be overridden.");
+}
 
 /**
  * Root CLI command
