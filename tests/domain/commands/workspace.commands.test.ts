@@ -11,8 +11,8 @@ import {
 const TEST_VALUE = 123;
 
 // Simple mock for execAsync that includes full path for proper matching
-const mockGitRootExecAsync = (stdout: unknown) => {
-  return async (command: unknown) => {
+const mockGitRootExecAsync = (stdout: string) => {
+  return async (command: string) => {
     if (command.includes("git rev-parse --show-toplevel")) {
       return { stdout, stderr: "" };
     }
@@ -25,7 +25,6 @@ describe("Workspace Domain Methods", () => {
     test("returns true for a path in a session repository", async () => {
       // Arrange
       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
-      const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
 
       // Override environment variables for testing
       const originalHome = process.env.HOME;
@@ -33,7 +32,7 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const result = await isSessionWorkspace(repoPath, execAsyncMock);
+        const result = await isSessionWorkspace(repoPath);
 
         // Assert
         expect(result).toBe(true);
@@ -49,7 +48,7 @@ describe("Workspace Domain Methods", () => {
       const execAsyncMock = mockGitRootExecAsync(repoPath) as unknown;
 
       // Act
-      const result = await isSessionWorkspace(repoPath, execAsyncMock);
+      const result = await isSessionWorkspace(repoPath);
 
       // Assert
       expect(result).toBe(false);
@@ -63,7 +62,7 @@ describe("Workspace Domain Methods", () => {
       };
 
       // Act
-      const result = await isSessionWorkspace(repoPath, execAsyncMock as unknown);
+      const result = await isSessionWorkspace(repoPath);
 
       // Assert
       expect(result).toBe(false);
@@ -80,8 +79,8 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const result1 = await isSessionWorkspace(repoPath, execAsyncMock);
-        const result2 = await isSessionRepository(repoPath, execAsyncMock);
+        const result1 = await isSessionWorkspace(repoPath);
+        const result2 = await isSessionRepository(repoPath);
 
         // Assert
         expect(result1).toBe(result2);
