@@ -5,8 +5,7 @@
 import { homedir } from "os";
 import { join } from "path";
 const userConfigDir = join(homedir(), ".config", "minsky");
-const processEnv = validateProcess(process);
-processEnv.env.NODE_CONFIG_DIR = userConfigDir;
+process.env.NODE_CONFIG_DIR = userConfigDir;
 
 import { Command } from "commander";
 import { log } from "./utils/logger";
