@@ -282,14 +282,14 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   });
 
   // Session file exists tool
-  commandMapper.addTool(
-    "session_file_exists",
-    "Check if a file or directory exists within a session workspace",
-    z.object({
+  commandMapper.addCommand({
+    name: "session_file_exists",
+    description: "Check if a file or directory exists within a session workspace",
+    parameters: z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to check within the session workspace"),
     }),
-    async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -347,17 +347,17 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         };
       }
     }
-  );
+  });
 
   // Session delete file tool
-  commandMapper.addTool(
-    "session_delete_file",
-    "Delete a file within a session workspace",
-    z.object({
+  commandMapper.addCommand({
+    name: "session_delete_file",
+    description: "Delete a file within a session workspace",
+    parameters: z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file to delete within the session workspace"),
     }),
-    async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -404,13 +404,13 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         };
       }
     }
-  );
+  });
 
   // Session create directory tool
-  commandMapper.addTool(
-    "session_create_directory",
-    "Create a directory within a session workspace",
-    z.object({
+  commandMapper.addCommand({
+    name: "session_create_directory",
+    description: "Create a directory within a session workspace",
+    parameters: z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the directory to create within the session workspace"),
       recursive: z
@@ -419,7 +419,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -459,7 +459,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         };
       }
     }
-  );
+  });
 
   log.debug("Session file operation tools registered successfully");
 }
