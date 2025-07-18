@@ -1240,3 +1240,5 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ### Fixed
 
 - **Session Database**: Fixed critical "undefined is not an object (evaluating 'sessions.find')" error in JSON file storage backend. The issue was caused by a structural mismatch where `readState()` was returning a sessions array instead of a proper `SessionDbState` object with a `sessions` property. This affected all session commands including `minsky session dir --task X`, `minsky session list`, and `minsky session get --task X`.
+
+- **Configuration Loading**: Fixed critical configuration system failure where `NODE_CONFIG_DIR` was being set on a validated copy of `process` instead of the actual `process.env`, causing node-config to look in wrong directory (`/Users/edobry/config` instead of `/Users/edobry/.config/minsky/`). This prevented the system from loading SQLite backend configuration and caused "No session found for task ID" errors even when sessions existed.
