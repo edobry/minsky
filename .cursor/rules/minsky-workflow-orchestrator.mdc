@@ -14,8 +14,8 @@ alwaysApply: false
 ## Workflow Sequence
 
 1. **Task Selection and Status Verification**
-   - First: Check available tasks with `minsky tasks list`
-   - Then: Verify task status with `minsky tasks status get '#<id>'`
+   - First: Check available tasks with `tasks.list` MCP tool
+   - Then: Verify task status with `tasks.status` MCP tool
    - Apply: minsky-cli-usage and task-status-protocol
 
 2. **Session Creation and Navigation**
@@ -40,7 +40,7 @@ alwaysApply: false
 
 6. **PR Approval and Merging**
    - First: Review PR content thoroughly
-   - Then: Use `minsky git approve` to merge the PR branch
+   - Then: Use `git` MCP tools to merge the PR branch
    - Apply: pr-preparation-workflow
 
 7. **Task Completion**
@@ -64,21 +64,21 @@ alwaysApply: false
 ### Task-Related Questions
 
 - **"What tasks are available?"**
-  → Apply minsky-cli-usage and use `minsky tasks list`
+  → Apply minsky-cli-usage and use MCP tool `tasks.list`
 
 - **"How do I start working on a task?"**
   → Apply minsky-session-management to create a session
 
 - **"How do I check task status?"**
-  → Apply task-status-protocol and use `minsky tasks status get`
+  → Apply task-status-protocol and use `tasks.status` MCP tool
 
 ### Session-Related Questions
 
 - **"How do I create a session?"**
-  → Apply minsky-session-management and use `minsky session start`
+  → Apply minsky-session-management and use `session` MCP tools
 
 - **"How do I get back to my session?"**
-  → Apply minsky-session-management and use `minsky session dir`
+  → Apply minsky-session-management and use `session` MCP tools
 
 - **"Why aren't my changes showing up?"**
   → Apply session-first-workflow to verify you're in the correct workspace
@@ -95,7 +95,7 @@ alwaysApply: false
   → Apply pr-preparation-workflow for PR creation steps
 
 - **"How do I approve and merge a PR?"**
-  → Apply pr-preparation-workflow and use `minsky git approve` to merge the PR
+  → Apply pr-preparation-workflow and use `git` MCP tools to merge the PR
 
 ## Rule Integration Table
 
@@ -192,14 +192,14 @@ When preparing work for review, focus on:
 When approving and merging pull requests:
 
 1. Review PR content and ensure it meets standards
-2. Use the `minsky git approve` command to merge the PR branch
+2. Use the `git` MCP tools command to merge the PR branch
 3. Verify successful merge and task status updates
 
 ## Workflow Sequence
 
 1. **Task Selection and Status Verification**
-   - First: Check available tasks with `minsky tasks list`
-   - Then: Verify task status with `minsky tasks status get '#<id>'`
+   - First: Check available tasks with `tasks.list` MCP tool
+   - Then: Verify task status with `tasks.status` MCP tool
    - Apply: minsky-cli-usage and task-status-protocol
 
 2. **Session Creation and Navigation**
@@ -224,7 +224,7 @@ When approving and merging pull requests:
 
 6. **PR Approval and Merging**
    - First: Review PR content thoroughly
-   - Then: Use `minsky git approve` to merge the PR branch
+   - Then: Use `git` MCP tools to merge the PR branch
    - Apply: pr-preparation-workflow
 
 7. **Task Completion**
@@ -248,21 +248,21 @@ When approving and merging pull requests:
 ### Task-Related Questions
 
 - **"What tasks are available?"**
-  → Apply minsky-cli-usage and use `minsky tasks list`
+  → Apply minsky-cli-usage and use MCP tool `tasks.list`
 
 - **"How do I start working on a task?"**
   → Apply minsky-session-management to create a session
 
 - **"How do I check task status?"**
-  → Apply task-status-protocol and use `minsky tasks status get`
+  → Apply task-status-protocol and use `tasks.status` MCP tool
 
 ### Session-Related Questions
 
 - **"How do I create a session?"**
-  → Apply minsky-session-management and use `minsky session start`
+  → Apply minsky-session-management and use `session` MCP tools
 
 - **"How do I get back to my session?"**
-  → Apply minsky-session-management and use `minsky session dir`
+  → Apply minsky-session-management and use `session` MCP tools
 
 - **"Why aren't my changes showing up?"**
   → Apply session-first-workflow to verify you're in the correct workspace
@@ -279,7 +279,7 @@ When approving and merging pull requests:
   → Apply pr-preparation-workflow for PR creation steps
 
 - **"How do I approve and merge a PR?"**
-  → Apply pr-preparation-workflow and use `minsky git approve` to merge the PR
+  → Apply pr-preparation-workflow and use `git` MCP tools to merge the PR
 
 ## Rule Integration Table
 

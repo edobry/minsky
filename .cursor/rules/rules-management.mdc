@@ -13,7 +13,7 @@ This rule provides guidelines for working with Minsky rules using the `rules` co
 
 ```bash
 # List all rules
-minsky rules list
+# Use MCP tool: rules.list
 
 # Filter by format
 minsky rules list --format cursor
@@ -30,16 +30,16 @@ minsky rules list --json
 
 ```bash
 # View a specific rule with content
-minsky rules get <rule-id>
+# Use MCP tool: rules.get with id: <rule-id>
 
 # View only metadata
-minsky rules get <rule-id> --meta-only
+# Use MCP tool: rules.get with id: <rule-id> --meta-only
 
 # Get machine-readable output
-minsky rules get <rule-id> --json
+# Use MCP tool: rules.get with id: <rule-id> --json
 
 # Specify format if needed
-minsky rules get <rule-id> --format cursor
+# Use MCP tool: rules.get with id: <rule-id> --format cursor
 ```
 
 ### Creating Rules
