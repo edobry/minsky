@@ -21,7 +21,7 @@ This rule MUST be applied:
 
 1. **Tool Verification**
    - Before modifying any project resource, check if a dedicated tool or command exists for managing it
-   - Search project documentation and help commands (e.g., `minsky --help`, `rules` MCP tools)
+   - Search project documentation and help commands (e.g., `minsky --help`, `minsky rules --help`)
    - Consider the resource type (configuration, rule, schema, etc.) and look for corresponding commands
 
 2. **Tool Usage Mandate**
@@ -48,7 +48,7 @@ This rule MUST be applied:
 minsky rules --help
 
 # Use the tool to view a rule
-# Use MCP tool: rules.get with id: user-preferences
+minsky rules get user-preferences
 
 # Use the tool to update a rule
 minsky rules update user-preferences --description "User preferences for AI behavior"
@@ -68,9 +68,9 @@ echo "New content" > .ai/rules/user-preferences.mdc  # WRONG!
 
 | Resource Type | Management Tool | Direct File Access |
 |---------------|-----------------|-------------------|
-| Rules | `rules` MCP tools commands | FORBIDDEN |
+| Rules | `minsky rules` commands | FORBIDDEN |
 | Tasks | `minsky tasks` commands | FORBIDDEN |
-| Sessions | `session` MCP tools commands | FORBIDDEN |
+| Sessions | `minsky session` commands | FORBIDDEN |
 | State Files | Appropriate `minsky` commands | STRICTLY FORBIDDEN |
 | Project Config | Project-specific tools if available | Only if no tool exists |
 | Package Dependencies | `bun add/remove` commands | FORBIDDEN for package.json |
@@ -101,7 +101,7 @@ echo "New content" > .ai/rules/user-preferences.mdc  # WRONG!
 
 2. **CLI Exploration**
    - Use top-level help commands: `minsky --help`
-   - Explore category-specific help: `rules` MCP tools, MCP tools documentation for tasks
+   - Explore category-specific help: `minsky rules --help`, `minsky tasks --help`
 
 3. **Verification Process**
    - After identifying a potential tool, verify it can perform the needed operation

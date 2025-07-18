@@ -17,7 +17,7 @@ The logger currently accesses process.env.MINSKY_LOG_MODE directly, which violat
 
 The current logger implementation in `src/utils/logger.ts` directly accesses several environment variables:
 - `process.env.MINSKY_LOG_MODE` (line 23)
-- `process.env.LOGLEVEL` (line 7)
+- `process.env.LOGLEVEL` (line 7) 
 - `process.env.ENABLE_AGENT_LOGS` (line 42)
 
 This creates several issues:
@@ -124,7 +124,7 @@ This creates several issues:
 
 - Existing configuration system
 - node-config integration
-- Test framework (bun:test)
+- Test framework (bun:test) 
 =======
 ## Requirements
 
