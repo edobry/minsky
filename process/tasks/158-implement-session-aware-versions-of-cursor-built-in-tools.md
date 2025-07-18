@@ -1,5 +1,64 @@
 # Implement Session-Aware Versions of Cursor Built-in Tools
 
+## 🚨 CRITICAL STATUS CORRECTION (Updated January 2025)
+
+**MAJOR DISCREPANCY DISCOVERED**: The previous status claims in this spec do not match the actual implementation state. Below is the corrected analysis:
+
+### ❌ **PREVIOUS CLAIMS vs ✅ ACTUAL STATE**
+
+**❌ INCORRECTLY CLAIMED "Phase 1: ✅ COMPLETED"**
+- **REALITY**: Phase 1 tools are implemented but **NOT ACTIVE**
+- **Files exist**: `src/adapters/mcp/session-edit-tools.ts` with `session_edit_file` and `session_search_replace`
+- **Critical Issue**: Tools are **commented out** in MCP server registration (`src/commands/mcp/index.ts:149`)
+- **Impact**: AI agents cannot access these tools despite implementation being complete
+
+**❌ INCORRECTLY CLAIMED "Phase 2: Ready for Implementation"**
+- **REALITY**: Phase 2 tools are **completely missing** from codebase
+- **No implementations found** for:
+  - `session_grep_search` - not implemented
+  - `session_file_search` - not implemented
+  - `session_codebase_search` - not implemented
+- **Analysis exists**: Comprehensive reverse engineering documentation completed
+- **Gap**: Implementation work has not started despite extensive specifications
+
+**✅ WHAT IS ACTUALLY IMPLEMENTED AND ACTIVE:**
+1. **Basic session file operations** (different interface than Cursor):
+   - `session_read_file`, `session_write_file`, `session_list_directory`
+   - `session_file_exists`, `session_delete_file`, `session_create_directory`
+2. **Core session management tools**: Active via shared command integration
+3. **Git, tasks, rules, debug tools**: Active and working
+
+### **IMMEDIATE ACTION REQUIRED:**
+
+**🔥 Priority 1: Activate Existing Phase 1 Tools**
+- Uncomment and register `session_edit_file` and `session_search_replace` in MCP server
+- These tools are fully implemented and tested but not accessible to AI agents
+
+**🔥 Priority 2: Implement Missing Phase 2 Search Tools**
+- Complete specifications exist but implementations are missing
+- Critical for AI agent workflow efficiency
+
+**🔥 Priority 3: Reconcile Interface Conflicts**
+- Current `session_read_file` may conflict with Phase 3 plans
+- Need to align basic operations with Cursor-compatible interfaces
+
+### **CORRECTED IMPLEMENTATION STATUS:**
+
+| Phase | Tool | Implementation Status | Registration Status | AI Agent Access |
+|-------|------|---------------------|-------------------|-----------------|
+| 1 | `session_edit_file` | ✅ Complete | ❌ Commented out | ❌ No access |
+| 1 | `session_search_replace` | ✅ Complete | ❌ Commented out | ❌ No access |
+| 2 | `session_grep_search` | ❌ Missing | ❌ N/A | ❌ No access |
+| 2 | `session_file_search` | ❌ Missing | ❌ N/A | ❌ No access |
+| 2 | `session_codebase_search` | ❌ Missing | ❌ N/A | ❌ No access |
+| Basic | `session_read_file` | ✅ Complete | ✅ Active | ✅ Available |
+| Basic | `session_write_file` | ✅ Complete | ✅ Active | ✅ Available |
+| Basic | `session_list_directory` | ✅ Complete | ✅ Active | ✅ Available |
+
+**BOTTOM LINE**: This task is much further from completion than previously indicated. The foundation is solid with excellent analysis, but core deliverables are missing or inactive.
+
+---
+
 ## Context
 
 Cursor provides a comprehensive set of built-in tools that enable AI coding agents to interact with the development environment. These tools include file operations, code search, terminal execution, and external integrations. However, these tools operate in the context of the main workspace, which conflicts with Minsky's session-based workflow where all task-related changes must occur within isolated session workspaces.
@@ -404,7 +463,7 @@ The following documents must be created during the research phase:
 - 95%+ test coverage for implemented tools
 - Successful AI agent workflows without tool-specific modifications
 
-## Current Status: ✅ PHASE 1 VALIDATION COMPLETED - CONTINUING REVERSE ENGINEERING
+## Current Status: ⚠️ IMPLEMENTATION INCOMPLETE - REGISTRATION REQUIRED
 
 ### Research Phase: ✅ COMPLETED
 
@@ -413,12 +472,13 @@ The following documents must be created during the research phase:
 - ✅ MCP expert consultation completed
 - ✅ Implementation approach finalized: **Direct implementation with open source libraries**
 
-### Phase 1 Implementation: ✅ COMPLETED
+### Phase 1 Implementation: ⚠️ IMPLEMENTED BUT NOT ACTIVE
 
 - ✅ **`session_edit_file`**: Full implementation with pattern matching, session isolation, comprehensive error handling
 - ✅ **`session_search_replace`**: Single occurrence replacement with validation and session boundaries
 - ✅ **Infrastructure**: CommandMapper extensions, MCP server integration, test patterns established
 - ✅ **Documentation**: Complete source code documentation and interface specifications
+- ❌ **CRITICAL ISSUE**: Tools are commented out in MCP server registration - AI agents cannot access them
 
 ### ✅ PHASE 1 VALIDATION TESTS: COMPLETED
 
@@ -495,37 +555,43 @@ The following documents must be created during the research phase:
 - **Security**: Path traversal protection, validation, and comprehensive error handling
 - **Performance**: Atomic operations, efficient file handling, proper resource management
 
-### Next Immediate Steps:
+### Next Immediate Steps (CORRECTED PRIORITIES):
 
-1. **✅ COMPLETED: Phase 1 Validation Against Reverse Engineering**
+1. **🔥 URGENT: Activate Existing Phase 1 Tools**
 
-   - ✅ Created and ran comprehensive validation test suite with 100% pass rate (13/13 tests)
-   - ✅ Verified `session_edit_file` and `session_search_replace` behavioral patterns match Cursor exactly
-   - ✅ Confirmed interface compatibility and session boundary enforcement
-   - ✅ Established mock implementation patterns for future tool validation
+   - ❌ **BLOCKER**: Uncomment `registerSessionEditTools(commandMapper)` in `src/commands/mcp/index.ts:149`
+   - ❌ **BLOCKER**: Uncomment import for `registerSessionEditTools` in `src/commands/mcp/index.ts:28`
+   - ✅ Tools are fully implemented and tested (100% pass rate - 13/13 validation tests)
+   - ✅ Will immediately provide AI agents access to `session_edit_file` and `session_search_replace`
+   - **IMPACT**: This single change activates critical Cursor-compatible file editing tools
 
-2. **PRIORITY: Continue Comprehensive Reverse Engineering** (IN PROGRESS)
+2. **🔥 HIGH PRIORITY: Implement Missing Phase 2 Search Tools**
 
-   - **Expand Tool Coverage**: Continue systematic testing of additional Cursor tools beyond Phase 1 & 2
+   - ❌ **MISSING**: Create `session_grep_search` implementation using ripgrep library
+   - ❌ **MISSING**: Create `session_file_search` implementation with fuzzy matching
+   - ❌ **MISSING**: Create `session_codebase_search` implementation with semantic search
+   - ✅ **READY**: Complete specifications and test cases exist in `test-verification/`
+   - ✅ **INFRASTRUCTURE**: CommandMapper patterns established, SessionPathResolver available
+
+3. **🔄 MEDIUM PRIORITY: Complete Comprehensive Reverse Engineering**
+
    - **Command Execution Tools**: Reverse engineer `run_terminal_cmd`, `list_dir`, `read_file` behavioral patterns
    - **External Integration Tools**: Analyze `web_search`, `fetch_pull_request`, `fetch_github_issue` interfaces
    - **Specialized Tools**: Test `create_diagram`, `edit_notebook`, `reapply` edge cases and advanced patterns
    - **Integration Patterns**: Document how tools work together in complex AI workflows
 
-3. **Phase 2 Search Tools Implementation** (Ready for Implementation)
+4. **📋 ONGOING: Interface Reconciliation**
 
-   - `session_grep_search`: Using ripgrep library with exact Cursor compatibility (50 result limit, regex support)
-   - `session_file_search`: Fuzzy matching algorithm matching documented behavior (10 result limit, ranking)
-   - `session_codebase_search`: Semantic search following analyzed patterns (context snippets, intent matching)
+   - **Potential Conflict**: Current `session_read_file` vs planned Cursor-compatible version
+   - **Decision Needed**: Whether to maintain both interfaces or migrate to Cursor compatibility
+   - **Testing**: Validate that basic session tools work alongside Cursor-compatible tools
 
-4. **Validation Testing**: Create comprehensive validation tests for each newly reverse engineered tool
+### Implementation Status by Phase (CORRECTED):
 
-### Implementation Status by Phase:
-
-1. **✅ COMPLETED**: File operations (`session_edit_file`, `session_search_replace`) + comprehensive reverse engineering
-2. **🔄 VALIDATION READY**: Phase 1 implementations ready for validation against reverse engineering findings
-3. **📋 IMPLEMENTATION READY**: Search operations (`session_grep_search`, `session_file_search`, `session_codebase_search`) with complete behavioral specifications
-4. **📋 PLANNED**: Command execution tools (`session_run_command`, `session_list_dir`, `session_read_file`)
+1. **⚠️ IMPLEMENTED BUT INACTIVE**: File operations (`session_edit_file`, `session_search_replace`) exist but are commented out in MCP registration
+2. **❌ NOT IMPLEMENTED**: Search operations (`session_grep_search`, `session_file_search`, `session_codebase_search`) - specifications complete but code missing
+3. **✅ ACTIVE**: Basic session file operations (`session_read_file`, `session_write_file`, `session_list_directory`, etc.) working
+4. **📋 PLANNED**: Command execution tools (`session_run_command`) - analysis in progress
 
 ## References
 

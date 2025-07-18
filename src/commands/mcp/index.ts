@@ -25,8 +25,8 @@ const DEFAULT_HTTP_ENDPOINT = "/mcp";
 const INSPECTOR_PORT = 5173;
 
 // Import adapter-based tool registrations
-// import { registerSessionFileTools } from "../../adapters/mcp/session-files";
-// import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
+import { registerSessionFileTools } from "../../adapters/mcp/session-files";
+import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 
 /**
  * Create the MCP command
@@ -146,8 +146,8 @@ export function createMCPCommand(): Command {
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
         // registerSessionWorkspaceTools(commandMapper);
-        // registerSessionFileTools(commandMapper);
-        // registerSessionEditTools(commandMapper);
+        registerSessionFileTools(commandMapper);
+        registerSessionEditTools(commandMapper);
         registerGitTools(commandMapper);
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);
