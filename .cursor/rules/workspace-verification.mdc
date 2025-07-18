@@ -54,7 +54,7 @@ $ pwd
 $ minsky rules --help
 Commands:
   minsky rules list                List all rules
-  minsky rules get <n>          Get a rule by name
+  # Use MCP tool: rules.get with id: <n>          Get a rule by name
   minsky rules create <n>       Create a new rule
   minsky rules update <n>       Update an existing rule
 

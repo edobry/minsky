@@ -150,7 +150,7 @@ The description is **critically important** as it's the main trigger for rule ap
 
 ## Using the Rules Command
 
-**ALWAYS USE THE `minsky rules` COMMAND TO CREATE AND MANAGE RULES.**
+**ALWAYS USE THE `rules` MCP tools COMMAND TO CREATE AND MANAGE RULES.**
 
 The Minsky CLI provides dedicated commands for rule management:
 
@@ -162,7 +162,7 @@ minsky rules create
 minsky rules create my-rule --name "My Rule" --description "When to use this rule"
 
 # View an existing rule
-minsky rules get my-rule
+# Use MCP tool: rules.get with id: my-rule
 
 # Update a rule's metadata
 minsky rules update my-rule --description "New description"
@@ -171,7 +171,7 @@ minsky rules update my-rule --description "New description"
 minsky rules update my-rule --content path/to/content.md
 
 # List all rules
-minsky rules list
+# Use MCP tool: rules.list
 
 # Search rules
 minsky rules search "pattern"

@@ -25,13 +25,13 @@ To check the status of a task:
 minsky tasks status get '#<task-id>'
 
 # List all tasks with their status
-minsky tasks list --json
+# Use MCP tool: tasks.list
 
 # List only tasks with a specific status
 minsky tasks list --json | jq '.[] | select(.status == "IN-PROGRESS")'
 
 # View the full task specification content
-minsky tasks spec <task-id>
+# Use MCP tool: tasks.spec with taskId: <task-id>
 ```
 
 Always use the Minsky CLI to get the current status of tasks, never rely on file system inspection or cached information.
@@ -88,7 +88,7 @@ Where `<status>` is one of: `TODO`, `IN-PROGRESS`, `IN-REVIEW`, `DONE`
 - Direct edits to `tasks.md` are strictly forbidden for status changes.
 - **Verification Checkpoint:** Before marking any task as complete, verify that the update is performed via the CLI, not by file edit.
 - Example:
-  - Correct: `minsky tasks status set 039 DONE --session task#039`
+  - Correct: `tasks.status` MCP tool
   - Incorrect: Editing `tasks.md` directly in any workspace.
 
 ## Status Verification
@@ -117,7 +117,7 @@ The Minsky system supports automatic task status updates at key workflow points:
    - When starting a session for a task, consider updating its status to IN-PROGRESS
    - Example:
      ```bash
-     minsky session start --task 042 --quiet
+     # Use MCP tool: session.start with --task 042 --quiet
      minsky tasks status set '#042' IN-PROGRESS
      ```
 

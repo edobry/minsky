@@ -57,7 +57,7 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.19.0 The `session start` command now optionally accepts a task ID. If provided, the CLI looks up task details, uses the task ID as the session name (formatted as `<repo>/task#<id>`), and stores the task details in the session metadata.  The session will have a full name and a short name (without the repo, for branch naming).
 - Version 0.20.0 The `tasks list` and `tasks get` commands now support a `--json` option for JSON output.
 - Version 0.21.0 The `session start` command now supports the `--task <task-id>` flag. If provided, the CLI looks up the task details using the `tasks` domain module, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata.  The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming.  Error handling is improved to check for existing tasks and sessions.
-- Version 0.22.0 The `minsky session start` command now optionally accepts a task ID via the `--task` flag. If provided, the CLI looks up the task details, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata. The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming. Error handling is improved to check for existing tasks and sessions.  If the task ID does not exist, the CLI errors out. If a session for that task already exists, the CLI errors out and returns the existing session name.
+- Version 0.22.0 The `session` MCP tools command now optionally accepts a task ID via the `--task` flag. If provided, the CLI looks up the task details, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata. The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming. Error handling is improved to check for existing tasks and sessions.  If the task ID does not exist, the CLI errors out. If a session for that task already exists, the CLI errors out and returns the existing session name.
 - Version 0.23.0 The `session list` and `session get` commands now support a `--json` option for JSON output.
 - Version 0.24.0 Added CLI-level tests for the `--json` option in `tasks list`, `tasks get`, `session list`, and `session get` commands.
 - Version 0.25.0 The session database now stores the repo name for each session. Session repos are stored under a per-repo directory (e.g., `/Users/edobry/.local/state/minsky/git/<repo>/<session>`).
@@ -69,20 +69,20 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.31.0 Added bun-promptx for interactive prompts in init command. Improved error handling and user experience for init command. Updated README and CHANGELOG.
 - Version 0.32.0 Added improved UX for init command using bun-promptx.  Improved error handling for init command. Updated README and CHANGELOG.  Added support for --repo and --session flags to init command, using resolveRepoPath for repo path resolution.  Added tests for init command including error handling and prompt logic.
 - Version 0.33.0 Updated init command to use @clack/prompts for interactive prompts. Improved error handling and user experience for init command. Updated README and CHANGELOG.
-- Version 0.34.0  Added `minsky tasks list --json` as a method for querying the backlog.
-- Version 0.35.0 Added clarification on how to query the backlog using `minsky tasks list --json`.
-- Version 0.36.0 To query the backlog, use: `minsky tasks list --json`
-- Version 0.37.0 To query the backlog, use `minsky tasks list --json`.  This command will return a JSON representation of all tasks in the backlog.  The output will include task IDs, titles, statuses, and descriptions.
-- Version 0.38.0 To query the backlog, use `minsky tasks list --json`. This command returns a JSON representation of all tasks.  The output includes task IDs, titles, statuses, and descriptions.
-- Version 0.39.0 Clarified that `minsky tasks list --json` should be used to query the backlog.
-- Version 0.40.0 The `--repo` argument for `minsky session start` is now optional.  If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If it fails to find a repository, it will error out with a clear message.
-- Version 0.41.0 Added tests for the updated `minsky session start` command, including cases where `--repo` is provided and omitted.
-- Version 0.42.0 The `minsky session start` command now correctly handles optional `--repo` argument.  If omitted, it uses `resolveRepoPath` to determine the repository path.  If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
-- Version 0.43.0 The `--repo` argument for the `minsky session start` command is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If `resolveRepoPath` fails to find a repository, the command will error out with a clear message.
-- Version 0.44.0  The `minsky session start` command now correctly handles the optional `--repo` argument. If omitted, it uses `resolveRepoPath` to determine the repository path. If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests now use bun:test's mocking capabilities.
-- Version 0.45.0 The `--repo` argument for `minsky session start` is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`.  If `resolveRepoPath` fails, the command will error out with a clear message.  The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession` using bun:test mocking capabilities to cover various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
-- Version 0.46.0 The `minsky session start` command's business logic has been extracted to `startSession` for better testability. Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`. The tests use Bun's mocking capabilities.  A positive test case was added for the fallback scenario where `resolveRepoPath` returns a valid path.
-- Version 0.47.0  The `--repo` argument is now optional for `minsky session start`. If omitted, the command attempts to use the current git repository root via `resolveRepoPath`. If neither a repo nor a session is provided and `resolveRepoPath` fails, the command errors out with a clear message. The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests use Bun's mocking capabilities.
+- Version 0.34.0  Added `tasks.list` MCP tool as a method for querying the backlog.
+- Version 0.35.0 Added clarification on how to query the backlog using `tasks.list` MCP tool.
+- Version 0.36.0 To query the backlog, use MCP tool `tasks.list`
+- Version 0.37.0 To query the backlog, use MCP tool `tasks.list`.  This command will return a JSON representation of all tasks in the backlog.  The output will include task IDs, titles, statuses, and descriptions.
+- Version 0.38.0 To query the backlog, use MCP tool `tasks.list`. This command returns a JSON representation of all tasks.  The output includes task IDs, titles, statuses, and descriptions.
+- Version 0.39.0 Clarified that `tasks.list` MCP tool should be used to query the backlog.
+- Version 0.40.0 The `--repo` argument for `session` MCP tools is now optional.  If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If it fails to find a repository, it will error out with a clear message.
+- Version 0.41.0 Added tests for the updated `session` MCP tools command, including cases where `--repo` is provided and omitted.
+- Version 0.42.0 The `session` MCP tools command now correctly handles optional `--repo` argument.  If omitted, it uses `resolveRepoPath` to determine the repository path.  If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
+- Version 0.43.0 The `--repo` argument for the `session` MCP tools command is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If `resolveRepoPath` fails to find a repository, the command will error out with a clear message.
+- Version 0.44.0  The `session` MCP tools command now correctly handles the optional `--repo` argument. If omitted, it uses `resolveRepoPath` to determine the repository path. If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests now use bun:test's mocking capabilities.
+- Version 0.45.0 The `--repo` argument for `session` MCP tools is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`.  If `resolveRepoPath` fails, the command will error out with a clear message.  The `session` MCP tools command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession` using bun:test mocking capabilities to cover various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
+- Version 0.46.0 The `session` MCP tools command's business logic has been extracted to `startSession` for better testability. Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`. The tests use Bun's mocking capabilities.  A positive test case was added for the fallback scenario where `resolveRepoPath` returns a valid path.
+- Version 0.47.0  The `--repo` argument is now optional for `session` MCP tools. If omitted, the command attempts to use the current git repository root via `resolveRepoPath`. If neither a repo nor a session is provided and `resolveRepoPath` fails, the command errors out with a clear message. The `session` MCP tools command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests use Bun's mocking capabilities.
 - Version 0.48.0 Added tests for startSession command.  The tests utilize Bun's mocking capabilities to isolate and test the core logic.  The tests cover various scenarios, including successful execution with and without the --repo flag, error handling when no repository is found, and the correct usage of resolveRepoPath.  All tests pass.
 - Version 0.49.0 Updated `startSession` to accept dependencies via parameters, enabling direct dependency injection in tests.  Updated tests to inject mocks directly, avoiding `mock.module`. All tests pass.
 - Version 0.50.0 Added a positive test case for the fallback scenario where `resolveRepoPath` returns a valid path in `startSession.test.ts`. All tests pass.
@@ -166,13 +166,13 @@ When asked to work on a particular task (by name, description, or ID):
 1. **Find the Task ID**
    - List all tasks in JSON and locate the relevant task:
      ```bash
-     minsky tasks list --json
+     # Use MCP tool: tasks.list
      ```
 
 2. **Start a Session**
    - Begin a new session for the task:
      ```bash
-     minsky session start <session-name> --repo <repo-url-or-path>
+     # Use MCP tool: session.start with <session-name> --repo <repo-url-or-path>
      ```
 
 3. **Enter the Session Directory**
@@ -368,12 +368,12 @@ minsky git pr --session <session-name> [--branch <branch-name>] --path <repo-pat
 
 ```bash
 # Start a new session (requires task association)
-minsky session start --task <task-id> [session-name]
+# Use MCP tool: session.start with --task <task-id> [session-name]
 # OR create new task automatically
-minsky session start --description "<description>" [session-name]
+# Use MCP tool: session.start with --description "<description>" [session-name]
 
 # List all sessions
-minsky session list
+# Use MCP tool: session.list
 
 # View session details
 minsky session get <session-name>
@@ -404,7 +404,7 @@ minsky tasks status get --repo /path/to/repo #001
 minsky tasks status set --repo /path/to/repo #001 DONE
 ```
 
-To query the backlog, use: `minsky tasks list --json`
+To query the backlog, use MCP tool `tasks.list`
 
 **Options:**
 - `--repo <repoPath>`: Path to a git repository (overrides session)
@@ -428,15 +428,15 @@ To query the backlog, use: `minsky tasks list --json`
 
 ```bash
 # Start a new session (requires task association)
-minsky session start --task 123 feature-session
+# Use MCP tool: session.start with --task 123 feature-session
 # OR create new task automatically
-minsky session start --description "Implement user authentication" auth-feature
+# Use MCP tool: session.start with --description "Implement user authentication" auth-feature
 
 # Get session directory
 cd $(minsky session dir feature-session)
 
 # Work on code, then generate PR
-minsky session pr > PR.md
+# Use MCP tool: session.pr > PR.md
 
 # List and update tasks
 minsky tasks list --session feature-session
@@ -449,10 +449,10 @@ Multiple agents can work on related features in parallel:
 
 ```bash
 # Agent 1: Authentication backend
-minsky session start auth-api --repo https://github.com/org/project.git
+# Use MCP tool: session.start with auth-api --repo https://github.com/org/project.git
 
 # Agent 2: Frontend integration
-minsky session start auth-ui --repo https://github.com/org/project.git
+# Use MCP tool: session.start with auth-ui --repo https://github.com/org/project.git
 ```
 
 Each agent works in its own isolated environment and can generate PR documents to share their changes. Tasks can be listed and updated per session or repo.
@@ -477,20 +477,20 @@ MIT
 - Version 0.31.0 Added bun-promptx for interactive prompts in init command. Improved error handling and user experience for init command. Updated README and CHANGELOG.
 - Version 0.32.0 Added improved UX for init command using bun-promptx.  Improved error handling for init command. Updated README and CHANGELOG.  Added support for --repo and --session flags to init command, using resolveRepoPath for repo path resolution.  Added tests for init command including error handling and prompt logic.
 - Version 0.33.0 Updated init command to use @clack/prompts for interactive prompts. Improved error handling and user experience for init command. Updated README and CHANGELOG.
-- Version 0.34.0  Added `minsky tasks list --json` as a method for querying the backlog.
-- Version 0.35.0 Added clarification on how to query the backlog using `minsky tasks list --json`.
-- Version 0.36.0 To query the backlog, use: `minsky tasks list --json`
-- Version 0.37.0 To query the backlog, use `minsky tasks list --json`.  This command will return a JSON representation of all tasks in the backlog.  The output will include task IDs, titles, statuses, and descriptions.
-- Version 0.38.0 To query the backlog, use `minsky tasks list --json`. This command returns a JSON representation of all tasks.  The output includes task IDs, titles, statuses, and descriptions.
-- Version 0.39.0 Clarified that `minsky tasks list --json` should be used to query the backlog.
-- Version 0.40.0 The `--repo` argument for `minsky session start` is now optional.  If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If it fails to find a repository, it will error out with a clear message.
-- Version 0.41.0 Added tests for the updated `minsky session start` command, including cases where `--repo` is provided and omitted.
-- Version 0.42.0 The `minsky session start` command now correctly handles optional `--repo` argument.  If omitted, it uses `resolveRepoPath` to determine the repository path.  If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
-- Version 0.43.0 The `--repo` argument for the `minsky session start` command is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If `resolveRepoPath` fails to find a repository, the command will error out with a clear message.
-- Version 0.44.0  The `minsky session start` command now correctly handles the optional `--repo` argument. If omitted, it uses `resolveRepoPath` to determine the repository path. If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests now use bun:test's mocking capabilities.
-- Version 0.45.0 The `--repo` argument for `minsky session start` is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`.  If `resolveRepoPath` fails, the command will error out with a clear message.  The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession` using bun:test mocking capabilities to cover various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
-- Version 0.46.0 The `minsky session start` command's business logic has been extracted to `startSession` for better testability. Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`. The tests use Bun's mocking capabilities.  A positive test case was added for the fallback scenario where `resolveRepoPath` returns a valid path.
-- Version 0.47.0  The `--repo` argument is now optional for `minsky session start`. If omitted, the command attempts to use the current git repository root via `resolveRepoPath`. If neither a repo nor a session is provided and `resolveRepoPath` fails, the command errors out with a clear message. The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests use Bun's mocking capabilities.
+- Version 0.34.0  Added `tasks.list` MCP tool as a method for querying the backlog.
+- Version 0.35.0 Added clarification on how to query the backlog using `tasks.list` MCP tool.
+- Version 0.36.0 To query the backlog, use MCP tool `tasks.list`
+- Version 0.37.0 To query the backlog, use MCP tool `tasks.list`.  This command will return a JSON representation of all tasks in the backlog.  The output will include task IDs, titles, statuses, and descriptions.
+- Version 0.38.0 To query the backlog, use MCP tool `tasks.list`. This command returns a JSON representation of all tasks.  The output includes task IDs, titles, statuses, and descriptions.
+- Version 0.39.0 Clarified that `tasks.list` MCP tool should be used to query the backlog.
+- Version 0.40.0 The `--repo` argument for `session` MCP tools is now optional.  If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If it fails to find a repository, it will error out with a clear message.
+- Version 0.41.0 Added tests for the updated `session` MCP tools command, including cases where `--repo` is provided and omitted.
+- Version 0.42.0 The `session` MCP tools command now correctly handles optional `--repo` argument.  If omitted, it uses `resolveRepoPath` to determine the repository path.  If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
+- Version 0.43.0 The `--repo` argument for the `session` MCP tools command is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If `resolveRepoPath` fails to find a repository, the command will error out with a clear message.
+- Version 0.44.0  The `session` MCP tools command now correctly handles the optional `--repo` argument. If omitted, it uses `resolveRepoPath` to determine the repository path. If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests now use bun:test's mocking capabilities.
+- Version 0.45.0 The `--repo` argument for `session` MCP tools is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`.  If `resolveRepoPath` fails, the command will error out with a clear message.  The `session` MCP tools command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession` using bun:test mocking capabilities to cover various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
+- Version 0.46.0 The `session` MCP tools command's business logic has been extracted to `startSession` for better testability. Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`. The tests use Bun's mocking capabilities.  A positive test case was added for the fallback scenario where `resolveRepoPath` returns a valid path.
+- Version 0.47.0  The `--repo` argument is now optional for `session` MCP tools. If omitted, the command attempts to use the current git repository root via `resolveRepoPath`. If neither a repo nor a session is provided and `resolveRepoPath` fails, the command errors out with a clear message. The `session` MCP tools command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests use Bun's mocking capabilities.
 - Version 0.48.0 Added tests for startSession command.  The tests utilize Bun's mocking capabilities to isolate and test the core logic.  The tests cover various scenarios, including successful execution with and without the --repo flag, error handling when no repository is found, and the correct usage of resolveRepoPath.  All tests pass.
 - Version 0.49.0 Updated `startSession` to accept dependencies via parameters, enabling direct dependency injection in tests.  Updated tests to inject mocks directly, avoiding `mock.module`. All tests pass.
 - Version 0.50.0 Added a positive test case for the fallback scenario where `resolveRepoPath` returns a valid path in `startSession.test.ts`. All tests pass.

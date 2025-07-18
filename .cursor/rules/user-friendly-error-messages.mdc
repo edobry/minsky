@@ -107,16 +107,16 @@ throw new MinskyError(`
 To create a PR, specify which session to use:
 
 📂 Use current session (auto-detected):
-   minsky session pr --title "your title"
+   # Use MCP tool: session.pr --title "your title"
 
 🏷️  Use specific session name:
-   minsky session pr --session my-session --title "your title"
+   # Use MCP tool: session.pr --session my-session --title "your title"
 
 🎫 Use task ID to find session:
-   minsky session pr --task 123 --title "your title"
+   # Use MCP tool: session.pr --task 123 --title "your title"
 
 💡 List available sessions:
-   minsky session list
+   # Use MCP tool: session.list
 `.trim());
 ```
 
@@ -218,7 +218,7 @@ Valid examples:
 ✅ minsky tasks get "task#123"
 
 💡 List available tasks:
-   minsky tasks list
+   # Use MCP tool: tasks.list
 `.trim());
 ```
 

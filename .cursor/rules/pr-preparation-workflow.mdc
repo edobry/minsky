@@ -79,7 +79,7 @@ Update the task status to IN-REVIEW:
 minsky tasks status set <task-id> IN-REVIEW
 ```
 
-This can happen automatically when using `minsky git pr` unless the `--no-status-update` flag is used.
+This can happen automatically when using `git` MCP tools unless the `--no-status-update` flag is used.
 
 ## PR Description Format
 
@@ -151,10 +151,10 @@ Use these types for the PR title:
 1. **Use `--body-path` instead of `--body "$(cat file)"`**
    ```bash
    # ❌ AVOID: Shell parsing issues, command hangs
-   minsky session pr --body "$(cat process/tasks/285/pr.md)"
+   # Use MCP tool: session.pr --body "$(cat process/tasks/285/pr.md)"
 
    # ✅ PREFER: Clean, reliable execution
-   minsky session pr --body-path "/tmp/pr-description.md"
+   # Use MCP tool: session.pr --body-path "/tmp/pr-description.md"
    ```
 
 2. **Use temporary directories for PR descriptions**
@@ -164,7 +164,7 @@ Use these types for the PR title:
    cp process/tasks/285/pr.md /tmp/task285-pr/description.md
 
    # Use with session PR command
-   minsky session pr --title "fix(#285): Fix bug" --body-path "/tmp/task285-pr/description.md"
+   # Use MCP tool: session.pr --title "fix(#285): Fix bug" --body-path "/tmp/task285-pr/description.md"
 
    # Clean up
    rm -rf /tmp/task285-pr
@@ -179,7 +179,7 @@ Use these types for the PR title:
 
 1. **Complete all work** in session workspace
 2. **Commit and push** all session changes
-3. **Create PR** using `minsky session pr` with proper syntax
+3. **Create PR** using `session` MCP tools with proper syntax
 4. **STOP** - Do not continue working on session branch after PR creation
 5. **Switch to main workspace** if further work needed
 
