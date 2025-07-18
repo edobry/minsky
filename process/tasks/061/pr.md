@@ -24,7 +24,11 @@ This PR completes Task 061 "Implement Test Fixture Factory Pattern Implementatio
 
 ### Enhanced Cursor Rules with Task 061 Infrastructure:
 
+<<<<<<< HEAD
 1. **framework-specific-tests.mdc**: 
+=======
+1. **framework-specific-tests.mdc**:
+>>>>>>> origin/main
    - Added logger mock infrastructure references
    - Enhanced with documentation pointers to `docs/bun-test-patterns.md`
    - Integrated ESLint rule enforcement guidance
