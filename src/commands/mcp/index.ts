@@ -9,7 +9,7 @@ import { registerGitTools } from "../../adapters/mcp/git";
 import { registerInitTools } from "../../adapters/mcp/init";
 import { registerRulesTools } from "../../adapters/mcp/rules";
 import { registerSessionTools } from "../../adapters/mcp/session";
-// import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
+import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
@@ -145,7 +145,7 @@ export function createMCPCommand(): Command {
         // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
-        // registerSessionWorkspaceTools(commandMapper);
+        registerSessionWorkspaceTools(commandMapper);
         registerSessionFileTools(commandMapper);
         registerSessionEditTools(commandMapper);
         registerGitTools(commandMapper);
