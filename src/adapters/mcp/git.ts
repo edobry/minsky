@@ -15,27 +15,26 @@ export function registerGitTools(commandMapper: CommandMapper): void {
   registerGitCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      // MCP-specific optimizations
       "git.commit": {
-        description: "Commit changes to the repository (MCP optimized)",
+        description: "Commit changes to the repository",
       },
       "git.push": {
-        description: "Push changes to the remote repository (MCP optimized)",
+        description: "Push changes to the remote repository",
       },
       "git.clone": {
-        description: "Clone a Git repository (MCP optimized)",
+        description: "Clone a Git repository",
       },
       "git.branch": {
-        description: "Create a new branch (MCP optimized)",
+        description: "Create a new branch",
       },
       "git.merge": {
-        description: "Merge a branch with conflict detection (MCP optimized)",
+        description: "Merge a branch with conflict detection",
       },
       "git.checkout": {
-        description: "Checkout a branch with conflict detection (MCP optimized)",
+        description: "Checkout a branch with conflict detection",
       },
       "git.rebase": {
-        description: "Rebase with conflict detection (MCP optimized)",
+        description: "Rebase with conflict detection",
       },
     },
   });

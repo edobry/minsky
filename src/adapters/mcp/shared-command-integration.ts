@@ -28,6 +28,11 @@ function convertParametersToZodSchema(parameters: CommandParameterMap): z.ZodObj
   const shape: Record<string, z.ZodTypeAny> = {};
 
   for (const [key, param] of Object.entries(parameters)) {
+    // Skip the json parameter in MCP context since MCP always returns JSON
+    if (key === "json") {
+      continue;
+    }
+
     let schema = param.schema;
 
     // Make optional if not required
@@ -142,11 +147,15 @@ export function registerSharedCommandsWithMcp(
           const context: CommandExecutionContext = {
             interface: "mcp",
             debug: args?.debug || false,
-            format: args?.json ? "json" : "text",
+            format: "json", // MCP always returns JSON format
           };
 
-          // Convert MCP args to expected parameter format
-          const parameters = convertMcpArgsToParameters(args || {}, command.parameters);
+          // Convert MCP args to expected parameter format, filtering out the json parameter
+          // since MCP always returns JSON regardless of this parameter
+          const filteredArgs = { ...args };
+          delete filteredArgs.json; // Remove json parameter as it's not needed in MCP context
+
+          const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
 
           // Execute the shared command
           return await command.execute(parameters, context);

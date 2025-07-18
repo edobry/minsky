@@ -15,27 +15,26 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
   registerTaskCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      // MCP-specific optimizations
       "tasks.list": {
-        description: "List all tasks in the current repository (MCP optimized)",
+        description: "List all tasks in the current repository",
       },
       "tasks.get": {
-        description: "Get a task by ID (MCP optimized)",
+        description: "Get a task by ID",
       },
       "tasks.create": {
-        description: "Create a new task (MCP optimized)",
+        description: "Create a new task",
       },
       "tasks.delete": {
-        description: "Delete a task by ID (MCP optimized)",
+        description: "Delete a task by ID",
       },
       "tasks.status.get": {
-        description: "Get the status of a task (MCP optimized)",
+        description: "Get the status of a task",
       },
       "tasks.status.set": {
-        description: "Set the status of a task (MCP optimized)",
+        description: "Set the status of a task",
       },
       "tasks.spec": {
-        description: "Get task specification content (MCP optimized)",
+        description: "Get task specification content",
       },
     },
   });

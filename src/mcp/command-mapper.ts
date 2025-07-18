@@ -160,30 +160,6 @@ export class CommandMapper {
     // Register the tool with the server
     this.server.addTool(toolDefinition);
 
-    // Also register underscore alias for dot notation compatibility
-    // This provides a fallback for JSON-RPC clients that have issues with dot notation
-    if (normalizedName.includes(".")) {
-      const underscoreName = normalizedName.replace(/\./g, "_");
-
-      // Don't register the same name twice
-      if (underscoreName !== normalizedName) {
-        const underscoreToolDefinition: ToolDefinition = {
-          name: underscoreName,
-          description: `${command.description} (underscore alias)`,
-          inputSchema,
-          handler: toolDefinition.handler, // Same handler
-        };
-
-        this.server.addTool(underscoreToolDefinition);
-        this.registeredMethodNames.push(underscoreName);
-
-        log.debug("Registered underscore alias for MCP tool", {
-          originalName: normalizedName,
-          aliasName: underscoreName,
-        });
-      }
-    }
-
     log.debug("MCP tool registered successfully", {
       methodName: normalizedName,
       description: command.description,
