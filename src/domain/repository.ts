@@ -285,7 +285,7 @@ export async function createRepositoryBackend(
         // Get additional status info directly via Git commands
         const { stdout: branchOutput } = await (
           await import("util")
-        ).promisify(((await import("child_process")) as unknown).exec)(
+        ).promisify((await import("child_process")).exec)(
           `git -C ${workdir} rev-parse --abbrev-ref HEAD`
         );
 
@@ -383,7 +383,7 @@ export async function createRepositoryBackend(
         const workdir = gitService.getSessionWorkdir(session);
 
         // Execute branch creation via Git command
-        await (await import("util")).promisify(((await import("child_process")) as unknown).exec)(
+        await (await import("util")).promisify((await import("child_process")).exec)(
           `git -C ${workdir} checkout -b ${name}`
         );
 
@@ -407,7 +407,7 @@ export async function createRepositoryBackend(
         const workdir = gitService.getSessionWorkdir(repoSession.session);
 
         // Execute checkout via Git command
-        await (await import("util")).promisify(((await import("child_process")) as unknown).exec)(
+        await (await import("util")).promisify((await import("child_process")).exec)(
           `git -C ${workdir} checkout ${branch}`
         );
       },

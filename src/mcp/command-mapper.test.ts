@@ -8,9 +8,9 @@ import { CommandMapper } from "./command-mapper";
 import { z } from "zod";
 import type { ProjectContext } from "../types/project";
 import type { MinskyMCPServer, ToolDefinition } from "./server";
-import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
+import { createMock, setupTestMocks, createPartialMock } from "../utils/test-utils/mocking";
 
-// Mock MinskyMCPServer
+// Mock MinskyMCPServer - using 'as any' for cleaner mock object creation
 const mockServer = {
   addTool: createMock(),
   getProjectContext: createMock(() => ({
@@ -19,7 +19,7 @@ const mockServer = {
   })),
   start: createMock(),
   getServer: createMock(),
-} as unknown as MinskyMCPServer;
+} as any as MinskyMCPServer;
 
 describe("CommandMapper", () => {
   let commandMapper: CommandMapper;
