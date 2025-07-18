@@ -6,11 +6,22 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Task #283 - COMPLETE**: Separated task ID storage from display format with comprehensive implementation
+  - **Core Architecture**: Implemented clean separation where storage uses plain numbers ("283") and display adds # prefix ("#283")
+  - **Schema Normalization**: `taskIdSchema` accepts any input format and normalizes to storage format automatically
+  - **Storage Consistency**: Updated all backends (JSON, Markdown) to generate and store plain task IDs
+  - **Session Integration**: Updated session storage, context resolution, and approval operations for new format
+  - **Display Formatting**: Updated CLI and MCP formatters to use `formatTaskIdForDisplay()` for consistent # prefix
+  - **Migration Tools**: Created `scripts/migrate-task-id-format.ts` with dry-run and backup capabilities for existing data
+  - **Comprehensive Testing**: 30 tests covering all utilities, edge cases, and integration scenarios
+  - **API Flexibility**: Commands accept multiple input formats ("283", "#283", "task#283") with backward compatibility
+  - **Zero Breaking Changes**: Implementation maintains existing functionality while improving data consistency
+
 - **Task #061 - PHASE 3 COMPLETE**: Finalized test fixture factory pattern implementation with comprehensive documentation and enforcement
   - **Documentation**: Created `docs/bun-test-patterns.md` with complete migration guidelines, best practices, and examples
   - **ESLint enforcement**: Implemented `src/eslint-rules/no-jest-patterns.js` with auto-fix capabilities for Jest pattern violations
   - **Logger mock infrastructure**: Added centralized `src/utils/test-utils/logger-mock.ts` to fix "log.cli is not a function" errors
-  - **Jest → Bun migration**: Successfully completed 9/9 target files with systematic pattern elimination  
+  - **Jest → Bun migration**: Successfully completed 9/9 target files with systematic pattern elimination
   - **Code reduction**: ~450+ lines of duplicate code eliminated, 54+ tests migrated to centralized patterns
   - **Infrastructure**: Complete foundation for codebase-wide Jest pattern elimination and Bun test compliance
   - **Prevention**: ESLint rule with auto-fix prevents future Jest pattern violations and enforces centralized factory usage
@@ -56,7 +67,7 @@ All notable changes to this project will be documented in this file.
 
 - **Task #286**: Added complete HTTP transport support for MCP server
 
-### Changed  
+### Changed
 - **Code Reduction**: Eliminated ~100+ lines of duplicate mock object declarations in `session-approve.test.ts`
 - **Jest Pattern Elimination**: Removed all local mock object patterns in favor of centralized factories
 - **Interface Standardization**: Applied consistent property naming fixes across all test methods
