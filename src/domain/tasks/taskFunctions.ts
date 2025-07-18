@@ -7,6 +7,7 @@ import type { TaskData, TaskFilter, TaskSpecData } from "../../types/tasks/taskD
 // Import constants and utilities from centralized location
 import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants";
 import type { TaskStatus } from "./taskConstants";
+import { formatTaskIdForDisplay } from "./task-id-utils";
 
 /**
  * Parse tasks from markdown content (pure function)
@@ -75,7 +76,9 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
   return tasks.map((task) => {
     const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
     const specPath = task.specPath || "#";
-    const taskLine = `- [${checkbox}] ${task.title} [${task.id}](${specPath})`;
+    // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix in markdown display
+    const displayId = formatTaskIdForDisplay(task.id);
+    const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
 
     // Always return only the task line - descriptions should remain in spec files
     return taskLine;

@@ -14,6 +14,7 @@ import {
 
 import { handleCliError, outputResult } from "../../cli/utils/index";
 import { log } from "../../../utils/logger";
+import { formatTaskIdForDisplay } from "../../../domain/tasks/task-id-utils";
 import {
   type ParameterMapping,
   type ParameterMappingOptions,
@@ -458,8 +459,10 @@ export class CliCommandBridge {
               // For objects in arrays, try to display meaningful information
               if ((item as any).id && (item as any).title) {
                 // Looks like a task or similar entity
+                // TASK 283: Use formatTaskIdForDisplay() for task ID display
+                const displayId = formatTaskIdForDisplay((item as any).id);
                 log.cli(
-                  `- ${(item as any).id}: ${(item as any).title}${(item as any).status ? ` [${(item as any).status}]` : ""}`
+                  `- ${displayId}: ${(item as any).title}${(item as any).status ? ` [${(item as any).status}]` : ""}`
                 );
               } else {
                 // Generic object display
@@ -471,8 +474,35 @@ export class CliCommandBridge {
           });
         }
       } else if (typeof result === "object" && result !== null) {
-        // Special handling for session get command results
-        if ((commandDef as any).id === "session.get" && "session" in result) {
+        // Handle single objects
+        if ((commandDef as any).id === "rules.get" && "rule" in result) {
+          // Handle rules get results
+          formatRuleDetails((result as any).rule as Record<string, any>);
+        } else if ((commandDef as any).id === "tasks.status.get") {
+          // Handle tasks status get results with friendly formatting
+          const resultObj = result as Record<string, any>;
+          const taskId = String((resultObj as any).taskId || "unknown");
+          const status = String((resultObj as any).status || "unknown");
+          // TASK 283: Use formatTaskIdForDisplay() for task ID display
+          const displayTaskId = formatTaskIdForDisplay(taskId);
+          log.cli(`Task ${displayTaskId} is ${status.toLowerCase()}`);
+        } else if ((commandDef as any).id === "tasks.status.set") {
+          // Handle tasks status set results with friendly formatting
+          const resultObj = result as Record<string, any>;
+          const taskId = String((resultObj as any).taskId || "unknown");
+          const status = String((resultObj as any).status || "unknown");
+          const previousStatus = String((resultObj as any).previousStatus || "unknown");
+          // TASK 283: Use formatTaskIdForDisplay() for task ID display
+          const displayTaskId = formatTaskIdForDisplay(taskId);
+          if (status === previousStatus) {
+            log.cli(`Task ${displayTaskId} status is already ${status.toLowerCase()}`);
+          } else {
+            log.cli(
+              `Task ${displayTaskId} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
+            );
+          }
+        } else if ((commandDef as any).id === "session.get" && "session" in result) {
+          // Handle session get command results
           formatSessionDetails((result as any).session as Record<string, any>);
         } else if ((commandDef as any).id === "session.dir" && "directory" in result) {
           log.cli(`${(result as any).directory}`);
@@ -502,28 +532,6 @@ export class CliCommandBridge {
             } else {
               log.cli("No rules found.");
             }
-          }
-        } else if ((commandDef as any).id === "rules.get" && "rule" in result) {
-          // Handle rules get results
-          formatRuleDetails((result as any).rule as Record<string, any>);
-        } else if ((commandDef as any).id === "tasks.status.get") {
-          // Handle tasks status get results with friendly formatting
-          const resultObj = result as Record<string, any>;
-          const taskId = String((resultObj as any).taskId || "unknown");
-          const status = String((resultObj as any).status || "unknown");
-          log.cli(`Task ${taskId} is ${status.toLowerCase()}`);
-        } else if ((commandDef as any).id === "tasks.status.set") {
-          // Handle tasks status set results with friendly formatting
-          const resultObj = result as Record<string, any>;
-          const taskId = String((resultObj as any).taskId || "unknown");
-          const status = String((resultObj as any).status || "unknown");
-          const previousStatus = String((resultObj as any).previousStatus || "unknown");
-          if (status === previousStatus) {
-            log.cli(`Task ${taskId} status is already ${status.toLowerCase()}`);
-          } else {
-            log.cli(
-              `Task ${taskId} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
-            );
           }
         } else if ((commandDef as any).id === "debug.echo") {
           // Handle debug.echo results with friendly formatting
