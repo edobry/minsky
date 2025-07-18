@@ -38,6 +38,7 @@ import * as WorkspaceUtils from "./workspace";
 import { SessionDbAdapter } from "./session/session-db-adapter";
 import { createTaskFromDescription } from "./templates/session-templates";
 import { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
+import { approveSessionImpl } from "./session/session-approve-operations";
 
 export interface SessionRecord {
   session: string;
@@ -1385,6 +1386,7 @@ export async function approveSessionFromParams(
     task?: string;
     repo?: string;
     json?: boolean;
+    noStash?: boolean;
   },
   depsInput?: {
     sessionDB?: SessionProviderInterface;
@@ -1407,13 +1409,11 @@ export async function approveSessionFromParams(
   taskId?: string;
   isNewlyApproved: boolean;
 }> {
-  let sessionNameToUse = params.session;
-  let taskId: string | undefined;
+  // Delegate to the new implementation with automatic stash handling
+  return await approveSessionImpl(params, depsInput);
+}
 
-  // Set up session provider (use injected one or create default)
-  const sessionDB = depsInput?.sessionDB || createSessionProvider();
-
-  // Try to get session from task ID if provided
+/**
   if (params.task && !sessionNameToUse) {
     const taskIdToUse = taskIdSchema.parse(params.task);
     taskId = taskIdToUse;

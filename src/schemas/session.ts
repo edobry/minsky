@@ -163,6 +163,7 @@ export const sessionApproveParamsSchema = z
     name: sessionNameSchema.optional().describe("Name of the session to approve"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path"),
+    noStash: z.boolean().optional().default(false).describe("Skip automatic stashing of uncommitted changes"),
   })
   .merge(commonCommandOptionsSchema).refine((data) => data.name !== undefined || data.task !== undefined || data.repo !== undefined, {
     message: "Either session name, task ID, or repo path must be provided",
