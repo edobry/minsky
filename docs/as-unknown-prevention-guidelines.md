@@ -13,7 +13,6 @@ This document provides comprehensive guidelines for preventing excessive use of 
 3. **Create maintenance burden**: Make refactoring and debugging harder
 4. **Indicate design issues**: Usually signal missing or incorrect type definitions
 
-<<<<<<< HEAD
 ## Rules and Best Practices
 
 ### 🚫 NEVER Use 'as unknown' For:
@@ -162,42 +161,6 @@ if (DomainTypeGuards.isSessionLike(obj)) {
 ## ESLint Rule Configuration
 
 The custom ESLint rule `custom/no-excessive-as-unknown` helps prevent these patterns:
-=======
-## Rule: Never Use These Patterns
-
-### ❌ Critical Patterns (Always Forbidden)
-
-```typescript
-// Never cast return values
-function getData(): any {
-  return someData as unknown; // ❌ NEVER
-}
-
-// Never cast null/undefined
-const result = null as unknown; // ❌ NEVER
-const value = undefined as unknown; // ❌ NEVER
-```
-
-### ❌ Dangerous Patterns (Usually Wrong)
-
-```typescript
-// Property access through unknown
-const property = (someObject as unknown).property; // ❌ DANGEROUS
-
-// Method calls through unknown
-const result = (someService as unknown).method(); // ❌ DANGEROUS
-
-// Array operations through unknown
-const length = (someArray as unknown).length; // ❌ DANGEROUS
-const items = (someArray as unknown).map(fn); // ❌ DANGEROUS
-```
-
-## Better Alternatives
-
-### ✅ Use Type Guards Instead
-
-```typescript
-// Instead of: (someValue as unknown).property
 // Use type guards:
 import { hasProperty } from '../utils/type-guards';
 
@@ -366,7 +329,8 @@ const message = (error as unknown).message;
 if (DomainTypeGuards.isErrorLike(error)) {
   const message = error.message;
 }
-=======
+```
+
 ### Rule Severity Levels
 
 - **ERROR**: Critical patterns that should never be used

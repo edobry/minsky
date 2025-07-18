@@ -40,10 +40,10 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
   const pathResolver = new SessionPathResolver();
 
   // Session edit file tool
-  commandMapper.addTool(
-    "session_edit_file",
-    "Edit a file within a session workspace using a diff-like format",
-    z.object({
+  commandMapper.addCommand({
+    name: "session_edit_file",
+    description: "Edit a file within a session workspace using a diff-like format",
+    parameters: z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
       instructions: z.string().describe("Instructions describing the edit to make"),
@@ -54,7 +54,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    async (args: EditFileArgs): Promise<Record<string, any>> => {
+    handler: async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -129,19 +129,19 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         };
       }
     }
-  );
+  });
 
   // Session search replace tool
-  commandMapper.addTool(
-    "session_search_replace",
-    "Replace a single occurrence of text in a file within a session workspace",
-    z.object({
+  commandMapper.addCommand({
+    name: "session_search_replace",
+    description: "Replace a single occurrence of text in a file within a session workspace",
+    parameters: z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
       search: z.string().describe("Text to search for (must be unique in the file)"),
       replace: z.string().describe("Text to replace with"),
     }),
-    async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
+    handler: async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -202,7 +202,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         };
       }
     }
-  );
+  });
 
   log.debug("Session edit tools registered successfully");
 }

@@ -25,12 +25,12 @@ The session you're trying to create a PR for doesn't exist.
 
 🎯 Use a different session:
    minsky sessions list  # Find existing session
-   minsky git pr --session "existing-session"
+   minsky session pr --name "existing-session"
 
 📁 Or target a specific repository directly:
-   minsky git pr --repo-path "/path/to/your/repo"
+   minsky session pr --repo "/path/to/your/repo"
 
-Need help? Run: minsky git pr --help
+Need help? Run: minsky session pr --help
 `);
 ```
 
@@ -40,7 +40,7 @@ import { createSessionErrorMessage, createErrorContext } from "../errors/message
 
 const context = createErrorContext()
   .addCurrentDirectory()
-  .addCustom("Command", "minsky git pr")
+  .addCustom("Command", "minsky session pr")
   .build();
 
 throw new MinskyError(
@@ -67,17 +67,17 @@ throw new MinskyError(`
 You need to specify one of these options to identify the target repository:
 
 📝 Specify a session name:
-   minsky git pr --session "my-session"
+   minsky session pr --name "my-session"
 
 🎯 Use a task ID (to auto-detect session):
-   minsky git pr --task-id "123"
+   minsky session pr --task "123"
 
 📁 Target a specific repository:
-   minsky git pr --repo-path "/path/to/repo"
+   minsky session pr --repo "/path/to/repo"
 
 💡 If you're working in a session workspace, try running from the main workspace:
    cd /path/to/main/workspace
-   minsky git pr --session "session-name"
+   minsky session pr --name "session-name"
 
 📋 To see available sessions:
    minsky sessions list
@@ -91,17 +91,17 @@ import { createMissingInfoMessage, createErrorContext } from "../errors/message-
 const alternatives = [
   {
     description: "Specify a session name",
-    command: 'minsky git pr --session "my-session"',
+    command: 'minsky session pr --name "my-session"',
     emoji: "📝"
   },
   {
     description: "Use a task ID (to auto-detect session)",
-    command: 'minsky git pr --task-id "123"',
+    command: 'minsky session pr --task "123"',
     emoji: "🎯"
   },
   {
     description: "Target a specific repository",
-    command: 'minsky git pr --repo-path "/path/to/repo"',
+    command: 'minsky session pr --repo "/path/to/repo"',
     emoji: "📁"
   },
   {

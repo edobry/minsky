@@ -130,22 +130,18 @@ describe("PR Workflow with Dependencies", () => {
         }
         return { stdout: "", stderr: "" };
       }) as unknown,
-      getSession: createMock(() =>
-        Promise.resolve({
-          session: "task-143-session",
-          repoName: "test-repo",
-          repoUrl: "https://github.com/user/repo.git",
-        })
-      ) as unknown,
+      getSession: createMock(() => Promise.resolve({
+        session: "task-143-session",
+        repoName: "test-repo",
+        repoUrl: "https://github.com/user/repo.git",
+      })) as unknown,
       getSessionWorkdir: createMock(() => "/test/repo/sessions/task-143-session") as unknown,
-      getSessionByTaskId: createMock(() =>
-        Promise.resolve({
-          session: "task-143-session",
-          repoName: "test-repo",
-          repoUrl: "https://github.com/user/repo.git",
-          taskId: "143",
-        })
-      ) as unknown,
+      getSessionByTaskId: createMock(() => Promise.resolve({
+        session: "task-143-session",
+        repoName: "test-repo",
+        repoUrl: "https://github.com/user/repo.git",
+        taskId: "143",
+      })) as unknown,
     };
 
     const gitService = new GitService();
@@ -281,4 +277,4 @@ describe("PR Workflow with Dependencies", () => {
 
     expect(result.markdown).toContain("Pull Request for branch");
   });
-}); 
+});

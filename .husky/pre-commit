@@ -12,9 +12,9 @@ fi
 
 echo "✅ No variable naming issues found."
 
-# Run linting
+# Run linting (suppress warnings to reduce noise, only show errors)
 echo "🔍 Running ESLint..."
-if ! npm run lint; then
+if ! npm run lint -- --quiet; then
   echo "❌ Linting failed! Please fix the issues before committing."
   exit 1
 fi

@@ -4,7 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { branchFromParams } from "../branch-command";
-import { log } from "../../../../utils/logger";
+import { log } from "../../../../../utils/logger";
 import {
   SESSION_DESCRIPTION,
 } from "../../../../utils/option-descriptions";
