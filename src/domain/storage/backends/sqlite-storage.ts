@@ -116,13 +116,13 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const sessions = await (this.drizzleDb.select() as unknown).from(sessionsTable);
+      const sessions = await this.drizzleDb.select().from(sessionsTable);
 
       // Construct state object - this assumes TState has a sessions array
       // and possibly other fields like baseDir
       const state = {
         sessions,
-        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky` as unknown,
+        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky`,
       };
 
       return { success: true, data: state };
@@ -197,7 +197,7 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      let query = (this.drizzleDb.select() as unknown).from(sessionsTable);
+      let query = this.drizzleDb.select().from(sessionsTable);
 
       // Apply filters if provided
       if (options) {
