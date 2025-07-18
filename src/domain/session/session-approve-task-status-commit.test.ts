@@ -70,7 +70,7 @@ describe("Session Approve Task Status Commit", () => {
         if (command.includes("git add process/tasks.md")) {
           return Promise.resolve("");
         }
-        if (command.includes("git commit -m \"Update task #123 status to DONE\"")) {
+        if (command.includes("git commit -m \"chore(#123): update task status to DONE\"")) {
           return Promise.resolve("");
         }
         if (command.includes("git push")) {
@@ -141,7 +141,7 @@ describe("Session Approve Task Status Commit", () => {
     expect(gitCommands).toContain("git add process/tasks.md");
 
     // Should commit the task status update
-    expect(gitCommands).toContain("git commit -m \"Update task #123 status to DONE\"");
+    expect(gitCommands).toContain("git commit -m \"chore(#123): update task status to DONE\"");
 
     // Should push the commit
     expect(gitCommands).toContain("git push");
