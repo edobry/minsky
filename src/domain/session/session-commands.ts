@@ -1,8 +1,7 @@
 /**
- * Domain Session Commands
+ * Session Commands
  * 
- * Core session operations that accept session parameters directly.
- * These functions handle the business logic for session operations.
+ * Session operations that accept session parameters.
  */
 
 import { z } from "zod";
