@@ -520,6 +520,6 @@
 
 - [+] Analyze theoretical overlap between rules systems and policy DSLs (OPA, ESLint, cybernetics) [#291](process/tasks/291-analyze-theoretical-overlap-between-rules-systems-and-policy-dsls-opa-eslint-cybernetics-.md)
 
-- [-] Implement automatic git stash handling for merge conflicts in session approve [#292](process/tasks/292-implement-automatic-git-stash-handling-for-merge-conflicts-in-session-approve.md)
+- [x] Implement automatic git stash handling for merge conflicts in session approve [#292](process/tasks/292-implement-automatic-git-stash-handling-for-merge-conflicts-in-session-approve.md)
 
 - [ ] Add session chat interface context UI elements [#293](process/tasks/293-add-session-chat-interface-context-ui-elements.md)
