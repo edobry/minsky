@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Session PR Hanging Issue**: Fixed infinite hangs in session PR creation by replacing basic `execAsync` git calls with timeout-aware alternatives
+  - **Root Cause**: Git operations (push, fetch, ls-remote) in `prepare-pr-operations.ts` could hang indefinitely without timeout handling
+  - **Solution**: Replaced `execAsync` calls with `execGitWithTimeout`, `gitFetchWithTimeout`, and `gitPushWithTimeout` utilities
+  - **Timeout Values**: Set 30-second timeouts for push/fetch operations, 15-second for ls-remote checks
+  - **Enhanced Error Messages**: Added contextual information for timeout errors to aid debugging
+  - **Impact**: Eliminates "mysterious hangs" during PR creation, even with local git repositories
+  - **Created Task #294**: Comprehensive audit of entire codebase for similar timeout issues and ESLint rule development
+
 ### Added
 
 - **Task #283 - COMPLETE**: Separated task ID storage from display format with comprehensive implementation
@@ -1236,3 +1246,13 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ### Reverted
 
 - **Bad MCP rule conversion attempt (commits e0066506/dde789d7)**: Reverted mechanical find-and-replace conversion that incorrectly treated MCP tools like CLI commands with flags, created nonsensical references like "# Use MCP tool: session.pr --title", demonstrated need for proper MCP interface understanding before conversion
+
+### Fixed
+
+- **Session Database**: Fixed critical "undefined is not an object (evaluating 'sessions.find')" error in JSON file storage backend. The issue was caused by a structural mismatch where `readState()` was returning a sessions array instead of a proper `SessionDbState` object with a `sessions` property. This affected all session commands including `minsky session dir --task X`, `minsky session list`, and `minsky session get --task X`.
+
+- **Configuration Loading**: Fixed critical configuration system failure where `NODE_CONFIG_DIR` was being set on a validated copy of `process` instead of the actual `process.env`, causing node-config to look in wrong directory (`/Users/edobry/config` instead of `/Users/edobry/.config/minsky/`). This prevented the system from loading SQLite backend configuration and caused "No session found for task ID" errors when sessions actually existed.
+
+- **Config Show Command**: Fixed `minsky config show` command displaying "Structured configuration view not available in extracted module" placeholder message. Now properly displays formatted configuration with emoji indicators for different system components (📁 Task Storage, 💾 Session Storage, 🔐 Authentication).
+
+- **Configuration Directory Management**: Improved NODE_CONFIG_DIR handling to use proper XDG config directory standards (`~/.config/minsky`) instead of hardcoded paths. Added detection and warning system for user attempts to override the configuration directory, maintaining system integrity while providing visibility into override attempts.

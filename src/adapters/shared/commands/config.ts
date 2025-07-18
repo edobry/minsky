@@ -14,7 +14,23 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
-import config from "config";
+// Delay config import to prevent early initialization before config-setup runs
+let config: any = null;
+function getConfig() {
+  if (!config) {
+    console.log(`DEBUG: NODE_CONFIG_DIR = ${process.env.NODE_CONFIG_DIR}`);
+    config = require("config");
+
+    // Check what sources were found
+    try {
+      const sources = config.util.getConfigSources();
+      console.log(`DEBUG: Found ${sources.length} config sources:`, sources.map(s => s.name));
+    } catch (e) {
+      console.log(`DEBUG: Error getting sources: ${e}`);
+    }
+  }
+  return config;
+}
 import { log } from "../../../utils/logger";
 
 /**
@@ -81,13 +97,13 @@ const configListRegistration = {
   execute: async (params, _ctx: CommandExecutionContext) => {
     try {
       // Use node-config directly to get configuration
-      const sources = config.util.getConfigSources();
+      const sources = getConfig().util.getConfigSources();
       const resolved = {
-        backend: config.get("backend"),
-        backendConfig: config.get("backendConfig"),
-        credentials: config.has("credentials") ? config.get("credentials") : {},
-        sessiondb: config.get("sessiondb"),
-        ai: config.has("ai") ? config.get("ai") : undefined,
+        backend: getConfig().get("backend"),
+        backendConfig: getConfig().get("backendConfig"),
+        credentials: getConfig().has("credentials") ? getConfig().get("credentials") : {},
+        sessiondb: getConfig().get("sessiondb"),
+        ai: getConfig().has("ai") ? getConfig().get("ai") : undefined,
       };
 
       return {
@@ -128,11 +144,11 @@ const configShowRegistration = {
     try {
       // Use node-config directly to get resolved configuration
       const resolved = {
-        backend: config.get("backend"),
-        backendConfig: config.get("backendConfig"),
-        credentials: config.has("credentials") ? config.get("credentials") : {},
-        sessiondb: config.get("sessiondb"),
-        ai: config.has("ai") ? config.get("ai") : undefined,
+        backend: getConfig().get("backend"),
+        backendConfig: getConfig().get("backendConfig"),
+        credentials: getConfig().has("credentials") ? getConfig().get("credentials") : {},
+        sessiondb: getConfig().get("sessiondb"),
+        ai: getConfig().has("ai") ? getConfig().get("ai") : undefined,
       };
 
       return {
@@ -141,7 +157,7 @@ const configShowRegistration = {
         configuration: resolved,
         showSources: params.sources || false,
         ...(params.sources && {
-          sources: config.util.getConfigSources().map((source) => ({
+          sources: getConfig().util.getConfigSources().map((source) => ({
             name: source.name,
             original: source.original,
             parsed: source.parsed,
