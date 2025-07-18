@@ -121,12 +121,15 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     };
 
     // Configure auto-open based on openBrowser option
+    // The inspector now supports auto-open with authentication enabled by default
     if (!openBrowser) {
       env.MCP_AUTO_OPEN_ENABLED = "false";
+    } else {
+      // Enable auto-open with authentication (recommended approach)
+      env.MCP_AUTO_OPEN_ENABLED = "true";
     }
 
-    // For security, we'll need to set this for auto-open to work
-    env.DANGEROUSLY_OMIT_AUTH = "true";
+    // Remove DANGEROUSLY_OMIT_AUTH as it's not recommended and auto-open now works with auth
 
     log.debug("Launching MCP Inspector", {
       clientPort: port,
