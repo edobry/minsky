@@ -519,3 +519,5 @@
 - [ ] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/290-convert-cursor-rules-to-mcp-only-tool-references.md)
 
 - [+] Analyze theoretical overlap between rules systems and policy DSLs (OPA, ESLint, cybernetics) [#291](process/tasks/291-analyze-theoretical-overlap-between-rules-systems-and-policy-dsls-opa-eslint-cybernetics-.md)
+
+- [ ] Implement automatic git stash handling for merge conflicts in session approve [#292](process/tasks/292-implement-automatic-git-stash-handling-for-merge-conflicts-in-session-approve.md)

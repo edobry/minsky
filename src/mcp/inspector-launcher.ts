@@ -113,7 +113,9 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
 
     // Configure environment variables for the inspector
     // Inspector needs its own proxy port that doesn't conflict with MCP server
-    const inspectorProxyPort = mcpPort ? (parseInt(mcpPort.toString()) + 1000).toString() : "6277";
+    // Use a more dynamic approach to avoid port conflicts
+    const basePort = mcpPort ? parseInt(mcpPort.toString()) : 3000;
+    const inspectorProxyPort = (basePort + 3277).toString(); // Use a larger offset to avoid conflicts
     const env: Record<string, string | undefined> = {
       ...process.env,
       CLIENT_PORT: port.toString(),
