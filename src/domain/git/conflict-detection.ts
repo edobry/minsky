@@ -411,9 +411,11 @@ export class ConflictDetectionService {
         try {
           await execAsync(`git -C ${repoPath} merge ${sourceBranch}`);
 
-          const { stdout: afterHash } = await execAsync(
+          const afterHashResult = await execAsync(
             `git -C ${repoPath} rev-parse HEAD`
           );
+          
+          const afterHash = afterHashResult?.stdout?.trim() || "";
           const merged = beforeHash.trim() !== afterHash.trim();
 
           return {
@@ -424,9 +426,11 @@ export class ConflictDetectionService {
           };
         } catch (mergeError) {
           // Check for conflicts
-          const { stdout: status } = await execAsync(
+          const statusResult = await execAsync(
             `git -C ${repoPath} status --porcelain`
           );
+          
+          const status = statusResult?.stdout || "";
           const hasConflicts =
             status.includes("UU") ||
             status.includes("AA") ||
@@ -617,7 +621,8 @@ export class ConflictDetectionService {
         };
       }
 
-      const { stdout: statusOutput } = await execAsync(`git -C ${repoPath} status --porcelain`);
+      const statusOutputResult = await execAsync(`git -C ${repoPath} status --porcelain`);
+      const statusOutput = statusOutputResult?.stdout || "";
       const uncommittedChanges = statusOutput.trim().split("\n").filter(Boolean);
 
       let conflictingFiles: string[] = [];
