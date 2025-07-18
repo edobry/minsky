@@ -100,8 +100,8 @@ minsky mcp start --with-inspector
 This will:
 
 1. Start the MCP server normally
-2. Launch the MCP Inspector on port 6274 (by default)
-3. Open a browser window to the inspector interface
+2. Launch the MCP Inspector on port 5173 (by default)
+3. Automatically open a browser window to the inspector interface with secure authentication
 
 The inspector allows you to:
 
@@ -113,7 +113,15 @@ The inspector allows you to:
 ### Inspector Options
 
 - `--with-inspector`: Enable the MCP Inspector
-- `--inspector-port <port>`: Specify a custom port for the inspector (default: 6274)
+- `--inspector-port <port>`: Specify a custom port for the inspector (default: 5173)
+
+### Security Features
+
+The MCP Inspector (version 0.16.1) includes:
+
+- Secure authentication with automatic browser opening
+- Session token-based security for safe development
+- Local-only binding for security
 
 ### Requirements
 
