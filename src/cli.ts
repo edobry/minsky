@@ -1,20 +1,28 @@
 #!/usr/bin/env bun
 
-// Set configuration directory FIRST before any imports that might use node-config
-// Use minimal imports to avoid triggering config loading prematurely
+// Configure node-config directory and protect against user override
 import { homedir } from "os";
 import { join } from "path";
 
-// Calculate config directory manually to avoid importing utils that might import config
+// Calculate config directory using XDG standards
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
 const minskyConfigDir = join(xdgConfigHome, "minsky");
-const userProvidedConfigDir = process.env.NODE_CONFIG_DIR;
 
-// Force our config directory before ANY other imports
+// Detect if user attempted to override config directory
+const userAttemptedOverride = process.env.NODE_CONFIG_DIR && process.env.NODE_CONFIG_DIR !== minskyConfigDir;
+
+// Always use our config directory
 process.env.NODE_CONFIG_DIR = minskyConfigDir;
 
-// NOW we can safely import config and everything else
+// Import config after setting our directory
 import config from "config";
+
+// If user attempted override, warn them but continue with our directory
+if (userAttemptedOverride) {
+  console.warn(`Warning: NODE_CONFIG_DIR override ignored. Minsky manages its own configuration directory.`);
+  console.warn(`Using: ${minskyConfigDir}`);
+}
+
 import { Command } from "commander";
 import { log } from "./utils/logger";
 import { exit } from "./utils/process";
@@ -26,12 +34,6 @@ import {
 } from "./adapters/cli/cli-command-factory";
 import { validateProcess } from "./schemas/runtime";
 import { validateError, getErrorMessage, getErrorStack } from "./schemas/error";
-
-// Detect if user tried to override config directory and warn them
-if (userProvidedConfigDir && userProvidedConfigDir !== minskyConfigDir) {
-  console.warn(`Warning: NODE_CONFIG_DIR was set to "${userProvidedConfigDir}" but Minsky uses "${minskyConfigDir}"`);
-  console.warn("Minsky manages its own configuration directory and cannot be overridden.");
-}
 
 /**
  * Root CLI command
