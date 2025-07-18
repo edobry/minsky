@@ -7,6 +7,9 @@ const TEST_VALUE = 123;
  * Uses the DatabaseStorage abstraction to store tasks in JSON format.
  * This provides a more robust backend than the markdown format while
  * maintaining the same interface.
+ * 
+ * TASK 283: Updated to store task IDs in plain format (e.g., "283") 
+ * and use formatTaskIdForDisplay() when displaying to users.
  */
 
 import { join, dirname } from "path";
@@ -27,6 +30,12 @@ import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { getTaskSpecRelativePath } from "./taskIO";
+import { 
+  normalizeTaskIdForStorage, 
+  formatTaskIdForDisplay,
+  isValidTaskIdInput,
+  getTaskIdNumber
+} from "./task-id-utils";
 
 // TaskState is now imported from schemas/storage
 
@@ -83,7 +92,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         metadata: {
           storageLocation: dbFilePath,
           backendType: "json-file",
-          createdAt: new Date().toISOString(),
+          workspacePath: this.workspacePath,
         },
       }),
       prettyPrint: true,
@@ -95,10 +104,10 @@ export class JsonFileTaskBackend implements TaskBackend {
   async getTasksData(): Promise<TaskReadOperationResult> {
     try {
       const result = await this.storage.readState();
-      if (!result.success) {
+      if (!result.success || !result.data) {
         return {
           success: false,
-          error: result.error,
+          error: result.error || new Error("No data returned"),
           filePath: this.storage.getStorageLocation(),
         };
       }
@@ -113,7 +122,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         filePath: this.storage.getStorageLocation(),
       };
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
         error: typedError,
@@ -151,7 +160,11 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       const rawData = JSON.parse(content);
       const validatedData = validateTaskState(rawData);
-      return validatedData.tasks;
+      // Ensure proper typing for TaskData with TaskStatus
+      return validatedData.tasks.map(task => ({
+        ...task,
+        status: task.status as TaskStatus,
+      }));
     } catch (error) {
       // If JSON parsing or validation fails, fall back to markdown parsing
       return this.parseMarkdownTasks(content);
@@ -161,7 +174,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   formatTasks(tasks: TaskData[]): string {
     // Format as JSON for storage
     const state: TaskState = {
-      tasks: tasks,
+      tasks,
       lastUpdated: new Date().toISOString(),
       metadata: {
         storageLocation: this.storage.getStorageLocation(),
@@ -188,7 +201,9 @@ export class JsonFileTaskBackend implements TaskBackend {
         // Try to extract task ID and title from header like "Task #TEST_VALUE: Title"
         const taskMatch = headerText.match(/^Task\s+#?([A-Za-z0-9_]+):\s*(.+)$/);
         if (taskMatch && taskMatch[1] && taskMatch[2]) {
-          id = `#${taskMatch[1]}`;
+          // TASK 283: Normalize ID to plain format for storage
+          const normalizedId = normalizeTaskIdForStorage(taskMatch[1]);
+          id = normalizedId || taskMatch[1]; // Fallback to original if normalization fails
           title = taskMatch[2].trim();
         } else {
           // Fallback: use entire header as title
@@ -253,11 +268,14 @@ export class JsonFileTaskBackend implements TaskBackend {
 
     // Get all existing tasks to determine the new task's ID
     const tasks = await this.getAllTasks();
-    const newId = `#${tasks.length + 1}`;
+    
+    // TASK 283: Generate plain ID format for storage (e.g., "284" instead of "#284")
+    const nextIdNumber = tasks.length + 1;
+    const newId = String(nextIdNumber); // Plain format for storage
 
     // Create the new task data
     const newTask: TaskData = {
-      id: newId,
+      id: newId, // Store in plain format
       title: spec.title,
       description: spec.description,
       status: TASK_STATUS.TODO,
@@ -551,5 +569,5 @@ export class JsonFileTaskBackend implements TaskBackend {
  */
 export function createJsonFileTaskBackend(config: JsonFileTaskBackendOptions): TaskBackend {
   // Simply return the instance since JsonFileTaskBackend already implements TaskBackend
-  return new JsonFileTaskBackend(config as unknown);
+  return new JsonFileTaskBackend(config);
 }
