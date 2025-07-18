@@ -73,7 +73,7 @@ export function createSessionTestData(): SessionTestData {
       return Promise.resolve(mockSessions.find((s) => s.repoPath === repoPath) || null);
     }),
     save: jest.fn().mockResolvedValue(undefined),
-  } as unknown as SessionProviderInterface;
+  } as any as SessionProviderInterface;
 
   return {
     mockSessionDB,
@@ -106,7 +106,7 @@ export function createGitServiceMock(): GitServiceInterface {
     stash: jest.fn().mockResolvedValue(undefined),
     stashPop: jest.fn().mockResolvedValue(undefined),
     getCommitHash: jest.fn().mockResolvedValue("abc123"),
-  } as unknown as GitServiceInterface;
+  } as any as GitServiceInterface;
 }
 
 // Helper function to create session records for testing
