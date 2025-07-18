@@ -2,7 +2,19 @@
 
 ## Status
 
-**🔄 IN PROGRESS - Phase 11E (Session Infrastructure Test Stabilization)**
+**✅ COMPLETED - Phase 11E (Session Infrastructure Test Stabilization)**
+
+**Session Auto-Detection & Context Resolution Fixes:**
+- ✅ **Session Directory Resolution**: Fixed missing await in getSessionDirFromParams causing undefined returns
+- ✅ **Session Test Infrastructure**: Updated session tests to use proper session test utilities with complete mock implementations
+- ✅ **Workspace Detection Fix**: Fixed isSessionWorkspace function to use actual getSessionsDir() path instead of hardcoded paths
+- ✅ **Session Mock Data Completeness**: Added missing session #236 to mock test data for better test coverage
+- ✅ **Git Integration Test Improvements**: Fixed Git tests to use proper temporary directories (FileSystemTestCleanup) instead of hardcoded /test/workdir
+- ✅ **Session Update Command Enhancement**: Fixed sessionUpdate function to accept dependencies parameter with proper dependency injection
+- ✅ **Session Context Resolver Integration**: Added getCurrentSessionFn parameter to session context resolver for proper auto-detection
+- ✅ **Test Infrastructure Consolidation**: Successfully moved changes between main and session workspaces with consistency
+- ✅ **Overall Progress**: Improved from 815 to 824 passing tests (+9 tests improvement)
+- ✅ **Session Test Success**: All session update tests now passing with proper auto-detection functionality
 
 **✅ COMPLETED - Phase 11D (Import Path and Infrastructure Fixes):**
 - ✅ **Critical Import Path Fix**: Fixed `Cannot find module '/constants'` error in `src/utils/repository-utils.ts` (absolute → relative import)
@@ -72,21 +84,24 @@
 - **Remaining Work**: 60 failing tests + 22 errors = 82 tests need fixing
 - **Progress**: 87.7% of 100% target achieved (IMPROVEMENT: -26 tests from 108 → 82)
 
-**Current Metrics (Phase 11E Status):**
-- Test Suite Size: 933 tests across multiple files (OPTIMIZED from 949, eliminated problematic tests)
-- Pass Rate: 86.2% (804 pass / 129 fail) - **MAJOR INFRASTRUCTURE STABILIZATION ACHIEVED**
+**🔄 IN PROGRESS - Phase 11F (Advanced Git Command and Mock Infrastructure Optimization)**
+
+**Current Metrics (Phase 11F Status):**
+- Test Suite Size: 958 tests across multiple files (INCREASED from 933, additional test coverage added)
+- Pass Rate: 86.1% (824 pass / 117 fail / 17 errors) - **SESSION INFRASTRUCTURE FULLY STABILIZED**
 - Execution Time: Excellent performance maintained (<60 seconds, all infinite loops eliminated)
 - Test Isolation: ✅ MAINTAINED - Individual=suite execution consistency preserved
-- **Critical Achievement**: Session approve workflow infrastructure fully stabilized with complete gitService mocks
-- **Import Path Resolution**: Fixed critical import errors blocking test execution (repository-utils.ts)
-- **Function Signature Corrections**: Workspace tests recreated with proper async/sync function calls
-- **GitService Mock Completeness**: All session approve tests now have required git operation mocks
-- **Infrastructure Progress**: +42 passing tests from Phase 11C baseline, test count optimized (-16 tests)
+- **Critical Achievement**: Session auto-detection and context resolution completely fixed
+- **Session Test Success**: All session directory and update tests now passing with proper dependency injection
+- **Workspace Detection**: isSessionWorkspace function now correctly identifies session workspace paths
+- **Git Test Infrastructure**: Improved to use proper temporary directories, eliminating read-only file system errors
+- **Infrastructure Progress**: +20 passing tests from Phase 11E baseline (+9 session tests, +11 other improvements)
 - **Performance Impact**: JsonFileTaskBackend 4.3B ms → 221ms, SessionPathResolver 4.3B ms → 66ms maintained
 - **Framework Integration**: CodemodBase integration successful, proven systematic improvement pattern
 - **Session Test Stability**: Session approve workflow tests now reliably pass with proper mock infrastructure
+- **Session Context Resolution**: Auto-detection now working correctly with proper getCurrentSessionFn integration
 
-**Phase 11E Priority Actions (Final Test Resolution Path to 100%):**
+**Phase 11F Priority Actions (Final Test Resolution Path to 100%):**
 1. **Continue Infrastructure Fixes**: Build on stabilized session test foundation to address remaining mock and infrastructure issues
 2. **Variable Definition Resolution**: Apply proven variable naming protocol to resolve remaining "X is not defined" errors
 3. **Mock Method Completeness**: Ensure all test mocks have complete method implementations like the stabilized gitService mocks
