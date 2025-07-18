@@ -4,6 +4,7 @@ const TEST_VALUE = 123;
  * Common schema definitions that can be reused across multiple domain modules
  */
 import { z } from "zod";
+import { normalizeTaskIdForStorage } from "../domain/tasks/task-id-utils";
 
 /**
  * Schema for file or directory paths
@@ -33,37 +34,18 @@ export const sessionNameSchema = z.string().min(1).max(100);
 
 /**
  * Task ID schema
- * Validates and normalizes task IDs (with or without the # prefix)
+ * Validates and normalizes task IDs to storage format (plain numbers)
  */
 export const taskIdSchema = z
   .string()
   .transform((val) => {
-    // Normalize the task ID to #XXX format
-    if (!val) return val;
-
-    let normalized = val.trim();
-
-    // Handle formats like "task#064" or "task#64"
-    if (normalized.toLowerCase().startsWith("task#")) {
-      normalized = normalized.substring(5); // "task#".length
-    }
-
-    // Remove all leading '#' characters to avoid multiple hashes
-    while (normalized.startsWith("#")) {
-      normalized = normalized.substring(1);
-    }
-
-    // Check if the result is a valid number (integer)
-    if (!/^[0-9]+$/.test(normalized) || normalized.length === 0) {
-      // Return original value to let refine validation catch it
-      return val;
-    }
-
-    // Add the '#' prefix to ensure canonical format
-    return `#${normalized}`;
-  }).refine((val) => /^#[a-zA-Z0-9_]+$/.test(val), {
-    message: "Task ID must be in format #TEST_VALUE or TEST_VALUE",
-  });
+    // Use the new task ID utilities for consistent normalization
+    return normalizeTaskIdForStorage(val);
+  })
+  .refine((val) => val !== null, {
+    message: "Task ID must be a valid number (with or without # prefix, e.g., '283', '#283', 'task#283')",
+  })
+  .transform((val) => val as string); // Type assertion since we know it's not null after refine
 
 /**
  * Schema for boolean flags with optional description

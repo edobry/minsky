@@ -20,6 +20,10 @@ import {
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/workspace";
 import { createTaskFromDescription } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
+import {
+  normalizeTaskIdForStorage,
+  formatTaskIdForDisplay
+} from "../tasks/task-id-utils";
 
 /**
  * Implementation of session start functionality
@@ -137,14 +141,13 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     if (taskId) {
       const existingSessions = await deps.sessionDB.listSessions();
       const taskSession = existingSessions.find((s: SessionRecord) => {
-        const normalizedSessionTaskId = s.taskId?.startsWith("#") ? s.taskId : `#${s.taskId}`;
-        const normalizedInputTaskId = taskId?.startsWith("#") ? taskId : `#${taskId}`;
-        return normalizedSessionTaskId === normalizedInputTaskId;
+        // Both taskId (from schema normalization) and s.taskId should be in plain format
+        return s.taskId === taskId;
       });
 
       if (taskSession) {
         throw new MinskyError(
-          `A session for task ${taskId} already exists: '${taskSession.session}'`
+          `A session for task ${formatTaskIdForDisplay(taskId)} already exists: '${taskSession.session}'`
         );
       }
     }
