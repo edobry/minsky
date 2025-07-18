@@ -1,15 +1,14 @@
 # Changelog
 
-All notable changes to the Minsky project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-
+All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Fixed
+### Added
+
+- Task #296: Implement Template-Based Rules Generation System - Created comprehensive task specification for converting static cursor rules to template literals with conditional CLI/MCP command references, extracting rules generation logic to rules domain, and implementing `minsky rules generate` command
+
+### Changed
 
 - **HTTP Transport Restoration**: Fixed complete loss of HTTP transport functionality during merge
   - **CRITICAL**: Restored missing `handleHttpRequest()` method that was lost during task 286 merge
@@ -18,16 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Resolution**: Manually restored from commits 3afd36c0 (server) and 94b434f7 (command)
   - **Verified Working**: Health endpoint, MCP protocol over HTTP, inspector integration all functional
   - **Browser connection error FIXED**: Inspector can now connect to `http://localhost:3001/mcp`
-
-### Added
-
-- **Task #286 Follow-up**: Completed inspector upgrade and FastMCP cleanup
-  - **Upgraded MCP inspector** from 0.14.3 to 0.16.1 for latest features and bug fixes
-  - **Removed all legacy FastMCP files**: fastmcp-server.ts, fastmcp-command-mapper.ts, command-mapper-extensions.d.ts
-  - **Cleaned up FastMCP references** in MCP bridge file after migration to official MCP SDK
-  - **Verified HTTP transport integration** with inspector works correctly
-  - **Fixed validation logic** in MCP bridge to prevent linter errors
-  - **All MCP tests pass** after cleanup, confirming successful migration completion
 
 - **Task #280**: Completed aggressive cleanup of excessive 'as unknown' assertions with exceptional results
   - **96.9% total reduction** achieved: from 2,495 original assertions to 78 final count
@@ -47,8 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Integrated title duplication checking into husky commit-msg hook to prevent commit messages with title/body duplication patterns
 - Added `scripts/check-title-duplication.ts` script that validates commit messages using same logic as session PR workflow
-
-### Fixed
 
 - **Task #285**: Fixed session PR title duplication bug in the extractPrDescription function
   - Enhanced parsing logic to detect and remove duplicate title lines in PR body content
@@ -1006,7 +993,7 @@ _See: SpecStory history [2025-05-16_22-06-test-error-fixing](mdc:.specstory/hist
 
 _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/history/2024-05-15_refactor-minsky-workflow-rule.md) for rule refactoring._
 
-- Migrated CLI adapter tests to test domain methods directly instead of through interfaces
+- Migrated CLI adapter tests to test domain methods instead of interfaces
 - Improved test structure following project testing best practices
 - Removed placeholder tests and replaced them with proper domain method tests
 - Implemented proper mocking patterns using centralized test utilities
