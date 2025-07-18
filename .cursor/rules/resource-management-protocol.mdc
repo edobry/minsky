@@ -2,6 +2,7 @@
 description: REQUIRED guidelines for managing project resources using dedicated tools rather than direct file editing
 alwaysApply: false
 ---
+
 # Resource Management Protocol
 
 ## Core Principle
@@ -74,6 +75,58 @@ read_file ".cursor/rules/rule-name.mdc"
 1. **Check available MCP methods**: Use `mcp_minsky-server_debug_listMethods` to see all available commands
 2. **Look for resource-specific commands**: Before using `read_file`, check if there's an MCP command for that resource type
 3. **Use structured interfaces**: MCP commands often provide structured data with metadata, while file reading only gives raw content
+
+## MCP Tool Calling Protocol
+
+**CRITICAL**: Always provide ALL required parameters when calling MCP tools.
+
+### Required Parameter Verification
+
+Before calling any MCP tool:
+
+1. **Check Tool Schema**: Verify required parameters using tool documentation or schema
+2. **Provide Required Parameters**: NEVER call MCP tools without required parameters
+3. **Use Correct Parameter Types**: Ensure parameter values match expected types (string, number, boolean)
+4. **Include Optional Parameters**: Add optional parameters when they improve the operation
+
+### Common MCP Tool Parameter Requirements
+
+```typescript
+// ✅ CORRECT: All required parameters provided
+mcp_minsky-server_tasks_create {
+  title: "Add session chat interface context UI elements",
+  description: "Comprehensive task description..."
+}
+
+// ❌ WRONG: Missing required 'title' parameter
+mcp_minsky-server_tasks_create {
+  description: "Task description..."
+}
+
+// ✅ CORRECT: Required taskId parameter provided
+mcp_minsky-server_tasks_spec {
+  taskId: "#293"
+}
+
+// ❌ WRONG: Missing required 'taskId' parameter
+mcp_minsky-server_tasks_spec {}
+```
+
+### Parameter Validation Checklist
+
+Before executing any MCP tool call:
+- [ ] All required parameters are provided
+- [ ] Parameter types match expected schema (string, number, boolean, object)
+- [ ] Parameter values are appropriate for the operation
+- [ ] Optional parameters enhance the operation when applicable
+
+### Tool Call Failure Recovery
+
+If an MCP tool call fails due to missing parameters:
+1. **Identify missing parameters** from the error message
+2. **Provide the missing parameters** and retry the call
+3. **Document the correction** to prevent future occurrences
+4. **Update parameter verification** process if needed
 
 ## Examples
 
