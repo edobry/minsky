@@ -1,6 +1,6 @@
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
-import { TaskService, TASK_STATUS } from "../../tasks";
+import { TaskService, TASK_STATUS, normalizeTaskId } from "../../tasks";
 import { getCurrentSession } from "../../workspace";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import {
@@ -127,7 +127,7 @@ export async function sessionApprove(
       mergedBy: "minsky", // Could be enhanced to get actual user
       baseBranch,
       prBranch: currentBranch,
-      taskId: sessionRecord.taskId,
+      taskId: sessionRecord.taskId ? (normalizeTaskId(sessionRecord.taskId) || sessionRecord.taskId) : "",
       isNewlyApproved: true,
     };
 
