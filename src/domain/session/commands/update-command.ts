@@ -45,6 +45,7 @@ export async function updateSessionFromParams(
       repo: repo,
       sessionProvider: deps.sessionDB,
       allowAutoDetection: true,
+      getCurrentSessionFn: deps.getCurrentSession,
     });
 
     // Get the session details using the resolved session name
@@ -95,6 +96,13 @@ export async function updateSessionFromParams(
 /**
  * Updates a session - simpler interface matching expected export name
  */
-export async function sessionUpdate(params: SessionUpdateParams): Promise<Session> {
-  return updateSessionFromParams(params);
+export async function sessionUpdate(
+  params: SessionUpdateParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+    gitService?: any;
+    getCurrentSession?: typeof getCurrentSession;
+  }
+): Promise<Session> {
+  return updateSessionFromParams(params, depsInput);
 }
