@@ -83,6 +83,17 @@ export function createSessionTestData(): SessionTestData {
       remote: { authMethod: "ssh", depth: 1 },
     },
     {
+      session: "task#236",
+      repoName: "local-minsky", 
+      repoUrl: "https://github.com/edobry/minsky",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "#236",
+      branch: "task#236",
+      repoPath: "/Users/edobry/.local/state/minsky/sessions/task#236",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
+    },
+    {
       session: "missing-workspace-session",
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",

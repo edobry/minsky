@@ -15,62 +15,28 @@ import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mockin
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
 import type { GitServiceInterface } from "../../../src/domain/git";
+import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 
 // Set up automatic mock cleanup
 setupTestMocks();
 
 describe("Session CLI Commands", () => {
+  let testData: any;
   let mockSessionDB: any;
   let mockSessions: any[];
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = join(process.cwd(), "test-tmp", "session-cli-test");
-
-    // Create test data for all session tests
-    mockSessions = [
-      {
-        session: "004",
-        repoName: "local/minsky",
-        repoUrl: "https://github.com/edobry/minsky",
-        createdAt: "2024-01-01T00:00:00.000Z",
-        taskId: null, // Session with no task ID
-        branch: "004",
-        repoPath: "/Users/edobry/.local/state/minsky/sessions/004",
-        backendType: "local",
-        remote: { authMethod: "ssh", depth: 1 },
-      },
-      {
-        session: "task#160",
-        repoName: "local-minsky",
-        repoUrl: "https://github.com/edobry/minsky",
-        createdAt: "2024-01-01T00:00:00.000Z",
-        taskId: "#160", // Session with task ID
-        branch: "task#160",
-        repoPath: "/Users/edobry/.local/state/minsky/sessions/task#160",
-        backendType: "local",
-        remote: { authMethod: "ssh", depth: 1 },
-      },
-    ];
-
-    // Create comprehensive mock session database
-    mockSessionDB = {
-      getSessionByTaskId: createMock(),
-      getSession: createMock(),
-      listSessions: createMock(),
-      addSession: createMock(),
-      updateSession: createMock(),
-      deleteSession: createMock(),
-      getRepoPath: createMock(),
-      getSessionWorkdir: createMock(),
-    };
+    // Use shared test data setup
+    testData = createSessionTestData();
+    mockSessionDB = testData.mockSessionDB;
+    mockSessions = testData.mockSessions;
+    tempDir = testData.tempDir;
   });
 
   afterEach(async () => {
     // Clean up test directory
-    if (existsSync(tempDir)) {
-      await rmdir(tempDir, { recursive: true }).catch(() => {});
-    }
+    await cleanupSessionTestData(tempDir);
   });
 
   describe("session dir command", () => {

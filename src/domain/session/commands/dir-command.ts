@@ -38,7 +38,7 @@ export async function getSessionDirFromParams(
     });
 
     // Get the session directory using the resolved session name
-    return deps.sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+    return await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionName);
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {

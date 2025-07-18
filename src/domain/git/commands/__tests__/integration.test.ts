@@ -1,5 +1,6 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { setupTestMocks, createMock } from "../../../../utils/test-utils/mocking";
+import { FileSystemTestCleanup } from "../../../../utils/test-utils/cleanup-patterns";
 import {
   cloneFromParams,
   branchFromParams,
@@ -11,39 +12,71 @@ import {
   createPullRequestFromParams,
 } from "../index";
 
-// Mock the centralized execAsync module at the top level for proper module interception
-const mockExecAsync = createMock() as any;
-mock.module("../../../../utils/exec", () => ({
-  execAsync: mockExecAsync,
-}));
-
-// Mock node:child_process exec to prevent real git commands
+// Mock node:child_process exec which is what GitService actually uses
 const mockExec = createMock() as any;
 mock.module("node:child_process", () => ({
   exec: mockExec,
-  promisify: (fn: any) => mockExecAsync, // Return our mock when promisify is called on exec
+}));
+
+// Mock promisify to return our mock exec function
+const mockPromisify = createMock() as any;
+mock.module("node:util", () => ({
+  promisify: mockPromisify,
 }));
 
 setupTestMocks();
 
 describe("Git Commands Integration Tests", () => {
+  let fsCleanup: FileSystemTestCleanup;
+  let tempWorkdir: string;
+
   beforeEach(() => {
-    // Reset mock implementations
-    mockExecAsync.mockReset();
-    mockExecAsync.mockResolvedValue({ stdout: "success", stderr: "" });
+    // Set up proper temporary directory management
+    fsCleanup = new FileSystemTestCleanup();
+    tempWorkdir = fsCleanup.createTempDir("git-test-workdir");
+    
+    // Set up mock implementations
+    mockExec.mockReset();
+    mockPromisify.mockReturnValue(mockExec);
+    
+    // Mock execAsync to return successful results
+    mockExec.mockImplementation((command: string, callback: any) => {
+      if (command.includes("git clone")) {
+        callback(null, "Cloning complete", "");
+      } else if (command.includes("git rev-parse")) {
+        callback(null, "abc123", "");
+      } else if (command.includes("git add")) {
+        callback(null, "", "");
+      } else if (command.includes("git commit")) {
+        callback(null, "abc123", "");
+      } else if (command.includes("git push")) {
+        callback(null, "Push complete", "");
+      } else if (command.includes("git status")) {
+        callback(null, "", "");
+      } else if (command.includes("git merge")) {
+        callback(null, "Merge complete", "");
+      } else {
+        callback(null, "Command successful", "");
+      }
+    });
+  });
+
+  afterEach(() => {
+    // Clean up temporary directories
+    fsCleanup.cleanup();
   });
 
   describe("cloneFromParams", () => {
     test("should clone repository successfully", async () => {
       const params = {
         url: "https://github.com/test/repo.git",
-        workdir: "/test/workdir",
+        workdir: tempWorkdir,
         session: "test-session"
       };
 
       const result = await cloneFromParams(params);
 
-      expect(result.workdir).toBe("/test/workdir");
+      expect(result.workdir).toBe(tempWorkdir);
       expect(result.session).toBe("test-session");
     });
   });
@@ -63,10 +96,16 @@ describe("Git Commands Integration Tests", () => {
 
   describe("commitChangesFromParams", () => {
     test("should commit changes successfully", async () => {
-      mockExecAsync.mockResolvedValue({ stdout: "abc123", stderr: "" });
+      mockExec.mockImplementation((command: string, callback: any) => {
+        if (command.includes("git commit")) {
+          callback(null, "abc123", "");
+        } else {
+          callback(null, "Command successful", "");
+        }
+      });
 
       const params = {
-        repo: "/test/workdir",
+        repo: tempWorkdir,
         message: "Test commit",
         all: true
       };
@@ -80,7 +119,7 @@ describe("Git Commands Integration Tests", () => {
   describe("pushFromParams", () => {
     test("should push changes successfully", async () => {
       const params = {
-        repo: "/test/workdir",
+        repo: tempWorkdir,
         remote: "origin"
       };
 
@@ -93,7 +132,7 @@ describe("Git Commands Integration Tests", () => {
   describe("mergeFromParams", () => {
     test("should merge changes successfully", async () => {
       const params = {
-        repo: "/test/workdir",
+        repo: tempWorkdir,
         sourceBranch: "feature-branch",
         targetBranch: "main"
       };
@@ -108,12 +147,12 @@ describe("Git Commands Integration Tests", () => {
     test("should checkout branch successfully", async () => {
       const params = {
         branch: "main",
-        repo: "/test/workdir"
+        repo: tempWorkdir
       };
 
       const result = await checkoutFromParams(params);
 
-      expect(result.workdir).toBe("/test/workdir");
+      expect(result.workdir).toBe(tempWorkdir);
       expect(result.switched).toBe(true);
     });
   });
@@ -122,7 +161,7 @@ describe("Git Commands Integration Tests", () => {
     test("should rebase changes successfully", async () => {
       const params = {
         baseBranch: "main",
-        repo: "/test/workdir"
+        repo: tempWorkdir
       };
 
       const result = await rebaseFromParams(params);
@@ -133,7 +172,7 @@ describe("Git Commands Integration Tests", () => {
 
   describe("createPullRequestFromParams", () => {
     test("should generate PR successfully", async () => {
-      mockExecAsync.mockImplementation(async (command: string) => {
+      mockExec.mockImplementation(async (command: string) => {
         if (command.includes("git log --oneline")) {
           return { stdout: "abc123 feat: add new feature", stderr: "" };
         }
@@ -147,7 +186,7 @@ describe("Git Commands Integration Tests", () => {
       });
 
       const params = {
-        repo: "/test/workdir",
+        repo: tempWorkdir,
         branch: "feature-branch"
       };
 
@@ -160,7 +199,7 @@ describe("Git Commands Integration Tests", () => {
   describe("Command Integration", () => {
     test("should execute a complete workflow", async () => {
       // Mock sequence of git operations
-      mockExecAsync.mockImplementation(async (command: string) => {
+      mockExec.mockImplementation(async (command: string) => {
         if (command.includes("git clone")) {
           return { stdout: "Cloning...", stderr: "" };
         }
@@ -182,7 +221,7 @@ describe("Git Commands Integration Tests", () => {
       // 1. Clone repository
       const cloneResult = await cloneFromParams({
         url: "https://github.com/test/repo.git",
-        workdir: "/test/workdir",
+        workdir: tempWorkdir,
         session: "test-session"
       });
 
