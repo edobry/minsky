@@ -1,0 +1,5 @@
+1. **Add Centralized Service Mock Factories** to `src/utils/test-utils/dependencies.ts`:
+   - ✅ `createMockSessionProvider()` with comprehensive interface coverage
+   - ✅ `createMockGitService()` with all required methods  
+   - ✅ `createMockTaskService()` with standard implementations
+   - ✅ Each factory allows overrides for specific test cases

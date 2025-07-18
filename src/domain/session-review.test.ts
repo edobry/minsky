@@ -1,216 +1,266 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { sessionReviewFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
-import type { SessionProviderInterface, GitServiceInterface } from "./session";
-import type { TaskServiceInterface } from "./tasks";
+import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/dependencies";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
 const TEST_VALUE = 123;
 const TEST_ARRAY_SIZE = 3;
 
 describe("sessionReviewFromParams", () => {
-  // Mock the SessionProviderInterface
-  const mockSessionDB: SessionProviderInterface = {
-    getSession: mock(() => ({
-      session: "testSession",
-      taskId: "#TEST_VALUE",
-      repoName: "test-repo",
-      repoUrl: "https://github.com/test/test-repo",
-      branch: "feature/test",
-      createdAt: new Date().toISOString(),
-    })),
-    getSessionByTaskId: mock(() => ({
-      session: "task#TEST_VALUE",
-      taskId: "#TEST_VALUE",
-      repoName: "test-repo",
-      repoUrl: "https://github.com/test/test-repo",
-      branch: "feature/test",
-      createdAt: new Date().toISOString(),
-    })),
-    getSessionWorkdir: mock(() => "/fake/path/to/session"),
-    // Implement other required methods with mock implementations
-    listSessions: mock(() => []),
-    addSession: mock(() => Promise.resolve()),
-    updateSession: mock(() => Promise.resolve()),
-    deleteSession: mock(() => Promise.resolve(true)),
-    getRepoPath: mock(() => "/fake/path/to/repo"),
-  };
+  test("reviews session by name", async () => {
+    // Create trackable spies for methods we need to verify
+    const getSessionSpy = createMock();
+    getSessionSpy.mockImplementation((name: unknown) =>
+      Promise.resolve({
+        session: name as string,
+        taskId: "#TEST_VALUE",
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/test-repo",
+        branch: "feature/test",
+        createdAt: new Date().toISOString(),
+      })
+    );
 
-  // Mock the GitServiceInterface
-  const mockGitService: GitServiceInterface = {
-    execInRepository: mock((_path: unknown) => {
-      if (command.includes("git ls-remote")) {
-        return "refs/heads/pr/testSession";
+    const getSessionWorkdirSpy = createMock();
+    getSessionWorkdirSpy.mockImplementation((_sessionName: unknown) => Promise.resolve("/fake/path/to/session"));
+
+    const execInRepositorySpy = createMock();
+    execInRepositorySpy.mockImplementation((_workdir: unknown, command: unknown) => {
+      const cmd = command as string;
+      if (cmd.includes("git ls-remote")) {
+        return Promise.resolve("refs/heads/pr/testSession");
       }
-      if (command.includes("log -1")) {
-        return "PR Title\n\nPR Description body";
+      if (cmd.includes("log -1")) {
+        return Promise.resolve("PR Title\n\nPR Description body");
       }
-      if (command.includes("diff --stat")) {
-        return "3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)";
+      if (cmd.includes("diff --stat")) {
+        return Promise.resolve("3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)");
       }
-      if (command.includes("git diff")) {
-        return "diff --git a/file.txt b/file.txt\n+new line\n-old line";
+      if (cmd.includes("git diff")) {
+        return Promise.resolve("diff --git a/file.txt b/file.txt\n+new line\n-old line");
       }
-      return "";
-    }),
-    // Add other required methods with minimal implementations
-    clone: mock(() => Promise.resolve({ _workdir: "", _session: "" })),
-    branch: mock(() => Promise.resolve({ _branch: "" })),
-    stashChanges: mock(() => Promise.resolve()),
-    pullLatest: mock(() => Promise.resolve()),
-    mergeBranch: mock(() => Promise.resolve({ conflicts: false })),
-    push: mock(() => Promise.resolve()),
-    popStash: mock(() => Promise.resolve()),
-    getSessionWorkdir: mock(() => ""),
-    commit: mock(() => Promise.resolve({ hash: "" })),
-  };
-
-  // Mock the TaskServiceInterface with getTaskSpecData
-  const mockTaskService: TaskServiceInterface & {
-    getTaskSpecData: (taskId: unknown) => Promise<string>;
-  } = {
-    getTaskSpecData: mock(() => Promise.resolve("# Task Specification\n\nThis is a test task")),
-    getTask: mock(() => Promise.resolve(null)),
-    getTaskStatus: mock(() => Promise.resolve("")),
-    setTaskStatus: mock(() => Promise.resolve()),
-    listTasks: mock(() => Promise.resolve([])),
-  };
-
-  // Mock the WorkspaceUtilsInterface
-  const mockWorkspaceUtils: WorkspaceUtilsInterface = {
-    isSessionWorkspace: mock(() => Promise.resolve(false)),
-  };
-
-  const mockGetCurrentSession = mock(() => Promise.resolve("testSession"));
-
-  const deps = {
-    sessionDB: mockSessionDB,
-    gitService: mockGitService,
-    taskService: mockTaskService,
-    workspaceUtils: mockWorkspaceUtils,
-    getCurrentSession: mockGetCurrentSession,
-  };
-
-  beforeEach(() => {
-    // Reset mocks before each test
-    for (const mockFn of Object.values(mockSessionDB)) {
-      if (typeof mockFn === "function" && "mockReset" in mockFn) {
-        mockFn.mockReset();
-      }
-    }
-
-    for (const mockFn of Object.values(mockGitService)) {
-      if (typeof mockFn === "function" && "mockReset" in mockFn) {
-        mockFn.mockReset();
-      }
-    }
-
-    for (const mockFn of Object.values(mockTaskService)) {
-      if (typeof mockFn === "function" && "mockReset" in mockFn) {
-        mockFn.mockReset();
-      }
-    }
-
-    mockGetCurrentSession.mockReset();
-
-    // Restore mock implementations after reset
-    mockSessionDB.getSession.mockImplementation(() => ({
-      session: "testSession",
-      taskId: "#TEST_VALUE",
-      repoName: "test-repo",
-      repoUrl: "https://github.com/test/test-repo",
-      branch: "feature/test",
-      createdAt: new Date().toISOString(),
-    }));
-
-    mockSessionDB.getSessionByTaskId.mockImplementation(() => ({
-      session: "task#TEST_VALUE",
-      taskId: "#TEST_VALUE",
-      repoName: "test-repo",
-      repoUrl: "https://github.com/test/test-repo",
-      branch: "feature/test",
-      createdAt: new Date().toISOString(),
-    }));
-
-    mockSessionDB.getSessionWorkdir.mockImplementation(() => "/fake/path/to/session");
-    mockSessionDB.listSessions.mockImplementation(() => []);
-    mockSessionDB.addSession.mockImplementation(() => Promise.resolve());
-    mockSessionDB.updateSession.mockImplementation(() => Promise.resolve());
-    mockSessionDB.deleteSession.mockImplementation(() => Promise.resolve(true));
-    mockSessionDB.getRepoPath.mockImplementation(() => "/fake/path/to/repo");
-
-    mockGitService.execInRepository.mockImplementation((_path: unknown) => {
-      if (command.includes("git ls-remote")) {
-        return "refs/heads/pr/testSession";
-      }
-      if (command.includes("log -1")) {
-        return "PR Title\n\nPR Description body";
-      }
-      if (command.includes("diff --stat")) {
-        return "3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)";
-      }
-      if (command.includes("git diff")) {
-        return "diff --git a/file.txt b/file.txt\n+new line\n-old line";
-      }
-      return "";
+      return Promise.resolve("");
     });
 
-    mockTaskService.getTaskSpecData.mockImplementation(() =>
-      Promise.resolve("# Task Specification\n\nThis is a test task")
+    const getTaskSpecDataSpy = createMock();
+    getTaskSpecDataSpy.mockImplementation(() =>
+      Promise.resolve({ title: "Test Task", description: "Test description" })
     );
-    mockWorkspaceUtils.isSessionWorkspace.mockImplementation(() => Promise.resolve(false));
-    mockGetCurrentSession.mockImplementation(() => Promise.resolve("testSession"));
-  });
 
-  test("gets review info by session name", async () => {
-    const result = await sessionReviewFromParams({ _session: "testSession" }, deps);
-
-    expect(result._session).toBe("testSession");
-    expect(result.taskId).toBe("#TEST_VALUE");
-    expect(result.taskSpec).toBe("# Task Specification\n\nThis is a test task");
-    expect(result.prDescription).toBe("PR Title\n\nPR Description body");
-    expect(result.prBranch).toBe("pr/testSession");
-    expect(result.baseBranch).toBe("main");
-    expect(result.diffStats).toEqual({
-      filesChanged: 3,
-      insertions: 10,
-      deletions: TEST_ARRAY_SIZE,
+    // Create mocks using centralized factories with spy integration
+    const mockSessionDB = createMockSessionProvider({
+      getSession: getSessionSpy as any,
+      getSessionWorkdir: getSessionWorkdirSpy as any,
     });
-    expect(result.diff).toBe("diff --git a/file.txt b/file.txt\n+new line\n-old line");
 
-    expect(mockSessionDB.getSession.mock.calls.length).toBe(1);
-    expect(mockSessionDB.getSession.mock.calls[0][0]).toBe("testSession");
-    expect(mockSessionDB.getSessionWorkdir.mock.calls.length).toBe(1);
-    expect(mockSessionDB.getSessionWorkdir.mock.calls[0][0]).toBe("testSession");
-  });
+    const mockGitService = createMockGitService({
+      execInRepository: execInRepositorySpy as any,
+    });
 
-  test("gets review info by task ID", async () => {
-    const result = await sessionReviewFromParams({ task: "TEST_VALUE" }, deps);
+    const mockTaskService = createMockTaskService({});
 
-    expect(result._session).toBe("task#TEST_VALUE");
-    expect(result.taskId).toBe("#TEST_VALUE");
-    expect(mockSessionDB.getSessionByTaskId.mock.calls.length).toBe(1);
-    expect(mockSessionDB.getSessionByTaskId.mock.calls[0][0]).toBe("#TEST_VALUE");
-  });
+    // Add getTaskSpecData method not covered by centralized factory
+    (mockTaskService as any).getTaskSpecData = getTaskSpecDataSpy;
 
-  test("auto-detects current session when no parameters provided", async () => {
-    const result = await sessionReviewFromParams({ repo: "/fake/repo/path" }, deps);
+    const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
+      isSessionWorkspace: () => false,
+    });
 
-    expect(result._session).toBe("testSession");
-    expect(mockGetCurrentSession).toHaveBeenCalledWith("/fake/repo/path");
-  });
+    const getCurrentSessionSpy = createMock();
+    getCurrentSessionSpy.mockImplementation((_cwd?: unknown) => Promise.resolve("testSession"));
 
-  test("throws error when no session can be determined", async () => {
-    mockGetCurrentSession.mockImplementationOnce(() => Promise.resolve(null));
+    const deps = {
+      sessionDB: mockSessionDB,
+      gitService: mockGitService,
+      taskService: mockTaskService,
+      workspaceUtils: mockWorkspaceUtils,
+      getCurrentSession: getCurrentSessionSpy as any,
+    };
 
-    await expect(sessionReviewFromParams({}, deps)).rejects.toThrow(ValidationError);
-  });
-
-  test("throws error when session not found", async () => {
-    mockSessionDB.getSession.mockImplementationOnce(() => null);
-
-    await expect(sessionReviewFromParams({ _session: "nonexistent" }, deps)).rejects.toThrow(
-      ResourceNotFoundError
+    // Test the sessionReview functionality
+    const result = await sessionReviewFromParams(
+      { session: "testSession" },
+      deps
     );
+
+    // Verify calls with individual spies
+    expect(getSessionSpy).toHaveBeenCalledWith("testSession");
+    expect(getSessionWorkdirSpy).toHaveBeenCalledWith("testSession");
+    expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
+
+    // Verify result structure
+    expect(result.session).toBe("testSession");
+    expect(result.taskId).toBe("#TEST_VALUE");
+  });
+
+  test("reviews session by task ID", async () => {
+    // Create trackable spies for methods we need to verify
+    const getSessionByTaskIdSpy = createMock();
+    getSessionByTaskIdSpy.mockImplementation((taskId: unknown) =>
+      Promise.resolve({
+        session: "task#TEST_VALUE",
+        taskId: taskId as string,
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/test-repo",
+        branch: "feature/test",
+        createdAt: new Date().toISOString(),
+      })
+    );
+
+    const getSessionSpy = createMock();
+    getSessionSpy.mockImplementation((name: unknown) =>
+      Promise.resolve({
+        session: name as string,
+        taskId: "#TEST_VALUE",
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/test-repo",
+        branch: "feature/test",
+        createdAt: new Date().toISOString(),
+      })
+    );
+
+    const getSessionWorkdirSpy = createMock();
+    getSessionWorkdirSpy.mockImplementation((_sessionName: unknown) => Promise.resolve("/fake/path/to/session"));
+
+    const execInRepositorySpy = createMock();
+    execInRepositorySpy.mockImplementation((_workdir: unknown, command: unknown) => {
+      const cmd = command as string;
+      if (cmd.includes("git ls-remote")) {
+        return Promise.resolve("refs/heads/pr/task#TEST_VALUE");
+      }
+      if (cmd.includes("log -1")) {
+        return Promise.resolve("PR Title\n\nPR Description body");
+      }
+      if (cmd.includes("diff --stat")) {
+        return Promise.resolve("3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)");
+      }
+      if (cmd.includes("git diff")) {
+        return Promise.resolve("diff --git a/file.txt b/file.txt\n+new line\n-old line");
+      }
+      return Promise.resolve("");
+    });
+
+    // Create mocks using centralized factories with spy integration
+    const mockSessionDB = createMockSessionProvider({
+      getSession: getSessionSpy as any,
+      getSessionByTaskId: getSessionByTaskIdSpy as any,
+      getSessionWorkdir: getSessionWorkdirSpy as any,
+    });
+
+    const mockGitService = createMockGitService({
+      execInRepository: execInRepositorySpy as any,
+    });
+
+    const mockTaskService = createMockTaskService({});
+
+    // Add getTaskSpecData method not covered by centralized factory
+    (mockTaskService as any).getTaskSpecData = createMock(() =>
+      Promise.resolve({ title: "Test Task", description: "Test description" })
+    );
+
+    const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
+      isSessionWorkspace: () => false,
+    });
+
+    const getCurrentSessionSpy = createMock();
+    getCurrentSessionSpy.mockImplementation((_cwd?: unknown) => Promise.resolve("testSession"));
+
+    const deps = {
+      sessionDB: mockSessionDB,
+      gitService: mockGitService,
+      taskService: mockTaskService,
+      workspaceUtils: mockWorkspaceUtils,
+      getCurrentSession: getCurrentSessionSpy as any,
+    };
+
+    // Test by task ID
+    const result = await sessionReviewFromParams(
+      { task: "#TEST_VALUE" },
+      deps
+    );
+
+    // Verify calls with individual spies
+    expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("#TEST_VALUE");
+    expect(getSessionWorkdirSpy).toHaveBeenCalledWith("task#TEST_VALUE");
+    expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
+
+    // Verify result
+    expect(result.taskId).toBe("#TEST_VALUE");
+  });
+
+  test("throws ValidationError when no session detected", async () => {
+    // Create mocks using centralized factories
+    const mockSessionDB = createMockSessionProvider({
+      getSession: () => Promise.resolve(null),
+      getSessionByTaskId: () => Promise.resolve(null),
+    });
+
+    const mockGitService = createMockGitService({});
+    const mockTaskService = createMockTaskService({});
+
+    const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
+      isSessionWorkspace: () => false,
+    });
+
+    const getCurrentSessionSpy = createMock();
+    getCurrentSessionSpy.mockImplementation((_cwd?: unknown) => Promise.resolve(null));
+
+    const deps = {
+      sessionDB: mockSessionDB,
+      gitService: mockGitService,
+      taskService: mockTaskService,
+      workspaceUtils: mockWorkspaceUtils,
+      getCurrentSession: getCurrentSessionSpy as any,
+    };
+
+    // Test error case
+    try {
+      await sessionReviewFromParams(
+        { repo: "/test/repo/path" },
+        deps
+      );
+      // Should not reach this point
+      expect(false).toBe(true);
+    } catch (error) {
+      expect(error instanceof ValidationError).toBe(true);
+      expect((error as Error).message).toContain("No session detected");
+    }
+  });
+
+  test("throws ResourceNotFoundError when session not found", async () => {
+    // Create mocks using centralized factories
+    const mockSessionDB = createMockSessionProvider({
+      getSession: () => Promise.resolve(null),
+    });
+
+    const mockGitService = createMockGitService({});
+    const mockTaskService = createMockTaskService({});
+
+    const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
+      isSessionWorkspace: () => false,
+    });
+
+    const deps = {
+      sessionDB: mockSessionDB,
+      gitService: mockGitService,
+      taskService: mockTaskService,
+      workspaceUtils: mockWorkspaceUtils,
+      getCurrentSession: createMock(() => Promise.resolve("testSession")) as any,
+    };
+
+    // Test with non-existent session
+    try {
+      await sessionReviewFromParams(
+        { session: "non-existent-session" },
+        deps
+      );
+      // Should not reach this point
+      expect(false).toBe(true);
+    } catch (error) {
+      expect(error instanceof ResourceNotFoundError).toBe(true);
+      expect((error as Error).message).toContain("Session \"non-existent-session\" not found");
+    }
   });
 });

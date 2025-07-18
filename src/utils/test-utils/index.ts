@@ -36,9 +36,6 @@ export {
   testDataFactory
 } from "./test-isolation";
 
-// Original utilities (avoid conflicts)
-export { createMockFileSystem, setupTestMocks } from "./mocking";
-
 // Dependency injection utilities and individual service mock factories
 export {
   createTestDeps,
@@ -57,6 +54,9 @@ export {
   type MockGitServiceOptions,
   type MockTaskServiceOptions
 } from "./dependencies";
+
+// Original utilities (avoid conflicts)
+export { createMockFileSystem, setupTestMocks } from "./mocking";
 
 // Import the functions for use in setupCompleteTestEnvironment
 import { setupTestCleanup } from "./cleanup";

@@ -12,29 +12,18 @@
  * - The commit should be pushed to remote
  */
 
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { approveSessionFromParams } from "../session";
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
-
-// Mock logger
-const mockLog = {
-  debug: mock(() => {}),
-  info: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {})
-};
-
-mock.module("../../utils/logger", () => ({
-  log: mockLog
-}));
+import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../../utils/test-utils/index";
 
 describe("Session Approve Task Status Commit", () => {
   test("should commit task status update after successful merge", async () => {
     // Bug reproduction test - this should fail until the bug is fixed
 
     const gitCommands: string[] = [];
-    const mockGitService: Partial<GitServiceInterface> = {
+    const mockGitService = createMockGitService({
       execInRepository: (workdir: string, command: string) => {
         gitCommands.push(command);
 
@@ -79,13 +68,9 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
-      getCurrentBranch: (workdir: string) => Promise.resolve("pr/task#123"),
-      pullLatest: (workdir: string) => Promise.resolve({ workdir, updated: true }),
-      mergeBranch: (workdir: string, branch: string) => Promise.resolve({ workdir, merged: true, conflicts: false }),
-      push: (options: any) => Promise.resolve({ workdir: options.repoPath, pushed: true }),
-    };
+    });
 
-    const mockSessionDB: Partial<SessionProviderInterface> = {
+    const mockSessionDB = createMockSessionProvider({
       getSessionByTaskId: (taskId: string) => Promise.resolve({
         session: `task#${taskId}`,
         repoName: "test-repo",
@@ -100,10 +85,9 @@ describe("Session Approve Task Status Commit", () => {
         createdAt: new Date().toISOString(),
         taskId: "123",
       }),
-      getSessionWorkdir: (sessionName: string) => Promise.resolve("/test/repo"),
-    };
+    });
 
-    const mockTaskService = {
+    const mockTaskService = createMockTaskService({
       getTaskStatus: (taskId: string) => {
         // Task is NOT already DONE, so status update should happen
         return Promise.resolve("IN-PROGRESS");
@@ -112,7 +96,7 @@ describe("Session Approve Task Status Commit", () => {
         // This simulates the task status update that modifies tasks.md
         return Promise.resolve();
       },
-    };
+    });
 
     // Execute the session approval
     const result = await approveSessionFromParams(
@@ -187,10 +171,6 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
-      getCurrentBranch: (workdir: string) => Promise.resolve("pr/task#124"),
-      pullLatest: (workdir: string) => Promise.resolve({ workdir, updated: true }),
-      mergeBranch: (workdir: string, branch: string) => Promise.resolve({ workdir, merged: true, conflicts: false }),
-      push: (options: any) => Promise.resolve({ workdir: options.repoPath, pushed: true }),
     };
 
     const mockSessionDB: Partial<SessionProviderInterface> = {
@@ -208,7 +188,6 @@ describe("Session Approve Task Status Commit", () => {
         createdAt: new Date().toISOString(),
         taskId: "124",
       }),
-      getSessionWorkdir: (sessionName: string) => Promise.resolve("/test/repo"),
     };
 
     const mockTaskService = {
@@ -243,115 +222,111 @@ describe("Session Approve Task Status Commit", () => {
 
     // Should NOT try to commit when there are no changes
     expect(gitCommands).not.toContain("git add process/tasks.md");
-    expect(gitCommands).not.toContain("git commit -m \"Update task #124 status to DONE\"");
+    expect(gitCommands).not.toContain("git commit -m \"chore(#124): update task status to DONE\"");
   });
 
-  describe("should skip task status update when task is already DONE", () => {
-    it("should skip task status update when task is already DONE", async () => {
-      const gitCommands: string[] = [];
+  test("should skip task status update when task is already DONE", async () => {
+    // Test case for the new behavior: check task status first and skip if already DONE
 
-      const mockGitService = {
-        execInRepository: (workdir: string, command: string) => {
-          gitCommands.push(command);
+    const gitCommands: string[] = [];
+    const mockGitService: Partial<GitServiceInterface> = {
+      execInRepository: (workdir: string, command: string) => {
+        gitCommands.push(command);
 
-          // Mock the PR branch check to fail (branch doesn't exist)
-          if (command.includes("git show-ref --verify --quiet refs/heads/pr/task#125")) {
-            throw new Error("fatal: 'refs/heads/pr/task#125' - not a valid ref");
-          }
-
-          // Basic commands that are always needed
-          if (command.includes("git rev-parse HEAD")) {
-            return Promise.resolve("abc123");
-          }
-          if (command.includes("git config user.name")) {
-            return Promise.resolve("Test User");
-          }
-
-          // Other commands should succeed but won't be called in early exit
-          if (command.includes("git checkout main")) {
-            return Promise.resolve("");
-          }
-          if (command.includes("git fetch origin")) {
-            return Promise.resolve("");
-          }
-          if (command.includes("git merge --ff-only")) {
-            return Promise.resolve("");
-          }
-          if (command.includes("git push origin main")) {
-            return Promise.resolve("");
-          }
-
-          return Promise.resolve("");
-        },
-        getCurrentBranch: (workdir: string) => Promise.resolve("pr/task#125"),
-        pullLatest: (workdir: string) => Promise.resolve({ workdir, updated: true }),
-        mergeBranch: (workdir: string, branch: string) => Promise.resolve({ workdir, merged: true, conflicts: false }),
-        push: (options: any) => Promise.resolve({ workdir: options.repoPath, pushed: true }),
-      };
-
-      const mockSessionDB: Partial<SessionProviderInterface> = {
-        getSessionByTaskId: (taskId: string) => Promise.resolve({
-          session: `task${taskId}`,  // taskId is already "#125", so this becomes "task#125"
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId,
-        }),
-        getSession: (sessionName: string) => Promise.resolve({
-          session: sessionName,
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          createdAt: new Date().toISOString(),
-          taskId: "125",
-        }),
-        getSessionWorkdir: (sessionName: string) => Promise.resolve("/test/repo"),
-      };
-
-      const mockTaskService = {
-        getTaskStatus: (taskId: string) => {
-          // Task is already DONE
-          return Promise.resolve("DONE");
-        },
-        setTaskStatus: (taskId: string, status: string) => {
-          // This should not be called since task is already DONE
-          return Promise.resolve();
-        },
-      };
-
-      // Execute the session approval
-      const result = await approveSessionFromParams(
-        {
-          task: "125",
-          repo: "/test/repo",
-        },
-        {
-          sessionDB: mockSessionDB as any,
-          gitService: mockGitService as any,
-          taskService: mockTaskService as any,
+        // Early exit commands should be handled first
+        if (command.includes("git show-ref --verify --quiet refs/heads/pr/task#125")) {
+          // PR branch doesn't exist - this should trigger early exit
+          throw new Error("Command failed: git show-ref --verify --quiet refs/heads/pr/task#125");
         }
-      );
+        if (command.includes("git rev-parse HEAD")) {
+          return Promise.resolve("ghi789commit");
+        }
+        if (command.includes("git config user.name")) {
+          return Promise.resolve("Test User");
+        }
 
-      // Should trigger early exit since task is DONE and PR branch doesn't exist
-      expect(result.isNewlyApproved).toBe(false); // Session was already approved
-      expect(result.taskId).toBe("#125");
-      expect(result.session).toBe("task#125");
+        // Normal merge flow commands (should not be reached due to early exit)
+        if (command.includes("git checkout main")) {
+          return Promise.resolve("");
+        }
+        if (command.includes("git fetch origin")) {
+          return Promise.resolve("");
+        }
+        if (command.includes("git rev-parse pr/task#125")) {
+          return Promise.resolve("ghi789commit");
+        }
+        if (command.includes("git merge --ff-only pr/task#125")) {
+          return Promise.resolve("");
+        }
+        if (command.includes("git push origin main")) {
+          return Promise.resolve("");
+        }
 
-      // Should only call commands to check PR branch existence, then exit
-      expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task#125");
-      expect(gitCommands).toContain("git rev-parse HEAD");
-      expect(gitCommands).toContain("git config user.name");
+        return Promise.resolve("");
+      },
+    };
 
-      // Should NOT attempt any merge operations
-      expect(gitCommands).not.toContain("git checkout main");
-      expect(gitCommands).not.toContain("git fetch origin");
-      expect(gitCommands).not.toContain("git merge --ff-only pr/task#125");
+    const mockSessionDB: Partial<SessionProviderInterface> = {
+      getSessionByTaskId: (taskId: string) => Promise.resolve({
+        session: `task${taskId}`,  // taskId is already "#125", so this becomes "task#125"
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId,
+      }),
+      getSession: (sessionName: string) => Promise.resolve({
+        session: sessionName,
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        createdAt: new Date().toISOString(),
+        taskId: "125",
+      }),
+    };
 
-      // Should NOT attempt any task status commit operations
-      expect(gitCommands).not.toContain("git status --porcelain");
-      expect(gitCommands).not.toContain("git add process/tasks.md");
-      expect(gitCommands).not.toContain("git commit -m \"Update task #125 status to DONE\"");
-      expect(gitCommands).not.toContain("git push");
-    });
+    const mockTaskService = {
+      getTaskStatus: (taskId: string) => {
+        // Task is already DONE
+        return Promise.resolve("DONE");
+      },
+      setTaskStatus: (taskId: string, status: string) => {
+        // This should not be called since task is already DONE
+        return Promise.resolve();
+      },
+    };
+
+    // Execute the session approval
+    const result = await approveSessionFromParams(
+      {
+        task: "125",
+        repo: "/test/repo",
+      },
+      {
+        sessionDB: mockSessionDB as any,
+        gitService: mockGitService as any,
+        taskService: mockTaskService as any,
+      }
+    );
+
+    // Should trigger early exit since task is DONE and PR branch doesn't exist
+    expect(result.isNewlyApproved).toBe(false); // Session was already approved
+    expect(result.taskId).toBe("#125");
+    expect(result.session).toBe("task#125");
+
+    // Should only call commands to check PR branch existence, then exit
+    expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task#125");
+    expect(gitCommands).toContain("git rev-parse HEAD");
+    expect(gitCommands).toContain("git config user.name");
+
+    // Should NOT attempt any merge operations
+    expect(gitCommands).not.toContain("git checkout main");
+    expect(gitCommands).not.toContain("git fetch origin");
+    expect(gitCommands).not.toContain("git merge --ff-only pr/task#125");
+
+    // Should NOT attempt any task status commit operations
+    expect(gitCommands).not.toContain("git status --porcelain");
+    expect(gitCommands).not.toContain("git add process/tasks.md");
+    expect(gitCommands).not.toContain("git commit -m \"chore(#125): update task status to DONE\"");
+    expect(gitCommands).not.toContain("git push");
   });
 
   test("should exit early when task is DONE and PR branch doesn't exist (bug reproduction)", async () => {
@@ -379,10 +354,6 @@ describe("Session Approve Task Status Commit", () => {
 
         return Promise.resolve("");
       },
-      getCurrentBranch: (workdir: string) => Promise.resolve("pr/task#266"),
-      pullLatest: (workdir: string) => Promise.resolve({ workdir, updated: true }),
-      mergeBranch: (workdir: string, branch: string) => Promise.resolve({ workdir, merged: true, conflicts: false }),
-      push: (options: any) => Promise.resolve({ workdir: options.repoPath, pushed: true }),
     };
 
     const mockSessionDB: Partial<SessionProviderInterface> = {
@@ -400,7 +371,6 @@ describe("Session Approve Task Status Commit", () => {
         createdAt: new Date().toISOString(),
         taskId: "266",
       }),
-      getSessionWorkdir: (sessionName: string) => Promise.resolve("/test/repo"),
     };
 
     const mockTaskService = {
@@ -445,6 +415,6 @@ describe("Session Approve Task Status Commit", () => {
     // Should NOT attempt any task status commit operations
     expect(gitCommands).not.toContain("git status --porcelain");
     expect(gitCommands).not.toContain("git add process/tasks.md");
-    expect(gitCommands).not.toContain("git commit -m \"Update task #266 status to DONE\"");
+    expect(gitCommands).not.toContain("git commit -m \"chore(#266): update task status to DONE\"");
   });
 });

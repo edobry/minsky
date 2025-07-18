@@ -31,17 +31,17 @@ export interface PostgresStorageConfig {
    * PostgreSQL connection URL
    */
   connectionUrl: string;
-
+  
   /**
    * Maximum number of connections in pool (default: 10)
    */
   maxConnections?: number;
-
+  
   /**
    * Connection timeout in seconds (default: 30)
    */
   connectTimeout?: number;
-
+  
   /**
    * Idle timeout in seconds (default: 600)
    */
@@ -58,7 +58,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   constructor(config: PostgresStorageConfig) {
     this.connectionUrl = config.connectionUrl;
-
+    
     // Initialize PostgreSQL connection
     this.sql = postgres(this.connectionUrl, {
       max: config.maxConnections || 10,
@@ -124,7 +124,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         sessions,
         baseDir: "/tmp/postgres-sessions", // PostgreSQL doesn't have a filesystem base
       };
-
+      
       return { success: true, data: state };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
@@ -142,18 +142,18 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       await this.sql.begin(async (sql) => {
         // Clear existing sessions
         await sql`DELETE FROM sessions`;
-
+        
         // Insert all sessions
         for (const session of state.sessions) {
           const insertData = toPostgresInsert(session);
           await sql`
             INSERT INTO sessions (session, repo_name, repo_url, created_at, task_id, branch, repo_path)
-            VALUES (${insertData.session}, ${insertData.repoName}, ${insertData.repoUrl},
+            VALUES (${insertData.session}, ${insertData.repoName}, ${insertData.repoUrl}, 
                    ${insertData.createdAt}, ${insertData.taskId}, ${insertData.branch}, ${insertData.repoPath})
           `;
         }
       });
-
+      
       return { success: true, bytesWritten: state.sessions.length };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
