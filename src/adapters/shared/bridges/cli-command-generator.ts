@@ -32,6 +32,7 @@ import {
   formatRuleDetails,
   formatRuleSummary,
 } from "./cli-result-formatters";
+import { formatTaskIdForDisplay } from "../../../domain/tasks/task-id-utils";
 
 /**
  * CLI-specific execution context
@@ -448,7 +449,7 @@ export class CliCommandGenerator {
               if ((item as any).id && (item as any).title) {
                 // Looks like a task or similar entity
                 log.cli(
-                  `- ${(item as any).id}: ${(item as any).title}${(item as any).status ? ` [${(item as any).status}]` : ""}`
+                  `- ${formatTaskIdForDisplay((item as any).id)}: ${(item as any).title}${(item as any).status ? ` [${(item as any).status}]` : ""}`
                 );
               } else {
                 // Generic object display
@@ -500,7 +501,7 @@ export class CliCommandGenerator {
           const resultObj = result as Record<string, any>;
           const taskId = String((resultObj as any).taskId || "unknown");
           const status = String((resultObj as any).status || "unknown");
-          log.cli(`Task ${taskId} is ${status.toLowerCase()}`);
+          log.cli(`Task ${formatTaskIdForDisplay(taskId)} is ${status.toLowerCase()}`);
         } else if ((commandDef as any).id === "tasks.status.set") {
           // Handle tasks status set results with friendly formatting
           const resultObj = result as Record<string, any>;
@@ -508,10 +509,10 @@ export class CliCommandGenerator {
           const status = String((resultObj as any).status || "unknown");
           const previousStatus = String((resultObj as any).previousStatus || "unknown");
           if (status === previousStatus) {
-            log.cli(`Task ${taskId} status is already ${status.toLowerCase()}`);
+            log.cli(`Task ${formatTaskIdForDisplay(taskId)} status is already ${status.toLowerCase()}`);
           } else {
             log.cli(
-              `Task ${taskId} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
+              `Task ${formatTaskIdForDisplay(taskId)} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
             );
           }
         } else if ((commandDef as any).id === "debug.echo") {
