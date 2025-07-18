@@ -39,24 +39,33 @@ describe("Git Commands Integration Tests", () => {
     mockExec.mockReset();
     mockPromisify.mockReturnValue(mockExec);
     
-    // Mock execAsync to return successful results
-    mockExec.mockImplementation((command: string, callback: any) => {
+    // CRITICAL: Completely mock all git operations to prevent real execution
+    mockExec.mockImplementation((command: string, options: any, callback: any) => {
+      // Handle both callback patterns: (command, callback) and (command, options, callback)
+      const actualCallback = typeof options === "function" ? options : callback;
+      
+      // Mock successful responses for all git commands
       if (command.includes("git clone")) {
-        callback(null, "Cloning complete", "");
+        actualCallback(null, { stdout: "Cloning into directory...", stderr: "" });
       } else if (command.includes("git rev-parse")) {
-        callback(null, "abc123", "");
+        actualCallback(null, { stdout: "abc123", stderr: "" });
       } else if (command.includes("git add")) {
-        callback(null, "", "");
+        actualCallback(null, { stdout: "", stderr: "" });
       } else if (command.includes("git commit")) {
-        callback(null, "abc123", "");
+        actualCallback(null, { stdout: "[main abc123] Test commit", stderr: "" });
       } else if (command.includes("git push")) {
-        callback(null, "Push complete", "");
-      } else if (command.includes("git status")) {
-        callback(null, "", "");
+        actualCallback(null, { stdout: "Everything up-to-date", stderr: "" });
+      } else if (command.includes("git checkout")) {
+        actualCallback(null, { stdout: "Switched to branch", stderr: "" });
       } else if (command.includes("git merge")) {
-        callback(null, "Merge complete", "");
+        actualCallback(null, { stdout: "Already up to date", stderr: "" });
+      } else if (command.includes("git rebase")) {
+        actualCallback(null, { stdout: "Successfully rebased", stderr: "" });
+      } else if (command.includes("git status")) {
+        actualCallback(null, { stdout: "", stderr: "" });
       } else {
-        callback(null, "Command successful", "");
+        // Default successful response for any other git command
+        actualCallback(null, { stdout: "Success", stderr: "" });
       }
     });
   });
