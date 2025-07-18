@@ -1,12 +1,19 @@
 /**
- * minsky config show command
- *
- * Shows the final resolved configuration without showing all sources
+ * Config Show Command
  */
 
+import { z } from "zod";
 import { Command } from "commander";
-import config from "config";
+import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
+// Delay config import to prevent early initialization before config-setup runs
+let config: any = null;
+function getConfig() {
+  if (!config) {
+    config = require("config");
+  }
+  return config;
+}
 
 interface ShowOptions {
   json?: boolean;
@@ -20,11 +27,11 @@ export function createConfigShowCommand(): Command {
       try {
       // Use node-config directly for resolved configuration
         const resolved = {
-          backend: config.get("backend"),
-          backendConfig: config.get("backendConfig"),
-          credentials: config.get("credentials"),
-          sessiondb: config.get("sessiondb"),
-          ai: config.has("ai") ? config.get("ai") : undefined,
+          backend: getConfig().get("backend"),
+          backendConfig: getConfig().get("backendConfig"),
+          credentials: getConfig().get("credentials"),
+          sessiondb: getConfig().get("sessiondb"),
+          ai: getConfig().has("ai") ? getConfig().get("ai") : undefined,
         };
 
         if (options.json) {
@@ -62,7 +69,7 @@ async function displayResolvedConfiguration(resolved: any) {
     for (const [service, creds] of Object.entries(resolved.credentials)) {
       if (creds && typeof creds === "object") {
         await Bun.write(Bun.stdout, `  ${service}:\n`);
-        const credsObj = creds;
+        const credsObj = creds as any;
         if (credsObj.source) {
           await Bun.write(Bun.stdout, `    Source: ${credsObj.source}\n`);
         }

@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Session PR Hanging Issue**: Fixed infinite hangs in session PR creation by replacing basic `execAsync` git calls with timeout-aware alternatives
+  - **Root Cause**: Git operations (push, fetch, ls-remote) in `prepare-pr-operations.ts` could hang indefinitely without timeout handling
+  - **Solution**: Replaced `execAsync` calls with `execGitWithTimeout`, `gitFetchWithTimeout`, and `gitPushWithTimeout` utilities
+  - **Timeout Values**: Set 30-second timeouts for push/fetch operations, 15-second for ls-remote checks
+  - **Enhanced Error Messages**: Added contextual information for timeout errors to aid debugging
+  - **Impact**: Eliminates "mysterious hangs" during PR creation, even with local git repositories
+  - **Created Task #294**: Comprehensive audit of entire codebase for similar timeout issues and ESLint rule development
+
 ### Added
 
 - **Task #283 - COMPLETE**: Separated task ID storage from display format with comprehensive implementation

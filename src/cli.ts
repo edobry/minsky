@@ -1,27 +1,8 @@
 #!/usr/bin/env bun
 
-// Configure node-config directory and protect against user override
-import { homedir } from "os";
-import { join } from "path";
-
-// Calculate config directory using XDG standards
-const xdgConfigHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
-const minskyConfigDir = join(xdgConfigHome, "minsky");
-
-// Detect if user attempted to override config directory
-const userAttemptedOverride = process.env.NODE_CONFIG_DIR && process.env.NODE_CONFIG_DIR !== minskyConfigDir;
-
-// Always use our config directory
-process.env.NODE_CONFIG_DIR = minskyConfigDir;
-
-// Import config after setting our directory
-import config from "config";
-
-// If user attempted override, warn them but continue with our directory
-if (userAttemptedOverride) {
-  console.warn(`Warning: NODE_CONFIG_DIR override ignored. Minsky manages its own configuration directory.`);
-  console.warn(`Using: ${minskyConfigDir}`);
-}
+// CRITICAL: Import config setup FIRST before any other imports that might use node-config
+// This ensures NODE_CONFIG_DIR is set before config initialization happens
+import "./config-setup";
 
 import { Command } from "commander";
 import { log } from "./utils/logger";

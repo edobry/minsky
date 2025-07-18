@@ -4,6 +4,12 @@ import { normalizeRepoName } from "../repo-utils";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "../session";
+import {
+  execGitWithTimeout,
+  gitFetchWithTimeout,
+  gitPushWithTimeout,
+  type GitExecOptions
+} from "../../utils/git-exec-enhanced";
 
 const execAsync = promisify(exec);
 
@@ -28,12 +34,11 @@ export interface PreparePrDependencies {
   sessionDb: SessionProviderInterface;
   getSessionWorkdir: (session: string) => string;
   execInRepository: (workdir: string, command: string) => Promise<string>;
-  push: (options: { repoPath: string; remote: string; force: boolean }) => Promise<any>;
 }
 
 /**
  * Prepares a pull request by creating a PR branch and merging changes
- * 
+ *
  * @param options - PR preparation options
  * @param deps - Injected dependencies
  * @returns PR preparation result
@@ -281,7 +286,11 @@ Session requested: "${(options as any).session}"
   }
 
   // Make sure we have the latest from the base branch
-  await execAsync(`git -C ${workdir} fetch origin ${baseBranch}`);
+  await gitFetchWithTimeout("origin", baseBranch, {
+    workdir,
+    timeout: 30000,
+    context: [{ label: "Operation", value: "session PR preparation" }]
+  });
 
   // Create PR branch FROM base branch (not feature branch) - per Task #025
   try {
@@ -297,9 +306,24 @@ Session requested: "${(options as any).session}"
 
     // Check if PR branch exists remotely and delete it for clean slate
     try {
-      await execAsync(`git -C ${workdir} ls-remote --exit-code origin ${prBranch}`);
+      await execGitWithTimeout(
+        "ls-remote",
+        `ls-remote --exit-code origin ${prBranch}`,
+        { workdir, timeout: 15000 }
+      );
       // Remote branch exists, delete it to recreate cleanly
-      await execAsync(`git -C ${workdir} push origin --delete ${prBranch}`);
+      await execGitWithTimeout(
+        "push --delete",
+        `push origin --delete ${prBranch}`,
+        {
+          workdir,
+          timeout: 30000,
+          context: [
+            { label: "Operation", value: "deleting existing PR branch" },
+            { label: "Branch", value: prBranch }
+          ]
+        }
+      );
       log.debug(`Deleted existing remote PR branch ${prBranch} for clean recreation`);
     } catch {
       // Remote branch doesn't exist, which is fine
@@ -412,12 +436,24 @@ Session requested: "${(options as any).session}"
     );
   }
 
-  // Push changes to the PR branch
-  await deps.push({
-    repoPath: workdir,
-    remote: "origin",
-    force: true,
-  });
+  // Push changes to the PR branch with timeout handling
+  try {
+    await execGitWithTimeout(
+      "push",
+      `push origin ${prBranch} --force`,
+      {
+        workdir,
+        timeout: 30000,
+        context: [
+          { label: "Operation", value: "pushing PR branch" },
+          { label: "Branch", value: prBranch }
+        ]
+      }
+    );
+    log.debug(`Successfully pushed PR branch ${prBranch} to remote`);
+  } catch (error) {
+    throw new MinskyError(`Failed to push PR branch to remote: ${getErrorMessage(error)}`);
+  }
 
   // CRITICAL: Always switch back to the original session branch after creating PR branch
   // This ensures session pr command never leaves user on the PR branch
@@ -436,4 +472,4 @@ Session requested: "${(options as any).session}"
     title: options.title,
     body: options.body,
   };
-} 
+}
