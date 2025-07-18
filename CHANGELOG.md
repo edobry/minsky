@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Task #289: Implement Template-Based Rules Generation System - Created comprehensive task specification for converting static cursor rules to template literals with conditional CLI/MCP command references, extracting rules generation logic to rules domain, and implementing `minsky rules generate` command
+- Task #290: Convert Cursor Rules to MCP-Only Tool References - Comprehensive task for properly converting cursor rules to MCP tool references with understanding of MCP interfaces, structured parameters vs CLI flags, and integration with template system
 
 ### Changed
 
@@ -1183,3 +1184,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Session PR title duplication bug in extractPrDescription function where title was inadvertently duplicated in body
 - Consolidated duplicate session PR implementations into single source of truth
 - Enhanced PR description parsing to prevent title/body content overlap
+
+### Reverted
+
+- **Bad MCP rule conversion attempt (commits e0066506/dde789d7)**: Reverted mechanical find-and-replace conversion that incorrectly treated MCP tools like CLI commands with flags, created nonsensical references like "# Use MCP tool: session.pr --title", demonstrated need for proper MCP interface understanding before conversion
