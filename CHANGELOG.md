@@ -6,7 +6,6 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-<<<<<<< HEAD
 - **Task #061 - PHASE 3 COMPLETE**: Finalized test fixture factory pattern implementation with comprehensive documentation and enforcement
   - **Documentation**: Created `docs/bun-test-patterns.md` with complete migration guidelines, best practices, and examples
   - **ESLint enforcement**: Implemented `src/eslint-rules/no-jest-patterns.js` with auto-fix capabilities for Jest pattern violations
@@ -24,7 +23,7 @@ All notable changes to this project will be documented in this file.
   - **Test reliability**: All 22 migrated tests passing (101+ expect() calls) with significantly improved maintainability
   - **Scalability validation**: Successfully handled complex test scenarios from simple 2-test files to 10-test files with intricate mocking requirements
   - **Migration methodology**: Proven systematic approach ready for Phase 2 application to remaining Jest-pattern violations
-=======
+
 - Task #289: Implement Template-Based Rules Generation System - Created comprehensive task specification for converting static cursor rules to template literals with conditional CLI/MCP command references, extracting rules generation logic to rules domain, and implementing `minsky rules generate` command
 
 ### Changed
@@ -45,7 +44,6 @@ All notable changes to this project will be documented in this file.
   - Analyzed and justified remaining 78 assertions as legitimate use cases for test infrastructure and error handling
   - Maintained zero TypeScript compilation errors throughout aggressive cleanup process
   - Enhanced framework ready for future maintenance with production-validated pattern detection
->>>>>>> origin/main
 
 - **Task #286**: Added complete HTTP transport support for MCP server
 
@@ -55,7 +53,6 @@ All notable changes to this project will be documented in this file.
 - **Interface Standardization**: Applied consistent property naming fixes across all test methods
 - **Test Architecture**: Established reusable pattern for spy integration with centralized factories
 
-<<<<<<< HEAD
 ### Fixed
 - Test assertion for git branch reference check (refs/remotes/ vs refs/heads/)
 - Interface mismatches causing TypeScript warnings in centralized factory usage
@@ -68,7 +65,7 @@ All notable changes to this project will be documented in this file.
 - **Impact**: Phase 1 critical refactoring targets now complete (3/3 files)
 
 This completes the largest and most complex test file migration in the centralized factory pattern initiative, demonstrating the effectiveness and scalability of the established approach.
-=======
+
 - **Task #285**: Fixed session PR title duplication bug in the extractPrDescription function
   - Enhanced parsing logic to detect and remove duplicate title lines in PR body content
   - Consolidated multiple implementations of extractPrDescription into a single fixed version
@@ -1215,4 +1212,3 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Session PR title duplication bug in extractPrDescription function where title was inadvertently duplicated in body
 - Consolidated duplicate session PR implementations into single source of truth
 - Enhanced PR description parsing to prevent title/body content overlap
->>>>>>> origin/main
