@@ -510,7 +510,7 @@
 
 - [x] Fix MCP Server and CLI Issues Post Task 282 [#286](process/tasks/286-fix-mcp-server-and-cli-issues-post-task-282.md)
 
-- [+] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
+- [x] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
 
 - [ ] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
 
@@ -520,7 +520,7 @@
 
 - [+] Analyze theoretical overlap between rules systems and policy DSLs (OPA, ESLint, cybernetics) [#291](process/tasks/291-analyze-theoretical-overlap-between-rules-systems-and-policy-dsls-opa-eslint-cybernetics-.md)
 
-- [ ] Implement automatic git stash handling for merge conflicts in session approve [#292](process/tasks/292-implement-automatic-git-stash-handling-for-merge-conflicts-in-session-approve.md)
+- [x] Implement automatic git stash handling for merge conflicts in session approve [#292](process/tasks/292-implement-automatic-git-stash-handling-for-merge-conflicts-in-session-approve.md)
 
 - [ ] Add session chat interface context UI elements [#293](process/tasks/293-add-session-chat-interface-context-ui-elements.md)
 

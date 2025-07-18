@@ -312,6 +312,40 @@ When user signals PR creation error with phrases like:
 3. **RECREATE PR using proper CLI approach** with correct title/body separation
 4. **UPDATE RULES** to prevent this specific pattern
 
+## ⚠️ Critical MCP Interface Bypass Protocol
+
+**Addresses bypassing dedicated MCP commands for resource access**
+
+### Documented Interface Bypass Pattern
+
+**Pattern**: Using `read_file` for task specifications instead of `mcp_minsky-server_tasks_spec`
+- **Error**: Bypassing the intended resource management interface
+- **User Signal**: "see how you didnt use the `task_spec` command but instead read the spec file directly?"
+- **Root Cause**: Tool Error - misused available tools/functions, bypassed dedicated interfaces
+- **Correct Approach**: Always use `mcp_minsky-server_tasks_spec` for task specification access
+
+### Enhanced Error Detection for Interface Bypass
+
+When user signals interface bypass error with phrases like:
+- "you didnt use the `[command]` command"
+- "instead read the [resource] file directly"
+- "how we can improve a rule or documentation"
+
+**Immediate Response Protocol:**
+1. **IDENTIFY available MCP commands** using `mcp_minsky-server_debug_listMethods`
+2. **VERIFY proper interface exists** for the resource type being accessed
+3. **UPDATE resource-management-protocol rule** with specific examples
+4. **DOCUMENT the pattern** to prevent future occurrences
+
+### Mandatory Verification for Resource Access
+
+Before accessing any project resource:
+- [ ] Checked for dedicated MCP command using `debug_listMethods`?
+- [ ] Verified no resource-specific command exists (e.g., `tasks_spec`, `session_get`, `rules_get`)?
+- [ ] Applied resource-management-protocol requirements?
+
+**CRITICAL**: Any interface bypass requires immediate protocol updates and rule enhancements.
+
 ## ⚠️ Critical Variable Naming Protocol
 
 **This pattern has been identified as a critical, recurring failure that must be eliminated.**
