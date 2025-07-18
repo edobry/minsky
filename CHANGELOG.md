@@ -1003,7 +1003,7 @@ _See: SpecStory history [2025-05-16_22-06-test-error-fixing](mdc:.specstory/hist
 
 _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/history/2024-05-15_refactor-minsky-workflow-rule.md) for rule refactoring._
 
-- Migrated CLI adapter tests to test domain methods directly instead of through interfaces
+- Migrated CLI adapter tests to test domain methods instead of interfaces
 - Improved test structure following project testing best practices
 - Removed placeholder tests and replaced them with proper domain method tests
 - Implemented proper mocking patterns using centralized test utilities
@@ -1198,3 +1198,18 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Fixed inconsistent task ID format display in session list output
 - Normalized task#244 from displaying `(task: 244)` to `(task: #244)` for consistency
 - Added script `scripts/normalize-session-task-ids.ts` for future task ID format normalization
+
+### Fixed
+- **Test Infrastructure**: Fixed session directory resolution by adding missing await in getSessionDirFromParams
+- **Test Infrastructure**: Updated session tests to use proper session test utilities with complete mock implementations
+- **Test Infrastructure**: Fixed isSessionWorkspace function to use actual getSessionsDir() path instead of hardcoded paths
+- **Test Infrastructure**: Added missing session #236 to mock test data for better test coverage
+- **Test Infrastructure**: Improved Git integration tests to use proper temporary directories (FileSystemTestCleanup)
+- **Test Infrastructure**: Enhanced test isolation and temporary directory management
+
+### Improved
+- **Test Quality**: Improved test pass rate and reduced infrastructure-related test failures
+- **Session Detection**: Session directory tests now working correctly with proper path resolution
+- **Workspace Detection**: Fixed workspace detection tests to use dynamic session paths
+
+## Previous Entries
