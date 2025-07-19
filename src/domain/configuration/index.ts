@@ -114,7 +114,16 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
 
   async initialize(): Promise<void> {
     const { loadConfiguration } = await import("./loader");
-    this.configResult = await loadConfiguration(this.options);
+    try {
+      this.configResult = await loadConfiguration(this.options);
+      // Validate that we got a proper result
+      if (!this.configResult || !this.configResult.sources) {
+        throw new Error(`Invalid configuration result: ${JSON.stringify(this.configResult)}`);
+      }
+    } catch (error) {
+      console.error("Configuration loading failed:", error);
+      throw error;
+    }
   }
 
   getConfig(): Configuration {
