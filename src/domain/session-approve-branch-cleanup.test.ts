@@ -8,7 +8,7 @@ const mockLog = {
   info: mock(() => {}),
   warn: mock(() => {}),
   error: mock(() => {}),
-  cli: vi.fn()
+  cli: mock(() => {})
 };
 
 mock.module("../utils/logger", () => ({
