@@ -152,57 +152,30 @@ The Minsky MCP server exposes the following tools:
 - `session.dir`: Get the directory path for a session
 - `session.update`: Update a session with the latest changes
 - `session.pr`: Create a pull request for a session
-- `session.approve`: Approve a session pull request
+- `session.approve`: Approve and merge a session pull request
 - `session.delete`: Delete a session
 - `session.inspect`: Inspect the current session
 
-### Git Commands (Session-Aware)
+### Session Git Operations
 
-- `git.commit`: Commit changes to the repository
-  - **Requires `session` parameter in MCP context**
-  - Use: `git.commit` with `message` and `session` parameters
-- `git.push`: Push changes to the remote repository  
-  - **Requires `session` parameter in MCP context**
-  - Use: `git.push` with `session` parameter
+- `session.commit`: Commit changes within a session
+  - **Parameters:**
+    - `session`: Session name (required)
+    - `message`: Commit message (required)
+    - `all`: Stage all changes including deletions (optional)
+    - `amend`: Amend the previous commit (optional)
+    - `noStage`: Skip staging changes (optional)
+    - `noPush`: Skip pushing changes after commit (optional)
 
-> **Note**: `git.commit` and `git.push` enforce session parameter requirements in MCP context since MCP services don't have a meaningful "current directory". Commands will fail with a clear error message if session parameter is not provided.
+- `session.push`: Push changes from a session to remote repository
+  - **Parameters:**
+    - `session`: Session name (required)
+    - `remote`: Remote to push to, defaults to origin (optional)
+    - `force`: Force push - use with caution (optional)
 
-### Repository Backend Support
+> **Architecture Note**: Git operations are session-scoped in MCP to maintain proper separation of concerns. Session commands ensure all git operations happen within the correct session context without requiring agents to manage working directories.
 
-When using the `session.start` tool, you can specify different repository backends:
-
-```json
-{
-  "name": "session.start",
-  "params": {
-    "name": "my-session",
-    "backend": "github",
-    "githubOwner": "octocat",
-    "githubRepo": "hello-world",
-    "githubToken": "ghp_xxxxxxxxxxxx"
-  }
-}
-```
-
-#### Backend Types
-
-- `local` (default): For local filesystem repositories
-- `remote`: For any remote Git repository URL
-- `github`: Special handling for GitHub repositories with API integration
-
-#### Backend-Specific Parameters
-
-For `remote` backend:
-
-- `repoUrl`: URL of the remote repository
-- `authMethod`: Authentication method (`ssh`, `https`, or `token`)
-- `cloneDepth`: Clone depth for shallow clones
-
-For `github` backend:
-
-- `githubOwner`: Owner/organization name
-- `githubRepo`: Repository name
-- `githubToken`: GitHub access token for authentication
+### Configuration and Debugging
 
 ### Rules Management
 

@@ -367,3 +367,78 @@ export const sessionInspectCommandParams: CommandParameterMap = {
     defaultValue: false,
   },
 };
+
+/**
+ * Parameters for the session commit command
+ */
+export const sessionCommitCommandParams: CommandParameterMap = {
+  session: {
+    schema: z.string().min(1),
+    description: "Session name",
+    required: true,
+  },
+  message: {
+    schema: z.string().min(1),
+    description: "Commit message",
+    required: true,
+  },
+  all: {
+    schema: z.boolean(),
+    description: "Stage all changes including deletions",
+    required: false,
+    defaultValue: false,
+  },
+  amend: {
+    schema: z.boolean(),
+    description: "Amend the previous commit",
+    required: false,
+    defaultValue: false,
+  },
+  noStage: {
+    schema: z.boolean(),
+    description: "Skip staging changes",
+    required: false,
+    defaultValue: false,
+  },
+  noPush: {
+    schema: z.boolean(),
+    description: "Skip pushing changes after commit",
+    required: false,
+    defaultValue: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output in JSON format",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
+ * Parameters for the session push command
+ */
+export const sessionPushCommandParams: CommandParameterMap = {
+  session: {
+    schema: z.string().min(1),
+    description: "Session name",
+    required: true,
+  },
+  remote: {
+    schema: z.string(),
+    description: "Remote to push to (defaults to origin)",
+    required: false,
+    defaultValue: "origin",
+  },
+  force: {
+    schema: z.boolean(),
+    description: "Force push (use with caution)",
+    required: false,
+    defaultValue: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output in JSON format",
+    required: false,
+    defaultValue: false,
+  },
+};

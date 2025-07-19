@@ -8,27 +8,27 @@ import { log } from "../../utils/logger";
 /**
  * Registers git tools with the MCP command mapper
  *
- * Note: git.commit and git.push are available but require session parameters
- * in MCP context since there's no meaningful "current directory" for MCP services.
+ * Note: All git commands are hidden from MCP to maintain proper separation
+ * of concerns. Use session-scoped commands instead:
+ * - Use session.commit instead of git.commit
+ * - Use session.push instead of git.push
+ * - Use session.pr for pull request workflow
+ * - Use session.start to create sessions with proper git setup
  */
 export function registerGitTools(commandMapper: CommandMapper): void {
   log.debug("Registering git commands via shared command integration");
 
-  // Use the bridge integration to automatically register all git commands
+  // Hide all git commands from MCP - use session commands instead
   registerGitCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      // Session-dependent git operations - enforce session requirement in MCP
+      // Hide all git operations from MCP
       "git.commit": {
-        description: "Commit changes to the repository (session parameter required in MCP context)",
-        mcpRequiredParams: ["session"],
+        hidden: true,
       },
       "git.push": {
-        description: "Push changes to the remote repository (session parameter required in MCP context)",
-        mcpRequiredParams: ["session"],
+        hidden: true,
       },
-      
-      // Hide disruptive git operations that don't make sense for agents
       "git.clone": {
         hidden: true,
       },
