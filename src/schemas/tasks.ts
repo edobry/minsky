@@ -8,7 +8,7 @@ import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants";
 /**
  * Valid task statuses
  */
-export const TASK_STATUS = {
+export const _TASK_STATUS = {
   TODO: "TODO",
   DONE: "DONE",
   IN_PROGRESS: "IN-PROGRESS",
@@ -116,7 +116,7 @@ export const taskCreateParamsSchema = z
   .merge(commonCommandOptionsSchema).refine(
     (data) => {
     // Either description or descriptionPath must be provided
-      return data.description || data.descriptionPath as unknown;
+      return data.description || data.descriptionPath;
     },
     {
       message: "Either --description or --description-path must be provided",

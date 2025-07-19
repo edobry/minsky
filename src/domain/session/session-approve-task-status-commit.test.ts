@@ -19,6 +19,20 @@ import type { GitServiceInterface } from "../git";
 import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../../utils/test-utils/index";
 
 describe("Session Approve Task Status Commit", () => {
+
+  // Mock log functions used by session approve operations
+  const log = {
+    cli: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn()
+  };
+      
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   test("should commit task status update after successful merge", async () => {
     // Bug reproduction test - this should fail until the bug is fixed
 

@@ -189,8 +189,8 @@ describe("TaskService", () => {
   describe("setTaskStatus", () => {
     test("should update a task's status", async () => {
       // Setup spy to check what's passed to saveTasksData
-      const saveTasksDataSpy = mockBackend.saveTasksData as unknown as jest.SpyInstance;
-      const formatTasksSpy = mockBackend.formatTasks as unknown as jest.SpyInstance;
+      const saveTasksDataSpy = mockBackend.saveTasksData as any;
+      const formatTasksSpy = mockBackend.formatTasks as any;
 
       await taskService.setTaskStatus("#001", "DONE");
 

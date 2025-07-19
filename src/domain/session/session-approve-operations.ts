@@ -35,6 +35,7 @@ export async function approveSessionImpl(
     task?: string;
     repo?: string;
     json?: boolean;
+    noStash?: boolean;
   },
   depsInput?: {
     sessionDB?: SessionProviderInterface;
@@ -181,7 +182,7 @@ Task ${taskIdToUse} exists but has no associated session to approve.
           await deps.gitService.execInRepository(workingDirectory, `git show-ref --verify --quiet refs/heads/${prBranch}`);
           // PR branch exists, continue with normal flow
           log.debug(`PR branch ${prBranch} exists, continuing with normal flow`);
-        } catch (branchError) {
+        } catch (_branchError) {
           // PR branch doesn't exist and task is already DONE - session is complete
           log.debug(`Session ${sessionNameToUse} is already complete: task ${taskId} is DONE and PR branch ${prBranch} doesn't exist`);
 
@@ -208,49 +209,40 @@ Task ${taskIdToUse} exists but has no associated session to approve.
       } else {
         log.debug(`Task ${taskId} is not DONE (status: ${currentStatus}), continuing with normal flow`);
       }
-    } catch (statusError) {
+    } catch (_statusError) {
       // If we can't check the status, continue with normal flow
       log.debug(`Could not check task status for ${taskId}, continuing with normal approval flow`);
     }
   }
 
+  // Track whether we stashed changes for restoration logic
+  let hasStashedChanges = false;
+
   try {
     // Execute git commands to merge the PR branch in the main repository
 
-    // First, check for uncommitted changes before attempting git operations
-    try {
-      const statusOutput = await deps.gitService.execInRepository(workingDirectory, "git status --porcelain");
-      const hasUncommittedChanges = statusOutput.trim().length > 0;
-
-      if (hasUncommittedChanges) {
-        // Get detailed status for user guidance
-        const fullStatus = await deps.gitService.execInRepository(workingDirectory, "git status");
-
-        throw new MinskyError(`
-🚫 Cannot approve session with uncommitted changes
-
-You have uncommitted changes in your working directory that need to be handled first.
-
-${fullStatus}
-
-💡 To fix this, choose one of these options:
-
-📝 Commit your changes:
-   git add .
-   git commit -m "Your commit message"
-
-📦 Stash your changes temporarily:
-   git stash
-
-🗑️  Or discard your changes (be careful!):
-   git reset --hard HEAD
-
-Then try the session approve command again.
-        `.trim());
+    // Check for uncommitted changes and automatically stash them if needed
+    if (!params.noStash) {
+      try {
+        const hasUncommittedChanges = await deps.gitService.hasUncommittedChanges(workingDirectory);
+        if (hasUncommittedChanges) {
+          if (!params.json) {
+            log.cli("📦 Stashing uncommitted changes...");
+          }
+          log.debug("Stashing uncommitted changes", { workdir: workingDirectory });
+          
+          const stashResult = await deps.gitService.stashChanges(workingDirectory);
+          hasStashedChanges = stashResult.stashed;
+          
+          if (hasStashedChanges && !params.json) {
+            log.cli("✅ Changes stashed successfully");
+          }
+          log.debug("Changes stashed", { stashed: hasStashedChanges });
+        }
+      } catch (statusError) {
+        // If we can't check/stash status, continue but might fail later with less friendly error
+        log.debug("Could not check/stash git status before approval", { error: getErrorMessage(statusError) });
       }
-    } catch (statusError) {
-      // If we can't check status, continue but might fail later with less friendly error
-      log.debug("Could not check git status before approval", { error: getErrorMessage(statusError) });
     }
 
     // First, check out the base branch
@@ -258,27 +250,7 @@ Then try the session approve command again.
       log.cli("🔄 Switching to base branch...");
     }
 
-    try {
-      await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
-    } catch (checkoutError) {
-      const errorMessage = getErrorMessage(checkoutError);
-      if (errorMessage.includes("would be overwritten") || errorMessage.includes("uncommitted changes")) {
-        throw new MinskyError(`
-🚫 Cannot switch to ${baseBranch} branch due to uncommitted changes
-
-${errorMessage}
-
-💡 Please commit or stash your changes first:
-   git add .
-   git commit -m "Your commit message"
-   # OR
-   git stash
-
-Then try the session approve command again.
-        `.trim());
-      }
-      throw checkoutError;
-    }
+    await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
 
     // Fetch latest changes
     if (!params.json) {
@@ -297,7 +269,7 @@ Then try the session approve command again.
       await deps.gitService.execInRepository(workingDirectory, `git show-ref --verify --quiet refs/heads/${prBranch}`);
 
       // Get the commit hash of the PR branch
-      const prBranchCommitHash = (
+      const _prBranchCommitHash = (
         await deps.gitService.execInRepository(workingDirectory, `git rev-parse ${prBranch}`)
       ).trim();
 
@@ -354,23 +326,6 @@ Then try the session approve command again.
       } catch (mergeError) {
         // Merge failed - check if it's because already merged or other issues
         const errorMessage = getErrorMessage(mergeError as Error);
-
-        // Check for uncommitted changes causing merge failure
-        if (errorMessage.includes("would be overwritten") || errorMessage.includes("uncommitted changes")) {
-          throw new MinskyError(`
-🚫 Cannot merge PR branch due to uncommitted changes
-
-${errorMessage}
-
-💡 Please commit or stash your changes first:
-   git add .
-   git commit -m "Your commit message"
-   # OR
-   git stash
-
-Then try the session approve command again.
-          `.trim());
-        }
 
         if (errorMessage.includes("Already up to date") || errorMessage.includes("nothing to commit")) {
           // PR branch has already been merged
@@ -502,8 +457,52 @@ Then try the session approve command again.
       }
     }
 
+    // Restore stashed changes if we stashed them
+    if (hasStashedChanges && !params.noStash) {
+      try {
+        if (!params.json) {
+          log.cli("📦 Restoring stashed changes...");
+        }
+        log.debug("Restoring stashed changes", { workdir: workingDirectory });
+        
+        const restoreResult = await deps.gitService.popStash(workingDirectory);
+        if (restoreResult.stashed && !params.json) {
+          log.cli("✅ Stashed changes restored successfully");
+        }
+        log.debug("Stashed changes restored", { restored: restoreResult.stashed });
+      } catch (error) {
+        log.warn("Failed to restore stashed changes", {
+          error: getErrorMessage(error),
+          workdir: workingDirectory,
+        });
+        if (!params.json) {
+          log.cli("⚠️  Warning: Failed to restore stashed changes. You may need to manually run 'git stash pop'");
+        }
+        // Don't fail the entire operation if stash restoration fails
+      }
+    }
+
     return mergeInfo;
   } catch (error) {
+    // If there's an error during approval, try to restore stashed changes
+    if (hasStashedChanges && !params.noStash) {
+      try {
+        log.debug("Restoring stashed changes after error", { workdir: workingDirectory });
+        await deps.gitService.popStash(workingDirectory);
+        log.debug("Restored stashed changes after error");
+        if (!params.json) {
+          log.cli("📦 Restored stashed changes after error");
+        }
+      } catch (stashError) {
+        log.warn("Failed to restore stashed changes after error", {
+          stashError: getErrorMessage(stashError),
+        });
+        if (!params.json) {
+          log.cli("⚠️  Warning: Failed to restore stashed changes after error. You may need to manually run 'git stash pop'");
+        }
+      }
+    }
+
     if (error instanceof MinskyError) {
       throw error;
     } else {

@@ -325,29 +325,23 @@ Examples:
       // Conditional validation: require body/bodyPath only for new PRs (not refreshing existing ones)
       if (!params!.body && !params!.bodyPath) {
         // Check if there's an existing PR branch to determine if we can refresh
-        const currentDir = process.cwd();
-        const isSessionWorkspace = currentDir.includes("/sessions/");
-
-        let sessionName = params!.name;
-        if (!sessionName && isSessionWorkspace) {
-          // Try to detect session name from current directory
-          const pathParts = currentDir.split("/");
-          const sessionsIndex = pathParts.indexOf("sessions");
-          if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-            sessionName = pathParts[sessionsIndex + 1];
-          }
-        }
+        const sessionName = params!.name || params!.session;
 
         if (sessionName) {
           const gitService = createGitService();
           const prBranch = `pr/${sessionName}`;
+
+          // Get session workspace path for git operations
+          const { SessionPathResolver } = await import("../../mcp/session-workspace.js");
+          const pathResolver = new SessionPathResolver();
+          const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(sessionName);
 
           // Check if PR branch exists locally or remotely
           let prBranchExists = false;
           try {
             // Check if branch exists locally
             const localBranchOutput = await gitService.execInRepository(
-              currentDir,
+              sessionWorkspacePath,
               `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
             );
             const localBranchExists = localBranchOutput.trim() !== "not-exists";
@@ -357,7 +351,7 @@ Examples:
             } else {
               // Check if branch exists remotely
               const remoteBranchOutput = await gitService.execInRepository(
-                currentDir,
+                sessionWorkspacePath,
                 `git ls-remote --heads origin ${prBranch}`
               );
               prBranchExists = remoteBranchOutput.trim().length > 0;
@@ -396,7 +390,7 @@ Example:
           skipUpdate: params!.skipUpdate,
           autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
           skipConflictCheck: params!.skipConflictCheck,
-        })) as unknown;
+        })) as Record<string, any>;
 
         return {
           success: true,

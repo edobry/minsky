@@ -286,7 +286,7 @@ export function registerGitCommands(): void {
     name: "commit",
     description: "Commit changes to the repository",
     parameters: commitCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.commit command", { params });
 
       const result = await commitChangesFromParams({
@@ -313,7 +313,7 @@ export function registerGitCommands(): void {
     name: "push",
     description: "Push changes to the remote repository",
     parameters: pushCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.push command", { params });
 
       const result = await pushFromParams({
@@ -338,7 +338,7 @@ export function registerGitCommands(): void {
     name: "clone",
     description: "Clone a Git repository",
     parameters: cloneCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.clone command", { params });
 
       const result = await cloneFromParams({
@@ -363,7 +363,7 @@ export function registerGitCommands(): void {
     name: "branch",
     description: "Create a new branch",
     parameters: branchCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.branch command", { params });
 
       const result = await branchFromParams({
@@ -386,7 +386,7 @@ export function registerGitCommands(): void {
     name: "merge",
     description: "Merge a branch with conflict detection",
     parameters: mergeCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.merge command", { params });
 
       const result = await mergeFromParams({
@@ -413,7 +413,7 @@ export function registerGitCommands(): void {
     name: "checkout",
     description: "Checkout a branch with conflict detection",
     parameters: checkoutCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.checkout command", { params });
 
       const result = await checkoutFromParams({
@@ -440,7 +440,7 @@ export function registerGitCommands(): void {
     name: "rebase",
     description: "Rebase with conflict detection",
     parameters: rebaseCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.rebase command", { params });
 
       const result = await rebaseFromParams({

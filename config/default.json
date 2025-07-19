@@ -1,0 +1,6 @@
+{
+  "backend": "markdown",
+  "sessiondb": {
+    "backend": "json"
+  }
+}

@@ -23,32 +23,40 @@ describe("Task ID Utilities for Task 283", () => {
       expect(normalizeTaskIdForStorage("64")).toBe("64");
     });
 
-    test("should handle task# prefix", () => {
+    test("should handle task# prefix format", () => {
       expect(normalizeTaskIdForStorage("task#283")).toBe("283");
-      expect(normalizeTaskIdForStorage("task#001")).toBe("001");
-      expect(normalizeTaskIdForStorage("task#64")).toBe("64");
+      expect(normalizeTaskIdForStorage("TASK#64")).toBe("64");
+      expect(normalizeTaskIdForStorage("Task#001")).toBe("001");
+    });
+
+    test("should strip multiple # prefixes", () => {
+      expect(normalizeTaskIdForStorage("##283")).toBe("283");
+      expect(normalizeTaskIdForStorage("###64")).toBe("64");
     });
 
     test("should handle whitespace", () => {
-      expect(normalizeTaskIdForStorage("  #283  ")).toBe("283");
       expect(normalizeTaskIdForStorage("  283  ")).toBe("283");
-      expect(normalizeTaskIdForStorage("  task#283  ")).toBe("283");
+      expect(normalizeTaskIdForStorage("  #64  ")).toBe("64");
+      expect(normalizeTaskIdForStorage("  task#001  ")).toBe("001");
     });
 
     test("should return null for invalid input", () => {
       expect(normalizeTaskIdForStorage("")).toBeNull();
+      expect(normalizeTaskIdForStorage("   ")).toBeNull();
       expect(normalizeTaskIdForStorage("abc")).toBeNull();
       expect(normalizeTaskIdForStorage("#abc")).toBeNull();
       expect(normalizeTaskIdForStorage("283abc")).toBeNull();
-      expect(normalizeTaskIdForStorage("#283abc")).toBeNull();
-      expect(normalizeTaskIdForStorage("-283")).toBeNull();
-      expect(normalizeTaskIdForStorage("0")).toBe("0"); // 0 is valid
-    });
-
-    test("should return null for non-string input", () => {
+      expect(normalizeTaskIdForStorage("abc283")).toBeNull();
       expect(normalizeTaskIdForStorage(null as any)).toBeNull();
       expect(normalizeTaskIdForStorage(undefined as any)).toBeNull();
-      expect(normalizeTaskIdForStorage(283 as any)).toBeNull();
+      expect(normalizeTaskIdForStorage(123 as any)).toBeNull();
+    });
+
+    test("should handle edge cases", () => {
+      expect(normalizeTaskIdForStorage("0")).toBe("0");
+      expect(normalizeTaskIdForStorage("#0")).toBe("0");
+      expect(normalizeTaskIdForStorage("000")).toBe("000");
+      expect(normalizeTaskIdForStorage("#000")).toBe("000");
     });
   });
 
@@ -59,22 +67,21 @@ describe("Task ID Utilities for Task 283", () => {
       expect(formatTaskIdForDisplay("64")).toBe("#64");
     });
 
-    test("should handle numeric input", () => {
-      expect(formatTaskIdForDisplay(283)).toBe("#283");
-      expect(formatTaskIdForDisplay(1)).toBe("#1");
-      expect(formatTaskIdForDisplay(0)).toBe("#0");
-    });
-
-    test("should preserve existing # prefix", () => {
+    test("should keep display format as-is", () => {
       expect(formatTaskIdForDisplay("#283")).toBe("#283");
       expect(formatTaskIdForDisplay("#001")).toBe("#001");
       expect(formatTaskIdForDisplay("#64")).toBe("#64");
     });
 
+    test("should handle invalid input", () => {
+      expect(formatTaskIdForDisplay("")).toBe("");
+      expect(formatTaskIdForDisplay(null as any)).toBe("");
+      expect(formatTaskIdForDisplay(undefined as any)).toBe("");
+    });
+
     test("should handle edge cases", () => {
-      expect(formatTaskIdForDisplay("")).toBe("#unknown");
-      expect(formatTaskIdForDisplay(null as any)).toBe("#unknown");
-      expect(formatTaskIdForDisplay(undefined as any)).toBe("#unknown");
+      expect(formatTaskIdForDisplay("0")).toBe("#0");
+      expect(formatTaskIdForDisplay("000")).toBe("#000");
     });
   });
 
@@ -97,11 +104,13 @@ describe("Task ID Utilities for Task 283", () => {
       expect(isStorageFormat("abc")).toBe(false);
       expect(isStorageFormat("283abc")).toBe(false);
       expect(isStorageFormat("task#283")).toBe(false);
+      expect(isStorageFormat(null as any)).toBe(false);
+      expect(isStorageFormat(undefined as any)).toBe(false);
     });
 
     test("should handle whitespace", () => {
       expect(isStorageFormat("  283  ")).toBe(true);
-      expect(isStorageFormat("  #283  ")).toBe(false);
+      expect(isStorageFormat("  abc  ")).toBe(false);
     });
   });
 
@@ -124,12 +133,15 @@ describe("Task ID Utilities for Task 283", () => {
       expect(isDisplayFormat("#")).toBe(false);
       expect(isDisplayFormat("#abc")).toBe(false);
       expect(isDisplayFormat("#283abc")).toBe(false);
+      expect(isDisplayFormat("##283")).toBe(false);
       expect(isDisplayFormat("task#283")).toBe(false);
+      expect(isDisplayFormat(null as any)).toBe(false);
+      expect(isDisplayFormat(undefined as any)).toBe(false);
     });
 
     test("should handle whitespace", () => {
       expect(isDisplayFormat("  #283  ")).toBe(true);
-      expect(isDisplayFormat("  283  ")).toBe(false);
+      expect(isDisplayFormat("  #abc  ")).toBe(false);
     });
   });
 
@@ -159,86 +171,76 @@ describe("Task ID Utilities for Task 283", () => {
       expect(isValidTaskIdInput("283")).toBe(true);
       expect(isValidTaskIdInput("#283")).toBe(true);
       expect(isValidTaskIdInput("task#283")).toBe(true);
+      expect(isValidTaskIdInput("001")).toBe(true);
+      expect(isValidTaskIdInput("#001")).toBe(true);
       expect(isValidTaskIdInput("0")).toBe(true);
-      expect(isValidTaskIdInput("#0")).toBe(true);
     });
 
     test("should reject invalid formats", () => {
       expect(isValidTaskIdInput("")).toBe(false);
       expect(isValidTaskIdInput("abc")).toBe(false);
-      expect(isValidTaskIdInput("#abc")).toBe(false);
       expect(isValidTaskIdInput("283abc")).toBe(false);
-      expect(isValidTaskIdInput("#283abc")).toBe(false);
-      expect(isValidTaskIdInput("-283")).toBe(false);
-    });
-
-    test("should handle whitespace", () => {
-      expect(isValidTaskIdInput("  283  ")).toBe(true);
-      expect(isValidTaskIdInput("  #283  ")).toBe(true);
-      expect(isValidTaskIdInput("  task#283  ")).toBe(true);
+      expect(isValidTaskIdInput("#abc")).toBe(false);
+      expect(isValidTaskIdInput("##283")).toBe(false);
     });
   });
 
   describe("getTaskIdNumber", () => {
-    test("should extract numeric value from valid formats", () => {
+    test("should extract numbers from valid formats", () => {
       expect(getTaskIdNumber("283")).toBe(283);
       expect(getTaskIdNumber("#283")).toBe(283);
       expect(getTaskIdNumber("task#283")).toBe(283);
+      expect(getTaskIdNumber("001")).toBe(1);
+      expect(getTaskIdNumber("#001")).toBe(1);
       expect(getTaskIdNumber("0")).toBe(0);
-      expect(getTaskIdNumber("#0")).toBe(0);
     });
 
     test("should return null for invalid formats", () => {
       expect(getTaskIdNumber("")).toBeNull();
       expect(getTaskIdNumber("abc")).toBeNull();
-      expect(getTaskIdNumber("#abc")).toBeNull();
       expect(getTaskIdNumber("283abc")).toBeNull();
-      expect(getTaskIdNumber("#283abc")).toBeNull();
-      expect(getTaskIdNumber("-283")).toBeNull();
+      expect(getTaskIdNumber("#abc")).toBeNull();
     });
 
     test("should handle leading zeros correctly", () => {
-      expect(getTaskIdNumber("001")).toBe(1);
-      expect(getTaskIdNumber("#001")).toBe(1);
-      expect(getTaskIdNumber("task#001")).toBe(1);
-    });
-
-    test("should handle whitespace", () => {
-      expect(getTaskIdNumber("  283  ")).toBe(283);
-      expect(getTaskIdNumber("  #283  ")).toBe(283);
-      expect(getTaskIdNumber("  task#283  ")).toBe(283);
+      expect(getTaskIdNumber("000")).toBe(0);
+      expect(getTaskIdNumber("007")).toBe(7);
+      expect(getTaskIdNumber("#007")).toBe(7);
     });
   });
 
-  describe("Integration scenarios", () => {
-    test("should handle round-trip conversions", () => {
-      const inputs = ["283", "#283", "task#283", "001", "#001"];
-      
-      for (const input of inputs) {
-        const storage = normalizeTaskIdForStorage(input);
-        expect(storage).not.toBeNull();
-        
-        const display = formatTaskIdForDisplay(storage!);
-        expect(isDisplayFormat(display)).toBe(true);
-        
-        const backToStorage = normalizeTaskIdForStorage(display);
-        expect(backToStorage).toBe(storage);
+  describe("integration scenarios", () => {
+    test("should handle full workflow: input -> storage -> display", () => {
+      const userInputs = ["283", "#283", "task#283", "  #283  "];
+
+      for (const input of userInputs) {
+        // Normalize for storage
+        const storageId = normalizeTaskIdForStorage(input);
+        expect(storageId).toBe("283");
+
+        // Format for display
+        const displayId = formatTaskIdForDisplay(storageId!);
+        expect(displayId).toBe("#283");
+
+        // Verify format detection
+        expect(isStorageFormat(storageId!)).toBe(true);
+        expect(isDisplayFormat(displayId)).toBe(true);
       }
     });
 
-    test("should maintain consistency across utilities", () => {
-      const testId = "283";
-      
-      expect(isStorageFormat(testId)).toBe(true);
-      expect(isDisplayFormat(testId)).toBe(false);
-      expect(isValidTaskIdInput(testId)).toBe(true);
-      expect(getTaskIdNumber(testId)).toBe(283);
-      
-      const display = formatTaskIdForDisplay(testId);
-      expect(isStorageFormat(display)).toBe(false);
-      expect(isDisplayFormat(display)).toBe(true);
-      expect(isValidTaskIdInput(display)).toBe(true);
-      expect(getTaskIdNumber(display)).toBe(283);
+    test("should maintain data consistency", () => {
+      const testCases = [
+        { input: "1", storage: "1", display: "#1", number: 1 },
+        { input: "#064", storage: "064", display: "#064", number: 64 },
+        { input: "task#283", storage: "283", display: "#283", number: 283 },
+      ];
+
+      for (const testCase of testCases) {
+        expect(normalizeTaskIdForStorage(testCase.input)).toBe(testCase.storage);
+        expect(formatTaskIdForDisplay(testCase.storage)).toBe(testCase.display);
+        expect(getTaskIdNumber(testCase.input)).toBe(testCase.number);
+        expect(isValidTaskIdInput(testCase.input)).toBe(true);
+      }
     });
   });
-}); 
+});

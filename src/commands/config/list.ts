@@ -1,12 +1,19 @@
 /**
- * minsky config list command
- *
- * Lists all configuration values from all sources to show where each value comes from
+ * Config List Command
  */
 
+import { z } from "zod";
 import { Command } from "commander";
-import config from "config";
+import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
+// Delay config import to prevent early initialization before config-setup runs
+let config: any = null;
+function getConfig() {
+  if (!config) {
+    config = require("config");
+  }
+  return config;
+}
 
 interface ListOptions {
   json?: boolean;
@@ -18,13 +25,13 @@ export function createConfigListCommand(): Command {
     .option("--json", "Output in JSON format", false).action(async (options: ListOptions) => {
       try {
       // Use node-config directly - it provides source information via config.util.getConfigSources()
-        const sources = config.util.getConfigSources();
+        const sources = getConfig().util.getConfigSources();
         const resolved = {
-          backend: config.get("backend"),
-          backendConfig: config.get("backendConfig"),
-          credentials: config.get("credentials"),
-          sessiondb: config.get("sessiondb"),
-          ai: config.has("ai") ? config.get("ai") : undefined,
+          backend: getConfig().get("backend"),
+          backendConfig: getConfig().get("backendConfig"),
+          credentials: getConfig().get("credentials"),
+          sessiondb: getConfig().get("sessiondb"),
+          ai: getConfig().has("ai") ? getConfig().get("ai") : undefined,
         };
 
         if (options.json) {
@@ -59,7 +66,7 @@ async function displayConfigurationSources(resolved: any, sources: any[]) {
 
   await Bun.write(Bun.stdout, "\nResolved Configuration:\n");
   await Bun.write(Bun.stdout, `Backend: ${resolved.backend}\n`);
-  
+
   if (resolved.sessiondb) {
     await Bun.write(Bun.stdout, `SessionDB Backend: ${resolved.sessiondb.backend}\n`);
   }

@@ -58,12 +58,13 @@ export class SessionPathResolver {
       );
     }
     
-    log.debug("Validated session path", {
-      sessionDir: normalizedSessionDir,
-      userPath,
-      resolvedPath: targetPath,
-      relativeToBoundary,
-    });
+    // Temporarily disable logging to investigate infinite loop issue
+    // log.debug("Validated session path", {
+    //   sessionDir: normalizedSessionDir,
+    //   userPath,
+    //   resolvedPath: targetPath,
+    //   relativeToBoundary,
+    // });
     
     return targetPath;
   }
@@ -83,11 +84,12 @@ export class SessionPathResolver {
       // Path is within session if it doesn't start with ".."
       return !relativePath.startsWith("..") && relativePath !== "..";
     } catch (error) {
-      log.warn("Error checking path boundaries", {
-        sessionDir,
-        resolvedPath,
-        error: getErrorMessage(error as any),
-      });
+      // Temporarily disable logging to investigate infinite loop issue
+      // log.warn("Error checking path boundaries", {
+      //   sessionDir,
+      //   resolvedPath,
+      //   error: getErrorMessage(error as any),
+      // });
       return false;
     }
   }
@@ -112,11 +114,12 @@ export class SessionPathResolver {
       // Return "." for the session root
       return relativePath || ".";
     } catch (error) {
-      log.warn("Error converting absolute to relative path", {
-        sessionDir,
-        absolutePath,
-        error: getErrorMessage(error as any),
-      });
+      // Temporarily disable logging to investigate infinite loop issue
+      // log.warn("Error converting absolute to relative path", {
+      //   sessionDir,
+      //   absolutePath,
+      //   error: getErrorMessage(error as any),
+      // });
       return null;
     }
   }
