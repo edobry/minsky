@@ -4,7 +4,6 @@
  */
 import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils";
-import { resolveMainWorkspacePath } from "../workspace";
 import { resolveTaskWorkspacePath } from "../../utils/workspace-resolver";
 import { autoCommitTaskChanges } from "../../utils/auto-commit";
 import { getErrorMessage } from "../../errors/index";
@@ -413,11 +412,11 @@ export async function getTaskSpecContentFromParams(
   params: TaskSpecContentParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => TaskService;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: (options) => createTaskServiceImpl(options),
   }
 ): Promise<{ task: any; specPath: string; content: string; section?: string }> {
@@ -435,8 +434,11 @@ export async function getTaskSpecContentFromParams(
       repo: validParams.repo,
     });
 
-    // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Then get the workspace path using backend-aware resolution
+    const workspacePath = await deps.resolveTaskWorkspacePath({
+      backend: validParams.backend || "markdown",
+      repoUrl: repoPath
+    });
 
     // Create task service
     const taskService = deps.createTaskService({
@@ -622,11 +624,11 @@ export async function deleteTaskFromParams(
   params: TaskDeleteParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<{ success: boolean; taskId: string; task?: any }> {
@@ -649,8 +651,11 @@ export async function deleteTaskFromParams(
       repo: validParams.repo,
     });
 
-    // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Then get the workspace path using backend-aware resolution
+    const workspacePath = await deps.resolveTaskWorkspacePath({
+      backend: validParams.backend || "markdown",
+      repoUrl: repoPath
+    });
 
     // Create task service
     const taskService = await deps.createTaskService({
@@ -658,7 +663,7 @@ export async function deleteTaskFromParams(
       backend: validParams.backend,
     });
 
-    // Get the task first to verify it exists and get details
+    // Get the task first to verify it exists and get details for commit message
     const task = await taskService.getTask(validParams.taskId);
 
     if (!task) {
@@ -673,6 +678,12 @@ export async function deleteTaskFromParams(
     const deleted = await taskService.deleteTask(validParams.taskId, {
       force: validParams.force,
     });
+
+    // Auto-commit changes for markdown backend
+    if (deleted && (validParams.backend || "markdown") === "markdown") {
+      const commitMessage = `chore(${validParams.taskId}): delete task`;
+      await autoCommitTaskChanges(workspacePath, commitMessage);
+    }
 
     return {
       success: deleted,
