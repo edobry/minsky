@@ -53,7 +53,7 @@ function isDuplicateContent(content1: string, content2: string): boolean {
 
 /**
  * Validates PR content for title duplication issues (duplicated from pr-validation.ts)
- * OPTIMIZED: Added performance guards for large commit messages
+ * OPTIMIZED: Added performance guards for extremely large commit messages
  */
 function validatePrContent(title: string, body: string): string[] {
   const issues: string[] = [];
@@ -62,12 +62,12 @@ function validatePrContent(title: string, body: string): string[] {
     return issues; // Skip validation if either is empty
   }
 
-  // Performance optimization: Skip title duplication check for very large bodies
-  // Large commit messages (like detailed PR descriptions) are unlikely to have
-  // simple title duplication issues and the validation becomes expensive
-  const MAX_BODY_LENGTH_FOR_VALIDATION = 1000;
+  // Performance optimization: Skip title duplication check only for extremely large bodies
+  // Raised threshold to 5000 chars to allow normal PR descriptions while avoiding
+  // performance issues with massive commit messages (like auto-generated changelogs)
+  const MAX_BODY_LENGTH_FOR_VALIDATION = 5000;
   if (body.length > MAX_BODY_LENGTH_FOR_VALIDATION) {
-    console.log(`⚡ Skipping title duplication check for large commit message (${body.length} chars)`);
+    console.log(`⚡ Skipping title duplication check for extremely large commit message (${body.length} chars)`);
     return issues;
   }
 
