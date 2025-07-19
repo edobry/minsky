@@ -20,6 +20,13 @@ All notable changes to this project will be documented in this file.
   - **Impact**: Significantly improved test suite reliability and maintainability
   - **Tools Created**: 9 comprehensive AST codemods for automated test infrastructure fixes
 
+- **Task #303: Auto-commit integration for task operations** - Implemented complete auto-commit functionality for all task operations in markdown backend
+  - **Auto-commit integration**: Added to all 8 task command functions (list, get, status get/set, create, delete, spec)
+  - **Backend-aware workspace resolution**: Uses `TaskBackendRouter` and `resolveTaskWorkspacePath` for session-first workflow
+  - **Comprehensive test coverage**: Updated all test mocks to use new workspace resolution (20/20 tests passing)
+  - **Performance optimizations**: Fixed session PR creation hangs caused by commit-msg hook processing large commit messages
+  - **Impact**: Eliminates need for manual git commits after task operations - agents can perform task status updates, creation, and deletion seamlessly
+
 ### Fixed
 
 - **CRITICAL: Session Approve Safety**: Fixed dangerous error handling in session approve that could leave repository in inconsistent state
@@ -57,6 +64,11 @@ All notable changes to this project will be documented in this file.
   - **Enhanced Error Messages**: Added contextual information for timeout errors to aid debugging
   - **Impact**: Eliminates "mysterious hangs" during PR creation, even with local git repositories
   - **Created Task #294**: Comprehensive audit of entire codebase for similar timeout issues and ESLint rule development
+
+- **Session PR timeout fix**: Resolved 3+ minute hangs in session PR creation
+  - **Root cause**: Commit-msg hook script `check-title-duplication.ts` had exponential performance degradation with large commit messages (2000+ chars)
+  - **Solution**: Added length guards and early exit conditions for large inputs, optimized regex operations
+  - **Performance**: Improved session PR creation from 180+ seconds to <1 second (99.5% improvement)
 
 ### Added
 
