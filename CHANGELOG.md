@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2025-01-19] - Configuration System Complete Migration
+
+### Fixed
+- **CRITICAL**: Resolved "sources is not defined" error in configuration commands
+  - Fixed undefined variable reference in shared config command implementation
+  - Made logger initialization lazy to prevent early configuration access during module loading
+  - Updated config commands to properly use configuration provider metadata
+  - Removed all remaining node-config compatibility code and references
+
+### Removed
+- Completed removal of node-config system dependencies and files
+  - Removed `config/` directory with old node-config files
+  - Removed `NodeConfigProvider` and `NodeConfigFactory` classes
+  - Removed migration test files and redundant test code
+  - Cleaned up all node-config import statements and references
+
+### Changed
+- Configuration commands (`minsky config list`, `minsky config show`) now fully functional
+- Lazy logger initialization prevents configuration access race conditions
+- All configuration access now goes through custom type-safe configuration system
+- Improved error handling in configuration command implementations
+
 ## [Unreleased]
 
 ### Added
