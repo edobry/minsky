@@ -50,6 +50,26 @@ describe("Interface-Layer Session Context Resolution", () => {
       const result = CLISessionContextResolver.resolveSessionContext(params, workingDir);
       
       expect(result.session).toBe("explicit-session");
+      expect(result.title).toBe("test");
+    });
+
+    it("should use explicit task parameter for session identification", () => {
+      const params = { task: "158", title: "test" };
+      const result = CLISessionContextResolver.resolveSessionContext(params);
+      
+      expect(result.session).toBe("158");
+      expect(result.task).toBe("158");
+      expect(result.title).toBe("test");
+    });
+
+    it("should prefer name over task when both are provided", () => {
+      const params = { name: "task#158", task: "158", title: "test" };
+      const result = CLISessionContextResolver.resolveSessionContext(params);
+      
+      expect(result.session).toBe("task#158");
+      expect(result.name).toBe("task#158");
+      expect(result.task).toBe("158");
+      expect(result.title).toBe("test");
     });
   });
 
@@ -81,6 +101,25 @@ describe("Interface-Layer Session Context Resolution", () => {
       expect(() => {
         MCPSessionContextResolver.resolveSessionContext(params, workingDir);
       }).toThrow(ValidationError);
+    });
+
+    it("should use explicit task parameter for session identification", () => {
+      const params = { task: "158", title: "test" };
+      const result = MCPSessionContextResolver.resolveSessionContext(params);
+      
+      expect(result.session).toBe("158");
+      expect(result.task).toBe("158");
+      expect(result.title).toBe("test");
+    });
+
+    it("should prefer name over task when both are provided", () => {
+      const params = { name: "task#158", task: "158", title: "test" };
+      const result = MCPSessionContextResolver.resolveSessionContext(params);
+      
+      expect(result.session).toBe("task#158");
+      expect(result.name).toBe("task#158");
+      expect(result.task).toBe("158");
+      expect(result.title).toBe("test");
     });
   });
 

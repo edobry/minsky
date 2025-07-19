@@ -27,11 +27,11 @@ export class CLISessionContextResolver {
    * Auto-detects session from working directory when possible
    */
   static resolveSessionContext(params: any, workingDir?: string): any {
-    // If session is explicitly provided, use it
-    if (params.session || params.name) {
+    // If session is explicitly provided, use it (support session, name, or task parameters)
+    if (params.session || params.name || params.task) {
       return {
         ...params,
-        session: params.session || params.name
+        session: params.session || params.name || params.task
       };
     }
 
@@ -73,11 +73,11 @@ export class MCPSessionContextResolver {
    * Always requires explicit session parameter
    */
   static resolveSessionContext(params: any, workingDir?: string): any {
-    // If session is explicitly provided, use it
-    if (params.session || params.name) {
+    // If session is explicitly provided, use it (support session, name, or task parameters)
+    if (params.session || params.name || params.task) {
       return {
         ...params,
-        session: params.session || params.name
+        session: params.session || params.name || params.task
       };
     }
 
@@ -85,12 +85,14 @@ export class MCPSessionContextResolver {
     throw new ValidationError(
       `Session parameter required for MCP interface.
 
-Please provide either:
+Please provide one of:
   session: "task#158"     // Session name
+  name: "task#158"        // Session name (alternative)
   task: "158"            // Task ID
 
 Examples:
   session.pr({ session: "task#158", title: "Fix bug" })
+  session.pr({ name: "task#158", title: "Fix bug" })
   session.pr({ task: "158", title: "Fix bug" })
 
 💡 MCP tools don't auto-detect session context like CLI commands do.`
