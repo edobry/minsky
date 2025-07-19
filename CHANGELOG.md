@@ -1317,3 +1317,13 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **Linter Error Cleanup**: Several TypeScript linter errors remain to be addressed in follow-up commits
 
 ## Previous Entries
+
+- **Custom Type-Safe Configuration System (#295)**: Implemented and fully migrated from node-config to a custom configuration system with:
+  - Full TypeScript integration with Zod schema validation
+  - Hierarchical configuration loading (Environment → User → Project → Defaults)
+  - Domain-oriented configuration organization (backend, sessiondb, github, ai)
+  - Automatic environment variable mapping with MINSKY_* prefix support
+  - 35 comprehensive tests with 100% pass rate
+  - Zero breaking changes during migration
+  - Performance optimization with caching
+  - Complete removal of node-config dependency

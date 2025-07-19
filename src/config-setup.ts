@@ -1,9 +1,30 @@
-// config-setup.ts - Configuration system setup
-// This file will be updated to use the custom configuration system once import issues are resolved
+/**
+ * Configuration System Setup
+ * 
+ * Initializes the custom type-safe configuration system.
+ * This file must be imported before any code that uses configuration.
+ */
 
-// TODO: Replace with custom configuration initialization
-// For now, keeping minimal setup to avoid blocking the migration
+import { initializeConfiguration, CustomConfigFactory } from "./domain/configuration";
+import { exit } from "./utils/process";
 
-// The custom configuration system is built and tested (35 tests pass)
-// But there are TypeScript module resolution issues preventing direct import
-console.log("Configuration: Ready for custom system migration");
+/**
+ * Initialize the custom configuration system
+ * 
+ * This replaces node-config with our custom type-safe configuration system.
+ * Must be called before any configuration access.
+ */
+export async function setupConfiguration(): Promise<void> {
+  try {
+    const factory = new CustomConfigFactory();
+    await initializeConfiguration(factory, {
+      workingDirectory: process.cwd(),
+      enableCache: true,
+    });
+    
+    console.log("✓ Custom configuration system initialized successfully");
+  } catch (error) {
+    console.error("✗ Failed to initialize configuration system:", error);
+    throw error;
+  }
+}
