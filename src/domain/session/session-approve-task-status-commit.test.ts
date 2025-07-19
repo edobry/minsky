@@ -73,7 +73,7 @@ describe("Session Approve Task Status Commit", () => {
         if (command.includes("git add process/tasks.md")) {
           return Promise.resolve("");
         }
-        if (command.includes("git commit -m \"chore(#123): update task status to DONE\"")) {
+        if (command.includes("git commit -m \"chore(123): update task status to DONE\"")) {
           return Promise.resolve("");
         }
         if (command.includes("git push")) {
@@ -127,7 +127,7 @@ describe("Session Approve Task Status Commit", () => {
 
     // Verify the merge was successful
     expect(result.isNewlyApproved).toBe(true);
-    expect(result.taskId).toBe("#123"); // Task ID includes the # prefix
+    expect(result.taskId).toBe("123"); // Task ID in storage format (plain number)
 
     // BUG: These assertions will fail until the bug is fixed
     // The task status update should be committed and pushed
@@ -139,7 +139,7 @@ describe("Session Approve Task Status Commit", () => {
     expect(gitCommands).toContain("git add process/tasks.md");
 
     // Should commit the task status update
-    expect(gitCommands).toContain("git commit -m \"chore(#123): update task status to DONE\"");
+    expect(gitCommands).toContain("git commit -m \"chore(123): update task status to DONE\"");
 
     // Should push the commit
     expect(gitCommands).toContain("git push");
@@ -323,7 +323,7 @@ describe("Session Approve Task Status Commit", () => {
 
     // Should trigger early exit since task is DONE and PR branch doesn't exist
     expect(result.isNewlyApproved).toBe(false); // Session was already approved
-    expect(result.taskId).toBe("#125");
+    expect(result.taskId).toBe("125"); // Task ID in storage format
     expect(result.session).toBe("task#125");
 
     // Should only call commands to check PR branch existence, then exit
@@ -413,7 +413,7 @@ describe("Session Approve Task Status Commit", () => {
 
     // Verify early exit behavior
     expect(result.isNewlyApproved).toBe(false); // Session was already approved
-    expect(result.taskId).toBe("#266");
+    expect(result.taskId).toBe("266"); // Task ID in storage format
     expect(result.session).toBe("task#266");
 
     // Should only call commands to check PR branch existence, then exit

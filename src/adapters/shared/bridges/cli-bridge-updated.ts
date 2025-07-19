@@ -23,6 +23,7 @@ import {
   addArgumentsFromMappings,
   normalizeCliParameters,
 } from "./parameter-mapper";
+import { formatTaskIdForDisplay } from "../../../domain/tasks/task-id-utils";
 
 /**
  * CLI-specific execution context
@@ -366,7 +367,9 @@ export class CliCommandBridge {
       return (result: any) => {
         if (result.tasks && Array.isArray(result.tasks)) {
           result.tasks.forEach((task: any) => {
-            console.log(`${task.id}: ${task.title} [${task.status}]`);
+            // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix
+            const displayId = formatTaskIdForDisplay(task.id);
+            console.log(`${displayId}: ${task.title} [${task.status}]`);
           });
         }
       };

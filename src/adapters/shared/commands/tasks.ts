@@ -13,7 +13,8 @@ import {
   CommandCategory,
   CommandExecutionContext,
   CommandParameterMap,
-} from "../../../schemas/command-registry";
+  sharedCommandRegistry,
+} from "../command-registry";
 import { ValidationError } from "../../../errors/index";
 import {
   createTaskFromTitleAndDescription,
@@ -213,10 +214,10 @@ const tasksStatusGetRegistration = {
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
+    const normalizedTaskId = normalizeTaskId((params as any).taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${(params as any).taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const status = await getTaskStatusFromParams({
@@ -698,23 +699,23 @@ const tasksDeleteRegistration = {
 
 export function registerTasksCommands() {
   // Register tasks.list command
-  // sharedCommandRegistry.registerCommand(tasksListRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksListRegistration);
 
   // Register tasks.get command
-  // sharedCommandRegistry.registerCommand(tasksGetRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksGetRegistration);
 
   // Register tasks.create command
-  // sharedCommandRegistry.registerCommand(tasksCreateRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksCreateRegistration);
 
   // Register tasks.delete command
-  // sharedCommandRegistry.registerCommand(tasksDeleteRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksDeleteRegistration);
 
   // Register tasks.status.get command
-  // sharedCommandRegistry.registerCommand(tasksStatusGetRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksStatusGetRegistration);
 
   // Register tasks.status.set command
-  // sharedCommandRegistry.registerCommand(tasksStatusSetRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksStatusSetRegistration);
 
   // Register tasks.spec command
-  // sharedCommandRegistry.registerCommand(tasksSpecRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksSpecRegistration);
 }

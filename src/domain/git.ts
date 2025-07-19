@@ -494,8 +494,8 @@ export class GitService implements GitServiceInterface {
         return { workdir, stashed: false };
       }
 
-      // Stash changes
-      await execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
+      // Stash changes including untracked files
+      await execAsync(`git -C ${workdir} stash push -u -m "minsky session update"`);
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
@@ -740,8 +740,8 @@ export class GitService implements GitServiceInterface {
         return { workdir, stashed: false };
       }
 
-      // Stash changes
-      await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
+      // Stash changes including untracked files
+      await deps.execAsync(`git -C ${workdir} stash push -u -m "minsky session update"`);
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
