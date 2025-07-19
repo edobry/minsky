@@ -34,6 +34,7 @@ export function mockExistsSync(path: string): boolean {
   return exists;
 }
 
+// Mock rmSync for testing (since rmSync is a newer Node.js API)
 export function mockRmSync(
   path: string,
   options?: { recursive?: boolean; force?: boolean }

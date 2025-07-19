@@ -82,8 +82,8 @@ export abstract class BaseResponseFormatter<T = any> implements ResponseFormatte
    * @param context Command execution context
    * @returns JSON-serializable object
    */
-  formatJson(data: T, _context: CommandExecutionContext): object {
-    return data as unknown as object;
+  formatJson(data: T, context: CommandExecutionContext): object {
+    return data;
   }
 }
 
@@ -288,7 +288,7 @@ export class TableFormatter<T extends Record<string, any>> extends BaseResponseF
           const value = String(row[col] || "");
           return value.padEnd(columnWidths[col]);
         })
-        .join(" | ") as unknown;
+        .join(" | ");
 
       output += `${dataRow}\n`;
     });

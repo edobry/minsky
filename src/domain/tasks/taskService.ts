@@ -576,7 +576,7 @@ ${description}
  * @returns TaskService instance
  */
 export function createTaskService(options: TaskServiceOptions = {}): TaskService {
-  return new TaskService(options as unknown);
+  return new TaskService(options);
 }
 
 /**

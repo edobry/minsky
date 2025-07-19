@@ -557,5 +557,5 @@ export class JsonFileTaskBackend implements TaskBackend {
  */
 export function createJsonFileTaskBackend(config: JsonFileTaskBackendOptions): TaskBackend {
   // Simply return the instance since JsonFileTaskBackend already implements TaskBackend
-  return new JsonFileTaskBackend(config as unknown);
+  return new JsonFileTaskBackend(config);
 }

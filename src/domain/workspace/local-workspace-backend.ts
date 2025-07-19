@@ -107,7 +107,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       
       // Handle file not found
       if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
-        throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);
+        throw new FileNotFoundError(workspaceDir, relativePath, error);
       }
       
       throw new WorkspaceError(
@@ -206,7 +206,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       
       // Handle file not found
       if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
-        throw new FileNotFoundError(workspaceDir, relativePath, error as unknown);
+        throw new FileNotFoundError(workspaceDir, relativePath, error);
       }
       
       const message = `Failed to delete: ${getErrorMessage(error as any)}`;
@@ -273,7 +273,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       
       // Handle directory not found
       if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
-        throw new FileNotFoundError(workspaceDir, relativePath || ".", error as unknown);
+        throw new FileNotFoundError(workspaceDir, relativePath || ".", error);
       }
       
       throw new WorkspaceError(
