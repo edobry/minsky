@@ -231,7 +231,7 @@ export async function getTaskStatusFromParams(
     // Create task service
     const taskService = await deps.createTaskService({
       workspacePath,
-      backend: validParams.backend,
+      backend: validParams.backend || "markdown", // Use same fallback as setTaskStatusFromParams
     });
 
     // Get the task
