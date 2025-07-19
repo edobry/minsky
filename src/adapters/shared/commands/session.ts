@@ -142,33 +142,24 @@ Examples:
   minsky session start --description "Fix login issue" my-session`);
       }
 
-      try {
-        const session = await sessionStart({
-          name: params!.name,
-          task: params!.task,
-          description: params!.description,
-          branch: params!.branch,
-          repo: params!.repo,
-          session: params!.session,
-          json: params!.json,
-          quiet: params!.quiet,
-          noStatusUpdate: params!.noStatusUpdate,
-          skipInstall: params!.skipInstall,
-          packageManager: params!.packageManager,
-        });
+      const session = await sessionStart({
+        name: params!.name,
+        task: params!.task,
+        description: params!.description,
+        branch: params!.branch,
+        repo: params!.repo,
+        session: params!.session,
+        json: params!.json,
+        quiet: params!.quiet,
+        noStatusUpdate: params!.noStatusUpdate,
+        skipInstall: params!.skipInstall,
+        packageManager: params!.packageManager,
+      });
 
-        return {
-          success: true,
-          session,
-        };
-      } catch (error) {
-        log.error("Failed to start session", {
-          error: getErrorMessage(error as Error),
-          session: params!.name,
-          task: params!.task,
-        });
-        throw error;
-      }
+      return {
+        success: true,
+        session,
+      };
     },
   });
 
