@@ -64,6 +64,10 @@ describe("Session Approve Branch Cleanup", () => {
         if (command.includes("merge-base --is-ancestor")) {
           throw new Error("not an ancestor"); // Failure means not merged yet
         }
+        // Simulate git branch list including the task branch
+        if (command.includes("git branch --format")) {
+          return Promise.resolve("main\npr/task#265\ntask#265\n");
+        }
         // Simulate successful branch operations
         return Promise.resolve("");
       }),
@@ -153,9 +157,13 @@ describe("Session Approve Branch Cleanup", () => {
         if (command.includes("merge-base --is-ancestor")) {
           throw new Error("not an ancestor"); // Failure means not merged yet
         }
-        // Simulate branch deletion failures
-        if (command.includes("branch -d")) {
-          throw new Error("branch deletion failed - branch not found or has unmerged changes");
+        // Simulate git branch list including the task branch
+        if (command.includes("git branch --format")) {
+          return Promise.resolve("main\npr/task#265\ntask#265\n");
+        }
+        // Simulate successful branch operations except task branch cleanup (to test graceful failure)
+        if (command.includes("git branch -d task#265")) {
+          throw new Error("Failed to delete task branch"); // Simulate cleanup failure
         }
         return Promise.resolve("");
       }),
