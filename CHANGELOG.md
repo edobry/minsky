@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **CRITICAL: Session Approve Safety**: Fixed dangerous error handling in session approve that could leave repository in inconsistent state
+  - **Root Cause**: Nested try-catch structure incorrectly treated ALL merge errors as "already merged" and continued processing
+  - **Impact**: Fast-forward merge failures (like diverged branches) would not stop the command, potentially corrupting repo state
+  - **Solution**: Implemented fail-fast behavior for any merge error except genuine "already merged" scenarios
+  - **Commands Affected**: `minsky session approve --task <id>`
+  - **Safety Improvement**: Command now immediately exits on merge failures with proper stash restoration
+
+- **Auto-Stash Untracked Files**: Fixed session approve auto-stash to include untracked files that would be overwritten by merge
+  - **Root Cause**: `git stash push` was missing `-u` flag to include untracked files
+  - **Impact**: Session approve would fail with "untracked working tree files would be overwritten by merge" error
+  - **Solution**: Added `-u` flag to both `stashChanges()` and `stashChangesWithDependencies()` methods
+  - **Commands Affected**: `minsky session approve --task <id>`
+  - **User Experience**: Auto-stashing now handles both tracked and untracked files seamlessly
+
 - **Missing Task Commands**: Restored all task commands that were inadvertently commented out in a recent merge
   - **Root Cause**: All 7 task command registrations were commented out in `registerTasksCommands()` function
   - **Commands Restored**: `tasks.list`, `tasks.get`, `tasks.create`, `tasks.delete`, `tasks.status.get`, `tasks.status.set`, `tasks.spec`
