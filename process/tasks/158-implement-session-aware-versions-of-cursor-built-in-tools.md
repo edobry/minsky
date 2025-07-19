@@ -35,8 +35,16 @@
 - These tools are fully implemented and tested but not accessible to AI agents
 
 **🔥 Priority 2: Implement Missing Phase 2 Search Tools**
-- Complete specifications exist but implementations are missing
-- Critical for AI agent workflow efficiency
+- Current focus on simple `session_grep_search` (ripgrep-based text search) 
+- **🔄 DEFERRED TO TASK #250**: `session_file_search` and `session_codebase_search`
+
+**🔗 CROSS-REFERENCE**: The remaining Phase 2 search tools requiring embeddings/AI are now handled by **[Task #250: Investigate and Implement Session-Aware Code Search MCP Tools with Fast Retrieval APIs](250-investigate-and-implement-session-aware-code-search-mcp-tools-with-fast-retrieval-apis.md)**
+
+This task (#158) focuses on basic session-aware tools and simple text search, while Task #250 handles:
+- `session_file_search` - Fuzzy file search with ML ranking
+- `session_codebase_search` - Semantic code search with embeddings  
+- Advanced retrieval APIs (Morph, Relace, etc.)
+- Vector databases and embedding infrastructure
 
 **🔥 Priority 3: Reconcile Interface Conflicts**
 - Current `session_read_file` may conflict with Phase 3 plans
@@ -49,8 +57,8 @@
 | 1 | `session_edit_file` | ✅ Complete | ❌ Commented out | ❌ No access |
 | 1 | `session_search_replace` | ✅ Complete | ❌ Commented out | ❌ No access |
 | 2 | `session_grep_search` | ✅ Complete | ✅ Active | ✅ Available |
-| 2 | `session_file_search` | ❌ Missing | ❌ N/A | ❌ No access |
-| 2 | `session_codebase_search` | ❌ Missing | ❌ N/A | ❌ No access |
+| 2 | `session_file_search` | 🔄 **DEFERRED TO TASK #250** | ❌ N/A | ❌ No access |
+| 2 | `session_codebase_search` | 🔄 **DEFERRED TO TASK #250** | ❌ N/A | ❌ No access |
 | Basic | `session_read_file` | ✅ Complete | ✅ Active | ✅ Available |
 | Basic | `session_write_file` | ✅ Complete | ✅ Active | ✅ Available |
 | Basic | `session_list_directory` | ✅ Complete | ✅ Active | ✅ Available |
@@ -321,9 +329,9 @@ Based on research, evaluate whether these tools need session-aware versions:
    - ✅ Interface specifications matching Cursor exactly
    - ✅ **Detailed behavior analysis**: `test-verification/phase1-tools-results.md`
 
-### Phase 2: Essential Search Operations (REVERSE ENGINEERING COMPLETED)
+### Phase 2: Search Tools (PARTIALLY COMPLETED - REMAINDER DELEGATED)
 
-**Priority**: High - Critical for code discovery and navigation
+**STATUS: 1/3 COMPLETED** - Basic text search implemented, advanced search delegated to Task #250
 
 1. [x] **REVERSE ENGINEER SEARCH TOOLS BEHAVIOR** ✅ COMPLETED
    - ✅ Systematically tested `grep_search` with various patterns and options
@@ -331,25 +339,23 @@ Based on research, evaluate whether these tools need session-aware versions:
    - ✅ Documented `codebase_search` semantic search behavior and context handling
    - ✅ Created comprehensive test cases based on observed behavior
    - ✅ Documented exact interface requirements and error patterns
-2. [ ] Implement `session_grep_search` using **ripgrep (rg)**
-   - Install/integrate ripgrep as dependency
-   - Support regex, case sensitivity, include/exclude patterns
-   - Limit results to 50 matches (matching Cursor)
-   - **Apply reverse engineering findings for exact compatibility**
-3. [ ] Implement `session_file_search` using **fuzzy matching algorithm**
-   - Implement fzf-style fuzzy matching or use existing library
-   - Efficient file path search within session
-   - Limit results to 10 matches (matching Cursor)
-   - **Match fuzzy matching behavior identified in analysis**
-4. [ ] Implement `session_codebase_search` - **simplified semantic search**
-   - Start with keyword/phrase matching (defer complex embeddings)
-   - Support directory filtering with glob patterns
-   - Focus on practical search functionality first
-   - **Follow semantic search patterns from reverse engineering**
-5. [ ] Create comprehensive search operation tests
-   - [ ] Validate against reverse engineering test cases
-   - [ ] Ensure exact interface compatibility with Cursor tools
-   - [ ] Test session boundary enforcement for all search operations
+2. [x] **IMPLEMENT `session_grep_search`** ✅ COMPLETED
+   - ✅ Integrated ripgrep (rg) for fast text search
+   - ✅ Support regex, case sensitivity, include/exclude patterns  
+   - ✅ 50 result limit with "More results available" message
+   - ✅ Cursor-compatible output format with file:// URLs
+3. [🔄] **DELEGATE ADVANCED SEARCH TO TASK #250**
+   - 🔄 `session_file_search` - **DEFERRED TO TASK #250** (requires ML/fuzzy matching)
+   - 🔄 `session_codebase_search` - **DEFERRED TO TASK #250** (requires embeddings/semantic search)
+
+**📋 DELEGATION RATIONALE**: Advanced search tools require:
+- Embedding generation and vector databases
+- Fuzzy matching algorithms and ML ranking  
+- Integration with retrieval APIs (Morph, Relace, etc.)
+- These capabilities are better suited for Task #250's comprehensive approach
+
+**🎯 TASK #158 SCOPE**: Focus on basic session-aware tools and simple text search
+**🎯 TASK #250 SCOPE**: Advanced search with embeddings, ML ranking, and retrieval APIs
 
 **Infrastructure Ready**:
 
