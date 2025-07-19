@@ -22,7 +22,7 @@
     "@eslint/js": "9.29.0",
     "@modelcontextprotocol/inspector": "0.16.1",
     "@types/bun": "^1.2.11",
-    "@types/jest": "^29.5.14",
+    "@types/jest": "^30.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.15.17",
     "@types/pg": "^8.15.4",
