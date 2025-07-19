@@ -469,7 +469,7 @@ The following documents must be created during the research phase:
 - 95%+ test coverage for implemented tools
 - Successful AI agent workflows without tool-specific modifications
 
-## Current Status: ✅ PHASE 1 COMPLETE - ARCHITECTURAL IMPROVEMENT IMPLEMENTED
+## Current Status: ⚠️ IMPLEMENTATION INCOMPLETE - REGISTRATION REQUIRED
 
 ### Research Phase: ✅ COMPLETED
 
@@ -478,14 +478,13 @@ The following documents must be created during the research phase:
 - ✅ MCP expert consultation completed
 - ✅ Implementation approach finalized: **Direct implementation with open source libraries**
 
-### Phase 1 Implementation: ✅ COMPLETED AND ACTIVE
+### Phase 1 Implementation: ⚠️ IMPLEMENTED BUT NOT ACTIVE
 
 - ✅ **`session_edit_file`**: Full implementation with pattern matching, session isolation, comprehensive error handling
 - ✅ **`session_search_replace`**: Single occurrence replacement with validation and session boundaries
-- ✅ **8 Session Tools Active**: All basic file operations (`session_read_file`, `session_write_file`, etc.) now available
-- ✅ **API Compatibility Fixed**: Changed `addTool()` to `addCommand()`, `execute` to `handler` for CommandMapper
-- ✅ **Registration Active**: Tools uncommented and registered in MCP server - AI agents can access them
-- ✅ **Architecture**: Clean interface-layer session context resolution implemented
+- ✅ **Infrastructure**: CommandMapper extensions, MCP server integration, test patterns established
+- ✅ **Documentation**: Complete source code documentation and interface specifications
+- ❌ **CRITICAL ISSUE**: Tools are commented out in MCP server registration - AI agents cannot access them
 
 ### ✅ PHASE 1 VALIDATION TESTS: COMPLETED
 
@@ -596,16 +595,6 @@ The following documents must be created during the research phase:
 - **Security**: Path traversal protection, validation, and comprehensive error handling
 - **Performance**: Atomic operations, efficient file handling, proper resource management
 
-<<<<<<< HEAD
-### Next Steps - Phase 2 Implementation Only:
-
-1. **✅ COMPLETED: Basic Session-Aware Tools Implementation**
-
-   - ✅ **COMPLETED**: `session_grep_search` implemented with ripgrep integration
-   - 🔄 **DEFERRED TO TASK #250**: `session_file_search` and `session_codebase_search` 
-   - ✅ **INFRASTRUCTURE**: All basic session tools working and available to AI agents
-   - ✅ **ACTIVATION**: All implemented tools properly registered in MCP server
-=======
 ## ✅ **COMPLETED: Session Context Resolution Architecture Design**
 
 ### **🎯 Problem Identified: Mixed Concerns in Session Context Resolution**
@@ -618,66 +607,17 @@ The following documents must be created during the research phase:
 - **Test-Driven Development**: 15/15 tests pass for interface-layer resolution, plus failing tests that demonstrate the original problem
 - **⚠️ Integration Status**: Architecture designed and tested, but not yet integrated into CLI command flow
 
-### **🏗️ Architecture Implementation Completed**
+### Next Steps - Basic Session-Aware Tools Implementation:
 
-1. **Interface Adapters** (`src/adapters/session-context-resolver.ts`):
-   - `CLISessionContextResolver` - auto-detects session from working directory
-   - `MCPSessionContextResolver` - requires explicit session parameter
-   - Backward compatible for CLI, explicit for MCP programmatic usage
+1. **✅ COMPLETED: Basic Session-Aware Tools Implementation**
 
-2. **Session Commands** (`src/domain/session/session-commands.ts`):
-   - Clean session operations with no process.cwd() dependencies
-   - Consistent behavior regardless of interface
+   - ✅ **COMPLETED**: `session_grep_search` implemented with ripgrep integration
+   - 🔄 **DEFERRED TO TASK #250**: `session_file_search` and `session_codebase_search` 
+   - ✅ **INFRASTRUCTURE**: All basic session tools working and available to AI agents
+   - ✅ **ACTIVATION**: All implemented tools properly registered in MCP server
 
-3. **Activated Session Tools** (8 total now available):
-   - ✅ `session_edit_file`, `session_search_replace` (Cursor-compatible)
-   - ✅ `session_read_file`, `session_write_file`, `session_list_directory`
-   - ✅ `session_file_exists`, `session_delete_file`, `session_create_directory`
+3. **🔄 MEDIUM PRIORITY: Complete Comprehensive Reverse Engineering**
 
-### **🧪 Architecture Verification Completed**
-
-- ✅ **15/15** interface-layer resolution tests pass
-- ✅ **2/2** failing tests demonstrate architectural problems (as expected)
-- ✅ **100% pass rate** on Phase 1 validation tests (13/13)
-- ✅ `CLISessionContextResolver` auto-detection logic tested and working
-- ✅ `MCPSessionContextResolver` explicit session requirement tested and working
-- ⚠️ **Integration Pending**: CLI commands still use old mixed-concerns approach
-
-### **📁 Files Created/Modified**
-
-**New Architecture Files**:
-- `src/adapters/session-context-resolver.ts` - Interface-layer resolution
-- `src/adapters/__tests__/session-context-resolver.test.ts` - Resolution tests
-- `src/adapters/shared/commands/__tests__/session-context-resolution.test.ts` - Architecture tests
-- `src/domain/session/session-commands.ts` - Clean session functions
-
-**Activated Files**:
-- `src/commands/mcp/index.ts` - Uncommented session tools registration
-- `src/adapters/mcp/session-edit-tools.ts` - Fixed API compatibility
-- `src/adapters/mcp/session-files.ts` - Fixed API compatibility
-
-## Next Steps (Future Work):
-
-1. **🔥 HIGH PRIORITY: Complete CLI Session Context Integration**
-   - Integrate `CLISessionContextResolver` into CLI command execution flow
-   - Modify CLI bridge to apply session resolution before calling shared commands
-   - Remove mixed-concerns session detection from shared command layer
-   - Verify CLI maintains backward-compatible auto-detection behavior
-
-2. **🔥 HIGH PRIORITY: Implement Missing Phase 2 Search Tools**
-   - Create `session_grep_search` implementation using ripgrep library
-   - Create `session_file_search` implementation with fuzzy matching
-   - Create `session_codebase_search` implementation with semantic search
-   - Complete specifications and test cases exist in `test-verification/`
-
-3. **📋 MEDIUM PRIORITY: Command Execution Tools**
-   - Implement `session_run_command` with proper session workspace context
-   - Complete reverse engineering analysis of command execution patterns
->>>>>>> origin/main
-
-### Implementation Status by Phase (UPDATED):
-
-<<<<<<< HEAD
    - **Command Execution Tools**: Reverse engineer `run_terminal_cmd`, `list_dir`, `read_file` behavioral patterns
    - **External Integration Tools**: Analyze `web_search`, `fetch_pull_request`, `fetch_github_issue` interfaces
    - **Specialized Tools**: Test `create_diagram`, `edit_notebook`, `reapply` edge cases and advanced patterns
@@ -696,13 +636,6 @@ The following documents must be created during the research phase:
 3. **✅ COMPLETE & ACTIVE**: Basic session file operations (`session_read_file`, `session_write_file`, `session_list_directory`, etc.) - all working
 4. **✅ COMPLETE & ACTIVE**: CLI session context integration - auto-detection and parameter handling working perfectly
 5. **📋 FUTURE**: Command execution tools (`session_run_command`) - analysis complete, implementation planned for later
-=======
-1. **✅ COMPLETED**: File operations (`session_edit_file`, `session_search_replace`) + session context resolution architecture design
-2. **⚠️ PARTIALLY COMPLETE**: Session context resolution - architecture designed and tested, CLI integration pending
-3. **✅ ACTIVE**: Basic session file operations (8 tools available to MCP)
-4. **❌ NOT IMPLEMENTED**: Search operations (`session_grep_search`, `session_file_search`, `session_codebase_search`) - specifications ready
-5. **📋 PLANNED**: Command execution tools - analysis in progress
->>>>>>> origin/main
 
 ## References
 
