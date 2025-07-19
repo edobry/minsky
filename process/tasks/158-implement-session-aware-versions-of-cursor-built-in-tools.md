@@ -48,7 +48,7 @@
 |-------|------|---------------------|-------------------|-----------------|
 | 1 | `session_edit_file` | ✅ Complete | ❌ Commented out | ❌ No access |
 | 1 | `session_search_replace` | ✅ Complete | ❌ Commented out | ❌ No access |
-| 2 | `session_grep_search` | ❌ Missing | ❌ N/A | ❌ No access |
+| 2 | `session_grep_search` | ✅ Complete | ✅ Active | ✅ Available |
 | 2 | `session_file_search` | ❌ Missing | ❌ N/A | ❌ No access |
 | 2 | `session_codebase_search` | ❌ Missing | ❌ N/A | ❌ No access |
 | Basic | `session_read_file` | ✅ Complete | ✅ Active | ✅ Available |
