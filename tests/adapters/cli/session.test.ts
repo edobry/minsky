@@ -84,7 +84,7 @@ describe("Session CLI Commands", () => {
       getSession: createMock().mockImplementation((name: string) => {
         return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
       }),
-    } as unknown as SessionProviderInterface;
+    } as any as SessionProviderInterface;
   });
 
   afterEach(async () => {

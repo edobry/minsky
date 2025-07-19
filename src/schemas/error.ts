@@ -2,7 +2,7 @@
  * Error Schema Definitions for Type-Safe Error Handling
  * 
  * This module provides Zod schemas for validating error objects throughout the codebase,
- * replacing unsafe `(err as unknown).message` patterns with proper validation.
+ * replacing unsafe `err.message` patterns with proper validation.
  */
 
 import { z } from "zod";
