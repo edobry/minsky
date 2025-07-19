@@ -17,6 +17,7 @@ import {
 } from "../../errors/index";
 import { log } from "../../utils/logger";
 import * as WorkspaceUtils from "../../workspace";
+import { formatTaskIdForDisplay } from "../../tasks/task-id-utils";
 
 /**
  * Reviews a session based on parameters
@@ -175,7 +176,9 @@ function formatReviewOutput(result: SessionReviewResult): string {
   ];
 
   if (result.taskId) {
-    lines.push(`**Task ID:** ${result.taskId}`);
+    // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix
+    const displayTaskId = formatTaskIdForDisplay(result.taskId);
+    lines.push(`**Task ID:** ${displayTaskId}`);
   }
 
   if (result.taskSpec) {
