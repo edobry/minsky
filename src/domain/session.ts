@@ -1811,7 +1811,7 @@ async function cleanupLocalBranches(
 
   // Filter out duplicates, empty strings, PR branch, and invalid branch names
   const uniqueBranches = [...new Set(possibleTaskBranches)].filter(
-    branch => branch && branch !== prBranch && !branch.startsWith("#")
+    branch => branch && branch !== prBranch && !branch.startsWith("#") && branch !== ""
   );
 
   for (const branch of uniqueBranches) {
