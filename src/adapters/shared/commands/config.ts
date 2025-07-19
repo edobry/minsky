@@ -14,23 +14,7 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
-// Delay config import to prevent early initialization before config-setup runs
-let config: any = null;
-function getConfig() {
-  if (!config) {
-    console.log(`DEBUG: NODE_CONFIG_DIR = ${process.env.NODE_CONFIG_DIR}`);
-    config = require("config");
-
-    // Check what sources were found
-    try {
-      const sources = config.util.getConfigSources();
-      console.log(`DEBUG: Found ${sources.length} config sources:`, sources.map(s => s.name));
-    } catch (e) {
-      console.log(`DEBUG: Error getting sources: ${e}`);
-    }
-  }
-  return config;
-}
+import { has, get, getConfiguration } from "../../../domain/configuration/index";
 import { log } from "../../../utils/logger";
 
 /**
@@ -96,14 +80,14 @@ const configListRegistration = {
   parameters: configListParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
     try {
-      // Use node-config directly to get configuration
-      const sources = getConfig().util.getConfigSources();
+      // Use custom configuration system to get configuration
+      const config = getConfiguration();
       const resolved = {
-        backend: getConfig().get("backend"),
-        backendConfig: getConfig().get("backendConfig"),
-        credentials: getConfig().has("credentials") ? getConfig().get("credentials") : {},
-        sessiondb: getConfig().get("sessiondb"),
-        ai: getConfig().has("ai") ? getConfig().get("ai") : undefined,
+        backend: config.backend,
+        backendConfig: config.backendConfig,
+        credentials: config.credentials || {},
+        sessiondb: config.sessiondb,
+        ai: config.ai,
       };
 
       return {
@@ -142,13 +126,14 @@ const configShowRegistration = {
   parameters: configShowParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
     try {
-      // Use node-config directly to get resolved configuration
+      // Use custom configuration system to get resolved configuration
+      const config = getConfiguration();
       const resolved = {
-        backend: getConfig().get("backend"),
-        backendConfig: getConfig().get("backendConfig"),
-        credentials: getConfig().has("credentials") ? getConfig().get("credentials") : {},
-        sessiondb: getConfig().get("sessiondb"),
-        ai: getConfig().has("ai") ? getConfig().get("ai") : undefined,
+        backend: config.backend,
+        backendConfig: config.backendConfig,
+        credentials: config.github?.credentials || {},
+        sessiondb: config.sessiondb,
+        ai: config.ai,
       };
 
       return {
@@ -157,11 +142,7 @@ const configShowRegistration = {
         configuration: resolved,
         showSources: params.sources || false,
         ...(params.sources && {
-          sources: getConfig().util.getConfigSources().map((source) => ({
-            name: source.name,
-            original: source.original,
-            parsed: source.parsed,
-          })),
+          sources: [{ name: "custom-config", original: "Custom Configuration System", parsed: resolved }],
         }),
       };
     } catch (error) {
