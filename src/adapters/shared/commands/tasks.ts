@@ -13,6 +13,7 @@ import {
   CommandCategory,
   CommandExecutionContext,
   CommandParameterMap,
+  sharedCommandRegistry,
 } from "../command-registry";
 import { ValidationError } from "../../../errors/index";
 import {
@@ -698,23 +699,23 @@ const tasksDeleteRegistration = {
 
 export function registerTasksCommands() {
   // Register tasks.list command
-  // sharedCommandRegistry.registerCommand(tasksListRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksListRegistration);
 
   // Register tasks.get command
-  // sharedCommandRegistry.registerCommand(tasksGetRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksGetRegistration);
 
   // Register tasks.create command
-  // sharedCommandRegistry.registerCommand(tasksCreateRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksCreateRegistration);
 
   // Register tasks.delete command
-  // sharedCommandRegistry.registerCommand(tasksDeleteRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksDeleteRegistration);
 
   // Register tasks.status.get command
-  // sharedCommandRegistry.registerCommand(tasksStatusGetRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksStatusGetRegistration);
 
   // Register tasks.status.set command
-  // sharedCommandRegistry.registerCommand(tasksStatusSetRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksStatusSetRegistration);
 
   // Register tasks.spec command
-  // sharedCommandRegistry.registerCommand(tasksSpecRegistration); // This line was removed as per the new_code
+  sharedCommandRegistry.registerCommand(tasksSpecRegistration);
 }
