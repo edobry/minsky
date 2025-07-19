@@ -12,7 +12,7 @@
  * - The commit should be pushed to remote
  */
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionFromParams } from "../session";
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
@@ -22,15 +22,15 @@ describe("Session Approve Task Status Commit", () => {
 
   // Mock log functions used by session approve operations
   const log = {
-    cli: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn()
+    cli: mock(() => {}),
+    info: mock(() => {}),
+    debug: mock(() => {}),
+    error: mock(() => {}),
+    warn: mock(() => {})
   };
-      
+
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Mock cleanup handled by bun:test automatically
   });
 
   test("should commit task status update after successful merge", async () => {
