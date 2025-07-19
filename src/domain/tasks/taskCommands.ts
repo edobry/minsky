@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils";
 import { resolveMainWorkspacePath } from "../workspace";
+import { resolveTaskWorkspacePath } from "../../utils/workspace-resolver";
 import { getErrorMessage } from "../../errors/index";
 import {
   createTaskService as createTaskServiceImpl,
@@ -59,11 +60,11 @@ export async function listTasksFromParams(
   params: TaskListParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<any[]> {
@@ -71,13 +72,14 @@ export async function listTasksFromParams(
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // Get the main workspace path (always resolves to main workspace, not session)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Get intelligent workspace path based on backend requirements
+    const backend = validParams.backend || "markdown";
+    const workspacePath = await deps.resolveTaskWorkspacePath({ backend });
 
     // Create task service with explicit backend to avoid configuration issues
     const taskService = await deps.createTaskService({
       workspacePath,
-      backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
+      backend,
     });
 
     // Get tasks
