@@ -204,7 +204,11 @@ export class TaskService {
     }
 
     const tasks = await this.getAllTasks();
-    const taskIndex = tasks.findIndex((task) => task.id === id);
+
+    // Normalize ID to match stored format (add hash if missing)
+    const normalizedId = id.startsWith("#") ? id : `#${id}`;
+
+    const taskIndex = tasks.findIndex((task) => task.id === normalizedId);
 
     if (taskIndex === -1) {
       throw new Error(`Task with ID ${id} not found`);
