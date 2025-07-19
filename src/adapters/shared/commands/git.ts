@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 import {
-  sharedCommandRegistry,
+  _sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
@@ -280,7 +280,7 @@ const rebaseCommandParams: CommandParameterMap = {
  */
 export function registerGitCommands(): void {
   // Register git commit command
-  sharedCommandRegistry.registerCommand({
+  _sharedCommandRegistry.registerCommand({
     id: "git.commit",
     category: CommandCategory.GIT,
     name: "commit",
@@ -307,7 +307,7 @@ export function registerGitCommands(): void {
   });
 
   // Register git push command
-  sharedCommandRegistry.registerCommand({
+  _sharedCommandRegistry.registerCommand({
     id: "git.push",
     category: CommandCategory.GIT,
     name: "push",
@@ -332,7 +332,7 @@ export function registerGitCommands(): void {
   });
 
   // Register git clone command
-  sharedCommandRegistry.registerCommand({
+  _sharedCommandRegistry.registerCommand({
     id: "git.clone",
     category: CommandCategory.GIT,
     name: "clone",
@@ -357,7 +357,7 @@ export function registerGitCommands(): void {
   });
 
   // Register git branch command
-  sharedCommandRegistry.registerCommand({
+  _sharedCommandRegistry.registerCommand({
     id: "git.branch",
     category: CommandCategory.GIT,
     name: "branch",
@@ -380,7 +380,7 @@ export function registerGitCommands(): void {
   });
 
   // Register git merge command
-  sharedCommandRegistry.registerCommand({
+  _sharedCommandRegistry.registerCommand({
     id: "git.merge",
     category: CommandCategory.GIT,
     name: "merge",
@@ -407,7 +407,7 @@ export function registerGitCommands(): void {
   });
 
   // Register git checkout command - NEW
-  sharedCommandRegistry.registerCommand({
+  _sharedCommandRegistry.registerCommand({
     id: "git.checkout",
     category: CommandCategory.GIT,
     name: "checkout",
@@ -434,7 +434,7 @@ export function registerGitCommands(): void {
   });
 
   // Register git rebase command - NEW
-  sharedCommandRegistry.registerCommand({
+  _sharedCommandRegistry.registerCommand({
     id: "git.rebase",
     category: CommandCategory.GIT,
     name: "rebase",
