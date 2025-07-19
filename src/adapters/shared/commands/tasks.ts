@@ -10,10 +10,10 @@ import { z } from "zod";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { getErrorMessage } from "../../../errors/index";
 import {
-  CommandCategory,
   CommandExecutionContext,
   CommandParameterMap,
 } from "../../../schemas/command-registry";
+import { CommandCategory } from "../command-registry";
 import { ValidationError } from "../../../errors/index";
 import {
   createTaskFromTitleAndDescription,
