@@ -230,10 +230,10 @@ Task ${taskIdToUse} exists but has no associated session to approve.
             log.cli("📦 Stashing uncommitted changes...");
           }
           log.debug("Stashing uncommitted changes", { workdir: workingDirectory });
-          
+
           const stashResult = await deps.gitService.stashChanges(workingDirectory);
           hasStashedChanges = stashResult.stashed;
-          
+
           if (hasStashedChanges && !params.json) {
             log.cli("✅ Changes stashed successfully");
           }
@@ -264,20 +264,23 @@ Task ${taskIdToUse} exists but has no associated session to approve.
     let mergeDate: string = "";
     let mergedBy: string = "";
 
+    // First, check if the PR branch exists locally
+    let prBranchExists = false;
     try {
-      // Check if the PR branch exists locally
       await deps.gitService.execInRepository(workingDirectory, `git show-ref --verify --quiet refs/heads/${prBranch}`);
+      prBranchExists = true;
+    } catch (error) {
+      // PR branch doesn't exist locally, it might have been already merged and cleaned up
+      prBranchExists = false;
+    }
 
+    if (prBranchExists) {
       // Get the commit hash of the PR branch
       const _prBranchCommitHash = (
         await deps.gitService.execInRepository(workingDirectory, `git rev-parse ${prBranch}`)
       ).trim();
 
-      // REMOVED: Problematic race condition check
-      // Instead of checking git merge-base --is-ancestor, let git merge handle it
-      // This avoids the race condition where the check can fail during merge process
-
-      // Attempt the merge - if it fails because already merged, git will tell us
+      // Attempt the merge - this is where we need to fail fast on errors
       if (!params.json) {
         log.cli(`🔀 Merging PR branch ${prBranch}...`);
       }
@@ -324,11 +327,11 @@ Task ${taskIdToUse} exists but has no associated session to approve.
         await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
 
       } catch (mergeError) {
-        // Merge failed - check if it's because already merged or other issues
+        // Merge failed - check if it's because already merged or a real error
         const errorMessage = getErrorMessage(mergeError as Error);
 
         if (errorMessage.includes("Already up to date") || errorMessage.includes("nothing to commit")) {
-          // PR branch has already been merged
+          // PR branch has already been merged - this is OK, continue processing
           isNewlyApproved = false;
           log.debug(`PR branch ${prBranch} has already been merged`);
 
@@ -374,12 +377,13 @@ Task ${taskIdToUse} exists but has no associated session to approve.
             ).trim();
           }
         } else {
-          // Some other merge error - re-throw it
+          // CRITICAL: Any other merge error should FAIL FAST and NOT continue
+          // This prevents leaving the repository in an inconsistent state
           throw mergeError;
         }
       }
-    } catch (error) {
-      // PR branch doesn't exist locally, it might have been already merged and cleaned up
+    } else {
+      // PR branch doesn't exist locally, assuming already merged and cleaned up
       isNewlyApproved = false;
       log.debug(`PR branch ${prBranch} doesn't exist locally, assuming already merged`);
 
@@ -464,7 +468,7 @@ Task ${taskIdToUse} exists but has no associated session to approve.
           log.cli("📦 Restoring stashed changes...");
         }
         log.debug("Restoring stashed changes", { workdir: workingDirectory });
-        
+
         const restoreResult = await deps.gitService.popStash(workingDirectory);
         if (restoreResult.stashed && !params.json) {
           log.cli("✅ Stashed changes restored successfully");
