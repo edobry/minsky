@@ -42,13 +42,6 @@ export function createConfigListCommand(): Command {
           await displayConfigurationSources(resolved, metadata);
         }
       } catch (error) {
-        if (error instanceof Error) {
-          console.error("Error name:", error.constructor.name);
-          console.error("Error message:", error.message);
-          console.error("Error stack:", error.stack);
-        } else {
-          console.error("Non-error thrown:", error);
-        }
         await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
         exit(1);
       }
