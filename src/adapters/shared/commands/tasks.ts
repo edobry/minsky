@@ -212,11 +212,11 @@ const tasksStatusGetRegistration = {
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
-  execute: async (params: { taskId: string; repo?: string; workspace?: string; session?: string; backend?: string }, ctx: CommandExecutionContext) => {
-    const normalizedTaskId = normalizeTaskId(params.taskId);
+  execute: async (params, _ctx: CommandExecutionContext) => {
+    const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const status = await getTaskStatusFromParams({
@@ -288,7 +288,7 @@ const tasksStatusSetRegistration = {
       const currentStatusIndex = statusOptions.findIndex(
         (option) => option?.value === previousStatus
       );
-      const initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0; // Default to TODO if current status not found
+      const _initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0; // Default to TODO if current status not found
 
       // Prompt for status selection
       const selectedStatus = await select({
@@ -511,7 +511,7 @@ const tasksListRegistration = {
   name: "list",
   description: "List tasks with optional filtering",
   parameters: tasksListParams,
-  execute: async (params, ctx) => {
+  execute: async (params, _ctx) => {
     const { all = false, status, filter, ...rest } = params;
 
     // Use status parameter if provided, otherwise fall back to filter

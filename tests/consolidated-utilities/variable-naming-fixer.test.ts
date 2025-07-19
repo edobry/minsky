@@ -44,7 +44,7 @@ function processData(data: unknown) {
 
       await fixer.processFiles(`${testDir}/**/*.ts`);
 
-      const fixedCode = readFileSync(testFile, "utf-8");
+      const fixedCode = readFileSync(testFile, "utf-8") as string;
       expect(fixedCode.trim()).toBe(expectedCode.trim());
     });
 
@@ -99,7 +99,7 @@ function handler(_unusedEvent: Event, data: unknown) {
 
       fixer.processFiles(`${testDir}/**/*.ts`);
 
-      const fixedCode = readFileSync(testFile, "utf-8");
+      const fixedCode = readFileSync(testFile, "utf-8") as string;
       expect(fixedCode.trim()).toBe(originalCode.trim());
     });
 
@@ -228,7 +228,7 @@ function complex(_config: Config, data: Data) {
   });
 
   describe("Performance and Metrics", () => {
-    it("should provide accurate metrics", () => {
+    it("should provide accurate metrics", async () => {
       const testFile = join(testDir, "metrics.ts");
       const originalCode = `
 function test(_param: unknown, _another: string) {
@@ -245,7 +245,7 @@ function test(_param: unknown, _another: string) {
         logs.push(args.join(" "));
       };
 
-      fixer.processFiles(`${testDir}/**/*.ts`);
+      await fixer.processFiles(`${testDir}/**/*.ts`);
 
       console.log = originalLog;
 
@@ -259,7 +259,7 @@ function test(_param: unknown, _another: string) {
   });
 
   describe("Integration with AST Analysis", () => {
-    it("should properly parse TypeScript files with complex syntax", () => {
+    it("should properly parse TypeScript files with complex syntax", async () => {
       const testFile = join(testDir, "complex-syntax.ts");
       const originalCode = `
 interface Config {
@@ -283,9 +283,9 @@ function test<T>(_generic: T): Promise<T> {
 
       writeFileSync(testFile, originalCode);
 
-      fixer.processFiles(`${testDir}/**/*.ts`);
+      await fixer.processFiles(`${testDir}/**/*.ts`);
 
-      const fixedCode = readFileSync(testFile, "utf-8");
+      const fixedCode = readFileSync(testFile, "utf-8") as string;
       expect(fixedCode.trim()).toBe(expectedCode.trim());
     });
   });

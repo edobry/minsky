@@ -1,4 +1,4 @@
-const TEST_VALUE = 123;
+const _TEST_VALUE = 123;
 
 /**
  * Common schema definitions that can be reused across multiple domain modules
@@ -103,11 +103,11 @@ export const sessionSchema = z.string().min(1).describe("Session identifier");
  * Common repository options schema
  * Common parameters shared across repository operations
  */
-export const commonRepoSchema = z.object({
+export const _commonRepoSchema = z.object({
   session: sessionSchema.optional().describe("Session name"),
   repo: z.string().optional().describe("Repository URI"),
   workspace: z.string().optional().describe("URI of the upstream repository"),
   json: z.boolean().optional().describe("Return output as JSON"),
 });
 
-export const filePathSchema = z.string().min(1);
+export const _filePathSchema = z.string().min(1);

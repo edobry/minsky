@@ -232,7 +232,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   };
 
   // Create the Bun mock function with our implementation
-  const bunMockFn = mock(implementationFn);
+  const _bunMockFn = mock(implementationFn);
 
   // Instead of trying to modify Bun"s mock function directly (which may be read-only),
   // create a new function that delegates to it

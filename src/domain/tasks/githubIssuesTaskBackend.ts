@@ -386,7 +386,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     }
   }
 
-  async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
+  async saveTaskSpecData(specPath: string, _content: string): Promise<TaskWriteOperationResult> {
     try {
       // For GitHub backend, we don't typically save spec files locally
       // The spec content is managed through GitHub issues
@@ -484,7 +484,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   }
 
   // Implement required TaskBackend interface methods
-  async listTasks(options?: TaskListOptions): Promise<Task[]> {
+  async listTasks(_options?: TaskListOptions): Promise<Task[]> {
     try {
       const result = await this.getTasksData();
       if (!result.success || !result.content) {
@@ -570,7 +570,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     }
   }
 
-  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+  async createTask(specPath: string, _options?: CreateTaskOptions): Promise<Task> {
     try {
       // Read the spec file
       const result = await this.getTaskSpecData(specPath);
@@ -609,7 +609,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     }
   }
 
-  async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
+  async deleteTask(id: string, _options?: DeleteTaskOptions): Promise<boolean> {
     try {
       // Extract issue number from task ID
       const issueNumber = this.extractIssueNumberFromTaskId(id);

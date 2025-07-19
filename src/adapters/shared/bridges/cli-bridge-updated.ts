@@ -2,7 +2,7 @@
  * CLI Bridge
  *
  * This module bridges the command registry with the Commander.js CLI,
- * eliminating all type casting while maintaining parameter types through
+ * eliminating all type casting while maintaining parameter types through 
  * the execution chain.
  */
 import { Command } from "commander";
@@ -231,7 +231,7 @@ export class CliCommandBridge {
     context?: { viaFactory?: boolean }
   ): Command | null {
     const customOptions = this.categoryCustomizations.get(category) || {};
-
+    
     const commands = this.registry.getCommandsByCategory(category);
     if (commands.length === 0) {
       return null;
@@ -262,7 +262,7 @@ export class CliCommandBridge {
           const newParentCommand = new Command(prefixedName)
             .description(commandDef.description)
             .action((...args) => subcommand.parseAsync(args));
-
+          
           categoryCommand.addCommand(newParentCommand);
         } else {
           // Add as direct subcommand
@@ -279,7 +279,7 @@ export class CliCommandBridge {
    */
   generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean }): void {
     const categories = Object.values(CommandCategory);
-
+    
     categories.forEach(category => {
       const categoryCommand = this.generateCategoryCommand(category, context);
       if (categoryCommand) {
@@ -306,7 +306,7 @@ export class CliCommandBridge {
    * Extract raw parameters from CLI inputs
    */
   private extractRawParameters(
-    parameters: Record<string, any>,
+    _parameters: Record<string, any>,
     options: Record<string, any>,
     positionalArgs: any[],
     mappings: ParameterMapping[]
@@ -326,7 +326,7 @@ export class CliCommandBridge {
   /**
    * Get default formatter for a command with type safety
    */
-  private getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
+  private getDefaultFormatter(_commandDef: SharedCommand): (result: any) => void {
     return (result: any) => {
       if (typeof result === "object") {
         console.log(JSON.stringify(result, null, 2));
@@ -378,7 +378,7 @@ export class CliCommandBridge {
   /**
    * Git command formatters
    */
-  private getGitFormatter(commandId: string): (result: any) => void {
+  private getGitFormatter(_commandId: string): (result: any) => void {
     return (result: any) => console.log(result.output || JSON.stringify(result, null, 2));
   }
 
@@ -428,8 +428,8 @@ export class CliCommandBridge {
   }
 
   private formatSessionSummary(session: Record<string, any>): void {
-    // Sessions don't have status - that's a task concept
-    console.log(`${session.session || "unknown"}`);
+    const status = session.status ? `[${session.status}]` : "";
+    console.log(`${session.name || session.id} ${status}`);
   }
 
   private formatDebugEchoDetails(result: Record<string, any>): void {
@@ -465,4 +465,4 @@ export function createCliBridge(registry?: SharedCommandRegistry): CliCommandBri
 /**
  * Default CLI bridge instance
  */
-export const cliBridge = createCliBridge();
+export const _cliBridge = createCliBridge(); 

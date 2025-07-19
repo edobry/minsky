@@ -8,7 +8,7 @@ import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants";
 /**
  * Valid task statuses
  */
-export const TASK_STATUS = {
+export const _TASK_STATUS = {
   TODO: "TODO",
   DONE: "DONE",
   IN_PROGRESS: "IN-PROGRESS",

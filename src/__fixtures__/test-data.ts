@@ -1,4 +1,4 @@
-const TEST_VALUE = 123;
+const _TEST_VALUE = 123;
 
 /**
  * Common test fixtures for tests across the application
@@ -8,7 +8,7 @@ const TEST_VALUE = 123;
 /**
  * Mock session data for testing
  */
-export const MOCK_SESSIONS = {
+export const _MOCK_SESSIONS = {
   VALID_SESSION: {
     name: "test-session",
     createdAt: "2025-05-01T12:00:00.000Z",
@@ -28,7 +28,7 @@ export const MOCK_SESSIONS = {
 /**
  * Mock tasks for testing
  */
-export const MOCK_TASKS = {
+export const _MOCK_TASKS = {
   VALID_TASK: {
     id: "#TEST_VALUE",
     title: "Test task",
@@ -48,7 +48,7 @@ export const MOCK_TASKS = {
 /**
  * Mock repository data for testing
  */
-export const MOCK_REPOS = {
+export const _MOCK_REPOS = {
   VALID_REPO: {
     path: "/path/to/repo",
     name: "test-repo",
@@ -59,7 +59,7 @@ export const MOCK_REPOS = {
 /**
  * Sample file contents for testing file operations
  */
-export const SAMPLE_FILES = {
+export const _SAMPLE_FILES = {
   TASKS_MD: `# Tasks
   
 ## Backlog
@@ -97,7 +97,7 @@ export const SAMPLE_FILES = {
 /**
  * Mock command line arguments for testing CLI commands
  */
-export const MOCK_CLI_ARGS = {
+export const _MOCK_CLI_ARGS = {
   SESSION_START: ["session", "start", "--task", "TEST_VALUE"],
   TASK_LIST: ["tasks", "list", "--json"],
   GIT_PR: ["git", "pr", "--session", "test-session"],
@@ -106,7 +106,7 @@ export const MOCK_CLI_ARGS = {
 /**
  * Mock command outputs for testing expected results
  */
-export const MOCK_COMMAND_OUTPUTS = {
+export const _MOCK_COMMAND_OUTPUTS = {
   SESSION_LIST: [
     { name: "task#TEST_VALUE", createdAt: "2025-05-01T12:00:00.000Z", repoName: "local/project" },
     { name: "task#042", createdAt: "2025-05-01T12:00:00.000Z", repoName: "local/project" },

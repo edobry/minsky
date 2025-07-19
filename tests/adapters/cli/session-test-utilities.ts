@@ -59,21 +59,93 @@ export function createSessionTestData(): SessionTestData {
       backendType: "local",
       remote: { authMethod: "ssh", depth: 1 },
     },
+    // Add missing sessions that the update tests expect
+    {
+      session: "test-existing-session",
+      repoName: "local-minsky",
+      repoUrl: "https://github.com/edobry/minsky",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "#168",
+      branch: "test-existing-session",
+      repoPath: "/Users/edobry/.local/state/minsky/sessions/test-existing-session",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
+    },
+    {
+      session: "task#42",
+      repoName: "local-minsky",
+      repoUrl: "https://github.com/edobry/minsky",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "#42",
+      branch: "task#42",
+      repoPath: "/Users/edobry/.local/state/minsky/sessions/task#42",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
+    },
+    {
+      session: "task#236",
+      repoName: "local-minsky", 
+      repoUrl: "https://github.com/edobry/minsky",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "#236",
+      branch: "task#236",
+      repoPath: "/Users/edobry/.local/state/minsky/sessions/task#236",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
+    },
+    {
+      session: "missing-workspace-session",
+      repoName: "local-minsky",
+      repoUrl: "https://github.com/edobry/minsky",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "#999",
+      branch: "missing-workspace-session",
+      repoPath: "/Users/edobry/.local/state/minsky/sessions/missing-workspace-session",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
+    },
+    {
+      session: "dirty-session",
+      repoName: "local-minsky",
+      repoUrl: "https://github.com/edobry/minsky",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      taskId: "#888",
+      branch: "dirty-session",
+      repoPath: "/Users/edobry/.local/state/minsky/sessions/dirty-session",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
+    },
   ];
 
   const mockSessionDB = {
-    findAll: jest.fn().mockResolvedValue(mockSessions),
-    findByName: jest.fn().mockImplementation((name: string) => {
-      return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
-    }),
-    findByTaskId: jest.fn().mockImplementation((taskId: string) => {
-      return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
-    }),
-    findByRepoPath: jest.fn().mockImplementation((repoPath: string) => {
-      return Promise.resolve(mockSessions.find((s) => s.repoPath === repoPath) || null);
-    }),
-    save: jest.fn().mockResolvedValue(undefined),
-  } as any as SessionProviderInterface;
+    listSessions: createMock(),
+    getSession: createMock(),
+    getSessionByTaskId: createMock(),
+    addSession: createMock(),
+    updateSession: createMock(),
+    deleteSession: createMock(),
+    getRepoPath: createMock(),
+    getSessionWorkdir: createMock(),
+  } as unknown as SessionProviderInterface;
+
+  // Set up mock implementations manually to avoid type issues
+  (mockSessionDB.listSessions as any).mockResolvedValue(mockSessions);
+  (mockSessionDB.getSession as any).mockImplementation((name: string) => {
+    return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
+  });
+  (mockSessionDB.getSessionByTaskId as any).mockImplementation((taskId: string) => {
+    return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
+  });
+  (mockSessionDB.getRepoPath as any).mockImplementation((record: any) => {
+    return Promise.resolve(record.repoPath || "/default/path");
+  });
+  (mockSessionDB.addSession as any).mockResolvedValue(undefined);
+  (mockSessionDB.updateSession as any).mockResolvedValue(undefined);
+  (mockSessionDB.deleteSession as any).mockResolvedValue(true);
+  (mockSessionDB.getSessionWorkdir as any).mockImplementation((sessionName: string) => {
+    const session = mockSessions.find((s) => s.session === sessionName);
+    return Promise.resolve(session?.repoPath || "/default/workdir");
+  });
 
   return {
     mockSessionDB,
@@ -90,23 +162,23 @@ export async function cleanupSessionTestData(tempDir: string): Promise<void> {
 
 export function createGitServiceMock(): GitServiceInterface {
   return {
-    getCurrentBranch: jest.fn().mockResolvedValue("main"),
-    getRemoteUrl: jest.fn().mockResolvedValue("https://github.com/edobry/minsky"),
-    getRepoPath: jest.fn().mockResolvedValue("/Users/edobry/Projects/minsky"),
-    clone: jest.fn().mockResolvedValue(undefined),
-    checkout: jest.fn().mockResolvedValue(undefined),
-    createBranch: jest.fn().mockResolvedValue(undefined),
-    push: jest.fn().mockResolvedValue(undefined),
-    pull: jest.fn().mockResolvedValue(undefined),
-    merge: jest.fn().mockResolvedValue(undefined),
-    getStatus: jest.fn().mockResolvedValue({ hasChanges: false, changes: [] }),
-    add: jest.fn().mockResolvedValue(undefined),
-    commit: jest.fn().mockResolvedValue(undefined),
-    reset: jest.fn().mockResolvedValue(undefined),
-    stash: jest.fn().mockResolvedValue(undefined),
-    stashPop: jest.fn().mockResolvedValue(undefined),
-    getCommitHash: jest.fn().mockResolvedValue("abc123"),
-  } as any as GitServiceInterface;
+    getCurrentBranch: createMock().mockResolvedValue("main"),
+    getRemoteUrl: createMock().mockResolvedValue("https://github.com/edobry/minsky"),
+    getRepoPath: createMock().mockResolvedValue("/Users/edobry/Projects/minsky"),
+    clone: createMock().mockResolvedValue(undefined),
+    checkout: createMock().mockResolvedValue(undefined),
+    createBranch: createMock().mockResolvedValue(undefined),
+    push: createMock().mockResolvedValue(undefined),
+    pull: createMock().mockResolvedValue(undefined),
+    merge: createMock().mockResolvedValue(undefined),
+    getStatus: createMock().mockResolvedValue({ hasChanges: false, changes: [] }),
+    add: createMock().mockResolvedValue(undefined),
+    commit: createMock().mockResolvedValue(undefined),
+    reset: createMock().mockResolvedValue(undefined),
+    stash: createMock().mockResolvedValue(undefined),
+    stashPop: createMock().mockResolvedValue(undefined),
+    getCommitHash: createMock().mockResolvedValue("abc123"),
+  } as unknown as GitServiceInterface;
 }
 
 // Helper function to create session records for testing

@@ -294,7 +294,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param name Branch name to create
    * @returns Branch result
    */
-  async branch(session: string, name: string): Promise<BranchResult> {
+  async branch(_session: string, name: string): Promise<BranchResult> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }

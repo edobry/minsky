@@ -1,6 +1,19 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
+
+// Mock logger
+const mockLog = {
+  debug: mock(() => {}),
+  info: mock(() => {}),
+  warn: mock(() => {}),
+  error: mock(() => {}),
+  cli: vi.fn()
+};
+
+mock.module("../utils/logger", () => ({
+  log: mockLog
+}));
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -54,6 +67,10 @@ describe("Session Approve Branch Cleanup", () => {
         // Simulate successful branch operations
         return Promise.resolve("");
       }),
+      getCurrentBranch: createMock((_workdir) => Promise.resolve("pr/task#265")),
+      pullLatest: createMock((_workdir) => Promise.resolve({ success: true, changes: [] })),
+      mergeBranch: createMock((_workdir, _branch) => Promise.resolve({ success: true, conflicts: [] })),
+      push: createMock((_workdir) => Promise.resolve({ success: true })),
     };
 
     const mockTaskService = {
