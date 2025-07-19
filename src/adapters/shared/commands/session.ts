@@ -25,7 +25,6 @@ import {
   sessionPr,
   sessionInspect,
   sessionCommit,
-  sessionPush,
 } from "../../../domain/session";
 import { log } from "../../../utils/logger";
 import { MinskyError } from "../../../errors/index";
@@ -40,7 +39,6 @@ import {
   sessionPrCommandParams,
   sessionInspectCommandParams,
   sessionCommitCommandParams,
-  sessionPushCommandParams,
 } from "./session-parameters";
 import {
   handleSessionPrError,
@@ -528,7 +526,7 @@ Need help? Run the command with --debug for detailed error information.`
     id: "session.commit",
     category: CommandCategory.SESSION,
     name: "commit",
-    description: "Commit changes in a session with optional push",
+    description: "Commit and push changes in a session (atomic operation)",
     parameters: sessionCommitCommandParams,
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.commit command", { params, context });
@@ -540,7 +538,6 @@ Need help? Run the command with --debug for detailed error information.`
           all: params!.all,
           amend: params!.amend,
           noStage: params!.noStage,
-          noPush: params!.noPush,
         });
 
         return {
@@ -551,38 +548,6 @@ Need help? Run the command with --debug for detailed error information.`
         };
       } catch (error) {
         log.error("Failed to commit in session", {
-          error: getErrorMessage(error as Error),
-          session: params!.session,
-        });
-        throw error;
-      }
-    },
-  });
-
-  // Register session push command
-  sharedCommandRegistry.registerCommand({
-    id: "session.push",
-    category: CommandCategory.SESSION,
-    name: "push",
-    description: "Push changes from a session to remote repository",
-    parameters: sessionPushCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing session.push command", { params, context });
-
-      try {
-        const result = await sessionPush({
-          session: params!.session,
-          remote: params!.remote,
-          force: params!.force,
-        });
-
-        return {
-          success: result.success,
-          pushed: result.pushed,
-          workdir: result.workdir,
-        };
-      } catch (error) {
-        log.error("Failed to push from session", {
           error: getErrorMessage(error as Error),
           session: params!.session,
         });
