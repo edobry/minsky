@@ -1,13 +1,11 @@
 feat(#303): implement auto-commit integration for task operations
 
-feat(#303): implement auto-commit integration for task operations
-
 Implements complete auto-commit functionality for task operations in the markdown backend.
 
 ## Key Changes
 
 - Added auto-commit integration to all 8 task command functions
-- Backend-aware workspace resolution using TaskBackendRouter
+- Backend-aware workspace resolution using TaskBackendRouter  
 - Comprehensive test coverage with updated mocks
 - Performance optimizations for session PR creation
 
