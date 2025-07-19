@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Missing Task Commands**: Restored all task commands that were inadvertently commented out in a recent merge
+  - **Root Cause**: All 7 task command registrations were commented out in `registerTasksCommands()` function
+  - **Commands Restored**: `tasks.list`, `tasks.get`, `tasks.create`, `tasks.delete`, `tasks.status.get`, `tasks.status.set`, `tasks.spec`
+  - **Solution**: Uncommented command registrations and added missing `sharedCommandRegistry` import
+  - **Impact**: `minsky tasks` and `minsky task` commands now work correctly (e.g., `minsky tasks status get 158`)
+
 - **CommandCategory Import Error**: Fixed SyntaxError when running minsky commands due to incorrect import path in shared tasks command
   - **Root Cause**: `src/adapters/shared/commands/tasks.ts` was importing `CommandCategory` from schemas file (where it's a type) instead of shared command-registry (where it's an enum)
   - **Solution**: Corrected import path from `../../../schemas/command-registry` to `../command-registry`
