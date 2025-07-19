@@ -28,9 +28,9 @@ describe("Session Approve Task Status Commit", () => {
     error: mock(() => {}),
     warn: mock(() => {})
   };
-      
+
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Mock cleanup handled by bun:test automatically
   });
 
   test("should commit task status update after successful merge", async () => {

@@ -21,7 +21,7 @@ export function createConfigListCommand(): Command {
         const provider = getConfigurationProvider();
         const config = provider.getConfig();
         const metadata = provider.getMetadata();
-        
+
         const resolved = {
           backend: config.backend,
           backendConfig: config.backendConfig,

@@ -36,10 +36,10 @@ describe("Task Functions", () => {
       expect(normalizeTaskId("TASK_TEST_VALUE")).toBe("#TASK_TEST_VALUE");
     });
 
-    test("should return null for non-numeric input", () => {
-      expect(normalizeTaskId("")).toBeNull();
-      expect(normalizeTaskId(" ")).toBeNull();
-      expect(normalizeTaskId("@#$%")).toBeNull();
+    test("should return undefined for non-numeric input", () => {
+      expect(normalizeTaskId("")).toBeUndefined();
+      expect(normalizeTaskId(" ")).toBeUndefined();
+      expect(normalizeTaskId("@#$%")).toBeUndefined();
     });
 
     test("should extract numeric portion from mixed formats", () => {
@@ -183,8 +183,8 @@ Code block with task-like content:
   });
 
   describe("getNextTaskId", () => {
-    test("should return #001 for empty tasks array", () => {
-      expect(getNextTaskId([])).toBe("#001");
+    test("should return 001 for empty tasks array", () => {
+      expect(getNextTaskId([])).toBe("001");
     });
 
     test("should find the maximum ID and increment it", () => {
@@ -194,7 +194,7 @@ Code block with task-like content:
         { id: "#003", title: "Task 3", status: "DONE" },
       ];
 
-      expect(getNextTaskId(tasks)).toBe("#006");
+      expect(getNextTaskId(tasks)).toBe("006");
     });
 
     test("should handle non-sequential IDs", () => {
@@ -204,13 +204,13 @@ Code block with task-like content:
         { id: "#030", title: "Task 30", status: "DONE" },
       ];
 
-      expect(getNextTaskId(tasks)).toBe("#051");
+      expect(getNextTaskId(tasks)).toBe("051");
     });
 
     test("should pad with zeros", () => {
       const tasks: TaskData[] = [{ id: "#9", title: "Task 9", status: "TODO" }];
 
-      expect(getNextTaskId(tasks)).toBe("#010");
+      expect(getNextTaskId(tasks)).toBe("010");
     });
   });
 
@@ -269,7 +269,7 @@ Code block with task-like content:
       const updatedTasks = addTask(testTasks, taskWithoutId);
 
       expect(updatedTasks).toHaveLength(3);
-      expect(updatedTasks[2].id).toBe("#003"); // Next available ID
+      expect(updatedTasks[2].id).toBe("003"); // Next available ID in storage format
       expect(updatedTasks[2].title).toBe("New Task");
     });
   });

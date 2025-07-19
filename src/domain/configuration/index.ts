@@ -1,6 +1,6 @@
 /**
  * Configuration System Public API
- * 
+ *
  * Provides a unified interface for configuration access that can be backed
  * by either node-config (legacy) or the new custom configuration system.
  * This allows for gradual migration while maintaining behavioral compatibility.
@@ -12,7 +12,7 @@ export { configurationSchema } from "./schemas";
 
 /**
  * Configuration provider interface
- * 
+ *
  * This interface abstracts over different configuration implementations,
  * allowing tests to target the interface rather than specific implementations.
  */
@@ -97,121 +97,11 @@ export interface ConfigurationFactory {
   }): Promise<ConfigurationProvider>;
 }
 
-/**
- * Node-config adapter implementing the ConfigurationProvider interface
- * 
- * This allows existing node-config usage to continue working while
- * providing the same interface as the new custom system.
- */
-export class NodeConfigProvider implements ConfigurationProvider {
-  private nodeConfig: any;
-  private cachedConfig: Configuration | null = null;
-
-  constructor() {
-    // Delay require to avoid early initialization
-    this.nodeConfig = this.loadNodeConfig();
-  }
-
-  private loadNodeConfig(): any {
-    try {
-      return require("config");
-    } catch (error) {
-      throw new Error(`Failed to load node-config: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  getConfig(): Configuration {
-    if (!this.cachedConfig) {
-      // Convert node-config to our Configuration type
-      this.cachedConfig = this.convertNodeConfigToConfiguration();
-    }
-    return this.cachedConfig;
-  }
-
-  get<T = any>(path: string): T {
-    try {
-      return this.nodeConfig.get(path) as T;
-    } catch (error) {
-      throw new Error(`Configuration path '${path}' not found: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  has(path: string): boolean {
-    try {
-      return this.nodeConfig.has(path);
-    } catch {
-      return false;
-    }
-  }
-
-  async reload(): Promise<void> {
-    // node-config doesn't support reloading, so we clear our cache
-    this.cachedConfig = null;
-    // Note: node-config has limitations with reloading, we do our best effort
-    try {
-      delete require.cache[require.resolve("config")];
-      this.nodeConfig = this.loadNodeConfig();
-    } catch (error) {
-      // If we can't reload node-config, just clear our cache
-      // This is a known limitation of node-config
-      console.warn("NodeConfigProvider reload had issues:", error);
-    }
-    // Explicit return to ensure promise resolves
-    return Promise.resolve();
-  }
-
-  getMetadata(): ConfigurationMetadata {
-    const sources = this.nodeConfig.util?.getConfigSources?.() || [];
-    
-    return {
-      sources: sources.map((source: any, index: number) => ({
-        name: source.name || `source-${index}`,
-        priority: index, // node-config doesn't expose priority directly
-        loaded: true,
-        path: source.name,
-      })),
-      loadedAt: new Date(), // node-config doesn't track this
-      version: "node-config",
-    };
-  }
-
-  validate(): ValidationResult {
-    try {
-      const config = this.getConfig();
-      // This will throw if validation fails
-      return {
-        valid: true,
-        errors: [],
-      };
-    } catch (error) {
-      return {
-        valid: false,
-        errors: [{
-          path: "root",
-          message: error instanceof Error ? error.message : String(error),
-          severity: "error",
-        }],
-      };
-    }
-  }
-
-  private convertNodeConfigToConfiguration(): Configuration {
-    // Convert the raw node-config object to our typed Configuration
-    const rawConfig = this.nodeConfig.util?.toObject?.() || {};
-    
-    // Apply our schema to validate and transform
-    try {
-      const { configurationSchema } = require("./schemas");
-      return configurationSchema.parse(rawConfig);
-    } catch (error) {
-      throw new Error(`node-config data does not match expected schema: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-}
+// NodeConfigProvider removed - node-config has been fully replaced by custom configuration system
 
 /**
  * Custom configuration provider implementing the ConfigurationProvider interface
- * 
+ *
  * This is the new implementation using our custom configuration system.
  */
 export class CustomConfigurationProvider implements ConfigurationProvider {
@@ -224,7 +114,16 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
 
   async initialize(): Promise<void> {
     const { loadConfiguration } = await import("./loader");
-    this.configResult = await loadConfiguration(this.options);
+    try {
+      this.configResult = await loadConfiguration(this.options);
+      // Validate that we got a proper result
+      if (!this.configResult || !this.configResult.sources) {
+        throw new Error(`Invalid configuration result: ${JSON.stringify(this.configResult)}`);
+      }
+    } catch (error) {
+      console.error("Configuration loading failed:", error);
+      throw error;
+    }
   }
 
   getConfig(): Configuration {
@@ -237,11 +136,11 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
   get<T = any>(path: string): T {
     const config = this.getConfig();
     const value = this.getNestedValue(config, path);
-    
+
     if (value === undefined) {
       throw new Error(`Configuration path '${path}' not found`);
     }
-    
+
     return value as T;
   }
 
@@ -315,14 +214,8 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
 }
 
 /**
- * Configuration factory implementations
+ * Configuration factory implementation
  */
-export class NodeConfigFactory implements ConfigurationFactory {
-  async createProvider(): Promise<ConfigurationProvider> {
-    return new NodeConfigProvider();
-  }
-}
-
 export class CustomConfigFactory implements ConfigurationFactory {
   async createProvider(options?: {
     workingDirectory?: string;
@@ -335,12 +228,12 @@ export class CustomConfigFactory implements ConfigurationFactory {
       skipValidation: options?.skipValidation,
       enableCache: options?.enableCache,
       // Apply overrides by adding them as a high-priority source
-      ...(options?.overrides && { 
+      ...(options?.overrides && {
         sourcesToLoad: ["defaults", "project", "user", "environment", "overrides"],
-        overrideSource: options.overrides 
+        overrideSource: options.overrides
       }),
     });
-    
+
     await provider.initialize();
     return provider;
   }
@@ -348,7 +241,7 @@ export class CustomConfigFactory implements ConfigurationFactory {
 
 /**
  * Global configuration instance
- * 
+ *
  * This is the main configuration object that the application should use.
  * It can be switched between implementations for migration.
  */
@@ -357,7 +250,7 @@ let globalFactory: ConfigurationFactory | null = null;
 
 /**
  * Initialize the configuration system
- * 
+ *
  * @param factory - Factory to create the configuration provider
  * @param options - Options for provider creation
  */
@@ -376,7 +269,7 @@ export async function initializeConfiguration(
 
 /**
  * Get the global configuration provider
- * 
+ *
  * @throws Error if configuration hasn't been initialized
  */
 export function getConfigurationProvider(): ConfigurationProvider {
@@ -388,7 +281,7 @@ export function getConfigurationProvider(): ConfigurationProvider {
 
 /**
  * Get the complete configuration object
- * 
+ *
  * Convenience method for accessing the full configuration.
  */
 export function getConfiguration(): Configuration {
@@ -397,7 +290,7 @@ export function getConfiguration(): Configuration {
 
 /**
  * Get a configuration value by path
- * 
+ *
  * @param path - Dot-separated path to the configuration value
  * @returns The configuration value
  * @throws Error if path doesn't exist
@@ -408,7 +301,7 @@ export function get<T = any>(path: string): T {
 
 /**
  * Check if a configuration path exists
- * 
+ *
  * @param path - Dot-separated path to check
  * @returns true if the path exists
  */
@@ -418,7 +311,7 @@ export function has(path: string): boolean {
 
 /**
  * Reload configuration from sources
- * 
+ *
  * @throws Error if configuration hasn't been initialized
  */
 export async function reloadConfiguration(): Promise<void> {
@@ -427,7 +320,7 @@ export async function reloadConfiguration(): Promise<void> {
 
 /**
  * Get configuration metadata for debugging
- * 
+ *
  * @returns Configuration metadata including source information
  */
 export function getConfigurationMetadata(): ConfigurationMetadata {
@@ -436,7 +329,7 @@ export function getConfigurationMetadata(): ConfigurationMetadata {
 
 /**
  * Validate current configuration
- * 
+ *
  * @returns Validation result with any errors
  */
 export function validateConfiguration(): ValidationResult {
@@ -446,11 +339,11 @@ export function validateConfiguration(): ValidationResult {
 /**
  * Configuration provider type for testing
  */
-export type TestProviderType = "node-config" | "custom";
+export type TestProviderType = "custom";
 
 /**
  * Create a configuration provider for testing
- * 
+ *
  * @param overrides - Configuration overrides for testing
  * @param providerType - Which provider implementation to use
  * @returns A configuration provider with test overrides
@@ -459,7 +352,7 @@ export async function createTestProvider(
   overrides: ConfigurationOverrides = {},
   providerType: TestProviderType = "custom"
 ): Promise<ConfigurationProvider> {
-  const factory = providerType === "custom" ? new CustomConfigFactory() : new NodeConfigFactory();
+  const factory = new CustomConfigFactory();
   return factory.createProvider({
     overrides,
     skipValidation: false,
@@ -521,10 +414,10 @@ export const config = {
 
 /**
  * Legacy compatibility - direct configuration object access
- * 
+ *
  * This provides backward compatibility with existing code that expects
  * a direct configuration object rather than going through the provider.
- * 
+ *
  * @deprecated Use the provider interface or config object instead
  */
 export const legacyConfig = new Proxy({} as Configuration, {
@@ -538,7 +431,7 @@ export const legacyConfig = new Proxy({} as Configuration, {
     }
     return undefined;
   },
-  
+
   has(_target, prop: string) {
     if (typeof prop === "string") {
       try {

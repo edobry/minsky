@@ -380,8 +380,8 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   /**
-   * Indicates this backend stores data in repository files
-   * @returns true because Markdown backend stores data in filesystem within the repo
+   * Markdown backend always requires special workspace for task operations
+   * All markdown task operations must be performed in the dedicated special workspace
    */
   isInTreeBackend(): boolean {
     return true;
