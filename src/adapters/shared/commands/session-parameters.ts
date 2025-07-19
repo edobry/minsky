@@ -81,11 +81,6 @@ export const sessionStartCommandParams: CommandParameterMap = {
     description: "Repository path",
     required: false,
   },
-  session: {
-    schema: z.string(),
-    description: "Deprecated: use name parameter instead",
-    required: false,
-  },
   json: {
     schema: z.boolean(),
     description: "Output in JSON format",
