@@ -140,10 +140,10 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
 export function getSessionWorkdirFn(
   state: SessionDbState,
   sessionName: string
-): string | undefined {
+): string | null {
   const session = getSessionFn(state, sessionName);
   if (!session) {
-    return undefined;
+    return null;
   }
 
   return getRepoPathFn(state, session);

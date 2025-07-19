@@ -502,7 +502,7 @@
 
 - [x] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)
 
-- [+] Separate Task ID Storage from Display Format [#283](process/tasks/283-separate-task-id-storage-from-display-format.md)
+- [x] Separate Task ID Storage from Display Format [#283](process/tasks/283-separate-task-id-storage-from-display-format.md)
 
 - [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
 
@@ -525,3 +525,15 @@
 - [ ] Add session chat interface context UI elements [#293](process/tasks/293-add-session-chat-interface-context-ui-elements.md)
 
 - [ ] Audit codebase for git command timeout issues and create ESLint rule [#294](process/tasks/294-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
+
+- [ ] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
+
+- [ ] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
+
+- [ ] Implement Custom Type-Safe Configuration System [#295](process/tasks/295-implement-custom-type-safe-configuration-system.md)
+
+- [ ] Audit codebase for git command timeout issues and create ESLint rule [#301](process/tasks/301-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
+
+- [ ] Explore Exposing Rules and Documentation as MCP Resources with Template Integration [#302](process/tasks/302-explore-exposing-rules-and-documentation-as-mcp-resources-with-template-integration.md)
+
+- [+] Improve Task Operations Workflow with Auto-Commit for Markdown Backend [#303](process/tasks/303-improve-task-operations-workflow-with-auto-commit-for-markdown-backend.md)

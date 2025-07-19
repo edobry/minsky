@@ -83,4 +83,4 @@ export class DefaultBackendDetectionService implements BackendDetectionService {
 }
 
 // Export singleton instance
-export const backendDetectionService = new DefaultBackendDetectionService(); 
+export const _backendDetectionService = new DefaultBackendDetectionService(); 

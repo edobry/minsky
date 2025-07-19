@@ -5,7 +5,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
-import { SessionRecord } from "./session-db";
+import { SessionRecord, SessionDbState } from "./session-db";
 import { getErrorMessage } from "../../errors";
 import { log } from "../../utils/logger";
 import { getMinskyStateDir, getDefaultJsonDbPath } from "../../utils/paths";
@@ -21,23 +21,33 @@ export interface SessionDbFileOptions {
 /**
  * Read sessions from the database file
  */
-export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionRecord[] {
+export function readSessionDbFile(options: SessionDbFileOptions | undefined | null = {}): SessionDbState {
+  const safeOptions = options || {};
   const stateDir = getMinskyStateDir();
-  const dbPath = options!?.dbPath || getDefaultJsonDbPath();
-  const baseDir = options!?.baseDir || stateDir;
+  const dbPath = safeOptions.dbPath || getDefaultJsonDbPath();
+  const baseDir = safeOptions.baseDir || stateDir;
 
   try {
     if (!existsSync(dbPath)) {
-      return [];
+      return {
+        sessions: [],
+        baseDir: baseDir
+      };
     }
 
     const data = readFileSync(dbPath, "utf8") as string;
     const sessions = JSON.parse(data);
 
-    return sessions;
+    return {
+      sessions: sessions,
+      baseDir: baseDir
+    };
   } catch (error) {
     log.error(`Error reading session database: ${getErrorMessage(error as any)}`);
-    return [];
+    return {
+      sessions: [],
+      baseDir: baseDir
+    };
   }
 }
 
@@ -46,10 +56,11 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionRe
  */
 export async function writeSessionsToFile(
   sessions: SessionRecord[],
-  options?: SessionDbFileOptions
+  options: SessionDbFileOptions | undefined | null = {}
 ): Promise<void> {
+  const safeOptions = options || {};
   const stateDir = getMinskyStateDir();
-  const dbPath = options!?.dbPath || getDefaultJsonDbPath();
+  const dbPath = safeOptions.dbPath || getDefaultJsonDbPath();
 
   try {
     // Ensure directory exists

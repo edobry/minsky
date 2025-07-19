@@ -43,7 +43,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // Create provider config from unified configuration
       return {
-        provider: provider as unknown,
+        provider: provider,
         apiKey,
         baseURL: providerConfig.base_url,
         defaultModel: providerConfig.default_model,
@@ -52,14 +52,14 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
         models: providerConfig.models || [],
         maxTokens: providerConfig.max_tokens,
         temperature: providerConfig.temperature,
-      } as AIProviderConfig;
+      };
     } catch (error) {
       log.debug(`Failed to get provider config for ${provider}`, { error });
       return null;
     }
   }
 
-  async setProviderConfig(provider: string, config: AIProviderConfig): Promise<void> {
+  async setProviderConfig(_provider: string, _config: AIProviderConfig): Promise<void> {
     // Note: For now, we don't implement writing config back to files
     // This would be a future enhancement to modify YAML config files
     throw new Error("Setting provider config is not yet implemented");
@@ -75,7 +75,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     }
   }
 
-  async setDefaultProvider(provider: string): Promise<void> {
+  async setDefaultProvider(_provider: string): Promise<void> {
     // Note: For now, we don't implement writing config back to files
     throw new Error("Setting default provider is not yet implemented");
   }

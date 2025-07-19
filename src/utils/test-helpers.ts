@@ -34,6 +34,7 @@ export function mockExistsSync(path: string): boolean {
   return exists;
 }
 
+// Mock rmSync for testing (since rmSync is a newer Node.js API)
 export function mockRmSync(
   path: string,
   options?: { recursive?: boolean; force?: boolean }
@@ -82,7 +83,7 @@ type FS = {
 };
 
 // Setup to use real or mock filesystem based on environment
-const useVirtualFS = true; // Set to true to use virtual filesystem
+const _useVirtualFS = true; // Set to true to use virtual filesystem
 
 // Interface for test environment setup
 export interface MinskyTestEnv {
@@ -106,7 +107,7 @@ export function createUniqueTestDir(prefix: string): string {
  * @param baseDir The base test directory (ignored)
  * @returns Object containing paths to the various test directories
  */
-export function setupMinskyTestEnv(baseDir: string): MinskyTestEnv {
+export function setupMinskyTestEnv(_baseDir: string): MinskyTestEnv {
   // This is stubbed for test purposes - we'll return fixed paths
   // that don't rely on filesystem operations
   const basePath = "/virtual/test-dir";
@@ -161,7 +162,7 @@ export function standardSpawnOptions(): SpawnSyncOptionsWithStringEncoding {
 }
 
 // Export the mock functions for tests that need to use them directly
-export const mockFS = {
+export const _mockFS = {
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,
   rmSync: mockRmSync,

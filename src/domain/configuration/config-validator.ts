@@ -275,7 +275,6 @@ export class DefaultConfigValidator implements ConfigValidator {
   ): { errors: ValidationError[], warnings: ValidationWarning[] } {
     const errors: ValidationError[] = [];
     const warnings: ValidationWarning[] = [];
-
     // Validate temperature
     if (providerConfig.temperature !== undefined) {
       if (typeof providerConfig.temperature !== "number" || providerConfig.temperature < 0 || providerConfig.temperature > 2) {

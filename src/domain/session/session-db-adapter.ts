@@ -13,6 +13,11 @@ export type { SessionProviderInterface };
 import { createStorageBackendWithIntegrity, type StorageConfig, type StorageResult } from "../storage/storage-backend-factory";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
+import { 
+  normalizeTaskIdForStorage, 
+  formatTaskIdForDisplay,
+  isValidTaskIdInput 
+} from "../tasks/task-id-utils";
 import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
@@ -148,11 +153,20 @@ export class SessionDbAdapter implements SessionProviderInterface {
     const storage = await this.getStorage();
     const sessions = await storage.getEntities();
 
-    // Support both "#123" and "123" formats
-    const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
-    const alternateTaskId = taskId.startsWith("#") ? taskId.slice(1) : taskId;
+    // TASK 283: Normalize input task ID to storage format for comparison
+    const normalizedTaskId = normalizeTaskIdForStorage(taskId);
+    if (!normalizedTaskId) {
+      log.debug("Invalid task ID format", { taskId });
+      return null;
+    }
 
-    return sessions.find((s) => s.taskId === normalizedTaskId || s.taskId === alternateTaskId) || null;
+    // Find session where stored task ID matches normalized input
+    return sessions.find((s) => {
+      if (!s.taskId) return false;
+      // Normalize the stored task ID for comparison
+      const storedNormalized = normalizeTaskIdForStorage(s.taskId);
+      return storedNormalized === normalizedTaskId;
+    }) || null;
   }
 
   async addSession(record: SessionRecord): Promise<void> {
@@ -219,7 +233,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
-export function createSessionProvider(options?: {
+export function createSessionProvider(_options?: {
   dbPath?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {

@@ -45,6 +45,7 @@ export async function updateSessionFromParams(
       repo: repo,
       sessionProvider: deps.sessionDB,
       allowAutoDetection: true,
+      getCurrentSessionFn: deps.getCurrentSession,
     });
 
     // Get the session details using the resolved session name

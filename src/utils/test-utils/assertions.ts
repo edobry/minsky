@@ -105,7 +105,7 @@ export function expectToHaveProperty(object: unknown, propertyPath: string, valu
   for (const part of parts) {
     expect(current).toBeDefined();
     expect(typeof current === "object" || Array.isArray(current)).toBeTruthy();
-    expect(part in (current as unknown)).toBeTruthy();
+    expect(part in current).toBeTruthy();
     current = current[part];
   }
 
@@ -156,8 +156,8 @@ export function expectToContainEqual(received: unknown[], expected: any): void {
  * @returns A wrapped test function with enhanced assertions
  */
 export function withEnhancedAssertions<T extends (...args: unknown[]) => any>(testFn: T): T {
-  return function (this: unknown, ...args: unknown[]) {
+  return function (_this: unknown, ...args: unknown[]) {
     // Could potentially extend expect with custom matchers here in the future
     return testFn.apply(this, args);
-  } as unknown;
+  };
 }

@@ -33,7 +33,7 @@ function flattenObjectToKeyValue(obj: any): any {
     }
   }
 
-  flatten(obj as unknown);
+  flatten(obj);
   return flattened;
 }
 
@@ -130,11 +130,11 @@ export function getConfigCustomizations(): { category: CommandCategory; options:
                 output += formatFlattenedConfiguration(result.resolved);
               }
 
-              log.cli(output as unknown);
+              log.cli(output);
             } else if (result.error) {
               log.cli(`Failed to load configuration: ${result.error}`);
             } else {
-              log.cli(JSON.stringify(result as unknown, null, 2));
+              log.cli(JSON.stringify(result, null, 2));
             }
           },
         },
@@ -142,7 +142,7 @@ export function getConfigCustomizations(): { category: CommandCategory; options:
           outputFormatter: (result: any) => {
             // Check if JSON output was requested
             if (result.json) {
-              log.cli(JSON.stringify(result as unknown, null, 2));
+              log.cli(JSON.stringify(result, null, 2));
               return;
             }
 
@@ -161,7 +161,7 @@ export function getConfigCustomizations(): { category: CommandCategory; options:
             } else if (result.error) {
               log.cli(`Failed to load configuration: ${result.error}`);
             } else {
-              log.cli(JSON.stringify(result as unknown, null, 2));
+              log.cli(JSON.stringify(result, null, 2));
             }
           },
         },

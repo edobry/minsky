@@ -44,6 +44,12 @@ import {
   getTaskSpecRelativePath,
 } from "./taskIO";
 
+import {
+  normalizeTaskIdForStorage,
+  formatTaskIdForDisplay,
+  getTaskIdNumber
+} from "./task-id-utils";
+
 // Helper import to avoid promise conversion issues
 import { readdir } from "fs/promises";
 
@@ -120,7 +126,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
   }
 
-  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+  async createTask(specPath: string, _options?: CreateTaskOptions): Promise<Task> {
     // Read and parse the spec file
     const specResult = await this.getTaskSpecData(specPath);
     if (!specResult.success || !specResult.content) {
@@ -137,14 +143,18 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     const existingTasks = this.parseTasks(existingTasksResult.content);
     const maxId = existingTasks.reduce((max, task) => {
-      const id = parseInt(task.id.slice(1), 10);
-      return id > max ? id : max;
+      // Use the new utility to extract numeric value from any format
+      const id = getTaskIdNumber(task.id);
+      return id !== null && id > max ? id : max;
     }, 0);
 
-    const newId = `#${maxId + 1}`;
+    // TASK 283: Generate plain ID format for storage (e.g., "285" instead of "#285")
+    const newId = String(maxId + 1); // Plain format for storage
 
     // Generate proper spec path and move the temporary file
-    const properSpecPath = getTaskSpecRelativePath(newId, spec.title, this.workspacePath);
+    // Use display format for spec path generation since filenames use display format
+    const displayId = formatTaskIdForDisplay(newId);
+    const properSpecPath = getTaskSpecRelativePath(displayId, spec.title, this.workspacePath);
     const fullProperPath = join(this.workspacePath, properSpecPath);
 
     // Ensure the tasks directory exists
@@ -200,7 +210,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     return newTask;
   }
 
-  async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
+  async deleteTask(id: string, _options?: DeleteTaskOptions): Promise<boolean> {
     try {
       // Get all tasks first
       const tasksResult = await this.getTasksData();
@@ -231,7 +241,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
       if (!saveResult.success) {
         log.error(`Failed to save tasks after deleting ${id}:`, {
-          error: saveResult.error.message,
+          error: saveResult.error?.message || "Unknown error",
         });
         return false;
       }
