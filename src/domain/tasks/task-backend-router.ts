@@ -52,13 +52,9 @@ export class TaskBackendRouter {
   private autoDetectBackendCategory(backend: TaskBackend): BackendRoutingInfo {
     const constructorName = backend.constructor.name.toLowerCase();
 
-    // Markdown backends - always in-tree
+    // Markdown backends - check if current workspace already has the files
     if (backend instanceof MarkdownTaskBackend || constructorName.includes("markdowntaskbackend")) {
-      return {
-        category: "in-tree",
-        requiresSpecialWorkspace: true,
-        description: "Markdown backend stores data in repository files"
-      };
+      return this.categorizeMarkdownBackend(backend);
     }
 
     // JSON file backends - depends on file location
@@ -95,6 +91,43 @@ export class TaskBackendRouter {
       requiresSpecialWorkspace: false,
       description: "Unknown backend type, defaulting to external"
     };
+  }
+
+  /**
+   * Categorize markdown backend based on current workspace context
+   */
+  private categorizeMarkdownBackend(backend: TaskBackend): BackendRoutingInfo {
+    const fs = require("fs");
+    const path = require("path");
+
+    try {
+      // Check if we're already in a workspace that contains the tasks file
+      const currentDir = (process as any).cwd();
+      const tasksFilePath = path.join(currentDir, "process", "tasks.md");
+
+      // If the current workspace already has the tasks file, use it directly
+      if (fs.existsSync(tasksFilePath)) {
+        return {
+          category: "in-tree",
+          requiresSpecialWorkspace: false,
+          description: "Markdown backend using current workspace with existing tasks file"
+        };
+      }
+
+      // If no tasks file in current workspace, use special workspace
+      return {
+        category: "in-tree",
+        requiresSpecialWorkspace: true,
+        description: "Markdown backend stores data in repository files"
+      };
+    } catch (error) {
+      // If we can't check, default to special workspace for safety
+      return {
+        category: "in-tree",
+        requiresSpecialWorkspace: true,
+        description: "Unable to determine workspace context, using special workspace"
+      };
+    }
   }
 
   /**
