@@ -400,41 +400,6 @@ export const sessionCommitCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-  noPush: {
-    schema: z.boolean(),
-    description: "Skip pushing changes after commit",
-    required: false,
-    defaultValue: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session push command
- */
-export const sessionPushCommandParams: CommandParameterMap = {
-  session: {
-    schema: z.string().min(1),
-    description: "Session name",
-    required: true,
-  },
-  remote: {
-    schema: z.string(),
-    description: "Remote to push to (defaults to origin)",
-    required: false,
-    defaultValue: "origin",
-  },
-  force: {
-    schema: z.boolean(),
-    description: "Force push (use with caution)",
-    required: false,
-    defaultValue: false,
-  },
   json: {
     schema: z.boolean(),
     description: "Output in JSON format",

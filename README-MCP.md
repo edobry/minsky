@@ -158,22 +158,15 @@ The Minsky MCP server exposes the following tools:
 
 ### Session Git Operations
 
-- `session.commit`: Commit changes within a session
+- `session.commit`: Commit and push changes within a session (atomic operation)
   - **Parameters:**
     - `session`: Session name (required)
     - `message`: Commit message (required)
     - `all`: Stage all changes including deletions (optional)
     - `amend`: Amend the previous commit (optional)
     - `noStage`: Skip staging changes (optional)
-    - `noPush`: Skip pushing changes after commit (optional)
 
-- `session.push`: Push changes from a session to remote repository
-  - **Parameters:**
-    - `session`: Session name (required)
-    - `remote`: Remote to push to, defaults to origin (optional)
-    - `force`: Force push - use with caution (optional)
-
-> **Architecture Note**: Git operations are session-scoped in MCP to maintain proper separation of concerns. Session commands ensure all git operations happen within the correct session context without requiring agents to manage working directories.
+> **Architecture Note**: Session git operations are atomic - commit always includes push to maintain session consistency. This ensures session workspaces stay synchronized with the remote repository without requiring separate operations.
 
 ### Configuration and Debugging
 
