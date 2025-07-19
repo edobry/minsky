@@ -4,13 +4,59 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Session PR Hanging Issue**: Fixed infinite hangs in session PR creation by replacing basic `execAsync` git calls with timeout-aware alternatives
+  - **Root Cause**: Git operations (push, fetch, ls-remote) in `prepare-pr-operations.ts` could hang indefinitely without timeout handling
+  - **Solution**: Replaced `execAsync` calls with `execGitWithTimeout`, `gitFetchWithTimeout`, and `gitPushWithTimeout` utilities
+  - **Timeout Values**: Set 30-second timeouts for push/fetch operations, 15-second for ls-remote checks
+  - **Enhanced Error Messages**: Added contextual information for timeout errors to aid debugging
+  - **Impact**: Eliminates "mysterious hangs" during PR creation, even with local git repositories
+  - **Created Task #294**: Comprehensive audit of entire codebase for similar timeout issues and ESLint rule development
+
 ### Added
+
+- **Task #283 - COMPLETE**: Separated task ID storage from display format with comprehensive implementation
+  - **Core Architecture**: Implemented clean separation where storage uses plain numbers ("283") and display adds # prefix ("#283")
+  - **Schema Normalization**: `taskIdSchema` accepts any input format and normalizes to storage format automatically
+  - **Storage Consistency**: Updated all backends (JSON, Markdown) to generate and store plain task IDs
+  - **Session Integration**: Updated session storage, context resolution, and approval operations for new format
+  - **Display Formatting**: Updated CLI and MCP formatters to use `formatTaskIdForDisplay()` for consistent # prefix
+  - **Migration Tools**: Created `scripts/migrate-task-id-format.ts` with dry-run and backup capabilities for existing data
+  - **Comprehensive Testing**: 30 tests covering all utilities, edge cases, and integration scenarios
+  - **API Flexibility**: Commands accept multiple input formats ("283", "#283", "task#283") with backward compatibility
+  - **Zero Breaking Changes**: Implementation maintains existing functionality while improving data consistency
+
+- **Task #061 - PHASE 3 COMPLETE**: Finalized test fixture factory pattern implementation with comprehensive documentation and enforcement
+  - **Documentation**: Created `docs/bun-test-patterns.md` with complete migration guidelines, best practices, and examples
+  - **ESLint enforcement**: Implemented `src/eslint-rules/no-jest-patterns.js` with auto-fix capabilities for Jest pattern violations
+  - **Logger mock infrastructure**: Added centralized `src/utils/test-utils/logger-mock.ts` to fix "log.cli is not a function" errors
+  - **Jest → Bun migration**: Successfully completed 9/9 target files with systematic pattern elimination
+  - **Code reduction**: ~450+ lines of duplicate code eliminated, 54+ tests migrated to centralized patterns
+  - **Infrastructure**: Complete foundation for codebase-wide Jest pattern elimination and Bun test compliance
+  - **Prevention**: ESLint rule with auto-fix prevents future Jest pattern violations and enforces centralized factory usage
+
+- **Task #061 - PHASE 1 COMPLETE**: Successfully migrated all critical test files from Jest patterns to centralized Bun test factory patterns
+  - **Completed files**: `session-git-clone-bug-regression.test.ts`, `git-pr-workflow.test.ts`, `session-approve.test.ts` (3/3 Phase 1 targets)
+  - **Pattern established**: Comprehensive Jest → Bun migration with centralized factories (`createMockSessionProvider`, `createMockGitService`, `createMockTaskService`)
+  - **Interface standardization**: Systematic naming fixes (`_session` → `session`, `_title` → `title`, `_status` → `status`) applied across complex scenarios
+  - **Code reduction**: ~160+ lines of duplicate mock code eliminated across all completed files
+  - **Test reliability**: All 22 migrated tests passing (101+ expect() calls) with significantly improved maintainability
+  - **Scalability validation**: Successfully handled complex test scenarios from simple 2-test files to 10-test files with intricate mocking requirements
+  - **Migration methodology**: Proven systematic approach ready for Phase 2 application to remaining Jest-pattern violations
 
 - Task #291: Analyze theoretical overlap between rules systems and policy DSLs (OPA, ESLint, cybernetics) - Comprehensive theoretical research task exploring conceptual overlap between rules and policies, analyzing systems like OPA/Rego, ESLint, TypeScript-based rules, and cybernetics applications for inference-time enforcement
 - Task #289: Implement Template-Based Rules Generation System - Created comprehensive task specification for converting static cursor rules to template literals with conditional CLI/MCP command references, extracting rules generation logic to rules domain, and implementing `minsky rules generate` command
 - Task #290: Convert Cursor Rules to MCP-Only Tool References - Comprehensive task for properly converting cursor rules to MCP tool references with understanding of MCP interfaces, structured parameters vs CLI flags, and integration with template system
 
 ### Changed
+
+- **Session Tools API Compatibility**: Fixed `commandMapper.addTool is not a function` error preventing MCP server startup
+  - **CRITICAL**: Fixed incompatible API usage in session-files.ts and session-edit-tools.ts
+  - **Root Cause**: Session tools were using deprecated `addTool()` method instead of `addCommand()`
+  - **Resolution**: Updated all session tools to use `addCommand()` with proper parameters object structure
+  - **Result**: MCP server now starts correctly, inspector opens properly, all session tools functional
+  - **Files Fixed**: `src/adapters/mcp/session-files.ts`, `src/adapters/mcp/session-edit-tools.ts`
 
 - **HTTP Transport Restoration**: Fixed complete loss of HTTP transport functionality during merge
   - **CRITICAL**: Restored missing `handleHttpRequest()` method that was lost during task 286 merge
@@ -29,15 +75,26 @@ All notable changes to this project will be documented in this file.
   - Maintained zero TypeScript compilation errors throughout aggressive cleanup process
   - Enhanced framework ready for future maintenance with production-validated pattern detection
 
-- **Task #277**: Created comprehensive task specification for stacked PR workflow implementation
-  - Enables sessions to start from existing session branches instead of always starting from main
-  - Adds dependency tracking and visualization for session relationships
-  - Supports PR stacks and cascading approvals
-  - Includes phased implementation plan with testing strategy
-  - Maintains backward compatibility with existing workflows
+- **Task #286**: Added complete HTTP transport support for MCP server
 
-- Integrated title duplication checking into husky commit-msg hook to prevent commit messages with title/body duplication patterns
-- Added `scripts/check-title-duplication.ts` script that validates commit messages using same logic as session PR workflow
+### Changed
+- **Code Reduction**: Eliminated ~100+ lines of duplicate mock object declarations in `session-approve.test.ts`
+- **Jest Pattern Elimination**: Removed all local mock object patterns in favor of centralized factories
+- **Interface Standardization**: Applied consistent property naming fixes across all test methods
+- **Test Architecture**: Established reusable pattern for spy integration with centralized factories
+
+### Fixed
+- Test assertion for git branch reference check (refs/remotes/ vs refs/heads/)
+- Interface mismatches causing TypeScript warnings in centralized factory usage
+- Call tracking verification using individual spy methods instead of direct mock references
+
+### Technical Details
+- **Files Modified**: `src/domain/session-approve.test.ts`, task specification documentation
+- **Pattern Established**: Individual spy creation + centralized factory integration + interface fixes
+- **Test Status**: All 10 tests passing, 49 expect() calls verified
+- **Impact**: Phase 1 critical refactoring targets now complete (3/3 files)
+
+This completes the largest and most complex test file migration in the centralized factory pattern initiative, demonstrating the effectiveness and scalability of the established approach.
 
 - **Task #285**: Fixed session PR title duplication bug in the extractPrDescription function
   - Enhanced parsing logic to detect and remove duplicate title lines in PR body content
@@ -1189,3 +1246,21 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ### Reverted
 
 - **Bad MCP rule conversion attempt (commits e0066506/dde789d7)**: Reverted mechanical find-and-replace conversion that incorrectly treated MCP tools like CLI commands with flags, created nonsensical references like "# Use MCP tool: session.pr --title", demonstrated need for proper MCP interface understanding before conversion
+
+### Fixed
+
+- **Session Database**: Fixed critical "undefined is not an object (evaluating 'sessions.find')" error in JSON file storage backend. The issue was caused by a structural mismatch where `readState()` was returning a sessions array instead of a proper `SessionDbState` object with a `sessions` property. This affected all session commands including `minsky session dir --task X`, `minsky session list`, and `minsky session get --task X`.
+
+- **Configuration Loading**: Fixed critical configuration system failure where `NODE_CONFIG_DIR` was being set on a validated copy of `process` instead of the actual `process.env`, causing node-config to look in wrong directory (`/Users/edobry/config` instead of `/Users/edobry/.config/minsky/`). This prevented the system from loading SQLite backend configuration and caused "No session found for task ID" errors when sessions actually existed.
+
+- **Config Show Command**: Fixed `minsky config show` command displaying "Structured configuration view not available in extracted module" placeholder message. Now properly displays formatted configuration with emoji indicators for different system components (📁 Task Storage, 💾 Session Storage, 🔐 Authentication).
+
+- **Configuration Directory Management**: Improved NODE_CONFIG_DIR handling to use proper XDG config directory standards (`~/.config/minsky`) instead of hardcoded paths. Added detection and warning system for user attempts to override the configuration directory, maintaining system integrity while providing visibility into override attempts.
+
+### Added
+- Comprehensive PR branch recovery system to prevent git command hangs
+  - Automatic cleanup of corrupted PR branch state that can cause indefinite hangs
+  - Preserves commit messages from existing PR branches when possible
+  - Aggressive cleanup operations to handle partial git operations (merge aborts, rebase aborts, lock file removal)
+  - Enhanced user feedback with recovery status messages
+  - Prevents the type of hanging issues that blocked session PR creation in task #280

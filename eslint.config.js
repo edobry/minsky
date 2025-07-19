@@ -4,6 +4,7 @@ import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
 import noUnderscorePrefixMismatch from "./src/eslint-rules/no-underscore-prefix-mismatch.js";
 import noExcessiveAsUnknown from "./src/eslint-rules/no-excessive-as-unknown.js";
+import noUnsafeGitExec from "./src/eslint-rules/no-unsafe-git-exec.js";
 
 export default [
   js.configs.recommended,
@@ -84,6 +85,7 @@ export default [
         rules: {
           "no-underscore-prefix-mismatch": noUnderscorePrefixMismatch,
           "no-excessive-as-unknown": noExcessiveAsUnknown,
+          "no-unsafe-git-exec": noUnsafeGitExec,
         },
       },
     },
@@ -98,6 +100,12 @@ export default [
 
       // === VARIABLE NAMING RULES ===
       "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
+
+      // === GIT OPERATION SAFETY ===
+      "custom/no-unsafe-git-exec": ["error", {
+        allowInTests: false,
+        allowedLocalOperations: ["status", "branch", "log", "diff", "show", "rev-parse"]
+      }], // Prevents git operations that can hang without timeouts
 
       // === TYPE SAFETY RULES ===
       "custom/no-excessive-as-unknown": ["warn", {

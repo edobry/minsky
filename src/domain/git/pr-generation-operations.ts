@@ -120,7 +120,7 @@ You need to specify one of these options to identify the target repository:
   if (!session) {
     const context = createErrorContext().addCommand("minsky git pr").build();
 
-    throw new MinskyError(createSessionNotFoundMessage(sessionName, context as unknown));
+    throw new MinskyError(createSessionNotFoundMessage(sessionName, context));
   }
   const workdir = deps.getSessionWorkdir(sessionName);
 
