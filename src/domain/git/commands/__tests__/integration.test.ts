@@ -74,77 +74,77 @@ describe("Git Commands Integration Tests", () => {
   let tempWorkdir: string;
 
   beforeEach(() => {
-      // Set up proper temporary directory management
-      fsCleanup = new FileSystemTestCleanup();
-      tempWorkdir = fsCleanup.createTempDir("git-test-workdir");
+    // Set up proper temporary directory management
+    fsCleanup = new FileSystemTestCleanup();
+    tempWorkdir = fsCleanup.createTempDir("git-test-workdir");
       
-      // Reset all mocks
-      mockExecAsync.mockReset();
-      mockCreateGitService.mockReset();
-      mockSessionProvider.getSession.mockReset();
+    // Reset all mocks
+    mockExecAsync.mockReset();
+    mockCreateGitService.mockReset();
+    mockSessionProvider.getSession.mockReset();
       
-      // Set up mock GitService to return our mocked instance
-      mockCreateGitService.mockReturnValue(mockGitService);
+    // Set up mock GitService to return our mocked instance
+    mockCreateGitService.mockReturnValue(mockGitService);
       
-      // Set up successful mock responses for git operations
-      mockGitService.clone.mockResolvedValue({
-        workdir: tempWorkdir,
-        session: "test-session",
-        repoPath: tempWorkdir,
-      });
+    // Set up successful mock responses for git operations
+    mockGitService.clone.mockResolvedValue({
+      workdir: tempWorkdir,
+      session: "test-session",
+      repoPath: tempWorkdir,
+    });
       
-      mockGitService.createBranch.mockResolvedValue({
-        success: true,
-        branchName: "feature-branch",
-      });
+    mockGitService.createBranch.mockResolvedValue({
+      success: true,
+      branchName: "feature-branch",
+    });
       
-      mockGitService.commitChanges.mockResolvedValue({
-        success: true,
-        commitHash: "abc123",
-      });
+    mockGitService.commitChanges.mockResolvedValue({
+      success: true,
+      commitHash: "abc123",
+    });
       
-      mockGitService.push.mockResolvedValue({
-        success: true,
-        pushed: true,
-      });
+    mockGitService.push.mockResolvedValue({
+      success: true,
+      pushed: true,
+    });
       
-      mockGitService.merge.mockResolvedValue({
-        success: true,
-        merged: true,
-      });
+    mockGitService.merge.mockResolvedValue({
+      success: true,
+      merged: true,
+    });
       
-      mockGitService.checkout.mockResolvedValue({
-        success: true,
-        branch: "feature-branch",
-      });
+    mockGitService.checkout.mockResolvedValue({
+      success: true,
+      branch: "feature-branch",
+    });
       
-      mockGitService.rebase.mockResolvedValue({
-        success: true,
-        rebased: true,
-      });
+    mockGitService.rebase.mockResolvedValue({
+      success: true,
+      rebased: true,
+    });
       
-      mockGitService.createPullRequest.mockResolvedValue({
-        success: true,
-        prUrl: "https://github.com/test/repo/pull/1",
-      });
+    mockGitService.createPullRequest.mockResolvedValue({
+      success: true,
+      prUrl: "https://github.com/test/repo/pull/1",
+    });
       
-      mockGitService.getSessionWorkdir.mockReturnValue(tempWorkdir);
+    mockGitService.getSessionWorkdir.mockReturnValue(tempWorkdir);
       
-      // Mock session provider responses
-      mockSessionProvider.getSession.mockResolvedValue({
-        session: "test-session",
-        repoPath: tempWorkdir,
-        taskId: "#123",
-      });
+    // Mock session provider responses
+    mockSessionProvider.getSession.mockResolvedValue({
+      session: "test-session",
+      repoPath: tempWorkdir,
+      taskId: "#123",
+    });
       
-      // Mock execAsync for any direct usage
-      mockExecAsync.mockImplementation((command: string) => {
-        return Promise.resolve({
-          stdout: "Mock git command success",
-          stderr: "",
-        });
+    // Mock execAsync for any direct usage
+    mockExecAsync.mockImplementation((command: string) => {
+      return Promise.resolve({
+        stdout: "Mock git command success",
+        stderr: "",
       });
     });
+  });
 
   afterEach(() => {
     // Clean up temporary directories

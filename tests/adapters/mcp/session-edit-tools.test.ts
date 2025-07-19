@@ -82,13 +82,13 @@ describe("Session Edit Tools", () => {
 
     // Mock addTool to capture registered tools
     commandMapper.addCommand.mockImplementation((command: { name: string; description: string; parameters?: any; handler: any }) => {
-          registeredTools[command.name] = {
-            name: command.name,
-            description: command.description,
-            schema: command.parameters,
-            handler: command.handler,
-          };
-        });
+      registeredTools[command.name] = {
+        name: command.name,
+        description: command.description,
+        schema: command.parameters,
+        handler: command.handler,
+      };
+    });
 
     // Register the tools
     registerSessionEditTools(commandMapper);
