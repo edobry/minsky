@@ -99,40 +99,10 @@ export interface McpSharedCommandConfig {
       description?: string;
       /** Hide command from MCP */
       hidden?: boolean;
-      /** MCP-specific parameter requirements */
-      mcpRequiredParams?: string[];
     }
   >;
   /** Whether to enable debug logging */
   debug?: boolean;
-}
-
-/**
- * Validates MCP-specific parameter requirements
- */
-function validateMcpRequiredParameters(
-  commandId: string,
-  args: Record<string, any>,
-  mcpRequiredParams?: string[]
-): void {
-  if (!mcpRequiredParams || mcpRequiredParams.length === 0) {
-    return;
-  }
-
-  const missingParams: string[] = [];
-  
-  for (const paramName of mcpRequiredParams) {
-    if (!args[paramName]) {
-      missingParams.push(paramName);
-    }
-  }
-
-  if (missingParams.length > 0) {
-    throw new Error(
-      `MCP Context Error: Command "${commandId}" requires the following parameters in MCP context: ${missingParams.join(", ")}. ` +
-      "These parameters are optional in CLI context but required for MCP since there's no meaningful \"current directory\" for MCP services."
-    );
-  }
 }
 
 /**
@@ -164,7 +134,6 @@ export function registerSharedCommandsWithMcp(
       log.debug(`Registering command ${command.id} with MCP`, {
         category,
         description,
-        mcpRequiredParams: overrides?.mcpRequiredParams,
       });
 
       // Register command with MCP using the command mapper
@@ -174,9 +143,6 @@ export function registerSharedCommandsWithMcp(
         description,
         parameters: convertParametersToZodSchema(command.parameters),
         handler: async (args: any, projectContext?: any) => {
-          // Validate MCP-specific required parameters
-          validateMcpRequiredParameters(command.id, args, overrides?.mcpRequiredParams);
-
           // Create execution context for shared command
           const context: CommandExecutionContext = {
             interface: "mcp",
@@ -196,10 +162,6 @@ export function registerSharedCommandsWithMcp(
         },
       });
     });
-  });
-
-  log.debug("Shared command registration complete", {
-    categories: config.categories,
   });
 }
 
