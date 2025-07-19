@@ -402,8 +402,7 @@ Session requested: "${(options as any).session}"
     throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err as any)}`);
   }
 
-  // Create commit message file for merge commit (Task #025)
-  const commitMsgFile = `${workdir}/.pr_title`;
+  // Create commit message for merge commit (Task #025)
   try {
     // Use preserved message from recovery if no new title provided
     let commitMessage = options.title || existingPrMessage || `Merge ${sourceBranch} into ${prBranch}`;
@@ -416,23 +415,8 @@ Session requested: "${(options as any).session}"
       log.cli("📝 Reusing commit message from recovered PR branch");
     }
 
-    // CRITICAL BUG FIX: Improve commit message file handling
-    // Write commit message to file for git merge -F
-    // Use fs.writeFile instead of echo to avoid shell parsing issues
-    const fs = await import("fs/promises");
-    await fs.writeFile(commitMsgFile, commitMessage, "utf8");
-
-    // VERIFICATION: Read back the commit message file to ensure it was written correctly
-    const writtenMessage = await fs.readFile(commitMsgFile, "utf8");
-    if (writtenMessage !== commitMessage) {
-      throw new Error(
-        `Commit message file verification failed. Expected: ${commitMessage}, Got: ${writtenMessage}`
-      );
-    }
-
-    log.debug("Created and verified commit message file for prepared merge commit", {
+    log.debug("Prepared commit message for merge commit", {
       commitMessage,
-      commitMsgFile,
       sourceBranch,
       prBranch,
     });
@@ -499,10 +483,6 @@ Session requested: "${(options as any).session}"
 
     log.debug(`Created prepared merge commit by merging ${sourceBranch} into ${prBranch}`);
 
-    // Clean up the commit message file
-    await fs.unlink(commitMsgFile).catch(() => {
-      // Ignore errors when cleaning up
-    });
   } catch (err) {
     // Clean up on error
     try {
@@ -511,10 +491,6 @@ Session requested: "${(options as any).session}"
         "merge --abort",
         { workdir, timeout: 30000 }
       );
-      const fs = await import("fs/promises");
-      await fs.unlink(commitMsgFile).catch(() => {
-        // Ignore file cleanup errors
-      });
       // CRITICAL: Switch back to session branch on error
       await execGitWithTimeout(
         "switch",

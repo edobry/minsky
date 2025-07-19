@@ -51,6 +51,13 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Session PR Timeout Fix**: Fixed 3+ minute hangs in session PR creation caused by massive commit messages (2000+ characters)
+  - **Root Cause**: Git merge operations with extremely long commit messages (full PR descriptions) were timing out after 60 seconds
+  - **Impact**: `minsky session pr` would hang indefinitely when creating PRs with detailed descriptions
+  - **Solution**: Increased git merge timeout from 60s to 180s and added complexity warnings for large changesets
+  - **Performance**: Session PR creation now completes successfully with complex commit messages
+  - **User Experience**: Added progress indicators for merges with 5+ changed files to set expectations
+
 - **CRITICAL: Session Approve Safety**: Fixed dangerous error handling in session approve that could leave repository in inconsistent state
   - **Root Cause**: Nested try-catch structure incorrectly treated ALL merge errors as "already merged" and continued processing
   - **Impact**: Fast-forward merge failures (like diverged branches) would not stop the command, potentially corrupting repo state
