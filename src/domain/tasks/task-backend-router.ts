@@ -1,5 +1,5 @@
 import { join } from "path";
-import { SpecialWorkspaceManager } from "../workspace/special-workspace-manager";
+import { SpecialWorkspaceManager, createSpecialWorkspaceManager } from "../workspace/special-workspace-manager";
 import { TaskBackend } from "./taskBackend";
 import { MarkdownTaskBackend } from "./markdownTaskBackend";
 import { JsonFileTaskBackend } from "./jsonFileTaskBackend";
@@ -52,13 +52,9 @@ export class TaskBackendRouter {
   private autoDetectBackendCategory(backend: TaskBackend): BackendRoutingInfo {
     const constructorName = backend.constructor.name.toLowerCase();
 
-    // Markdown backends - always in-tree
+    // Markdown backends - check if current workspace already has the files
     if (backend instanceof MarkdownTaskBackend || constructorName.includes("markdowntaskbackend")) {
-      return {
-        category: "in-tree",
-        requiresSpecialWorkspace: true,
-        description: "Markdown backend stores data in repository files"
-      };
+      return this.categorizeMarkdownBackend(backend);
     }
 
     // JSON file backends - depends on file location
@@ -98,13 +94,50 @@ export class TaskBackendRouter {
   }
 
   /**
+   * Categorize markdown backend based on current workspace context
+   */
+  private categorizeMarkdownBackend(backend: TaskBackend): BackendRoutingInfo {
+    const fs = require("fs");
+    const path = require("path");
+
+    try {
+      // Check if we're already in a workspace that contains the tasks file
+      const currentDir = (process as any).cwd();
+      const tasksFilePath = path.join(currentDir, "process", "tasks.md");
+
+      // If the current workspace already has the tasks file, use it directly
+      if (fs.existsSync(tasksFilePath)) {
+        return {
+          category: "in-tree",
+          requiresSpecialWorkspace: false,
+          description: "Markdown backend using current workspace with existing tasks file"
+        };
+      }
+
+      // If no tasks file in current workspace, use special workspace
+      return {
+        category: "in-tree",
+        requiresSpecialWorkspace: true,
+        description: "Markdown backend stores data in repository files"
+      };
+    } catch (error) {
+      // If we can't check, default to special workspace for safety
+      return {
+        category: "in-tree",
+        requiresSpecialWorkspace: true,
+        description: "Unable to determine workspace context, using special workspace"
+      };
+    }
+  }
+
+  /**
    * Categorize JSON file backend based on file location
    */
   private categorizeJsonBackend(backend: JsonFileTaskBackend): BackendRoutingInfo {
     try {
       // Get the configured file path from the backend
       const filePath = this.getJsonBackendFilePath(backend);
-      
+
       // Check if it's in the repository directory structure
       if (filePath.includes("process/tasks.json") || filePath.includes("process/.minsky/")) {
         return {
@@ -146,7 +179,7 @@ export class TaskBackendRouter {
     try {
       // Try to get database file path from backend
       const dbPath = this.getSqliteBackendPath(backend);
-      
+
       // Check if it's in the repository directory structure
       if (dbPath.includes("process/") || dbPath.includes(".git/")) {
         return {
@@ -181,8 +214,11 @@ export class TaskBackendRouter {
     }
 
     if (!this.specialWorkspaceManager) {
-      this.specialWorkspaceManager = await SpecialWorkspaceManager.create(this.repoUrl);
+      this.specialWorkspaceManager = createSpecialWorkspaceManager({ repoUrl: this.repoUrl });
     }
+
+    // Initialize the workspace if it doesn't exist (creates the git clone)
+    await this.specialWorkspaceManager.initialize();
 
     return this.specialWorkspaceManager.getWorkspacePath();
   }
@@ -203,10 +239,13 @@ export class TaskBackendRouter {
         if (!this.repoUrl) {
           throw new Error("Repository URL required for in-tree backend operations");
         }
-        this.specialWorkspaceManager = await SpecialWorkspaceManager.create(this.repoUrl);
+        this.specialWorkspaceManager = createSpecialWorkspaceManager({ repoUrl: this.repoUrl });
       }
 
-      return this.specialWorkspaceManager.performOperation(operation, callback);
+      // Initialize the workspace if it doesn't exist (creates the git clone)
+      await this.specialWorkspaceManager.initialize();
+
+      return callback(this.specialWorkspaceManager.getWorkspacePath());
     } else {
       // Use current working directory for external backends
       const currentDir = (process as any).cwd();
@@ -246,11 +285,11 @@ export class TaskBackendRouter {
 
     // Try to access other file path properties
     if ("filePath" in backend) {
-      return backend.filePath;
+      return (backend as any).filePath as string;
     }
-    
+
     if ("fileName" in backend) {
-      return backend.fileName;
+      return (backend as any).fileName as string;
     }
 
     // Fallback: assume it's using standard location
@@ -263,11 +302,11 @@ export class TaskBackendRouter {
   private getSqliteBackendPath(backend: TaskBackend): string {
     // Try to access the database path property
     if ("dbPath" in backend) {
-      return backend.dbPath;
+      return (backend as any).dbPath as string;
     }
-    
+
     if ("databasePath" in backend) {
-      return backend.databasePath;
+      return (backend as any).databasePath as string;
     }
 
     // Fallback: assume external location
@@ -288,4 +327,4 @@ export class TaskBackendRouter {
   static createExternal(): TaskBackendRouter {
     return new TaskBackendRouter();
   }
-} 
+}

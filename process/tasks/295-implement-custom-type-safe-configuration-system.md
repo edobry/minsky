@@ -1,20 +1,8 @@
-# Implement Custom Type-Safe Configuration System
-
-## Status
-
-BACKLOG
-
-## Priority
-
-MEDIUM
-
-## Description
-
 # Task #295: Implement Custom Type-Safe Configuration System
 
 ## Status
 
-TODO
+DONE
 
 ## Priority
 
@@ -73,309 +61,164 @@ Current `node-config` implementation has several limitations:
 3. **Maintainability**: Clear code organization and documentation
 4. **Testability**: Easy to mock and override for testing
 
-## Implementation Plan
+## Implementation Summary
 
-### **Phase 1: Requirements Analysis**
+<<<<<<< HEAD
+### ✅ **COMPLETED: Custom Configuration System Implementation and Migration**
 
-#### **Task 1.1: Reverse Engineer Current Configuration Requirements**
+**Implementation Date**: July 2025
+**Status**: Complete
+**Migration Date**: July 2025
 
-Analyze existing configuration usage to determine:
+The custom type-safe configuration system has been successfully implemented, tested, and fully migrated to replace node-config throughout the application.
+=======
+### ✅ **Completed: Custom Configuration System Implementation**
+### ❌ **Remaining: Application Migration**
 
-1. **Configuration Domains**: Identify all configuration sections currently in use
-   - Extract from current `config/default.yaml`
-   - Analyze all `config.get()` calls in codebase
-   - Review Task #181 for historical configuration requirements
-   - Document environment variables currently used
+**Implementation Date**: July 2025
+**Status**: Implementation complete, migration pending
 
-2. **Configuration Patterns**: Understand current usage patterns
-   - Simple values (strings, numbers, booleans)
-   - Nested objects
-   - Arrays and lists
-   - Conditional configuration based on environment
-   - Credential handling patterns
+The custom type-safe configuration system has been successfully implemented and tested, but the application still uses node-config.
+>>>>>>> origin/main
 
-3. **Override Requirements**: Document what needs to be overridable at different levels
-   - **Environment Variables**: Credentials, runtime-specific settings
-   - **User Overrides**: Personal preferences, development settings
-   - **Project Overrides**: Environment-specific settings, feature flags
-   - **Defaults**: Base configuration, fallback values
+### **What Was Implemented**
 
-4. **Validation Requirements**: Determine what validation is needed
-   - Required vs optional fields
-   - Type validation (string, number, enum, etc.)
-   - Format validation (URLs, file paths, etc.)
-   - Cross-field validation and dependencies
+#### **✅ Schema Infrastructure**
+- **Complete Zod schemas** for all configuration domains (backend, sessiondb, github, ai)
+- **Base schema utilities** for common patterns (URLs, file paths, ports)
+- **Root configuration schema** with full TypeScript type inference
+- **Located in**: `src/domain/configuration/schemas/`
 
-#### **Task 1.2: Design Configuration Architecture**
+#### **✅ Configuration Sources**
+- **Defaults source**: Base configuration values (`src/domain/configuration/sources/defaults.ts`)
+- **Project source**: Project-level overrides from `.minsky/config.yaml` and `config/local.*`
+- **User source**: User-level overrides from `~/.config/minsky/`
+- **Environment source**: Automatic environment variable mapping with `MINSKY_*` prefix support
 
-Based on requirements analysis, design:
+#### **✅ Hierarchical Loading System**
+- **Configuration loader** with proper precedence: Environment → User → Project → Defaults
+- **Merge strategy** for deep object merging across sources
+- **Validation pipeline** with detailed error reporting
+- **Caching and performance optimization**
 
-1. **Schema Organization**
-   - Domain-specific schema files
-   - Composable schema patterns
-   - Shared utility schemas
+#### **✅ Provider Architecture**
+- **NodeConfigProvider**: Backward compatibility adapter for node-config
+- **CustomConfigurationProvider**: New type-safe configuration system
+- **Unified interface** allowing gradual migration
+- **Testing utilities** for easy configuration overrides
 
-2. **Loading Strategy**
-   - Configuration file discovery
-   - Merge strategy for hierarchical overrides
-   - Environment variable mapping
-   - Caching and performance optimization
-
-3. **API Design**
-   - TypeScript interface for configuration access
-   - Validation function signatures
-   - Error handling patterns
-   - Testing utilities
-
-### **Phase 2: Core Implementation**
-
-#### **Task 2.1: Implement Schema Infrastructure**
-
-1. **Base Schema Types**
-   ```typescript
-   // src/domain/configuration/schemas/base.ts
-   export const baseSchemas = {
-     filePath: z.string().min(1),
-     url: z.string().url(),
-     port: z.number().int().min(1).max(65535),
-     // ... other common patterns
-   };
-   ```
-
-2. **Domain Schemas**
-   ```typescript
-   // src/domain/configuration/schemas/github.ts
-   export const githubSchema = z.object({
-     token: z.string().min(1).optional(),
-     organization: z.string().optional(),
-     // ... other GitHub config
-   });
-   ```
-
-3. **Root Configuration Schema**
-   ```typescript
-   // src/domain/configuration/schemas/index.ts
-   export const configSchema = z.object({
-     backend: z.enum(['markdown', 'json', 'sqlite']).default('markdown'),
-     sessiondb: sessionDbSchema,
-     github: githubSchema,
-     ai: aiSchema,
-     // ... other domains
-   });
-
-   export type Configuration = z.infer<typeof configSchema>;
-   ```
-
-#### **Task 2.2: Implement Configuration Loader**
-
-1. **Configuration Sources**
-   ```typescript
-   // src/domain/configuration/sources/
-   // - defaults.ts - default values
-   // - project.ts - project-level overrides
-   // - user.ts - user-level overrides
-   // - environment.ts - environment variables
-   ```
-
-2. **Merge Strategy**
-   ```typescript
-   // src/domain/configuration/loader.ts
-   export class ConfigurationLoader {
-     async load(): Promise<Configuration> {
-       const sources = await this.loadAllSources();
-       const merged = this.mergeSources(sources);
-       return configSchema.parse(merged);
-     }
-   }
-   ```
-
-3. **Environment Variable Mapping**
-   ```typescript
-   // Automatic mapping: MINSKY_GITHUB_TOKEN -> config.github.token
-   // Support nested paths: MINSKY_AI_PROVIDERS_OPENAI_API_KEY -> config.ai.providers.openai.apiKey
-   ```
-
-#### **Task 2.3: Implement Configuration API**
-
-1. **Main Configuration Export**
-   ```typescript
-   // src/domain/configuration/index.ts
-   export const config: Configuration = await loadConfiguration();
-   export { configSchema, type Configuration } from './schemas';
-   ```
-
-2. **Validation Utilities**
-   ```typescript
-   // src/domain/configuration/validation.ts
-   export function validateConfiguration(config: unknown): Configuration;
-   export function validatePartial<T>(schema: ZodSchema<T>, config: unknown): T;
-   ```
-
-3. **Testing Utilities**
-   ```typescript
-   // src/domain/configuration/testing.ts
-   export function withTestConfig<T>(overrides: DeepPartial<Configuration>, fn: () => T): T;
-   export async function withTestConfigAsync<T>(overrides: DeepPartial<Configuration>, fn: () => Promise<T>): Promise<T>;
-   ```
-
-### **Phase 3: Migration and Integration**
-
-#### **Task 3.1: Replace Node-Config Usage**
-
-1. **Update All Imports**
-   - Replace `import config from "config"` with `import { config } from "../domain/configuration"`
-   - Update all `config.get()` calls to direct property access
-   - Add type annotations where needed
-
-2. **Update Configuration Files**
-   - Convert YAML files to TypeScript/JSON
-   - Migrate environment variable mappings
-   - Update project and user configuration files
-
-#### **Task 3.2: Update Tests**
-
-1. **Configuration Tests**
-   - Test schema validation
-   - Test configuration loading and merging
-   - Test environment variable mapping
-   - Test error handling
-
-2. **Integration Tests**
-   - Update existing tests to use new configuration API
-   - Test configuration overrides in test environment
-   - Verify no regressions
-
-#### **Task 3.3: Remove Node-Config**
-
-1. **Remove Dependencies**
-   - Remove `config` and `@types/config` from package.json
-   - Remove `config/` directory
-   - Clean up any remaining node-config references
-
-2. **Update Documentation**
-   - Document new configuration system
-   - Update setup instructions
-   - Document schema definitions and validation
-
-## Detailed Requirements from Task #181
-
-Based on Task #181 analysis, our configuration system needs to support:
-
-### **Configuration Domains Identified**
-
-1. **Backend Configuration**
-   ```typescript
-   backend: z.enum(['markdown', 'json-file', 'sqlite']).default('markdown')
-   ```
-
-2. **SessionDB Configuration**
-   ```typescript
-   sessiondb: z.object({
-     backend: z.enum(['json', 'sqlite', 'postgres']).default('json'),
-     // ... database connection details
-   })
-   ```
-
-3. **GitHub Configuration**
-   ```typescript
-   github: z.object({
-     token: z.string().optional(),
-     organization: z.string().optional(),
-     // ... other GitHub settings
-   })
-   ```
-
-4. **AI Provider Configuration**
-   ```typescript
-   ai: z.object({
-     providers: z.object({
-       openai: z.object({
-         apiKey: z.string().optional(),
-         model: z.string().default('gpt-4'),
-       }),
-       anthropic: z.object({
-         apiKey: z.string().optional(),
-         model: z.string().default('claude-3-sonnet'),
-       }),
-     }),
-   })
-   ```
-
-### **Environment Variable Mapping**
-
-Current environment variables that need mapping:
+#### **✅ Environment Variable Mapping**
+Automatic support for:
 - `GITHUB_TOKEN` → `config.github.token`
 - `OPENAI_API_KEY` → `config.ai.providers.openai.apiKey`
 - `ANTHROPIC_API_KEY` → `config.ai.providers.anthropic.apiKey`
-- `MINSKY_BACKEND` → `config.backend`
-- `MINSKY_SESSIONDB_BACKEND` → `config.sessiondb.backend`
+- `MINSKY_*` prefix variables → automatic nested path mapping
 
-### **File Locations**
+<<<<<<< HEAD
+### **✅ Application Migration Completed**
 
-1. **Defaults**: `src/domain/configuration/defaults/` (TypeScript files)
-2. **Project Overrides**: `config/` (committed to git)
-3. **User Overrides**: `~/.config/minsky/config.yaml` or `~/.config/minsky/config.json`
+#### **✅ Core Application Files Migrated**
+- **config-setup.ts**: Fully migrated to initialize custom configuration system
+- **cli.ts**: Updated to wait for async configuration initialization
+- **taskService.ts**: Migrated from node-config imports to custom configuration
+- **logger.ts**: Already using custom configuration system
+- **session-db-adapter.ts**: Already using custom configuration system
+- **health-monitor.ts**: Already using custom configuration system
+- **config commands**: Already using custom configuration system
 
-## Success Criteria
+#### **✅ Dependencies Cleaned Up**
+- **Removed node-config**: Dependency removed from package.json
+- **Removed @types/config**: Development dependency removed from package.json
+- **No breaking changes**: All existing functionality preserved
 
-1. **✅ Type Safety**: All configuration access is type-safe with auto-completion
-2. **✅ Validation**: Runtime validation with clear error messages
-3. **✅ Hierarchy**: Proper precedence for configuration sources
-4. **✅ Migration**: All existing functionality preserved
-5. **✅ Performance**: No significant performance impact
-6. **✅ Testing**: Easy configuration overrides for testing
-7. **✅ Documentation**: Clear documentation and examples
+### **✅ Test Coverage**
+- **35 comprehensive tests** covering all functionality
+- **Behavioral compatibility tests** ensuring parity with node-config
+- **Performance benchmarks** meeting requirements
+- **Edge case coverage** for error handling and validation
+- **All tests passing** ✅
 
-## Risk Mitigation
+### **✅ Key Design Decisions**
+- **Environment-agnostic**: No NODE_ENV dependency for simpler, more predictable behavior
+- **Domain-oriented**: Clear separation of configuration concerns by domain
+- **Type-first**: Full TypeScript integration with compile-time safety
+- **Migration-friendly**: Successfully replaced node-config with zero breaking changes
 
-1. **Backward Compatibility**: Maintain existing environment variable names and behavior
-2. **Incremental Migration**: Migrate one domain at a time
-3. **Test Coverage**: Comprehensive test suite before removing node-config
-4. **Rollback Plan**: Keep node-config until custom system is fully verified
+## ✅ Migration Complete
 
-## Timeline Estimate
+### **Migration Achievements**
+✅ **Zero Breaking Changes**: All existing functionality preserved  
+✅ **Full Type Safety**: Complete TypeScript integration with auto-completion  
+✅ **Performance**: Excellent performance with caching and optimized loading  
+✅ **Validation**: Runtime validation with detailed error messages  
+✅ **Hierarchy**: Proper precedence for configuration sources  
+✅ **Testing**: Easy configuration overrides for testing  
+✅ **Maintainability**: Clean, domain-oriented code organization  
 
-- **Phase 1**: Requirements Analysis - 1-2 days
-- **Phase 2**: Core Implementation - 3-4 days
-- **Phase 3**: Migration and Integration - 2-3 days
-- **Total**: 6-9 days
+### **Verification Results**
+- ✅ CLI commands work correctly: `minsky --help`, `minsky tasks list`, etc.
+- ✅ Configuration loading works: "✓ Custom configuration system initialized successfully"
+- ✅ All 35 configuration tests pass with 100% success rate
+- ✅ No node-config dependencies remain in package.json
+- ✅ Task management functionality fully operational
 
-## Files to Create
+=======
+### **Test Coverage**
+- **35 comprehensive tests** covering all functionality
+- **Behavioral compatibility tests** ensuring parity with node-config
+- **Performance benchmarks** meeting requirements
+- **Edge case coverage** for error handling and validation
 
-### **Schema Files**
-- `src/domain/configuration/schemas/index.ts`
-- `src/domain/configuration/schemas/base.ts`
-- `src/domain/configuration/schemas/github.ts`
-- `src/domain/configuration/schemas/ai.ts`
-- `src/domain/configuration/schemas/sessiondb.ts`
+### **Key Design Decisions**
+- **Environment-agnostic**: No NODE_ENV dependency for simpler, more predictable behavior
+- **Domain-oriented**: Clear separation of configuration concerns by domain
+- **Type-first**: Full TypeScript integration with compile-time safety
+- **Migration-friendly**: Can run alongside node-config during transition
 
-### **Source Loaders**
-- `src/domain/configuration/sources/defaults.ts`
-- `src/domain/configuration/sources/project.ts`
-- `src/domain/configuration/sources/user.ts`
-- `src/domain/configuration/sources/environment.ts`
+## Migration Notes
 
-### **Core Implementation**
-- `src/domain/configuration/loader.ts`
-- `src/domain/configuration/validation.ts`
-- `src/domain/configuration/testing.ts`
-- `src/domain/configuration/index.ts`
+### **What Still Needs to Be Done**
+To complete this task, we need to actually migrate the application:
 
-### **Default Configuration**
-- `src/domain/configuration/defaults/backend.ts`
-- `src/domain/configuration/defaults/sessiondb.ts`
-- `src/domain/configuration/defaults/github.ts`
-- `src/domain/configuration/defaults/ai.ts`
+1. **Replace application initialization**: Update `src/cli.ts` and `src/config-setup.ts` to use custom config
+2. **Migrate existing usage**: Replace any remaining node-config imports with custom config
+3. **Remove node-config dependency**: Remove from package.json and clean up files
+4. **Verify migration**: Ensure application works correctly with custom configuration
 
-## Files to Remove (After Migration)
+### **Implementation Status**
+The configuration system is **implementation complete** and ready for migration. The current state includes:
 
-- `config/default.yaml`
-- `config/custom-environment-variables.yaml`
-- Node-config related imports and usage throughout codebase
+- **Full backward compatibility** via the provider pattern
+- **Zero breaking changes** during migration
+- **Comprehensive test coverage** ensuring reliability
+
+### **Files Created**
+- `src/domain/configuration/schemas/` - Complete schema definitions
+- `src/domain/configuration/sources/` - All configuration source loaders
+- `src/domain/configuration/loader.ts` - Hierarchical loading logic
+- `src/domain/configuration/index.ts` - Main API and provider implementations
+- `src/domain/configuration/validation.ts` - Validation utilities
+- `src/domain/configuration/testing.ts` - Test configuration utilities
+
+### **Migration Path (When Ready)**
+1. Switch from `NodeConfigFactory` to `CustomConfigFactory` in application initialization
+2. Replace `config.get()` calls with direct property access (`config.backend`, `config.github.token`)
+3. Remove node-config dependency and configuration files
+4. Update any remaining imports
+
+>>>>>>> origin/main
+### **Benefits Delivered**
+- ✅ **Type Safety**: Full TypeScript integration with auto-completion
+- ✅ **Validation**: Runtime validation with detailed error messages
+- ✅ **Hierarchy**: Proper precedence for configuration sources
+- ✅ **Performance**: Excellent performance with caching
+- ✅ **Testing**: Easy configuration overrides for testing
+- ✅ **Maintainability**: Clean, domain-oriented code organization
 
 ---
 
-*This task will create a modern, type-safe configuration system tailored specifically to our needs, providing better developer experience and maintainability than existing libraries.*
+<<<<<<< HEAD
+**Task #295: ✅ COMPLETED - Custom type-safe configuration system successfully implemented and fully migrated, replacing node-config throughout the application.**
 
 
 ## Requirements
@@ -385,3 +228,6 @@ Current environment variables that need mapping:
 ## Success Criteria
 
 [To be filled in]
+=======
+**Task #295: Configuration system implementation is complete. Application migration to custom config is still needed to finish the task.**
+>>>>>>> origin/main

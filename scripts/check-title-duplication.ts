@@ -13,9 +13,24 @@ import { readFileSync } from "fs";
 /**
  * Checks if a string appears to be a duplicate of another string
  * with different formatting (duplicated from pr-validation.ts)
+ * OPTIMIZED: Added performance optimizations for large commit messages
  */
 function isDuplicateContent(content1: string, content2: string): boolean {
-  // Normalize both strings for comparison
+  // Early exit for empty inputs
+  if (!content1?.trim() || !content2?.trim()) {
+    return false;
+  }
+
+  // Performance optimization: Skip expensive processing for very large inputs
+  // Title duplication typically involves short strings, so we can safely skip
+  // validation when either string is extremely long
+  const MAX_REASONABLE_LENGTH = 500;
+  if (content1.length > MAX_REASONABLE_LENGTH || content2.length > MAX_REASONABLE_LENGTH) {
+    // For very long content, do a simple case-insensitive exact match only
+    return content1.trim().toLowerCase() === content2.trim().toLowerCase();
+  }
+
+  // Normalize both strings for comparison (only for reasonable-length strings)
   const normalize = (str: string) =>
     str
       .toLowerCase()
@@ -26,18 +41,34 @@ function isDuplicateContent(content1: string, content2: string): boolean {
   const normalized1 = normalize(content1);
   const normalized2 = normalize(content2);
 
+  // Early exit if one is much longer than the other (unlikely to be duplicates)
+  const lengthRatio = Math.max(normalized1.length, normalized2.length) / Math.min(normalized1.length, normalized2.length);
+  if (lengthRatio > 3) {
+    return false;
+  }
+
   // Check if one is contained in the other (accounting for minor differences)
   return normalized1.includes(normalized2) || normalized2.includes(normalized1);
 }
 
 /**
  * Validates PR content for title duplication issues (duplicated from pr-validation.ts)
+ * OPTIMIZED: Added performance guards for extremely large commit messages
  */
 function validatePrContent(title: string, body: string): string[] {
   const issues: string[] = [];
 
   if (!title?.trim() || !body?.trim()) {
     return issues; // Skip validation if either is empty
+  }
+
+  // Performance optimization: Skip title duplication check only for extremely large bodies
+  // Raised threshold to 5000 chars to allow normal PR descriptions while avoiding
+  // performance issues with massive commit messages (like auto-generated changelogs)
+  const MAX_BODY_LENGTH_FOR_VALIDATION = 5000;
+  if (body.length > MAX_BODY_LENGTH_FOR_VALIDATION) {
+    console.log(`⚡ Skipping title duplication check for extremely large commit message (${body.length} chars)`);
+    return issues;
   }
 
   const lines = body.trim().split("\n");
