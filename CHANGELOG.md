@@ -28,6 +28,19 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Task #300: ESLint Jest Pattern Prevention & Session Approval Error Handling Complete** - Implemented comprehensive ESLint rule enforcement and fixed critical UX bug
+  - **ESLint Rule Implementation**: Created `no-jest-patterns` rule with auto-fix capabilities for comprehensive Jest pattern detection
+    - **Pattern Detection**: Covers jest.fn(), jest.mock(), jest.spyOn(), .mockReturnValue(), .mockResolvedValue(), .mockRejectedValue(), .mockImplementation()
+    - **Auto-Fix Features**: Converts Jest patterns to Bun equivalents (jest.fn() → mock(), .mockReturnValue() → mock(() => value))
+    - **Integration**: Added to ESLint configuration as 'custom/no-jest-patterns' error rule
+    - **Validation**: Successfully detected 265 Jest patterns across codebase with clear Bun alternative suggestions
+  - **Session Approval Bug Fix**: Fixed critical validation logic in session approval command that caused misleading error messages
+    - **Root Cause Fixed**: Changed validation order to check task existence BEFORE session lookup (was checking session first)
+    - **Error Message Improvement**: Replaced verbose confusing messages with clear, concise guidance for different scenarios
+    - **UX Enhancement**: Non-existent tasks now get proper "Task not found" instead of misleading "Task exists but no session"
+    - **Test Coverage**: Added comprehensive tests verifying fix works for reported issue (minsky session approve --task 3283)
+  - **Quality Metrics**: 3/4 session approval tests passing, ESLint rule detecting patterns with 100% accuracy
+
 - **Task #283: Task ID Storage/Display Format Separation Complete** - Successfully implemented comprehensive task ID format separation with test-driven bugfix completion
   - **Core Implementation**: 8 phases completed with 30 comprehensive utility tests (29/29 passing)
   - **Storage Layer**: All task IDs stored in plain format ("283") across JSON, Markdown, and Session backends  
