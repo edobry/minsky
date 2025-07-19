@@ -80,7 +80,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -103,7 +103,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -126,7 +126,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -149,7 +149,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -167,7 +167,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -189,7 +189,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -213,7 +213,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => options.repo || testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -245,7 +245,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -263,7 +263,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -291,7 +291,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -321,7 +321,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => options.repo || testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -351,7 +351,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -379,7 +379,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -406,7 +406,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -445,7 +445,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService as any,
       };
 
@@ -464,7 +464,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -500,7 +500,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService as any,
       };
 
@@ -518,7 +518,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => createMockTaskService(async () => null),
       };
 
@@ -533,7 +533,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => createMockTaskService(async () => null),
       };
 
@@ -562,7 +562,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => {
           expect(options.backend).toBe("json-file");
           return mockTaskService;

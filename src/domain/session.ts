@@ -39,6 +39,7 @@ import { SessionDbAdapter } from "./session/session-db-adapter";
 import { createTaskFromDescription } from "./templates/session-templates";
 import { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
 import { approveSessionImpl } from "./session/session-approve-operations";
+import { sessionCommit } from "./session/session-commands";
 
 export interface SessionRecord {
   session: string;
@@ -2131,3 +2132,6 @@ export { updateSessionFromParams as sessionUpdate };
 export { approveSessionFromParams as sessionApprove };
 export { sessionPrFromParams as sessionPr };
 export { inspectSessionFromParams as sessionInspect };
+
+// Export new session-scoped git commands
+export { sessionCommit };

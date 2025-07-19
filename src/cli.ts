@@ -1,8 +1,11 @@
 #!/usr/bin/env bun
 
-// CRITICAL: Import config setup FIRST before any other imports that might use node-config
-// This ensures NODE_CONFIG_DIR is set before config initialization happens
-import "./config-setup";
+// CRITICAL: Import and setup config FIRST before any other imports that might use configuration
+// This ensures the custom configuration system is initialized before any code tries to access it
+import { setupConfiguration } from "./config-setup";
+
+// Wait for configuration to be initialized before proceeding with other imports
+await setupConfiguration();
 
 import { Command } from "commander";
 import { log } from "./utils/logger";

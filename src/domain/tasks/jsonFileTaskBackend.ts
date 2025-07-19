@@ -1,5 +1,5 @@
 const SIZE_6 = 6;
-const TEST_VALUE = 123;
+const _TEST_VALUE = 123;
 
 /**
  * JsonFileTaskBackend implementation
@@ -7,9 +7,6 @@ const TEST_VALUE = 123;
  * Uses the DatabaseStorage abstraction to store tasks in JSON format.
  * This provides a more robust backend than the markdown format while
  * maintaining the same interface.
- * 
- * TASK 283: Updated to store task IDs in plain format (e.g., "283") 
- * and use formatTaskIdForDisplay() when displaying to users.
  */
 
 import { join, dirname } from "path";
@@ -25,17 +22,13 @@ import type {
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { validateTaskState, type TaskState } from "../../schemas/storage";
+import type { TaskSpec } from "./taskIO";
 import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { getTaskSpecRelativePath } from "./taskIO";
-import { 
-  normalizeTaskIdForStorage, 
-  formatTaskIdForDisplay,
-  isValidTaskIdInput,
-  getTaskIdNumber
-} from "./task-id-utils";
+import { normalizeTaskIdForStorage } from "./task-id-utils";
 
 // TaskState is now imported from schemas/storage
 
@@ -92,7 +85,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         metadata: {
           storageLocation: dbFilePath,
           backendType: "json-file",
-          workspacePath: this.workspacePath,
+          createdAt: new Date().toISOString(),
         },
       }),
       prettyPrint: true,
@@ -104,10 +97,10 @@ export class JsonFileTaskBackend implements TaskBackend {
   async getTasksData(): Promise<TaskReadOperationResult> {
     try {
       const result = await this.storage.readState();
-      if (!result.success || !result.data) {
+      if (!result.success) {
         return {
           success: false,
-          error: result.error || new Error("No data returned"),
+          error: result.error,
           filePath: this.storage.getStorageLocation(),
         };
       }
@@ -122,7 +115,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         filePath: this.storage.getStorageLocation(),
       };
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
         error: typedError,
@@ -160,11 +153,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       const rawData = JSON.parse(content);
       const validatedData = validateTaskState(rawData);
-      // Ensure proper typing for TaskData with TaskStatus
-      return validatedData.tasks.map(task => ({
-        ...task,
-        status: task.status as TaskStatus,
-      }));
+      return validatedData.tasks;
     } catch (error) {
       // If JSON parsing or validation fails, fall back to markdown parsing
       return this.parseMarkdownTasks(content);
@@ -174,7 +163,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   formatTasks(tasks: TaskData[]): string {
     // Format as JSON for storage
     const state: TaskState = {
-      tasks,
+      tasks: tasks,
       lastUpdated: new Date().toISOString(),
       metadata: {
         storageLocation: this.storage.getStorageLocation(),
@@ -201,9 +190,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         // Try to extract task ID and title from header like "Task #TEST_VALUE: Title"
         const taskMatch = headerText.match(/^Task\s+#?([A-Za-z0-9_]+):\s*(.+)$/);
         if (taskMatch && taskMatch[1] && taskMatch[2]) {
-          // TASK 283: Normalize ID to plain format for storage
-          const normalizedId = normalizeTaskIdForStorage(taskMatch[1]);
-          id = normalizedId || taskMatch[1]; // Fallback to original if normalization fails
+          id = `#${taskMatch[1]}`;
           title = taskMatch[2].trim();
         } else {
           // Fallback: use entire header as title
@@ -256,26 +243,42 @@ export class JsonFileTaskBackend implements TaskBackend {
     await this.updateTaskData(id, { status: status as TaskStatus });
   }
 
-  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
-    // Read and parse the task specification
+  /**
+   * Creates a new task from a markdown specification file
+   * Spec parser is provided as parameter to allow for dependency injection
+   */
+  async createTaskFromSpecFile(
+    specPath: string,
+    specParser: (content: string) => TaskSpec
+  ): Promise<TaskData> {
+    // Validate the input
+    if (!specPath || !specParser) {
+      throw new Error("Spec path and parser are required");
+    }
+
     const specDataResult = await this.getTaskSpecData(specPath);
     if (!specDataResult.success) {
-      throw new Error(
-        `Failed to read task spec from ${specPath}: ${specDataResult.error?.message}`
-      );
+      throw new Error(`Failed to load spec file: ${specDataResult.error}`);
     }
     const spec = this.parseTaskSpec(specDataResult.content || "");
 
-    // Get all existing tasks to determine the new task's ID
-    const tasks = await this.getAllTasks();
-    
-    // TASK 283: Generate plain ID format for storage (e.g., "284" instead of "#284")
-    const nextIdNumber = tasks.length + 1;
-    const newId = String(nextIdNumber); // Plain format for storage
+    // Use the spec ID if available, otherwise generate a sequential ID
+    let taskId: string;
+    if (spec.id && spec.id.trim()) {
+      // TASK 283: Normalize spec ID to plain storage format
+      taskId = normalizeTaskIdForStorage(spec.id) || spec.id;
+    } else {
+      // Get all existing tasks to determine the new task's ID
+      const tasks = await this.getAllTasks();
+
+      // TASK 283: Generate plain ID format for storage (e.g., "284" instead of "#284")
+      const nextIdNumber = tasks.length + 1;
+      taskId = String(nextIdNumber); // Plain format for storage
+    }
 
     // Create the new task data
     const newTask: TaskData = {
-      id: newId, // Store in plain format
+      id: taskId, // Store in plain format
       title: spec.title,
       description: spec.description,
       status: TASK_STATUS.TODO,
@@ -356,7 +359,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     }
   }
 
-  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
+  async deleteTask(id: string, _options: DeleteTaskOptions = {}): Promise<boolean> {
     const normalizedId = id.startsWith("#") ? id : `#${id}`;
 
     try {

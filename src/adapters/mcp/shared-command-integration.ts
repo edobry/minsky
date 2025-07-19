@@ -163,10 +163,6 @@ export function registerSharedCommandsWithMcp(
       });
     });
   });
-
-  log.debug("Shared command registration complete", {
-    categories: config.categories,
-  });
 }
 
 /**
