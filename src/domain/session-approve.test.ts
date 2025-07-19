@@ -10,7 +10,8 @@ const mockLog = {
   debug: mock(() => {}),
   info: mock(() => {}),
   warn: mock(() => {}),
-  error: mock(() => {})
+  error: mock(() => {}),
+  cli: mock(() => {})
 };
 
 mock.module("../utils/logger", () => ({
