@@ -354,11 +354,27 @@ Options:
 
 Approves and merges a session's PR branch, updating the task status to DONE.
 
+**Automatic Stash Handling**: This command automatically stashes any uncommitted changes before performing the merge operation and restores them afterward. This prevents the common error where merge operations fail due to uncommitted changes in the working directory.
+
 Options:
 
 - `--session <session>`: Name of the session to approve
 - `--task <taskId>`: Task ID associated with the session
 - `--repo <path>`: Repository path
+- `--no-stash`: Skip automatic stashing of uncommitted changes (useful if you want to handle stashing manually)
+
+**Examples:**
+
+```bash
+# Approve a session (automatically handles uncommitted changes)
+minsky session approve --session my-feature
+
+# Approve by task ID (automatically handles uncommitted changes)
+minsky session approve --task 123
+
+# Skip automatic stashing (handle uncommitted changes manually)
+minsky session approve --session my-feature --no-stash
+```
 
 For detailed documentation on the PR workflow, see [docs/pr-workflow.md](./docs/pr-workflow.md).
 

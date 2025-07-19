@@ -3,6 +3,11 @@ import { join, dirname } from "path";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { execAsync } from "../../utils/exec";
+import {
+  execGitWithTimeout,
+  gitFetchWithTimeout,
+  gitPushWithTimeout,
+} from "../../utils/git-exec";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
@@ -83,21 +88,25 @@ export class SpecialWorkspaceManager {
 
       try {
         // Fetch latest changes (shallow)
-        await execAsync("git fetch --depth=1 origin main", { cwd: this!.workspacePath });
+        await gitFetchWithTimeout("origin", "main", {
+          workdir: this!.workspacePath,
+          timeout: 30000
+        });
 
         // Reset to latest upstream
-        await execAsync("git reset --hard origin/main", { cwd: this!.workspacePath });
+        await execGitWithTimeout(
+          "git reset --hard origin/main",
+          this!.workspacePath
+        );
 
         log.debug("Special workspace updated to latest upstream", {
           workspacePath: this!.workspacePath,
         });
       } catch (error) {
         log.error("Failed to update workspace, attempting repair", {
-          error: getErrorMessage(error as any),
           workspacePath: this!.workspacePath,
+          error: getErrorMessage(error),
         });
-
-        // Try to repair workspace
         await this.repair();
       }
     });
@@ -110,12 +119,13 @@ export class SpecialWorkspaceManager {
     await this.withLock("commitAndPush", async () => {
       try {
         // Stage all process/ changes
-        await execAsync("git add process/", { cwd: this!.workspacePath });
+        await execGitWithTimeout("git add process/", this!.workspacePath);
 
         // Check if there are any changes to commit
-        const { stdout: statusOutput } = await execAsync("git status --porcelain", {
-          cwd: this!.workspacePath,
-        });
+        const { stdout: statusOutput } = await execGitWithTimeout(
+          "git status --porcelain",
+          this!.workspacePath
+        );
 
         if (!statusOutput.trim()) {
           log.debug("No changes to commit in special workspace");
@@ -124,12 +134,13 @@ export class SpecialWorkspaceManager {
 
         // Commit changes
         const escapedMessage = message.replace(/"/g, "\\\"");
-        await execAsync(`git commit -m "${escapedMessage}"`, {
-          cwd: this!.workspacePath,
-        });
+        await execGitWithTimeout(
+          `git commit -m "${escapedMessage}"`,
+          this!.workspacePath
+        );
 
         // Push to upstream
-        await execAsync("git push origin HEAD:main", { cwd: this!.workspacePath });
+        await gitPushWithTimeout(this!.workspacePath);
 
         log.debug("Successfully committed and pushed changes", {
           message,
@@ -152,7 +163,7 @@ export class SpecialWorkspaceManager {
   async rollback(): Promise<void> {
     await this.withLock("rollback", async () => {
       try {
-        await execAsync("git reset --hard HEAD~1", { cwd: this!.workspacePath });
+        await execGitWithTimeout("git reset --hard HEAD~1", this!.workspacePath);
 
         log.debug("Successfully rolled back last commit", {
           workspacePath: this!.workspacePath,
@@ -242,7 +253,7 @@ export class SpecialWorkspaceManager {
       );
 
       // Configure sparse checkout to only include process/ directory
-      await execAsync("git config core.sparseCheckout true", { cwd: this!.workspacePath });
+      await execGitWithTimeout("git config core.sparseCheckout true", this!.workspacePath);
       await fs.writeFile(
         join(this!.workspacePath, ".git", "info", "sparse-checkout"),
         "process/\n",
@@ -250,7 +261,7 @@ export class SpecialWorkspaceManager {
       );
 
       // Checkout with sparse checkout applied
-      await execAsync("git checkout main", { cwd: this!.workspacePath });
+      await execGitWithTimeout("git checkout main", this!.workspacePath);
 
       log.debug("Successfully created optimized workspace", {
         workspacePath: this!.workspacePath,

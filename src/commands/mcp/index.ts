@@ -9,7 +9,7 @@ import { registerGitTools } from "../../adapters/mcp/git";
 import { registerInitTools } from "../../adapters/mcp/init";
 import { registerRulesTools } from "../../adapters/mcp/rules";
 import { registerSessionTools } from "../../adapters/mcp/session";
-// import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
+import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
@@ -25,8 +25,8 @@ const DEFAULT_HTTP_ENDPOINT = "/mcp";
 const INSPECTOR_PORT = 5173;
 
 // Import adapter-based tool registrations
-// import { registerSessionFileTools } from "../../adapters/mcp/session-files";
-// import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
+import { registerSessionFileTools } from "../../adapters/mcp/session-files";
+import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 
 /**
  * Create the MCP command
@@ -145,9 +145,9 @@ export function createMCPCommand(): Command {
         // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
-        // registerSessionWorkspaceTools(commandMapper);
-        // registerSessionFileTools(commandMapper);
-        // registerSessionEditTools(commandMapper);
+        registerSessionWorkspaceTools(commandMapper);
+        registerSessionFileTools(commandMapper);
+        registerSessionEditTools(commandMapper);
         registerGitTools(commandMapper);
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);

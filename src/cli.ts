@@ -1,12 +1,8 @@
 #!/usr/bin/env bun
 
-// Set NODE_CONFIG_DIR to point to user config directory before any imports
-// This must be done before any module imports that might load node-config
-import { homedir } from "os";
-import { join } from "path";
-const userConfigDir = join(homedir(), ".config", "minsky");
-const processEnv = validateProcess(process);
-processEnv.env.NODE_CONFIG_DIR = userConfigDir;
+// CRITICAL: Import config setup FIRST before any other imports that might use node-config
+// This ensures NODE_CONFIG_DIR is set before config initialization happens
+import "./config-setup";
 
 import { Command } from "commander";
 import { log } from "./utils/logger";

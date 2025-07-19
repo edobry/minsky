@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { normalizeRepoName } from "../repo-utils";
 import { createSessionProvider } from "../../session";
 import { log } from "../../../utils/logger";
-import { createGitService } from "../git";
+import { createGitService } from "../../git";
 import { EnhancedMergeResult } from "../types";
 
 /**
@@ -55,7 +55,7 @@ export async function mergeFromParams(params: {
     }
   );
   
-  log("Merge operation completed", { 
+  log.info("Merge operation completed", { 
     sourceBranch: params.sourceBranch,
     targetBranch,
     repoPath,

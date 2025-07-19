@@ -1,6 +1,6 @@
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
-import { TaskService, TASK_STATUS } from "../../tasks";
+import { TaskService, TASK_STATUS, normalizeTaskId } from "../../tasks";
 import { getCurrentSession } from "../../workspace";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import {
@@ -115,6 +115,25 @@ export async function sessionApprove(
       try {
         await deps.taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.DONE);
         log.info(`Task ${sessionRecord.taskId} status updated to DONE`);
+        
+        // Check for uncommitted changes after task status update
+        const statusOutput = await deps.gitService.execInRepository(workdir, "git status --porcelain");
+        
+        if (statusOutput.trim()) {
+          // There are uncommitted changes, commit them
+          const taskId = normalizeTaskId(sessionRecord.taskId) || sessionRecord.taskId;
+          
+          // Stage the tasks file
+          await deps.gitService.execInRepository(workdir, "git add process/tasks.md");
+          
+          // Commit the task status update
+          await deps.gitService.execInRepository(workdir, `git commit -m "chore(${taskId}): update task status to DONE"`);
+          
+          // Push the commit
+          await deps.gitService.execInRepository(workdir, "git push");
+          
+          log.info(`Task status commit for ${taskId} pushed successfully`);
+        }
       } catch (error) {
         log.debug("Could not update task status", { error });
       }
@@ -127,7 +146,8 @@ export async function sessionApprove(
       mergedBy: "minsky", // Could be enhanced to get actual user
       baseBranch,
       prBranch: currentBranch,
-      taskId: sessionRecord.taskId,
+      taskId: sessionRecord.taskId ? (normalizeTaskId(sessionRecord.taskId) || sessionRecord.taskId) : "",
+      isNewlyApproved: true,
     };
 
     log.info(`Session '${resolvedContext.sessionName}' approved and merged successfully`);

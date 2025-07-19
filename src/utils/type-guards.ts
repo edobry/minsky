@@ -10,7 +10,7 @@
 /**
  * Safely access object properties with type checking
  *
- * Instead of: (someObject as unknown).property
+ * Instead of: someObject.property
  * Use: safeGet(someObject, 'property')
  */
 export function safeGet<T, K extends keyof T>(obj: T, key: K): T[K] | undefined {
@@ -23,7 +23,7 @@ export function safeGet<T, K extends keyof T>(obj: T, key: K): T[K] | undefined 
 /**
  * Safely access nested object properties
  *
- * Instead of: (someObject as unknown).deep.property
+ * Instead of: someObject.deep.property
  * Use: safeGetNested(someObject, 'deep', 'property')
  */
 export function safeGetNested<T>(obj: T, ...keys: string[]): unknown {
@@ -41,7 +41,7 @@ export function safeGetNested<T>(obj: T, ...keys: string[]): unknown {
 /**
  * Type guard to check if a value has a specific property
  *
- * Instead of: (someObject as unknown).property
+ * Instead of: someObject.property
  * Use: hasProperty(someObject, 'property') && someObject.property
  */
 export function hasProperty<T extends string>(
@@ -64,7 +64,7 @@ export function isFunction(value: unknown): value is Function {
 /**
  * Type guard to check if a value is an array
  *
- * Instead of: (someValue as unknown).length
+ * Instead of: someValue.length
  * Use: isArray(someValue) && someValue.length
  */
 export function isArray(value: unknown): value is unknown[] {
@@ -124,7 +124,7 @@ export function assertDefined<T>(value: T | null | undefined, message?: string):
 /**
  * Environment variable utilities to avoid 'as unknown' with process.env
  */
-export const EnvUtils = {
+export const _EnvUtils = {
   /**
    * Get environment variable as string
    *
@@ -186,7 +186,7 @@ export const EnvUtils = {
  * Instead of: JSON.parse(someString as unknown)
  * Use: JsonUtils.safeParse(someString)
  */
-export const JsonUtils = {
+export const _JsonUtils = {
   /**
    * Safely parse JSON with type checking
    */
@@ -214,10 +214,10 @@ export const JsonUtils = {
 /**
  * Service interface utilities
  *
- * Instead of: (someService as unknown).method()
+ * Instead of: someService.method()
  * Use: ServiceUtils.safeCall(someService, 'method')
  */
-export const ServiceUtils = {
+export const _ServiceUtils = {
   /**
    * Safely call a method on a service
    */
@@ -251,10 +251,10 @@ export const ServiceUtils = {
 /**
  * Configuration and options utilities
  *
- * Instead of: (options as unknown).property
+ * Instead of: options.property
  * Use: ConfigUtils.get(options, 'property')
  */
-export const ConfigUtils = {
+export const _ConfigUtils = {
   /**
    * Safely get configuration value with type checking
    */
@@ -283,10 +283,10 @@ export const ConfigUtils = {
 /**
  * Array utilities for unknown types
  *
- * Instead of: (someArray as unknown).map(...)
+ * Instead of: someArray.map(...)
  * Use: ArrayUtils.safeMap(someArray, ...)
  */
-export const ArrayUtils = {
+export const _ArrayUtils = {
   /**
    * Safely map over an array
    */

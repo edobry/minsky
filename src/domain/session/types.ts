@@ -175,6 +175,7 @@ export interface SessionApprovalResult {
   baseBranch: string;
   prBranch: string;
   taskId?: string;
+  isNewlyApproved: boolean;
 }
 
 /**

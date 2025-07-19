@@ -113,7 +113,9 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
 
     // Configure environment variables for the inspector
     // Inspector needs its own proxy port that doesn't conflict with MCP server
-    const inspectorProxyPort = mcpPort ? (parseInt(mcpPort.toString()) + 1000).toString() : "6277";
+    // Use a more dynamic approach to avoid port conflicts
+    const basePort = mcpPort ? parseInt(mcpPort.toString()) : 3000;
+    const inspectorProxyPort = (basePort + 3277).toString(); // Use a larger offset to avoid conflicts
     const env: Record<string, string | undefined> = {
       ...process.env,
       CLIENT_PORT: port.toString(),
@@ -121,12 +123,15 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     };
 
     // Configure auto-open based on openBrowser option
+    // The inspector now supports auto-open with authentication enabled by default
     if (!openBrowser) {
       env.MCP_AUTO_OPEN_ENABLED = "false";
+    } else {
+      // Enable auto-open with authentication (recommended approach)
+      env.MCP_AUTO_OPEN_ENABLED = "true";
     }
 
-    // For security, we'll need to set this for auto-open to work
-    env.DANGEROUSLY_OMIT_AUTH = "true";
+    // Remove DANGEROUSLY_OMIT_AUTH as it's not recommended and auto-open now works with auth
 
     log.debug("Launching MCP Inspector", {
       clientPort: port,
@@ -168,7 +173,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     });
 
     inspectorProcess.stderr.on("data", (data) => {
-      log.error(`MCP Inspector stderr: ${(data as unknown)!.toString()}`);
+      log.error(`MCP Inspector stderr: ${data.toString()}`);
     });
 
     inspectorProcess.on("exit", (code, signal) => {

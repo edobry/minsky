@@ -81,11 +81,6 @@ export const sessionStartCommandParams: CommandParameterMap = {
     description: "Repository path",
     required: false,
   },
-  session: {
-    schema: z.string(),
-    description: "Deprecated: use name parameter instead",
-    required: false,
-  },
   json: {
     schema: z.boolean(),
     description: "Output in JSON format",
@@ -273,6 +268,12 @@ export const sessionApproveCommandParams: CommandParameterMap = {
   json: {
     schema: z.boolean(),
     description: "Output in JSON format",
+    required: false,
+    defaultValue: false,
+  },
+  noStash: {
+    schema: z.boolean(),
+    description: "Skip automatic stashing of uncommitted changes",
     required: false,
     defaultValue: false,
   },
