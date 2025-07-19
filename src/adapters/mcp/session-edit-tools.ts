@@ -128,7 +128,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           session: args.session,
         };
       }
-    }
+    },
   });
 
   // Session search replace tool
@@ -201,7 +201,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           session: args.session,
         };
       }
-    }
+    },
   });
 
   log.debug("Session edit tools registered successfully");
