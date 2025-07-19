@@ -428,17 +428,22 @@ export function validateConfiguration(): ValidationResult {
 }
 
 /**
+ * Configuration provider type for testing
+ */
+export type TestProviderType = "node-config" | "custom";
+
+/**
  * Create a configuration provider for testing
  * 
  * @param overrides - Configuration overrides for testing
- * @param useCustom - Whether to use the custom provider (default: true)
+ * @param providerType - Which provider implementation to use
  * @returns A configuration provider with test overrides
  */
 export async function createTestProvider(
   overrides: ConfigurationOverrides = {},
-  useCustom: boolean = true
+  providerType: TestProviderType = "custom"
 ): Promise<ConfigurationProvider> {
-  const factory = useCustom ? new CustomConfigFactory() : new NodeConfigFactory();
+  const factory = providerType === "custom" ? new CustomConfigFactory() : new NodeConfigFactory();
   return factory.createProvider({
     overrides,
     skipValidation: false,
