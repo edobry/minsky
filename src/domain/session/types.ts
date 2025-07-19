@@ -4,12 +4,16 @@ import type { WorkspaceUtilsInterface } from "../workspace";
 
 /**
  * Core session record interface
+ * 
+ * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
+ * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
  */
 export interface SessionRecord {
   session: string;
   repoName: string;
   repoUrl: string;
   createdAt: string;
+  /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
   backendType?: "local" | "remote" | "github"; // Added for repository backend support
   github?: {
@@ -26,6 +30,9 @@ export interface SessionRecord {
 
 /**
  * Session interface for external use
+ * 
+ * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
+ * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
  */
 export interface Session {
   session: string;
@@ -33,6 +40,7 @@ export interface Session {
   repoName?: string;
   branch?: string;
   createdAt?: string;
+  /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
   backendType?: "local" | "remote" | "github";
   github?: {

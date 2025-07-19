@@ -286,7 +286,7 @@ export class TaskService {
     }
 
     const spec = this.currentBackend.parseTaskSpec(specResult.content);
-    
+
     // Get existing tasks
     const tasksResult = await this.currentBackend.getTasksData();
     if (!tasksResult.success) {
@@ -294,7 +294,7 @@ export class TaskService {
     }
 
     let tasks = this.currentBackend.parseTasks(tasksResult.content);
-    
+
     // Add the new task with default values
     const newTask: TaskData = {
       id: spec.id || "#001",
@@ -303,13 +303,13 @@ export class TaskService {
       status: "TODO",
       specPath,
     };
-    
+
     tasks.push(newTask);
-    
+
     // Format and save updated tasks
     const formattedContent = this.currentBackend.formatTasks(tasks);
     const saveResult = await this.currentBackend.saveTasksData(formattedContent, tasksResult.filePath);
-    
+
     if (!saveResult.success) {
       throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
     }
