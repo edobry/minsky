@@ -64,7 +64,7 @@ async function displayResolvedConfiguration(resolved: any) {
   }
 
   if (resolved.github) {
-    await Bun.write(Bun.stdout, `\nGitHub Configuration:\n`);
+    await Bun.write(Bun.stdout, "\nGitHub Configuration:\n");
     if (resolved.github.token) {
       await Bun.write(Bun.stdout, `  Token: ${"*".repeat(20)} (hidden)\n`);
     }
@@ -74,7 +74,7 @@ async function displayResolvedConfiguration(resolved: any) {
   }
 
   if (resolved.ai && resolved.ai.providers) {
-    await Bun.write(Bun.stdout, `\nAI Providers:\n`);
+    await Bun.write(Bun.stdout, "\nAI Providers:\n");
     for (const [provider, config] of Object.entries(resolved.ai.providers)) {
       if (config && typeof config === "object") {
         await Bun.write(Bun.stdout, `  ${provider}:\n`);

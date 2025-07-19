@@ -60,7 +60,7 @@ export const configurationSchema = z.object({
   
   // Logging configuration
   logger: loggerConfigSchema,
-}).strict();
+}).passthrough(); // Use passthrough instead of strict to allow extra properties
 
 /**
  * Configuration type inferred from the schema

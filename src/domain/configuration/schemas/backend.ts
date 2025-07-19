@@ -17,8 +17,8 @@ export const backendSchema = enumSchemas.backendType.default("markdown");
  * GitHub Issues backend-specific configuration
  */
 export const githubIssuesBackendConfigSchema = z.object({
-  owner: baseSchemas.organizationName,
-  repo: baseSchemas.repositoryName,
+  owner: baseSchemas.organizationName.optional(),
+  repo: baseSchemas.repositoryName.optional(),
 }).strict();
 
 /**

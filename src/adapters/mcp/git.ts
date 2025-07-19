@@ -7,34 +7,45 @@ import { log } from "../../utils/logger";
 
 /**
  * Registers git tools with the MCP command mapper
+ *
+ * Note: Raw git operations (commit, push, branch) are hidden from MCP
+ * because they have optional session parameters that don't make sense
+ * in the MCP service context. Agents should use session-level commands instead:
+ * - Use session.commit instead of git.commit  
+ * - Use session.push instead of git.push
+ * - Use session.pr for pull request workflow
+ * - Use session.start to create new sessions with branches
  */
 export function registerGitTools(commandMapper: CommandMapper): void {
   log.debug("Registering git commands via shared command integration");
 
-  // Use the bridge integration to automatically register all git commands
+  // Use the bridge integration to register git commands with appropriate filtering
   registerGitCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      "git.commit": {
-        description: "Commit changes to the repository",
+      // Hide raw git operations - agents should use session-level commands instead
+      "git.commit": { 
+        hidden: true, // Use session.commit instead - always session-scoped
       },
-      "git.push": {
-        description: "Push changes to the remote repository",
+      "git.push": { 
+        hidden: true, // Use session.push instead - always session-scoped
       },
-      "git.clone": {
-        description: "Clone a Git repository",
+      "git.branch": { 
+        hidden: true, // Use session.start instead - sessions create their own branches
       },
-      "git.branch": {
-        description: "Create a new branch",
+      
+      // Disruptive operations (exclude from MCP)
+      "git.clone": { 
+        hidden: true, // Agents shouldn't clone new repos
       },
-      "git.merge": {
-        description: "Merge a branch with conflict detection",
+      "git.checkout": { 
+        hidden: true, // Can disrupt session state
       },
-      "git.checkout": {
-        description: "Checkout a branch with conflict detection",
+      "git.merge": { 
+        hidden: true, // Complex operation requiring human judgment
       },
-      "git.rebase": {
-        description: "Rebase with conflict detection",
+      "git.rebase": { 
+        hidden: true, // Complex operation requiring human judgment
       },
     },
   });

@@ -6,6 +6,11 @@ import { join, dirname } from "path";
 import { delimiter } from "path";
 import { fileURLToPath } from "url";
 
+// Set NODE_ENV=test for testing to ensure consistent configuration loading
+if (!process.env.NODE_ENV) {
+  process.env.NODE_ENV = "test";
+}
+
 // Find project config directory relative to this file's location
 // This file is in src/, so project root is one level up
 const currentFileDir = dirname(__filename);

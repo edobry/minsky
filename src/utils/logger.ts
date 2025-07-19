@@ -49,9 +49,9 @@ function getLoggerConfig(): LoggerConfig {
 
   try {
     // Try to get configuration from the config system
-      const configMode = has("logger.mode") ? get("logger.mode") : null;
-  const configLevel = has("logger.level") ? get("logger.level") : null;
-  const configAgentLogs = has("logger.enableAgentLogs") ? get("logger.enableAgentLogs") : null;
+    const configMode = has("logger.mode") ? get("logger.mode") : null;
+    const configLevel = has("logger.level") ? get("logger.level") : null;
+    const configAgentLogs = has("logger.enableAgentLogs") ? get("logger.enableAgentLogs") : null;
 
     loggerConfig = {
       mode: (typeof configMode === "string" ? configMode : envMode || "auto") as "HUMAN" | "STRUCTURED" | "auto",
