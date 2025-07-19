@@ -10,7 +10,7 @@ import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
-import config from "config";
+import { get } from "../configuration/index";
 
 // Dynamic import for GitHub backend to avoid hard dependency
 
@@ -598,7 +598,7 @@ export async function createConfiguredTaskService(
 
   try {
     // Use node-config to get the resolved backend
-    const resolvedBackend = (config.has("backend") ? config.get("backend") : "json-file") as string;
+    const resolvedBackend = get("backend") || "json-file";
 
     log.debug("Resolved backend from configuration", {
       workspacePath,
