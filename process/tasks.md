@@ -535,3 +535,5 @@
 - [ ] Audit codebase for git command timeout issues and create ESLint rule [#301](process/tasks/301-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
 
 - [ ] Explore Exposing Rules and Documentation as MCP Resources with Template Integration [#302](process/tasks/302-explore-exposing-rules-and-documentation-as-mcp-resources-with-template-integration.md)
+
+- [ ] Improve Task Operations Workflow with Auto-Commit for Markdown Backend [#303](process/tasks/303-improve-task-operations-workflow-with-auto-commit-for-markdown-backend.md)
