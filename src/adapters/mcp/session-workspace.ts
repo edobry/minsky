@@ -99,7 +99,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -155,7 +155,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -220,7 +220,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         .default(false)
         .describe("Include hidden files (starting with .)"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -289,7 +289,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to check within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -357,7 +357,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file to delete within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -419,7 +419,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -472,14 +472,14 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       include_pattern: z.string().optional().describe("Glob pattern for files to include (e.g. '*.ts' for TypeScript files)"),
       exclude_pattern: z.string().optional().describe("Glob pattern for files to exclude"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(args.session);
         
         // Build ripgrep command arguments
         const rgArgs = [
           "--line-number",
-          "--no-heading",
+          "--no-heading", 
           "--color", "never",
           "--max-count", "50", // Limit to 50 matches as per Cursor behavior
           args.case_sensitive ? "--case-sensitive" : "--ignore-case",
@@ -490,7 +490,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           rgArgs.push("--glob", args.include_pattern);
         }
 
-        // Add exclude pattern if specified
+        // Add exclude pattern if specified  
         if (args.exclude_pattern) {
           rgArgs.push("--glob", `!${args.exclude_pattern}`);
         }
