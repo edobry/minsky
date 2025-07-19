@@ -27,11 +27,11 @@ export class CLISessionContextResolver {
    * Auto-detects session from working directory when possible
    */
   static resolveSessionContext(params: any, workingDir?: string): any {
-    // If session is explicitly provided, use it (support session, name, or task parameters)
-    if (params.session || params.name || params.task) {
+    // If session is explicitly provided, use it (CLI supports name or task parameters)
+    if (params.name || params.task) {
       return {
         ...params,
-        session: params.session || params.name || params.task
+        session: params.name || params.task
       };
     }
 

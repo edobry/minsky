@@ -15,8 +15,8 @@ import { ValidationError } from "../../errors/index";
 describe("Interface-Layer Session Context Resolution", () => {
   
   describe("CLI Session Context Resolver", () => {
-    it("should use explicit session when provided", () => {
-      const params = { session: "explicit-session", title: "test" };
+    it("should use explicit name when provided", () => {
+      const params = { name: "explicit-session", title: "test" };
       const result = CLISessionContextResolver.resolveSessionContext(params);
       
       expect(result.session).toBe("explicit-session");
@@ -43,8 +43,8 @@ describe("Interface-Layer Session Context Resolution", () => {
       expect(result.title).toBe("test");
     });
 
-    it("should prefer explicit session over auto-detection", () => {
-      const params = { session: "explicit-session", title: "test" };
+    it("should prefer explicit name over auto-detection", () => {
+      const params = { name: "explicit-session", title: "test" };
       const workingDir = "/Users/edobry/.local/state/minsky/sessions/task#158";
       
       const result = CLISessionContextResolver.resolveSessionContext(params, workingDir);
