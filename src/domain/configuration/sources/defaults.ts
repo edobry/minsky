@@ -129,93 +129,13 @@ export const defaultConfiguration: PartialConfiguration = {
   },
 };
 
-/**
- * Environment-specific default overrides
- * 
- * Provides different default values based on the runtime environment.
- */
-export const environmentDefaults = {
-  development: {
-    logger: {
-      mode: "HUMAN" as const,
-      level: "debug" as const,
-      enableAgentLogs: true,
-      includeSource: true,
-    },
-  },
-  
-  production: {
-    logger: {
-      mode: "STRUCTURED" as const,
-      level: "info" as const,
-      enableAgentLogs: false,
-      includeSource: false,
-    },
-  },
-  
-  test: {
-    sessiondb: {
-      backend: "sqlite" as const, // Match node-config default
-    },
-    logger: {
-      mode: "auto" as const, // Match node-config default
-      level: "info" as const, // Match node-config default
-      enableAgentLogs: false,
-      includeSource: false,
-    },
-  },
-  
-  ci: {
-    sessiondb: {
-      backend: "json" as const,
-    },
-    logger: {
-      mode: "STRUCTURED" as const,
-      level: "info" as const,
-      enableAgentLogs: false,
-      includeSource: false,
-    },
-  },
-} as const;
+
 
 /**
- * Get default configuration for the current environment
+ * Get default configuration
  */
 export function getDefaultConfiguration(): PartialConfiguration {
-  const nodeEnv = process.env.NODE_ENV || "development";
-  const envDefaults = environmentDefaults[nodeEnv as keyof typeof environmentDefaults] || {};
-  
-  return mergeDefaults(defaultConfiguration, envDefaults);
-}
-
-/**
- * Merge default configurations with environment-specific overrides
- */
-function mergeDefaults(base: PartialConfiguration, override: Partial<PartialConfiguration>): PartialConfiguration {
-  // Simple deep merge for configuration objects
-  const result = { ...base };
-  
-  for (const key in override) {
-    const sourceValue = override[key];
-    const targetValue = result[key];
-    
-    if (sourceValue !== undefined) {
-      if (
-        typeof sourceValue === "object" && 
-        sourceValue !== null && 
-        !Array.isArray(sourceValue) &&
-        typeof targetValue === "object" && 
-        targetValue !== null && 
-        !Array.isArray(targetValue)
-      ) {
-        result[key] = { ...targetValue, ...sourceValue } as any;
-      } else {
-        result[key] = sourceValue as any;
-      }
-    }
-  }
-  
-  return result;
+  return defaultConfiguration;
 }
 
 /**

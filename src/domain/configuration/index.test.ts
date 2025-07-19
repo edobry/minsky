@@ -111,13 +111,11 @@ function testConfigurationProvider(
       expect(config).toHaveProperty("sessiondb");
       expect(config).toHaveProperty("github");
       expect(config).toHaveProperty("ai");
-      expect(config).toHaveProperty("logger");
       
       // Test nested structures
       expect(config.sessiondb).toHaveProperty("backend");
       expect(config.github).toBeDefined();
       expect(config.ai).toBeDefined();
-      expect(config.logger).toBeDefined();
     });
 
     test("should handle configuration overrides consistently", async () => {
@@ -152,10 +150,6 @@ describe("Behavioral Compatibility", () => {
       github: {
         token: "test-token",
       },
-      logger: {
-        level: "info",
-        mode: "HUMAN",
-      },
     };
 
     nodeProvider = await createTestProvider(testOverrides, "node-config");
@@ -171,15 +165,12 @@ describe("Behavioral Compatibility", () => {
     expect(nodeConfig.sessiondb.backend).toBe(customConfig.sessiondb.backend);
     // Compare github configuration objects as a whole rather than individual properties
     expect(nodeConfig.github).toEqual(customConfig.github);
-    expect(nodeConfig.logger.level).toBe(customConfig.logger.level);
   });
 
   test("should handle path-based access identically", () => {
     const paths = [
       "backend",
       "sessiondb.backend",
-      "logger.level",
-      "logger.mode",
     ];
 
     for (const path of paths) {
@@ -203,7 +194,6 @@ describe("Behavioral Compatibility", () => {
     const existingPaths = [
       "backend",
       "sessiondb.backend",
-      "logger.level",
     ];
 
     const nonExistingPaths = [
