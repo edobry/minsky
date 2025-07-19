@@ -4,7 +4,8 @@
  */
 import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils";
-import { resolveMainWorkspacePath } from "../workspace";
+import { resolveTaskWorkspacePath } from "../../utils/workspace-resolver";
+import { autoCommitTaskChanges } from "../../utils/auto-commit";
 import { getErrorMessage } from "../../errors/index";
 import {
   createTaskService as createTaskServiceImpl,
@@ -59,11 +60,11 @@ export async function listTasksFromParams(
   params: TaskListParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<any[]> {
@@ -71,13 +72,14 @@ export async function listTasksFromParams(
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // Get the main workspace path (always resolves to main workspace, not session)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Get intelligent workspace path based on backend requirements
+    const backend = validParams.backend || "markdown";
+    const workspacePath = await deps.resolveTaskWorkspacePath({ backend });
 
     // Create task service with explicit backend to avoid configuration issues
     const taskService = await deps.createTaskService({
       workspacePath,
-      backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
+      backend,
     });
 
     // Get tasks
@@ -114,11 +116,11 @@ export async function getTaskFromParams(
   params: TaskGetParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<any> {
@@ -146,8 +148,11 @@ export async function getTaskFromParams(
       repo: validParams.repo,
     });
 
-    // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Then get the workspace path using backend-aware resolution
+    const workspacePath = await deps.resolveTaskWorkspacePath({
+      backend: validParams.backend || "markdown",
+      repoUrl: repoPath
+    });
 
     // Create task service with explicit backend to avoid configuration issues
     const taskService = await deps.createTaskService({
@@ -185,11 +190,11 @@ export async function getTaskStatusFromParams(
   params: TaskStatusGetParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<string> {
@@ -217,8 +222,11 @@ export async function getTaskStatusFromParams(
       repo: validParams.repo,
     });
 
-    // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Then get the workspace path using backend-aware resolution
+    const workspacePath = await deps.resolveTaskWorkspacePath({
+      backend: validParams.backend || "markdown",
+      repoUrl: repoPath
+    });
 
     // Create task service
     const taskService = await deps.createTaskService({
@@ -259,11 +267,11 @@ export async function setTaskStatusFromParams(
   params: TaskStatusSetParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<void> {
@@ -291,8 +299,11 @@ export async function setTaskStatusFromParams(
       repo: validParams.repo,
     });
 
-    // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Then get the workspace path using backend-aware resolution
+    const workspacePath = await deps.resolveTaskWorkspacePath({
+      backend: validParams.backend || "markdown",
+      repoUrl: repoPath
+    });
 
     // Create task service with explicit backend to avoid configuration issues
     const taskService = await deps.createTaskService({
@@ -300,7 +311,7 @@ export async function setTaskStatusFromParams(
       backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
     });
 
-    // Verify the task exists before setting status
+    // Verify the task exists before setting status and get old status for commit message
     const task = await taskService.getTask(validParams.taskId);
     if (!task) {
       throw new ResourceNotFoundError(
@@ -309,9 +320,16 @@ export async function setTaskStatusFromParams(
         validParams.taskId
       );
     }
+    const oldStatus = task.status;
 
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
+
+    // Auto-commit changes for markdown backend
+    if ((validParams.backend || "markdown") === "markdown") {
+      const commitMessage = `chore(${validParams.taskId}): update task status ${oldStatus} → ${validParams.status}`;
+      await autoCommitTaskChanges(workspacePath, commitMessage);
+    }
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
@@ -334,11 +352,11 @@ export async function createTaskFromParams(
   params: TaskCreateParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => TaskService;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: (options) => createTaskServiceImpl(options),
   }
 ): Promise<any> {
@@ -352,8 +370,11 @@ export async function createTaskFromParams(
       repo: validParams.repo,
     });
 
-    // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Then get the workspace path using backend-aware resolution
+    const workspacePath = await deps.resolveTaskWorkspacePath({
+      backend: validParams.backend || "markdown",
+      repoUrl: repoPath
+    });
 
     // Create task service
     const taskService = deps.createTaskService({
@@ -365,6 +386,12 @@ export async function createTaskFromParams(
     const task = await taskService.createTask(validParams.title, {
       force: validParams.force,
     });
+
+    // Auto-commit changes for markdown backend
+    if ((validParams.backend || "markdown") === "markdown") {
+      const commitMessage = `feat(${task.id}): create task "${validParams.title}"`;
+      await autoCommitTaskChanges(workspacePath, commitMessage);
+    }
 
     return task;
   } catch (error) {
@@ -385,11 +412,11 @@ export async function getTaskSpecContentFromParams(
   params: TaskSpecContentParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => TaskService;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: (options) => createTaskServiceImpl(options),
   }
 ): Promise<{ task: any; specPath: string; content: string; section?: string }> {
@@ -407,8 +434,11 @@ export async function getTaskSpecContentFromParams(
       repo: validParams.repo,
     });
 
-    // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Then get the workspace path using backend-aware resolution
+    const workspacePath = await deps.resolveTaskWorkspacePath({
+      backend: validParams.backend || "markdown",
+      repoUrl: repoPath
+    });
 
     // Create task service
     const taskService = deps.createTaskService({
@@ -495,11 +525,11 @@ export async function createTaskFromTitleAndDescription(
   params: TaskCreateFromTitleAndDescriptionParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => TaskService;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: (options) => createTaskServiceImpl(options),
   }
 ): Promise<any> {
@@ -513,8 +543,11 @@ export async function createTaskFromTitleAndDescription(
       repo: validParams.repo,
     });
 
-    // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Then get the workspace path using backend-aware resolution
+    const workspacePath = await deps.resolveTaskWorkspacePath({
+      backend: validParams.backend || "markdown",
+      repoUrl: repoPath
+    });
 
     // Create task service
     const taskService = deps.createTaskService({
@@ -562,6 +595,12 @@ export async function createTaskFromTitleAndDescription(
       }
     );
 
+    // Auto-commit changes for markdown backend
+    if ((validParams.backend || "markdown") === "markdown") {
+      const commitMessage = `feat(${task.id}): create task "${validParams.title}"`;
+      await autoCommitTaskChanges(workspacePath, commitMessage);
+    }
+
     return task;
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -585,11 +624,11 @@ export async function deleteTaskFromParams(
   params: TaskDeleteParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveMainWorkspacePath,
+    resolveTaskWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<{ success: boolean; taskId: string; task?: any }> {
@@ -612,8 +651,11 @@ export async function deleteTaskFromParams(
       repo: validParams.repo,
     });
 
-    // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveMainWorkspacePath();
+    // Then get the workspace path using backend-aware resolution
+    const workspacePath = await deps.resolveTaskWorkspacePath({
+      backend: validParams.backend || "markdown",
+      repoUrl: repoPath
+    });
 
     // Create task service
     const taskService = await deps.createTaskService({
@@ -621,7 +663,7 @@ export async function deleteTaskFromParams(
       backend: validParams.backend,
     });
 
-    // Get the task first to verify it exists and get details
+    // Get the task first to verify it exists and get details for commit message
     const task = await taskService.getTask(validParams.taskId);
 
     if (!task) {
@@ -636,6 +678,12 @@ export async function deleteTaskFromParams(
     const deleted = await taskService.deleteTask(validParams.taskId, {
       force: validParams.force,
     });
+
+    // Auto-commit changes for markdown backend
+    if (deleted && (validParams.backend || "markdown") === "markdown") {
+      const commitMessage = `chore(${validParams.taskId}): delete task`;
+      await autoCommitTaskChanges(workspacePath, commitMessage);
+    }
 
     return {
       success: deleted,
