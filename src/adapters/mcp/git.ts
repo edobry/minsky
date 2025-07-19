@@ -8,47 +8,42 @@ import { log } from "../../utils/logger";
 /**
  * Registers git tools with the MCP command mapper
  *
- * Note: Raw git operations (commit, push, branch) are hidden from MCP
- * because they have optional session parameters that don't make sense
- * in the MCP service context. Agents should use session-level commands instead:
- * - Use session.commit instead of git.commit  
- * - Use session.push instead of git.push
- * - Use session.pr for pull request workflow
- * - Use session.start to create new sessions with branches
+ * Note: git.commit and git.push are available but require session parameters
+ * in MCP context since there's no meaningful "current directory" for MCP services.
  */
 export function registerGitTools(commandMapper: CommandMapper): void {
   log.debug("Registering git commands via shared command integration");
 
-  // Use the bridge integration to register git commands with appropriate filtering
+  // Use the bridge integration to automatically register all git commands
   registerGitCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      // Hide raw git operations - agents should use session-level commands instead
-      "git.commit": { 
-        hidden: true, // Use session.commit instead - always session-scoped
+      // Session-dependent git operations - enforce session requirement in MCP
+      "git.commit": {
+        description: "Commit changes to the repository (session parameter required in MCP context)",
+        mcpRequiredParams: ["session"],
       },
-      "git.push": { 
-        hidden: true, // Use session.push instead - always session-scoped
-      },
-      "git.branch": { 
-        hidden: true, // Use session.start instead - sessions create their own branches
+      "git.push": {
+        description: "Push changes to the remote repository (session parameter required in MCP context)",
+        mcpRequiredParams: ["session"],
       },
       
-      // Disruptive operations (exclude from MCP)
-      "git.clone": { 
-        hidden: true, // Agents shouldn't clone new repos
+      // Hide disruptive git operations that don't make sense for agents
+      "git.clone": {
+        hidden: true,
       },
-      "git.checkout": { 
-        hidden: true, // Can disrupt session state
+      "git.checkout": {
+        hidden: true,
       },
-      "git.merge": { 
-        hidden: true, // Complex operation requiring human judgment
+      "git.merge": {
+        hidden: true,
       },
-      "git.rebase": { 
-        hidden: true, // Complex operation requiring human judgment
+      "git.rebase": {
+        hidden: true,
+      },
+      "git.branch": {
+        hidden: true,
       },
     },
   });
-
-  log.debug("Git commands registered successfully via shared integration");
 }

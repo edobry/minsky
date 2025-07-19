@@ -149,51 +149,23 @@ The Minsky MCP server exposes the following tools:
 - `session.get`: Get details for a specific session
 - `session.start`: Start a new session
   - Supports repository backend options (see below)
-- `session.commit`: Commit changes in a session
-- `session.push`: Push changes in a session
+- `session.dir`: Get the directory path for a session
+- `session.update`: Update a session with the latest changes
+- `session.pr`: Create a pull request for a session
+- `session.approve`: Approve a session pull request
+- `session.delete`: Delete a session
+- `session.inspect`: Inspect the current session
 
-### Git Operations
+### Git Commands (Session-Aware)
 
-- `git.clone`: Clone a repository
+- `git.commit`: Commit changes to the repository
+  - **Requires `session` parameter in MCP context**
+  - Use: `git.commit` with `message` and `session` parameters
+- `git.push`: Push changes to the remote repository  
+  - **Requires `session` parameter in MCP context**
+  - Use: `git.push` with `session` parameter
 
-  - Parameters:
-    - `url`: URL of the Git repository to clone (required)
-    - `session`: Session identifier for the clone (optional)
-    - `destination`: Target directory for the clone (optional)
-    - `branch`: Branch to checkout after cloning (optional)
-
-- `git.branch`: Create a branch in a repository
-
-  - Parameters:
-    - `session`: Session to create branch in (required)
-    - `name`: Name of the branch to create (required)
-
-- `git.commit`: Commit changes
-
-  - Parameters:
-    - `message`: Commit message (required)
-    - `session`: Session to commit changes for (optional)
-    - `repo`: Path to the repository (optional)
-    - `amend`: Amend the previous commit (optional)
-    - `all`: Stage all changes (optional)
-    - `noStage`: Skip staging changes (optional)
-
-- `git.push`: Push changes to a remote repository
-
-  - Parameters:
-    - `session`: Session to push changes for (optional)
-    - `repo`: Path to the repository (optional)
-    - `remote`: Remote to push to (defaults to origin) (optional)
-    - `force`: Force push (use with caution) (optional)
-
-- `git.pr`: Create a pull request
-  - Parameters:
-    - `session`: Session to create PR from (optional)
-    - `repo`: Path to the repository (optional)
-    - `branch`: Branch to create PR for (optional)
-    - `taskId`: Task ID associated with this PR (optional)
-    - `debug`: Enable debug logging (optional)
-    - `noStatusUpdate`: Skip updating task status (optional)
+> **Note**: `git.commit` and `git.push` enforce session parameter requirements in MCP context since MCP services don't have a meaningful "current directory". Commands will fail with a clear error message if session parameter is not provided.
 
 ### Repository Backend Support
 
