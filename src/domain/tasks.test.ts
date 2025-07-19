@@ -17,6 +17,8 @@ import { ValidationError, ResourceNotFoundError } from "../errors/index";
 import { expectToBeInstanceOf } from "../utils/test-utils/assertions";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 
+const TASKID_WITHOUT_LEADING_ZEROS = "23"; // Task ID without leading zeros for testing
+
 const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
 
 // Set up automatic mock cleanup
