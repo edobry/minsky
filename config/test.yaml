@@ -10,9 +10,9 @@ backendConfig:
   markdown: {}
   json-file: {}
 
-# Session database configuration for tests
+# Session database configuration for tests - match default.yaml
 sessiondb:
-  backend: "json"
+  backend: "sqlite"
   baseDir: null
   dbPath: null
   connectionString: null
@@ -25,3 +25,31 @@ detectionRules:
     backend: "json-file"
   - condition: "always"
     backend: "markdown"
+
+# Logger configuration - match default.yaml
+logger:
+  mode: "auto"          # "HUMAN" | "STRUCTURED" | "auto"
+  level: "info"         # "debug" | "info" | "warn" | "error"
+  enableAgentLogs: false # Enable JSON logs in HUMAN mode
+
+# GitHub configuration
+github: {}
+
+# AI configuration
+ai:
+  providers:
+    openai:
+      enabled: true
+      models: []
+    anthropic:
+      enabled: true
+      models: []
+    google:
+      enabled: true
+      models: []
+    cohere:
+      enabled: true
+      models: []
+    mistral:
+      enabled: true
+      models: []

@@ -56,7 +56,14 @@ export interface TaskServiceInterface {
   getBackendForTask(taskId: string): Promise<string>;
 }
 
+/**
+ * Task interface for external use
+ * 
+ * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
+ * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
+ */
 export interface Task {
+  /** Task ID in storage format (plain number string, e.g., "283") */
   id: string;
   title: string;
   status: string;

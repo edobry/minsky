@@ -99,7 +99,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -155,7 +155,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -220,7 +220,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         .default(false)
         .describe("Include hidden files (starting with .)"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -289,7 +289,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to check within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -357,7 +357,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file to delete within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -419,7 +419,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -456,6 +456,126 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
           path: args.path,
           session: args.session,
+        };
+      }
+    },
+  });
+
+  // Session grep search tool
+  commandMapper.addCommand({
+    name: "session_grep_search",
+    description: "Search for patterns in files within a session workspace using regex",
+    parameters: z.object({
+      session: z.string().describe("Session identifier (name or task ID)"),
+      query: z.string().describe("Regex pattern to search for"),
+      case_sensitive: z.boolean().optional().default(false).describe("Whether the search should be case sensitive"),
+      include_pattern: z.string().optional().describe("Glob pattern for files to include (e.g. '*.ts' for TypeScript files)"),
+      exclude_pattern: z.string().optional().describe("Glob pattern for files to exclude"),
+    }),
+    handler: async (args): Promise<Record<string, any>> => {
+      try {
+        const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(args.session);
+        
+        // Build ripgrep command arguments
+        const rgArgs = [
+          "--line-number",
+          "--no-heading", 
+          "--color", "never",
+          "--max-count", "50", // Limit to 50 matches as per Cursor behavior
+          args.case_sensitive ? "--case-sensitive" : "--ignore-case",
+        ];
+
+        // Add include pattern if specified
+        if (args.include_pattern) {
+          rgArgs.push("--glob", args.include_pattern);
+        }
+
+        // Add exclude pattern if specified  
+        if (args.exclude_pattern) {
+          rgArgs.push("--glob", `!${args.exclude_pattern}`);
+        }
+
+        // Add the search pattern and directory
+        rgArgs.push(args.query, sessionWorkspacePath);
+
+        // Execute ripgrep
+        const proc = Bun.spawn(["rg", ...rgArgs], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+
+        const output = await new Response(proc.stdout).text();
+        const errorOutput = await new Response(proc.stderr).text();
+        await proc.exited;
+
+        if (proc.exitCode !== 0 && proc.exitCode !== 1) {
+          // Exit code 1 means no matches found, which is normal
+          // Other exit codes indicate actual errors
+          throw new Error(`Ripgrep search failed: ${errorOutput}`);
+        }
+
+        // Parse ripgrep output into Cursor-compatible format
+        const results: string[] = [];
+        if (output.trim()) {
+          const lines = output.trim().split("\n");
+          let currentFile = "";
+          
+          for (const line of lines) {
+            // ripgrep output format: path:line_number:content
+            const match = line.match(/^([^:]+):(\d+):(.*)$/);
+            if (match && match[1] && match[2] && match[3] !== undefined) {
+              const [, filePath, lineNumber, content] = match;
+              
+              // Convert to absolute file:// URL format like Cursor
+              const absolutePath = filePath.startsWith("/") ? filePath : `${sessionWorkspacePath}/${filePath}`;
+              const fileUrl = `file://${absolutePath}`;
+              
+              // Add file header if it's a new file
+              if (currentFile !== fileUrl) {
+                currentFile = fileUrl;
+                results.push(`File: ${fileUrl}`);
+              }
+              
+              results.push(`Line ${lineNumber}: ${content}`);
+            }
+          }
+        }
+
+        // Add "more results available" message if we hit the limit
+        const resultCount = results.filter(line => line.startsWith("Line ")).length;
+        if (resultCount >= 50) {
+          results.push("NOTE: More results are available, but aren't shown here. If you need to, please refine the search query or restrict the scope.");
+        }
+
+        log.debug("Session grep search successful", {
+          session: args.session,
+          query: args.query,
+          caseSensitive: args.case_sensitive,
+          includePattern: args.include_pattern,
+          excludePattern: args.exclude_pattern,
+          resultCount,
+        });
+
+        return {
+          success: true,
+          results: results.join("\n\n"),
+          session: args.session,
+          query: args.query,
+          matchCount: resultCount,
+        };
+      } catch (error) {
+        const errorMessage = getErrorMessage(error);
+        log.error("Session grep search failed", {
+          session: args.session,
+          query: args.query,
+          error: errorMessage,
+        });
+
+        return {
+          success: false,
+          error: errorMessage,
+          session: args.session,
+          query: args.query,
         };
       }
     },

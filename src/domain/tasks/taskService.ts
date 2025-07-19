@@ -10,7 +10,7 @@ import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
-import config from "config";
+import { get } from "../configuration/index";
 
 // Dynamic import for GitHub backend to avoid hard dependency
 
@@ -286,7 +286,7 @@ export class TaskService {
     }
 
     const spec = this.currentBackend.parseTaskSpec(specResult.content);
-    
+
     // Get existing tasks
     const tasksResult = await this.currentBackend.getTasksData();
     if (!tasksResult.success) {
@@ -294,7 +294,7 @@ export class TaskService {
     }
 
     let tasks = this.currentBackend.parseTasks(tasksResult.content);
-    
+
     // Add the new task with default values
     const newTask: TaskData = {
       id: spec.id || "#001",
@@ -303,13 +303,13 @@ export class TaskService {
       status: "TODO",
       specPath,
     };
-    
+
     tasks.push(newTask);
-    
+
     // Format and save updated tasks
     const formattedContent = this.currentBackend.formatTasks(tasks);
     const saveResult = await this.currentBackend.saveTasksData(formattedContent, tasksResult.filePath);
-    
+
     if (!saveResult.success) {
       throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
     }
@@ -598,7 +598,7 @@ export async function createConfiguredTaskService(
 
   try {
     // Use node-config to get the resolved backend
-    const resolvedBackend = (config.has("backend") ? config.get("backend") : "json-file") as string;
+    const resolvedBackend = get("backend") || "json-file";
 
     log.debug("Resolved backend from configuration", {
       workspacePath,

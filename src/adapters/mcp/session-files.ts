@@ -99,7 +99,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -155,7 +155,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -220,7 +220,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         .default(false)
         .describe("Include hidden files (starting with .)"),
     }),
-    execute: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -346,7 +346,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           session: args.session,
         };
       }
-    }
+    },
   });
 
   // Session delete file tool
@@ -403,7 +403,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           session: args.session,
         };
       }
-    }
+    },
   });
 
   // Session create directory tool
@@ -458,7 +458,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           session: args.session,
         };
       }
-    }
+    },
   });
 
   log.debug("Session file operation tools registered successfully");
