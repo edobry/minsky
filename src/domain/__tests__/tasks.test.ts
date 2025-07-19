@@ -41,22 +41,22 @@ const mockTaskService = {
     Promise.resolve(id === "#TEST_VALUE" ? TASK_STATUS.TODO : null)
   ),
   setTaskStatus: createMock(() => Promise.resolve()),
-  backends: [] as unknown,
-  currentBackend: {} as unknown,
+  backends: [],
+  currentBackend: {},
   getWorkspacePath: createMock(() => "/mock/workspace/path"),
   createTask: createMock((_specPath: unknown) => Promise.resolve({ ...mockTask, id: "#new" })),
 };
 
 const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
 const mockResolveMainWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
-const mockCreateTaskService = createMock(() => mockTaskService as unknown);
+const mockCreateTaskService = createMock(() => mockTaskService);
 
 // Type assertion for mock dependencies
 const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
   resolveMainWorkspacePath: mockResolveMainWorkspacePath,
   createTaskService: mockCreateTaskService,
-} as unknown; // Cast to any to avoid TypeScript errors with the deps parameter
+} as any; // Cast to any to avoid TypeScript errors with the deps parameter
 
 describe("interface-agnostic task functions", () => {
   // No beforeEach needed - setupTestMocks() handles automatic cleanup after each test
@@ -212,7 +212,7 @@ describe("interface-agnostic task functions", () => {
     test("should throw ValidationError when status is invalid", async () => {
       const params = {
         taskId: "#TEST_VALUE",
-        status: "INVALID-STATUS" as unknown,
+        status: "INVALID-STATUS" as any,
         backend: "markdown",
       };
 

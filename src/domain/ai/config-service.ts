@@ -43,7 +43,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // Create provider config from unified configuration
       return {
-        provider: provider as unknown,
+        provider: provider,
         apiKey,
         baseURL: providerConfig.base_url,
         defaultModel: providerConfig.default_model,
@@ -52,7 +52,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
         models: providerConfig.models || [],
         maxTokens: providerConfig.max_tokens,
         temperature: providerConfig.temperature,
-      } as AIProviderConfig;
+      };
     } catch (error) {
       log.debug(`Failed to get provider config for ${provider}`, { error });
       return null;

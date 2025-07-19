@@ -210,7 +210,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Replace the preparePrFromParams function
       const originalPreparePr = require("./git").preparePrFromParams;
-      (require("./git") as unknown).preparePrFromParams = mockPreparePrFromParams;
+      (require("./git") as any).preparePrFromParams = mockPreparePrFromParams;
 
       try {
         // Execute sessionPrFromParams
@@ -237,7 +237,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         expect(result.baseBranch).toBe("main");
       } finally {
         // Restore original function
-        (require("./git") as unknown).preparePrFromParams = originalPreparePr;
+        (require("./git") as any).preparePrFromParams = originalPreparePr;
       }
     });
   });
