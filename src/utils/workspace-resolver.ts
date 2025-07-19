@@ -1,11 +1,9 @@
 /**
  * Simple workspace resolution for task operations
- * Uses TaskBackendRouter to determine appropriate workspace based on backend and context
+ * Determines whether to use special workspace or current directory based on backend type
  */
 import { TaskBackendRouter } from "../domain/tasks/task-backend-router";
 import { resolveRepoPath } from "../domain/repo-utils";
-import { createMarkdownTaskBackend } from "../domain/tasks/markdownTaskBackend";
-import { createJsonFileTaskBackend } from "../domain/tasks/jsonFileTaskBackend";
 
 /**
  * Options for workspace resolution
@@ -18,41 +16,19 @@ export interface WorkspaceResolverOptions {
 }
 
 /**
- * Context-aware workspace resolution using TaskBackendRouter
- * Replaces hardcoded logic with proper backend routing
+ * Simple function that replaces resolveMainWorkspacePath in task commands
+ * Uses special workspace for markdown backend, current directory for others
  */
 export async function resolveTaskWorkspacePath(options: WorkspaceResolverOptions = {}): Promise<string> {
   const { backend = "markdown", repoUrl } = options;
 
-  // Create appropriate backend instance for routing decision
-  let taskBackend;
-  const currentDir = process.cwd();
-
+  // For markdown backend, use special workspace
   if (backend === "markdown") {
-    taskBackend = createMarkdownTaskBackend({
-      name: "markdown",
-      workspacePath: currentDir
-    });
-  } else if (backend === "json-file") {
-    taskBackend = createJsonFileTaskBackend({
-      name: "json-file",
-      workspacePath: currentDir
-    });
-  } else {
-    // For unknown backends, default to current directory
-    return currentDir;
-  }
-
-  // Use TaskBackendRouter to make context-aware routing decision
-  const effectiveRepoUrl = repoUrl || await resolveRepoPath({});
-  const router = await TaskBackendRouter.createWithRepo(effectiveRepoUrl);
-  const routingInfo = router.getBackendRoutingInfo(taskBackend);
-
-  if (routingInfo.requiresSpecialWorkspace) {
-    // Use special workspace
+    const effectiveRepoUrl = repoUrl || await resolveRepoPath({});
+    const router = await TaskBackendRouter.createWithRepo(effectiveRepoUrl);
     return await router.getInTreeWorkspacePath();
-  } else {
-    // Use current workspace
-    return currentDir;
   }
+
+  // For other backends, use current directory
+  return process.cwd();
 }

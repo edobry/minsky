@@ -380,30 +380,11 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   /**
-   * Check if this backend requires special workspace handling
-   * Returns false if current workspace already contains the tasks file
+   * Markdown backend always requires special workspace for task operations
+   * All markdown task operations must be performed in the dedicated special workspace
    */
   isInTreeBackend(): boolean {
-    const fs = require("fs");
-    const path = require("path");
-
-    try {
-      // Check if we're already in a workspace that contains the tasks file
-      const currentDir = (process as any).cwd();
-      const tasksFilePath = path.join(currentDir, "process", "tasks.md");
-
-      // If the current workspace already has the tasks file, we don't need special workspace
-      // This allows running commands directly in the main workspace
-      if (fs.existsSync(tasksFilePath)) {
-        return false; // Use current workspace
-      }
-
-      // If no tasks file in current workspace, we need special workspace
-      return true;
-    } catch (error) {
-      // If we can't check, default to requiring special workspace for safety
-      return true;
-    }
+    return true;
   }
 }
 
