@@ -1277,6 +1277,15 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 
 - **Configuration Directory Management**: Improved NODE_CONFIG_DIR handling to use proper XDG config directory standards (`~/.config/minsky`) instead of hardcoded paths. Added detection and warning system for user attempts to override the configuration directory, maintaining system integrity while providing visibility into override attempts.
 
+### Added
+
+- Comprehensive PR branch recovery system to prevent git command hangs
+  - Automatic cleanup of corrupted PR branch state that can cause indefinite hangs
+  - Preserves commit messages from existing PR branches when possible
+  - Aggressive cleanup operations to handle partial git operations (merge aborts, rebase aborts, lock file removal)
+  - Enhanced user feedback with recovery status messages
+  - Prevents the type of hanging issues that blocked session PR creation in task #280
+
 ### Technical Debt
 
 - **Linter Error Cleanup**: Several TypeScript linter errors remain to be addressed in follow-up commits

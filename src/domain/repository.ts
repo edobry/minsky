@@ -243,11 +243,11 @@ export async function createRepositoryBackend(
   switch (config.type) {
   case RepositoryBackendType.LOCAL: {
     const { LocalGitBackend } = await import("./localGitBackend.js");
-    return new LocalGitBackend(config as unknown);
+    return new LocalGitBackend(config);
   }
   case RepositoryBackendType.REMOTE: {
     const { RemoteGitBackend } = await import("./remoteGitBackend.js");
-    return new RemoteGitBackend(config as unknown);
+    return new RemoteGitBackend(config);
   }
   case RepositoryBackendType.GITHUB: {
     const { GitService } = await import("./git.js");
@@ -267,7 +267,7 @@ export async function createRepositoryBackend(
       getStatus: async (session?: string): Promise<RepositoryStatus> => {
         // If no session is provided, work with the most recent session
         if (!session) {
-          const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+          const sessionDb = new (await import("./session.js")).SessionDB();
           const sessions = await sessionDb.listSessions();
           const repoName = normalizeRepoName(config.url || "");
           const repoSession = sessions.find((s) => s.repoName === repoName);
@@ -285,7 +285,7 @@ export async function createRepositoryBackend(
         // Get additional status info directly via Git commands
         const { stdout: branchOutput } = await (
           await import("util")
-        ).promisify(((await import("child_process")) as unknown).exec)(
+        ).promisify((await import("child_process")).exec)(
           `git -C ${workdir} rev-parse --abbrev-ref HEAD`
         );
 
@@ -311,7 +311,7 @@ export async function createRepositoryBackend(
       getPath: async (session?: string): Promise<string> => {
         // If no session is provided, work with the most recent session
         if (!session) {
-          const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+          const sessionDb = new (await import("./session.js")).SessionDB();
           const sessions = await sessionDb.listSessions();
           const repoName = normalizeRepoName(config.url || "");
           const repoSession = sessions.find((s) => s.repoName === repoName);
@@ -345,7 +345,7 @@ export async function createRepositoryBackend(
 
       push: async (_branch?: string): Promise<void> => {
         // Find an existing session for this repository
-        const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+        const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
         const repoName = normalizeRepoName(config.url || "");
         const repoSession = sessions.find((s) => s.repoName === repoName);
@@ -365,7 +365,7 @@ export async function createRepositoryBackend(
 
       pull: async (_branch?: string): Promise<void> => {
         // Find an existing session for this repository
-        const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+        const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
         const repoName = normalizeRepoName(config.url || "");
         const repoSession = sessions.find((s) => s.repoName === repoName);
@@ -383,7 +383,7 @@ export async function createRepositoryBackend(
         const workdir = gitService.getSessionWorkdir(session);
 
         // Execute branch creation via Git command
-        await (await import("util")).promisify(((await import("child_process")) as unknown).exec)(
+        await (await import("util")).promisify((await import("child_process")).exec)(
           `git -C ${workdir} checkout -b ${name}`
         );
 
@@ -395,7 +395,7 @@ export async function createRepositoryBackend(
 
       checkout: async (branch: string): Promise<void> => {
         // Find an existing session for this repository
-        const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+        const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
         const repoName = normalizeRepoName(config.url || "");
         const repoSession = sessions.find((s) => s.repoName === repoName);
@@ -407,7 +407,7 @@ export async function createRepositoryBackend(
         const workdir = gitService.getSessionWorkdir(repoSession.session);
 
         // Execute checkout via Git command
-        await (await import("util")).promisify(((await import("child_process")) as unknown).exec)(
+        await (await import("util")).promisify((await import("child_process")).exec)(
           `git -C ${workdir} checkout ${branch}`
         );
       },
@@ -457,7 +457,7 @@ export async function resolveRepository(
   }
   // 2. Try to resolve from session
   else if (session) {
-    const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+    const sessionDb = new (await import("./session.js")).SessionDB();
     const sessionRecord = await sessionDb.getSession(session);
     if (!sessionRecord) {
       throw new ValidationError(`Session not found: ${session}`);
@@ -469,7 +469,7 @@ export async function resolveRepository(
   // 3. Try to resolve from task ID
   else if (taskId) {
     const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
-    const sessionDb = new ((await import("./session.js")) as unknown).SessionDB();
+    const sessionDb = new (await import("./session.js")).SessionDB();
     const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
     if (!sessionRecord) {
       throw new ValidationError(`No session found for task: ${taskId}`);

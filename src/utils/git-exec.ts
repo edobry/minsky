@@ -165,7 +165,7 @@ function analyzeConflictTypes(
 export async function gitCloneWithTimeout(
   repoUrl: string,
   targetDir: string,
-  options: Omit<GitExecOptions, "workdir"> = {}
+  options: GitExecOptions = {}
 ): Promise<GitExecResult> {
   return execGitWithTimeout(
     "clone",
