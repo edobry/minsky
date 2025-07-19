@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **CommandCategory Import Error**: Fixed SyntaxError when running minsky commands due to incorrect import path in shared tasks command
+  - **Root Cause**: `src/adapters/shared/commands/tasks.ts` was importing `CommandCategory` from schemas file (where it's a type) instead of shared command-registry (where it's an enum)
+  - **Solution**: Corrected import path from `../../../schemas/command-registry` to `../command-registry`
+  - **Impact**: Session approve command and all other CLI commands now work correctly
+  - **Additional**: Resolved merge conflict markers and fixed type casting for task parameters
+
 - **Session PR Hanging Issue**: Fixed infinite hangs in session PR creation by replacing basic `execAsync` git calls with timeout-aware alternatives
   - **Root Cause**: Git operations (push, fetch, ls-remote) in `prepare-pr-operations.ts` could hang indefinitely without timeout handling
   - **Solution**: Replaced `execAsync` calls with `execGitWithTimeout`, `gitFetchWithTimeout`, and `gitPushWithTimeout` utilities
