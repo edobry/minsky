@@ -54,8 +54,8 @@ This task (#158) focuses on basic session-aware tools and simple text search, wh
 
 | Phase | Tool | Implementation Status | Registration Status | AI Agent Access |
 |-------|------|---------------------|-------------------|-----------------|
-| 1 | `session_edit_file` | ✅ Complete | ❌ Commented out | ❌ No access |
-| 1 | `session_search_replace` | ✅ Complete | ❌ Commented out | ❌ No access |
+| 1 | `session_edit_file` | ✅ Complete | ✅ Active | ✅ Available |
+| 1 | `session_search_replace` | ✅ Complete | ✅ Active | ✅ Available |
 | 2 | `session_grep_search` | ✅ Complete | ✅ Active | ✅ Available |
 | 2 | `session_file_search` | 🔄 **DEFERRED TO TASK #250** | ❌ N/A | ❌ No access |
 | 2 | `session_codebase_search` | 🔄 **DEFERRED TO TASK #250** | ❌ N/A | ❌ No access |
@@ -597,13 +597,12 @@ The following documents must be created during the research phase:
 
 ### Next Steps - Phase 2 Implementation Only:
 
-1. **🎯 PRIMARY REMAINING WORK: Implement Missing Phase 2 Search Tools**
+1. **✅ COMPLETED: Basic Session-Aware Tools Implementation**
 
-   - ❌ **TODO**: Create `session_grep_search` implementation using ripgrep library
-   - ❌ **TODO**: Create `session_file_search` implementation with fuzzy matching  
-   - ❌ **TODO**: Create `session_codebase_search` implementation with semantic search
-   - ✅ **READY**: Complete specifications and test cases exist in `test-verification/`
-   - ✅ **INFRASTRUCTURE**: All infrastructure in place - CommandMapper, SessionPathResolver, MCP registration
+   - ✅ **COMPLETED**: `session_grep_search` implemented with ripgrep integration
+   - 🔄 **DEFERRED TO TASK #250**: `session_file_search` and `session_codebase_search` 
+   - ✅ **INFRASTRUCTURE**: All basic session tools working and available to AI agents
+   - ✅ **ACTIVATION**: All implemented tools properly registered in MCP server
 
 3. **🔄 MEDIUM PRIORITY: Complete Comprehensive Reverse Engineering**
 
