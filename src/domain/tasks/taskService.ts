@@ -10,7 +10,7 @@ import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
-import { get } from "../configuration/index";
+import config from "config";
 
 // Dynamic import for GitHub backend to avoid hard dependency
 
