@@ -1,3 +1,17 @@
 feat(#303): implement auto-commit integration for task operations
 
-Implements complete auto-commit functionality for task operations in markdown backend, eliminating need for manual git commits after task status updates, creation, or deletion.
+feat(#303): implement auto-commit integration for task operations
+
+Implements complete auto-commit functionality for task operations in the markdown backend.
+
+## Key Changes
+
+- Added auto-commit integration to all 8 task command functions
+- Backend-aware workspace resolution using TaskBackendRouter
+- Comprehensive test coverage with updated mocks
+- Performance optimizations for session PR creation
+
+## Impact
+
+Eliminates the need for manual git commits after task status updates, creation, or deletion.
+Agents can now perform task operations seamlessly without git workflow interruptions.
