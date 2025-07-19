@@ -13,6 +13,58 @@ import {
 
 const execAsync = promisify(exec);
 
+/**
+ * Attempts to recover from corrupted PR branch state
+ * Since PR branches are throwaway, we can aggressively clean them up
+ */
+async function attemptPrBranchRecovery(
+  workdir: string,
+  prBranch: string,
+  options: { preserveCommitMessage?: boolean } = {}
+): Promise<{ recovered: boolean; preservedMessage?: string }> {
+  log.debug("Attempting PR branch recovery", { prBranch, workdir });
+
+  let preservedMessage: string | undefined;
+
+  // Try to preserve commit message before cleanup
+  if (options.preserveCommitMessage) {
+    try {
+      const logResult = await execGitWithTimeout(
+        "log",
+        `log -1 --pretty=format:%B ${prBranch}`,
+        { workdir, timeout: 5000 }
+      );
+      preservedMessage = logResult.stdout.trim();
+      log.debug("Preserved commit message from existing PR branch", {
+        prBranch,
+        messageLength: preservedMessage.length
+      });
+    } catch {
+      // Ignore errors - branch might not exist or be corrupted
+    }
+  }
+
+  // Aggressive cleanup operations (all failures ignored)
+  const cleanupOps = [
+    "merge --abort",
+    "rebase --abort",
+    "reset --hard HEAD",
+    `branch -D ${prBranch}`,
+    `push origin --delete ${prBranch}`
+  ];
+
+  for (const cmd of cleanupOps) {
+    try {
+      await execGitWithTimeout("cleanup", cmd, { workdir, timeout: 10000 });
+    } catch {
+      // Ignore all cleanup errors
+    }
+  }
+
+  log.debug("PR branch recovery completed", { prBranch });
+  return { recovered: true, preservedMessage };
+}
+
 export interface PreparePrOptions {
   session?: string;
   repoPath?: string;
@@ -303,48 +355,34 @@ Session requested: "${(options as any).session}"
   });
 
   // Create PR branch FROM base branch (not feature branch) - per Task #025
+  let existingPrMessage: string | undefined;
+
   try {
-    // Check if PR branch already exists locally and delete it for clean slate
+    // Enhanced PR branch cleanup with automatic recovery
+
     try {
       await execGitWithTimeout(
         "rev-parse --verify",
         `rev-parse --verify ${prBranch}`,
         { workdir, timeout: 10000 }
       );
-      // Branch exists, delete it to recreate cleanly
-      await execGitWithTimeout(
-        "branch -D",
-        `branch -D ${prBranch}`,
-        { workdir, timeout: 10000 }
-      );
-      log.debug(`Deleted existing PR branch ${prBranch} for clean recreation`);
+
+      // Branch exists - use recovery function to handle any corrupted state
+      log.debug(`PR branch ${prBranch} exists, attempting recovery cleanup`);
+
+      const recovery = await attemptPrBranchRecovery(workdir, prBranch, {
+        preserveCommitMessage: !options.title // Only preserve if no new title provided
+      });
+
+      existingPrMessage = recovery.preservedMessage;
+
+      if (recovery.recovered) {
+        log.cli(`🔧 Cleaned up existing PR branch state (${prBranch})`);
+      }
+
     } catch {
       // Branch doesn't exist, which is fine
-    }
-
-    // Check if PR branch exists remotely and delete it for clean slate
-    try {
-      await execGitWithTimeout(
-        "ls-remote",
-        `ls-remote --exit-code origin ${prBranch}`,
-        { workdir, timeout: 15000 }
-      );
-      // Remote branch exists, delete it to recreate cleanly
-      await execGitWithTimeout(
-        "push --delete",
-        `push origin --delete ${prBranch}`,
-        {
-          workdir,
-          timeout: 30000,
-          context: [
-            { label: "Operation", value: "deleting existing PR branch" },
-            { label: "Branch", value: prBranch }
-          ]
-        }
-      );
-      log.debug(`Deleted existing remote PR branch ${prBranch} for clean recreation`);
-    } catch {
-      // Remote branch doesn't exist, which is fine
+      log.debug(`PR branch ${prBranch} doesn't exist locally`);
     }
 
     // Fix for origin/origin/main bug: Don't prepend origin/ if baseBranch already has it
@@ -367,9 +405,15 @@ Session requested: "${(options as any).session}"
   // Create commit message file for merge commit (Task #025)
   const commitMsgFile = `${workdir}/.pr_title`;
   try {
-    let commitMessage = options.title || `Merge ${sourceBranch} into ${prBranch}`;
+    // Use preserved message from recovery if no new title provided
+    let commitMessage = options.title || existingPrMessage || `Merge ${sourceBranch} into ${prBranch}`;
     if (options.body) {
       commitMessage += `\n\n${options.body}`;
+    }
+
+    // If we're reusing a preserved message, log it for transparency
+    if (!options.title && existingPrMessage) {
+      log.cli("📝 Reusing commit message from recovered PR branch");
     }
 
     // CRITICAL BUG FIX: Improve commit message file handling
