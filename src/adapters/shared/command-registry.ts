@@ -253,3 +253,9 @@ export function createSharedCommandRegistry(): SharedCommandRegistry {
  * @deprecated Use createSharedCommandRegistry() and dependency injection instead
  */
 export const _sharedCommandRegistry = createSharedCommandRegistry(); 
+
+/**
+ * Default command registry instance (non-underscore version)
+ * Used by files that follow variable-naming-protocol
+ */
+export const sharedCommandRegistry = _sharedCommandRegistry; 
