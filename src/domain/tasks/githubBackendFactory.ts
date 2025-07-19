@@ -23,17 +23,17 @@ export async function tryCreateGitHubBackend(
     ]);
 
     const config = getGitHubBackendConfig(workspacePath, { logErrors: shouldLogErrors });
-    if (!config || !(config as unknown)!.githubToken || !(config as unknown)!.owner || !(config as unknown)!.repo) {
+    if (!config || !config.githubToken || !config.owner || !config.repo) {
       return null;
     }
 
     return createGitHubIssuesTaskBackend({
       name: "github-issues",
       workspacePath: workspacePath,
-      githubToken: (config as unknown)!.githubToken,
-      owner: (config as unknown)!.owner,
-      repo: (config as unknown)!.repo,
-      statusLabels: (config as unknown)!.statusLabels,
+      githubToken: config.githubToken,
+      owner: config.owner,
+      repo: config.repo,
+      statusLabels: config.statusLabels,
     });
   } catch (_error) {
     // Return null if GitHub modules are not available

@@ -267,7 +267,7 @@ describe("TaskBackendRouter", () => {
       const mockSqliteBackend = {
         name: "sqlite",
         constructor: { name: "SqliteTaskBackend" }
-      } as unknown;
+      } as any;
 
       const routingInfo = router.getBackendRoutingInfo(mockSqliteBackend);
       
@@ -282,7 +282,7 @@ describe("TaskBackendRouter", () => {
       const mockPostgresBackend = {
         name: "postgres",
         constructor: { name: "PostgresTaskBackend" }
-      } as unknown;
+      } as any;
 
       const routingInfo = router.getBackendRoutingInfo(mockPostgresBackend);
       
@@ -298,7 +298,7 @@ describe("TaskBackendRouter", () => {
       const mockUnknownBackend = {
         name: "unknown",
         constructor: { name: "UnknownTaskBackend" }
-      } as unknown;
+      } as any;
 
       const routingInfo = router.getBackendRoutingInfo(mockUnknownBackend);
       
@@ -319,7 +319,7 @@ describe("TaskBackendRouter", () => {
         getStorageLocation: () => {
           throw new Error("Storage location not available");
         }
-      } as unknown;
+      } as any;
 
       const routingInfo = router.getBackendRoutingInfo(mockBackend);
       

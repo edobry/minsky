@@ -40,6 +40,9 @@ import {
   FileConflictStatus,
 } from "./conflict-detection-types";
 
+// Re-export key types for external use
+export { FileConflictStatus, ConflictSeverity, ConflictType };
+
 export class ConflictDetectionService {
   /**
    * Static method to predict merge conflicts
@@ -269,17 +272,36 @@ export class ConflictDetectionService {
 
     try {
       // Get commit counts
-      const { stdout: aheadBehind } = await execAsync(
+      const result = await execAsync(
         `git -C ${repoPath} rev-list --left-right --count ${baseBranch}...${sessionBranch}`
       );
+      
+      // Check if result is valid before destructuring
+      if (!result || typeof result.stdout !== "string") {
+        log.warn("Git rev-list command returned invalid result", { result, repoPath, baseBranch, sessionBranch });
+        return {
+          sessionBranch,
+          baseBranch,
+          aheadCommits: 0,
+          behindCommits: 0,
+          lastCommonCommit: "",
+          sessionChangesInBase: false,
+          divergenceType: "none" as const,
+          recommendedAction: "none" as const
+        };
+      }
+      
+      const { stdout: aheadBehind } = result;
       const [behindStr, aheadStr] = aheadBehind.trim().split("\t");
       const behind = Number(behindStr) || 0;
       const ahead = Number(aheadStr) || 0;
 
       // Get last common commit
-      const { stdout: commonCommit } = await execAsync(
+      const commonCommitResult = await execAsync(
         `git -C ${repoPath} merge-base ${baseBranch} ${sessionBranch}`
       );
+      
+      const commonCommit = commonCommitResult?.stdout?.trim() || "";
 
       // Check if session changes are already in base
       const sessionChangesInBase = await this.checkSessionChangesInBase(
@@ -311,7 +333,7 @@ export class ConflictDetectionService {
         baseBranch,
         aheadCommits: ahead,
         behindCommits: behind,
-        lastCommonCommit: commonCommit.trim(),
+        lastCommonCommit: commonCommit,
         sessionChangesInBase,
         divergenceType,
         recommendedAction,
@@ -380,16 +402,20 @@ export class ConflictDetectionService {
 
       // Step 2: Perform actual merge if not dry run
       if (!options?.dryRun) {
-        const { stdout: beforeHash } = await execAsync(
+        const beforeHashResult = await execAsync(
           `git -C ${repoPath} rev-parse HEAD`
         );
+        
+        const beforeHash = beforeHashResult?.stdout?.trim() || "";
 
         try {
           await execAsync(`git -C ${repoPath} merge ${sourceBranch}`);
 
-          const { stdout: afterHash } = await execAsync(
+          const afterHashResult = await execAsync(
             `git -C ${repoPath} rev-parse HEAD`
           );
+          
+          const afterHash = afterHashResult?.stdout?.trim() || "";
           const merged = beforeHash.trim() !== afterHash.trim();
 
           return {
@@ -400,9 +426,11 @@ export class ConflictDetectionService {
           };
         } catch (mergeError) {
           // Check for conflicts
-          const { stdout: status } = await execAsync(
+          const statusResult = await execAsync(
             `git -C ${repoPath} status --porcelain`
           );
+          
+          const status = statusResult?.stdout || "";
           const hasConflicts =
             status.includes("UU") ||
             status.includes("AA") ||
@@ -593,7 +621,8 @@ export class ConflictDetectionService {
         };
       }
 
-      const { stdout: statusOutput } = await execAsync(`git -C ${repoPath} status --porcelain`);
+      const statusOutputResult = await execAsync(`git -C ${repoPath} status --porcelain`);
+      const statusOutput = statusOutputResult?.stdout || "";
       const uncommittedChanges = statusOutput.trim().split("\n").filter(Boolean);
 
       let conflictingFiles: string[] = [];

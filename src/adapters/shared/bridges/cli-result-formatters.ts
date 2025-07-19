@@ -3,8 +3,11 @@
  *
  * Formatting utilities for CLI command results.
  * Extracted from CliCommandBridge to improve modularity.
+ * 
+ * TASK 283: Updated to use formatTaskIdForDisplay() for consistent # prefix display.
  */
 import { log } from "../../../utils/logger";
+import { formatTaskIdForDisplay } from "../../../domain/tasks/task-id-utils";
 
 /**
  * Format session details for human-readable output
@@ -19,7 +22,7 @@ export function formatSessionDetails(session: Record<string, any>): void {
   if (session.id) log.cli(`   ID: ${session.id}`);
   if (session.name) log.cli(`   Name: ${session.name}`);
   if (session.status) log.cli(`   Status: ${session.status}`);
-  if (session.taskId) log.cli(`   Task ID: ${session.taskId}`);
+  if (session.taskId) log.cli(`   Task ID: ${formatTaskIdForDisplay(session.taskId)}`);
   if (session.branchName) log.cli(`   Branch: ${session.branchName}`);
   if (session.workspacePath) log.cli(`   Workspace: ${session.workspacePath}`);
   if (session.repoUrl) log.cli(`   Repository: ${session.repoUrl}`);
@@ -42,7 +45,8 @@ export function formatSessionSummary(session: Record<string, any>): void {
   if (!session) return;
 
   const sessionName = session.session || "unknown";
-  const taskId = session.taskId ? ` (task: ${session.taskId})` : "";
+  // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix
+  const taskId = session.taskId ? ` (task: ${formatTaskIdForDisplay(session.taskId)})` : "";
   const branchName = session.branch ? ` [${session.branch}]` : "";
 
   // Sessions don't have status - that's a task concept
@@ -71,7 +75,7 @@ export function formatSessionPrDetails(result: Record<string, any>): void {
   log.cli("📝 Session Information:");
   log.cli(`   Session: ${sessionName}`);
   if (taskId) {
-    log.cli(`   Task: ${taskId}`);
+    log.cli(`   Task: ${formatTaskIdForDisplay(taskId)}`);
   }
   log.cli("");
 
@@ -122,7 +126,7 @@ export function formatSessionApprovalDetails(result: Record<string, any>): void 
   log.cli(`   Session: ${sessionName}`);
   if (taskId) {
     const taskStatusMessage = isNewlyApproved ? "(status updated to DONE)" : "(already marked as DONE)";
-    log.cli(`   Task: ${taskId} ${taskStatusMessage}`);
+    log.cli(`   Task: ${formatTaskIdForDisplay(taskId)} ${taskStatusMessage}`);
   }
   log.cli(`   Merged by: ${mergedBy}`);
   if (mergeDate) {
