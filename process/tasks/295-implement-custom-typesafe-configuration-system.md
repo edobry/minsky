@@ -378,10 +378,21 @@ Current environment variables that need mapping:
 - ✅ Configuration utilities (reload, validate, inspect)
 - ✅ **Migration Support**: Interface allows gradual migration while maintaining behavior compatibility
 
-### Phase 3: Migration and Integration 📋 PENDING
-**Day 6: Replace Node-Config Usage**
-- 📋 Replace all `config.get()` calls with new API
-- 📋 Update imports across codebase
+### Phase 3: Migration and Integration ⏳ IN PROGRESS
+**Day 6: Replace Node-Config Usage** ⏳ IN PROGRESS
+- ✅ **Core Domain Migration**: Successfully migrated 7 core domain files:
+  - ✅ `backend-detection.ts`: Replace config.get() with get() function
+  - ✅ `config-validator.ts`: Replace all config.get() calls with get() function 
+  - ✅ `session-db-adapter.ts`: Replace config usage with getConfiguration()
+  - ✅ `health-monitor.ts`: Replace config.get() with getConfiguration()
+  - ✅ `taskService.ts`: Replace config.get() with get() function
+  - ✅ `logger.ts`: Replace delayed config pattern with direct imports
+  - ⚠️ `adapters/shared/commands/config.ts`: Partially migrated (type issues remain)
+
+- 📋 **CLI Command Migration**: Update remaining CLI command files
+  - 📋 `src/commands/config/show.ts`
+  - 📋 `src/commands/config/list.ts`
+
 - 📋 Remove node-config dependency and setup files
 - 📋 Update configuration files to new format
 

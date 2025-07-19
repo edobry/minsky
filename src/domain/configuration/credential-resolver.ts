@@ -1,11 +1,11 @@
 /**
- * Credential Resolver Service for Node-Config Integration
+ * Credential Resolver Service for Custom Configuration System
  *
- * Handles credential resolution using node-config for configuration
+ * Handles credential resolution using the new type-safe configuration system
  * while preserving existing credential management capabilities.
  */
 
-import config from "config";
+import { get } from "./index";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -42,7 +42,7 @@ export class DefaultCredentialResolver implements CredentialResolver {
    */
   async getAICredential(provider: string): Promise<string | undefined> {
     try {
-      const aiConfig = config.get("ai") as any;
+      const aiConfig = get("ai") as any;
       const providerConfig = aiConfig?.providers?.[provider];
       
       if (!providerConfig?.credentials) {
@@ -62,7 +62,7 @@ export class DefaultCredentialResolver implements CredentialResolver {
   async resolveCredentialFromConfig(credentialConfig: CredentialConfig): Promise<string | undefined> {
     switch (credentialConfig.source) {
     case "environment":
-      // Node-config will have already resolved environment variables
+      // New configuration system will have already resolved environment variables
       return credentialConfig.token || credentialConfig.api_key;
       
     case "file":
@@ -82,7 +82,7 @@ export class DefaultCredentialResolver implements CredentialResolver {
    */
   private async getGitHubCredential(): Promise<string | undefined> {
     try {
-      const githubConfig = config.get("github") as any;
+      const githubConfig = get("github") as any;
       if (!githubConfig?.credentials) {
         return undefined;
       }
