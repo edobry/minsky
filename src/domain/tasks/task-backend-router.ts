@@ -217,6 +217,9 @@ export class TaskBackendRouter {
       this.specialWorkspaceManager = createSpecialWorkspaceManager({ repoUrl: this.repoUrl });
     }
 
+    // Initialize the workspace if it doesn't exist (creates the git clone)
+    await this.specialWorkspaceManager.initialize();
+
     return this.specialWorkspaceManager.getWorkspacePath();
   }
 
@@ -238,6 +241,9 @@ export class TaskBackendRouter {
         }
         this.specialWorkspaceManager = createSpecialWorkspaceManager({ repoUrl: this.repoUrl });
       }
+
+      // Initialize the workspace if it doesn't exist (creates the git clone)
+      await this.specialWorkspaceManager.initialize();
 
       return callback(this.specialWorkspaceManager.getWorkspacePath());
     } else {
