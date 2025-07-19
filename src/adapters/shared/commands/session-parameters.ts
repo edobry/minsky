@@ -362,3 +362,43 @@ export const sessionInspectCommandParams: CommandParameterMap = {
     defaultValue: false,
   },
 };
+
+/**
+ * Parameters for the session commit command
+ */
+export const sessionCommitCommandParams: CommandParameterMap = {
+  session: {
+    schema: z.string().min(1),
+    description: "Session name",
+    required: true,
+  },
+  message: {
+    schema: z.string().min(1),
+    description: "Commit message",
+    required: true,
+  },
+  all: {
+    schema: z.boolean(),
+    description: "Stage all changes including deletions",
+    required: false,
+    defaultValue: false,
+  },
+  amend: {
+    schema: z.boolean(),
+    description: "Amend the previous commit",
+    required: false,
+    defaultValue: false,
+  },
+  noStage: {
+    schema: z.boolean(),
+    description: "Skip staging changes",
+    required: false,
+    defaultValue: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output in JSON format",
+    required: false,
+    defaultValue: false,
+  },
+};

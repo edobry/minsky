@@ -24,6 +24,7 @@ import {
   sessionApprove,
   sessionPr,
   sessionInspect,
+  sessionCommit,
 } from "../../../domain/session";
 import { log } from "../../../utils/logger";
 import { MinskyError } from "../../../errors/index";
@@ -37,6 +38,7 @@ import {
   sessionApproveCommandParams,
   sessionPrCommandParams,
   sessionInspectCommandParams,
+  sessionCommitCommandParams,
 } from "./session-parameters";
 import {
   handleSessionPrError,
@@ -507,6 +509,41 @@ Need help? Run the command with --debug for detailed error information.`
       } catch (error) {
         log.error("Failed to inspect session", {
           error: getErrorMessage(error as Error),
+        });
+        throw error;
+      }
+    },
+  });
+
+  // Register session commit command
+  sharedCommandRegistry.registerCommand({
+    id: "session.commit",
+    category: CommandCategory.SESSION,
+    name: "commit",
+    description: "Commit and push changes in a session (atomic operation)",
+    parameters: sessionCommitCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.commit command", { params, context });
+
+      try {
+        const result = await sessionCommit({
+          session: params!.session,
+          message: params!.message,
+          all: params!.all,
+          amend: params!.amend,
+          noStage: params!.noStage,
+        });
+
+        return {
+          success: result.success,
+          commitHash: result.commitHash,
+          message: result.message,
+          pushed: result.pushed,
+        };
+      } catch (error) {
+        log.error("Failed to commit in session", {
+          error: getErrorMessage(error as Error),
+          session: params!.session,
         });
         throw error;
       }
