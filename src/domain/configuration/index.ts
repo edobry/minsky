@@ -154,7 +154,10 @@ export class NodeConfigProvider implements ConfigurationProvider {
     } catch (error) {
       // If we can't reload node-config, just clear our cache
       // This is a known limitation of node-config
+      console.warn("NodeConfigProvider reload had issues:", error);
     }
+    // Explicit return to ensure promise resolves
+    return Promise.resolve();
   }
 
   getMetadata(): ConfigurationMetadata {
@@ -260,6 +263,8 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       // If initialization fails, log but don't throw
       console.warn("Warning: CustomConfigurationProvider reload had issues:", error);
     }
+    // Explicit return to ensure promise resolves
+    return Promise.resolve();
   }
 
   getMetadata(): ConfigurationMetadata {
