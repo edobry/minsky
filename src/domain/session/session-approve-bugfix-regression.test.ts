@@ -233,7 +233,6 @@ describe("Session Approve - Bug Regression Tests", () => {
     test("should restore stash even when merge fails", async () => {
       // Arrange: Set up scenario with stashed changes and merge failure
       const mockGitService = createMockGitService({
-        hasUncommittedChanges: () => Promise.resolve(true),
         stashChanges: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
         popStash: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
         execInRepository: mock((workdir, command) => {
@@ -250,15 +249,20 @@ describe("Session Approve - Bug Regression Tests", () => {
         })
       });
 
+      // Mock hasUncommittedChanges separately to trigger stashing behavior
+      mockGitService.hasUncommittedChanges = mock(() => Promise.resolve(true));
+
       const mockSessionDB = createMockSessionProvider({
         getSessionByTaskId: () => Promise.resolve({
           session: "test-session",
+          repoName: "test-repo",
           repoUrl: "/test/repo",
           taskId: "123",
           createdAt: new Date().toISOString()
         }),
         getSession: () => Promise.resolve({
           session: "test-session",
+          repoName: "test-repo",
           repoUrl: "/test/repo",
           taskId: "123",
           createdAt: new Date().toISOString()

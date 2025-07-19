@@ -592,7 +592,7 @@ function formatResolvedConfiguration(resolved: any): string {
   }
 
   // Authentication
-  if (Object.keys(resolved.credentials).length > 0) {
+  if (resolved.credentials && Object.keys(resolved.credentials).length > 0) {
     output += "\n🔐 Authentication: ";
     const authServices = [];
     for (const [service, creds] of Object.entries(resolved.credentials)) {

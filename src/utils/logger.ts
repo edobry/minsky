@@ -317,13 +317,25 @@ export function createLogger(configOverride?: LoggerConfig) {
   return loggerInstance;
 }
 
-// Create default logger instance for backward compatibility
-const defaultLogger = createLogger();
+// Lazy default logger instance to avoid configuration access during module loading
+let defaultLogger: any = null;
 
-// Export the default logger for backward compatibility
-export const log = defaultLogger;
-export const isStructuredMode = defaultLogger.isStructuredMode;
-export const isHumanMode = defaultLogger.isHumanMode;
+function getDefaultLogger() {
+  if (!defaultLogger) {
+    defaultLogger = createLogger();
+  }
+  return defaultLogger;
+}
+
+// Export the default logger for backward compatibility (lazy)
+export const log = new Proxy({} as any, {
+  get(target, prop) {
+    return getDefaultLogger()[prop];
+  }
+});
+
+export const isStructuredMode = () => getDefaultLogger().isStructuredMode();
+export const isHumanMode = () => getDefaultLogger().isHumanMode();
 
 // Export the factory function for dependency injection
 export { createLogger as createConfigurableLogger };

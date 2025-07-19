@@ -81,22 +81,28 @@ const configListRegistration = {
   execute: async (params, _ctx: CommandExecutionContext) => {
     try {
       // Use custom configuration system to get configuration
-      const config = getConfiguration();
+      const { getConfigurationProvider } = await import("../../../domain/configuration/index");
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+      const metadata = provider.getMetadata();
+
       const resolved = {
         backend: config.backend,
         backendConfig: config.backendConfig,
-        credentials: config.credentials || {},
         sessiondb: config.sessiondb,
         ai: config.ai,
+        github: config.github,
       };
 
       return {
         success: true,
         json: params.json || false,
-        sources: sources.map((source) => ({
+        sources: metadata.sources.map((source) => ({
           name: source.name,
-          original: source.original,
-          parsed: source.parsed,
+          priority: source.priority,
+          loaded: source.loaded,
+          path: source.path,
+          error: source.error,
         })),
         resolved,
         showSources: params.sources || false,
@@ -131,9 +137,9 @@ const configShowRegistration = {
       const resolved = {
         backend: config.backend,
         backendConfig: config.backendConfig,
-        credentials: config.github?.credentials || {},
         sessiondb: config.sessiondb,
         ai: config.ai,
+        github: config.github,
       };
 
       return {

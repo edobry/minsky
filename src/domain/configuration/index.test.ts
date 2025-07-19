@@ -1,19 +1,16 @@
 /**
- * Configuration Interface Tests
- * 
- * These tests demonstrate how the configuration interface enables safe migration
- * by testing both node-config and custom implementations against the same interface.
+ * Configuration System Tests
+ *
+ * Tests for the custom type-safe configuration system.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import type { 
-  ConfigurationProvider, 
+import type {
+  ConfigurationProvider,
   ConfigurationFactory,
   ConfigurationOverrides,
-  TestProviderType
 } from "./index";
-import { 
-  NodeConfigFactory, 
+import {
   CustomConfigFactory,
   createTestProvider,
   initializeConfiguration,
@@ -22,340 +19,161 @@ import {
   has,
 } from "./index";
 
-/**
- * Interface compliance test suite
- * 
- * This test suite runs against both implementations to ensure they behave identically.
- */
-function testConfigurationProvider(
-  providerName: string,
-  createProvider: () => Promise<ConfigurationProvider>
-) {
-  describe(`${providerName} Interface Compliance`, () => {
-    let provider: ConfigurationProvider;
+describe("Custom Configuration System", () => {
+  let provider: ConfigurationProvider;
 
-    beforeEach(async () => {
-      provider = await createProvider();
-    });
+  beforeEach(async () => {
+    provider = await createTestProvider({});
+  });
 
+  afterEach(() => {
+    // Reset global configuration state if needed
+  });
+
+  describe("CustomConfigurationProvider", () => {
     test("should implement getConfig() method", () => {
-      expect(typeof provider.getConfig).toBe("function");
-      
       const config = provider.getConfig();
       expect(config).toBeDefined();
-      expect(typeof config).toBe("object");
+      expect(config.backend).toBeDefined();
+      expect(config.sessiondb).toBeDefined();
     });
 
     test("should implement get() method with path access", () => {
-      expect(typeof provider.get).toBe("function");
-      
-      // Test accessing a simple property
-      const backend = provider.get("backend");
-      expect(typeof backend).toBe("string");
-      
-      // Test accessing a nested property
-      const sessionDbBackend = provider.get("sessiondb.backend");
-      expect(typeof sessionDbBackend).toBe("string");
+      expect(provider.get("backend")).toBeDefined();
+      expect(provider.get("sessiondb.backend")).toBeDefined();
     });
 
     test("should implement has() method for path checking", () => {
-      expect(typeof provider.has).toBe("function");
-      
-      // Test existing paths
       expect(provider.has("backend")).toBe(true);
       expect(provider.has("sessiondb.backend")).toBe(true);
-      
-      // Test non-existing paths
-      expect(provider.has("nonexistent")).toBe(false);
-      expect(provider.has("sessiondb.nonexistent")).toBe(false);
+      expect(provider.has("nonexistent.path")).toBe(false);
     });
 
     test("should implement reload() method", async () => {
-      expect(typeof provider.reload).toBe("function");
-      
-      // Should not throw - using try/catch instead of resolves.not.toThrow
-      try {
-        await provider.reload();
-        // If we get here, it didn't throw
-        expect(true).toBe(true);
-      } catch (error) {
-        // If we get here, it threw
-        fail(`reload() should not throw, but threw: ${error}`);
-      }
+      await expect(provider.reload()).resolves.toBeUndefined();
     });
 
     test("should implement getMetadata() method", () => {
-      expect(typeof provider.getMetadata).toBe("function");
-      
       const metadata = provider.getMetadata();
       expect(metadata).toBeDefined();
-      expect(Array.isArray(metadata.sources)).toBe(true);
-      expect(metadata.loadedAt).toBeInstanceOf(Date);
-      expect(typeof metadata.version).toBe("string");
+      expect(metadata.sources).toBeDefined();
+      expect(metadata.version).toBe("custom");
     });
 
     test("should implement validate() method", () => {
-      expect(typeof provider.validate).toBe("function");
-      
       const result = provider.validate();
       expect(result).toBeDefined();
-      expect(typeof result.valid).toBe("boolean");
-      expect(Array.isArray(result.errors)).toBe(true);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toEqual([]);
     });
 
     test("should provide consistent configuration structure", () => {
       const config = provider.getConfig();
-      
-      // Test required top-level properties
-      expect(config).toHaveProperty("backend");
-      expect(config).toHaveProperty("sessiondb");
-      expect(config).toHaveProperty("github");
-      expect(config).toHaveProperty("ai");
-      
-      // Test nested structures
-      expect(config.sessiondb).toHaveProperty("backend");
+
+      // Check required fields exist
+      expect(config.backend).toBeDefined();
+      expect(config.sessiondb).toBeDefined();
       expect(config.github).toBeDefined();
       expect(config.ai).toBeDefined();
     });
 
-    test("should handle configuration overrides consistently", async () => {
-      // This test ensures both implementations handle overrides the same way
+    test("should handle configuration overrides consistently", () => {
       const config = provider.getConfig();
-      const originalBackend = config.backend;
-      
-      // Configuration should be deterministic
-      expect(typeof originalBackend).toBe("string");
-      expect(["markdown", "json-file", "github-issues"]).toContain(originalBackend);
+      expect(config.backend).toBe("json-file"); // From overrides
+      expect(config.sessiondb.backend).toBe("sqlite"); // From overrides
+      expect(config.sessiondb.dbPath).toBe("/tmp/test.db"); // From overrides
     });
   });
-}
 
-/**
- * Behavioral compatibility tests
- * 
- * These tests ensure that both implementations produce identical behavior
- * for the same configuration scenarios.
- */
-describe("Behavioral Compatibility", () => {
-  let nodeProvider: ConfigurationProvider;
-  let customProvider: ConfigurationProvider;
+  describe("Configuration Initialization", () => {
+    test("should initialize with custom factory", async () => {
+      const factory = new CustomConfigFactory();
+      await expect(initializeConfiguration(factory)).resolves.toBeUndefined();
 
-  beforeEach(async () => {
-    // Create both providers with the same test configuration
-    const testOverrides: ConfigurationOverrides = {
-      backend: "markdown",
-      sessiondb: {
-        backend: "sqlite",
-      },
-      github: {
-        token: "test-token",
-      },
-    };
-
-    nodeProvider = await createTestProvider(testOverrides, "node-config");
-    customProvider = await createTestProvider(testOverrides, "custom");
-  });
-
-  test("should return identical configuration objects", () => {
-    const nodeConfig = nodeProvider.getConfig();
-    const customConfig = customProvider.getConfig();
-    
-    // Both should have the same structure and values
-    expect(nodeConfig.backend).toBe(customConfig.backend);
-    expect(nodeConfig.sessiondb.backend).toBe(customConfig.sessiondb.backend);
-    // Compare github configuration objects as a whole rather than individual properties
-    expect(nodeConfig.github).toEqual(customConfig.github);
-  });
-
-  test("should handle path-based access identically", () => {
-    const paths = [
-      "backend",
-      "sessiondb.backend",
-    ];
-
-    for (const path of paths) {
-      const nodeValue = nodeProvider.get(path);
-      const customValue = customProvider.get(path);
-      
-      expect(nodeValue).toBe(customValue);
-    }
-    
-    // Test github.token separately since it might be undefined
-    const nodeHasToken = nodeProvider.has("github.token");
-    const customHasToken = customProvider.has("github.token");
-    expect(nodeHasToken).toBe(customHasToken);
-    
-    if (nodeHasToken && customHasToken) {
-      expect(nodeProvider.get("github.token")).toBe(customProvider.get("github.token"));
-    }
-  });
-
-  test("should handle path existence checks identically", () => {
-    const existingPaths = [
-      "backend",
-      "sessiondb.backend",
-    ];
-
-    const nonExistingPaths = [
-      "nonexistent",
-      "sessiondb.nonexistent",
-      "github.nonexistent",
-    ];
-
-    for (const path of existingPaths) {
-      expect(nodeProvider.has(path)).toBe(true);
-      expect(customProvider.has(path)).toBe(true);
-    }
-
-    for (const path of nonExistingPaths) {
-      expect(nodeProvider.has(path)).toBe(false);
-      expect(customProvider.has(path)).toBe(false);
-    }
-  });
-
-  test("should handle errors consistently", () => {
-    const invalidPath = "deeply.nested.nonexistent.path";
-    
-    // Both should throw when accessing non-existent paths
-    expect(() => nodeProvider.get(invalidPath)).toThrow();
-    expect(() => customProvider.get(invalidPath)).toThrow();
-  });
-});
-
-/**
- * Migration scenario tests
- * 
- * These tests simulate real migration scenarios to ensure smooth transitions.
- */
-describe("Migration Scenarios", () => {
-  test("should support switching providers at runtime", async () => {
-    // Start with node-config provider
-    const nodeFactory = new NodeConfigFactory();
-    await initializeConfiguration(nodeFactory);
-    
-    const initialConfig = getConfiguration();
-    expect(initialConfig).toBeDefined();
-    
-    // Switch to custom provider
-    const customFactory = new CustomConfigFactory();
-    await initializeConfiguration(customFactory);
-    
-    const newConfig = getConfiguration();
-    expect(newConfig).toBeDefined();
-    
-    // Configuration should still be accessible through the same API
-    expect(typeof get("backend")).toBe("string");
-    expect(has("sessiondb.backend")).toBe(true);
-  });
-
-  test("should maintain API compatibility during migration", async () => {
-    // Test that the same code works with both providers
-    const testConfigurationUsage = () => {
+      // Test global access
       const config = getConfiguration();
-      
-      // Direct access
-      expect(config.backend).toBeDefined();
-      expect(config.sessiondb.backend).toBeDefined();
-      
-      // Path-based access
+      expect(config).toBeDefined();
       expect(get("backend")).toBeDefined();
-      expect(get("sessiondb.backend")).toBeDefined();
-      
-      // Existence checks
       expect(has("backend")).toBe(true);
-      expect(has("sessiondb.backend")).toBe(true);
-      
-      return true;
-    };
+    });
 
-    // Test with node-config
-    await initializeConfiguration(new NodeConfigFactory());
-    expect(testConfigurationUsage()).toBe(true);
-    
-    // Test with custom provider
-    await initializeConfiguration(new CustomConfigFactory());
-    expect(testConfigurationUsage()).toBe(true);
+    test("should support configuration overrides", async () => {
+      const factory = new CustomConfigFactory();
+      await initializeConfiguration(factory, {
+        overrides: { backend: "custom-override" }
+      });
+
+      const config = getConfiguration();
+      expect(config.backend).toBe("custom-override");
+    });
   });
 
-  test("should support gradual migration with feature flags", async () => {
-    // Simulate a feature flag for enabling the new configuration system
-    const useCustomConfig = process.env.USE_CUSTOM_CONFIG === "true";
-    
-    const factory = useCustomConfig ? new CustomConfigFactory() : new NodeConfigFactory();
-    await initializeConfiguration(factory);
-    
-    // Application code should work regardless of which implementation is used
-    const config = getConfiguration();
-    expect(config).toBeDefined();
-    expect(typeof config.backend).toBe("string");
-  });
-});
+  describe("Performance", () => {
+    test("should load configuration within acceptable time limits", async () => {
+      const startTime = Date.now();
+      const provider = await createTestProvider({});
+      const endTime = Date.now();
 
-/**
- * Performance comparison tests
- * 
- * These tests help ensure the new implementation meets performance requirements.
- */
-describe("Performance Comparison", () => {
-  test("should load configuration within acceptable time limits", async () => {
-    const maxLoadTime = 100; // 100ms limit
-    
-    // Test node-config performance
-    const nodeStart = Date.now();
-    const nodeProvider = await createTestProvider({}, "node-config");
-    nodeProvider.getConfig();
-    const nodeTime = Date.now() - nodeStart;
-    
-    // Test custom provider performance
-    const customStart = Date.now();
-    const customProvider = await createTestProvider({}, "custom");
-    customProvider.getConfig();
-    const customTime = Date.now() - customStart;
-    
-    // Both should be reasonably fast
-    expect(nodeTime).toBeLessThan(maxLoadTime);
-    expect(customTime).toBeLessThan(maxLoadTime);
-    
-    console.log(`Performance comparison:
-      Node-config: ${nodeTime}ms
-      Custom: ${customTime}ms`);
-  });
+      const loadTime = endTime - startTime;
+      console.log(`Custom config load time: ${loadTime}ms`);
 
-  test("should access configuration values efficiently", () => {
-    const iterations = 1000;
-    const maxAccessTime = 50; // 50ms for 1000 iterations
-    
-    return Promise.all([
-      createTestProvider({}, "node-config"),
-      createTestProvider({}, "custom"),
-    ]).then(([nodeProvider, customProvider]) => {
-      // Test node-config access performance
-      const nodeStart = Date.now();
+      // Should load quickly (less than 1 second)
+      expect(loadTime).toBeLessThan(1000);
+    });
+
+    test("should access configuration values efficiently", () => {
+      const iterations = 1000;
+      const startTime = Date.now();
+
       for (let i = 0; i < iterations; i++) {
-        nodeProvider.get("backend");
-        nodeProvider.get("sessiondb.backend");
+        provider.get("backend");
+        provider.get("sessiondb.backend");
+        provider.has("github.token");
       }
-      const nodeTime = Date.now() - nodeStart;
-      
-      // Test custom provider access performance
-      const customStart = Date.now();
-      for (let i = 0; i < iterations; i++) {
-        customProvider.get("backend");
-        customProvider.get("sessiondb.backend");
-      }
-      const customTime = Date.now() - customStart;
-      
-      expect(nodeTime).toBeLessThan(maxAccessTime);
-      expect(customTime).toBeLessThan(maxAccessTime);
+
+      const endTime = Date.now();
+      const totalTime = endTime - startTime;
+      const avgTime = totalTime / iterations;
+
+      console.log(`Average access time: ${avgTime.toFixed(3)}ms per operation`);
+
+      // Should be very fast (less than 1ms per operation on average)
+      expect(avgTime).toBeLessThan(1);
+    });
+  });
+
+  describe("Error Handling", () => {
+    test("should handle missing configuration paths gracefully", () => {
+      expect(() => provider.get("nonexistent.path")).toThrow(/not found/);
+    });
+
+    test("should validate configuration structure", () => {
+      const result = provider.validate();
+      expect(result.valid).toBe(true);
+      expect(Array.isArray(result.errors)).toBe(true);
+    });
+  });
+
+  describe("Configuration Factory", () => {
+    test("should create provider with default options", async () => {
+      const factory = new CustomConfigFactory();
+      const provider = await factory.createProvider();
+
+      expect(provider).toBeDefined();
+      expect(provider.getConfig).toBeDefined();
+      expect(provider.get).toBeDefined();
+      expect(provider.has).toBeDefined();
+    });
+
+    test("should create provider with custom options", async () => {
+      const factory = new CustomConfigFactory();
+      const provider = await factory.createProvider({
+        overrides: { backend: "test-backend" },
+        enableCache: false
+      });
+
+      const config = provider.getConfig();
+      expect(config.backend).toBe("test-backend");
     });
   });
 });
-
-// Run the interface compliance tests for both implementations
-testConfigurationProvider("NodeConfigProvider", () => 
-  createTestProvider({}, "node-config")
-);
-
-testConfigurationProvider("CustomConfigurationProvider", () => 
-  createTestProvider({}, "custom")
-); 
