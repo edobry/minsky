@@ -2,7 +2,6 @@
 
 ## [Unreleased]
 
-<<<<<<< HEAD
 ### Added
 
 - **Task #300: ESLint Jest Pattern Prevention & Session Approval Error Handling Complete** - Implemented comprehensive ESLint rule enforcement and fixed critical UX bug
@@ -52,9 +51,10 @@
   - **Performance optimizations**: Fixed session PR creation hangs caused by commit-msg hook processing large commit messages
   - **Impact**: Eliminates need for manual git commits after task operations - agents can perform task status updates, creation, and deletion seamlessly
 
-=======
->>>>>>> origin/main
 ### Fixed
+
+- **Session Start --description Flag Error**: Fixed missing `createTaskFromTitleAndDescription` method in `TaskBackend` interface and all backend implementations. Users can now successfully use `minsky session start --description "..."` without getting "is not a function" errors.
+- **Unfriendly JSON Error Messages**: Removed log.error call that was outputting raw JSON alongside clean error messages in session start command. Users now see only clean, formatted error messages instead of JSON dumps.
 - **Critical Bug**: Resolved task status set backend inconsistency by normalizing task ID format. Tasks were stored with hash format (`#158`) but API called with plain format (`158`), causing `findIndex` to fail. Added ID normalization in `TaskService.updateTaskStatus()` to ensure consistent format matching. This fixes the issue where `minsky tasks status get 158` worked but `minsky tasks status set 158 IN-REVIEW` failed with "Task with ID 158 not found" despite the task existing.
 
 ## [2.14.0] - 2024-01-15
