@@ -30,6 +30,9 @@ describe("updateSessionFromParams", () => {
       mergeBranch: createMock(() => Promise.resolve({ conflicts: false })),
       push: createMock(() => Promise.resolve()),
       popStash: createMock(() => Promise.resolve()),
+      getCurrentBranch: createMock(() => Promise.resolve("main")),
+      hasUncommittedChanges: createMock(() => Promise.resolve(false)),
+      fetchDefaultBranch: createMock(() => Promise.resolve("main")),
     };
 
     mockSessionProvider = {
@@ -43,6 +46,7 @@ describe("updateSessionFromParams", () => {
           taskId: "TEST_VALUE",
         })
       ),
+      getSessionWorkdir: createMock(() => Promise.resolve("/mock/session/workdir")),
     };
 
     mockGetCurrentSession = createMock(() => Promise.resolve("test-session"));

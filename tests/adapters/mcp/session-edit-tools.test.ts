@@ -35,16 +35,19 @@ mockModule("../../../src/utils/logger", () => ({
 // CRITICAL: Mock SessionPathResolver at module level to control its behavior
 const mockResolvePath = createMock() as any;
 const mockValidatePath = createMock() as any;
+const mockValidatePathExists = createMock() as any;
 
 mockModule("../../../src/adapters/mcp/session-files", () => ({
   SessionPathResolver: class MockSessionPathResolver {
     resolvePath = mockResolvePath;
     validatePath = mockValidatePath;
+    validatePathExists = mockValidatePathExists;
     
     constructor() {
       // Set default successful behavior
       this.resolvePath.mockResolvedValue("/mock/session/path/file.txt");
       this.validatePath.mockReturnValue(true);
+      this.validatePathExists.mockResolvedValue(undefined);
     }
   },
 }));
@@ -64,24 +67,26 @@ describe("Session Edit Tools", () => {
     mockStat.mockReset();
     mockResolvePath.mockReset();
     mockValidatePath.mockReset();
+    mockValidatePathExists.mockReset();
 
     // Set default successful behavior for path resolution
     mockResolvePath.mockResolvedValue("/mock/session/path/file.txt");
     mockValidatePath.mockReturnValue(true);
+    mockValidatePathExists.mockResolvedValue(undefined);
 
     // Create mock command mapper
     commandMapper = {
-      addTool: createMock(),
+      addCommand: createMock(),
     };
     registeredTools = {};
 
     // Mock addTool to capture registered tools
-    commandMapper.addTool.mockImplementation((name: string, description: string, schema: any, handler: any) => {
-      registeredTools[name] = {
-        name,
-        description,
-        schema,
-        handler,
+    commandMapper.addCommand.mockImplementation((command: { name: string; description: string; parameters?: any; handler: any }) => {
+      registeredTools[command.name] = {
+        name: command.name,
+        description: command.description,
+        schema: command.parameters,
+        handler: command.handler,
       };
     });
 
@@ -166,10 +171,9 @@ describe("Session Edit Tools", () => {
       const mockWriteFile = writeFile as unknown;
       mockWriteFile.mockResolvedValueOnce(undefined);
 
-      // Mock path resolver
-      const mockPathResolver = new SessionPathResolver() as unknown;
-      mockPathResolver.resolvePath.mockResolvedValue("/session/path/test.ts");
-      mockPathResolver.validatePathExists.mockResolvedValue(undefined);
+      // Mock path resolver - use module-level mocks
+      mockResolvePath.mockResolvedValue("/session/path/test.ts");
+      mockValidatePath.mockResolvedValue(undefined);
 
       const result = await handler({
         session: "test-session",
@@ -194,10 +198,9 @@ describe("Session Edit Tools", () => {
       const mockReadFile = readFile as unknown;
       mockReadFile.mockResolvedValueOnce("This is some text in the file");
 
-      // Mock path resolver
-      const mockPathResolver = new SessionPathResolver() as unknown;
-      mockPathResolver.resolvePath.mockResolvedValue("/session/path/test.ts");
-      mockPathResolver.validatePathExists.mockResolvedValue(undefined);
+      // Mock path resolver - use module-level mocks
+      mockResolvePath.mockResolvedValue("/session/path/test.ts");
+      mockValidatePath.mockResolvedValue(undefined);
 
       const result = await handler({
         session: "test-session",
@@ -217,10 +220,9 @@ describe("Session Edit Tools", () => {
       const mockReadFile = readFile as unknown;
       mockReadFile.mockResolvedValueOnce("This is oldText and another oldText in the file");
 
-      // Mock path resolver
-      const mockPathResolver = new SessionPathResolver() as unknown;
-      mockPathResolver.resolvePath.mockResolvedValue("/session/path/test.ts");
-      mockPathResolver.validatePathExists.mockResolvedValue(undefined);
+      // Mock path resolver - use module-level mocks
+      mockResolvePath.mockResolvedValue("/session/path/test.ts");
+      mockValidatePath.mockResolvedValue(undefined);
 
       const result = await handler({
         session: "test-session",
