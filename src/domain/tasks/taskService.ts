@@ -11,6 +11,7 @@ import { normalizeTaskId } from "./taskFunctions";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { get } from "../configuration/index";
+import { normalizeTaskIdForStorage } from "./task-id-utils";
 
 // Dynamic import for GitHub backend to avoid hard dependency
 
@@ -150,7 +151,18 @@ export class TaskService {
    */
   async updateTask(id: string, updates: Partial<TaskData>): Promise<TaskData> {
     const tasks = await this.getAllTasks();
-    const taskIndex = tasks.findIndex((task) => task.id === id);
+
+    // Use proper task ID normalization from systematic architecture
+    // This handles the transition period where storage might be in either format
+    const storageId = normalizeTaskIdForStorage(id);
+    if (!storageId) {
+      throw new Error(`Invalid task ID format: ${id}`);
+    }
+
+    // Try both storage format and legacy display format during transition
+    const taskIndex = tasks.findIndex((task) =>
+      task.id === storageId || task.id === `#${storageId}`
+    );
 
     if (taskIndex === -1) {
       throw new Error(`Task with ID ${id} not found`);
@@ -205,10 +217,17 @@ export class TaskService {
 
     const tasks = await this.getAllTasks();
 
-    // Normalize ID to match stored format (add hash if missing)
-    const normalizedId = id.startsWith("#") ? id : `#${id}`;
+    // Use proper task ID normalization from systematic architecture
+    // This handles the transition period where storage might be in either format
+    const storageId = normalizeTaskIdForStorage(id);
+    if (!storageId) {
+      throw new Error(`Invalid task ID format: ${id}`);
+    }
 
-    const taskIndex = tasks.findIndex((task) => task.id === normalizedId);
+    // Try both storage format and legacy display format during transition
+    const taskIndex = tasks.findIndex((task) =>
+      task.id === storageId || task.id === `#${storageId}`
+    );
 
     if (taskIndex === -1) {
       throw new Error(`Task with ID ${id} not found`);
