@@ -73,8 +73,15 @@ function testConfigurationProvider(
     test("should implement reload() method", async () => {
       expect(typeof provider.reload).toBe("function");
       
-      // Should not throw
-      await expect(provider.reload()).resolves.not.toThrow();
+      // Should not throw - using try/catch instead of resolves.not.toThrow
+      try {
+        await provider.reload();
+        // If we get here, it didn't throw
+        expect(true).toBe(true);
+      } catch (error) {
+        // If we get here, it threw
+        fail(`reload() should not throw, but threw: ${error}`);
+      }
     });
 
     test("should implement getMetadata() method", () => {

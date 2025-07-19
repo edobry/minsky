@@ -42,7 +42,7 @@ describe("SessionDB Configuration Loading", () => {
       // Use config.get() directly for idiomatic node-config usage
       const sessiondbConfig = config.get<SessionDbConfig>("sessiondb");
 
-      expect(sessiondbConfig.backend).toBe("json");
+      expect(sessiondbConfig.backend).toBe("sqlite");
       expect(sessiondbConfig.baseDir).toBeNull();
       expect(sessiondbConfig.dbPath).toBeNull();
       expect(sessiondbConfig.connectionString).toBeNull();
@@ -90,7 +90,7 @@ describe("SessionDB Configuration Loading", () => {
       expect(result.success).toBe(true);
       
       if (result.success) {
-        expect(result.data.backend).toBe("json");
+        expect(result.data.backend).toBe("sqlite");
         expect(result.data.baseDir).toBeNull();
         expect(result.data.dbPath).toBeNull();
         expect(result.data.connectionString).toBeNull();
@@ -169,7 +169,7 @@ describe("SessionDB Configuration Loading", () => {
       const sessiondbBackend = config.get<string>("sessiondb.backend");
 
       expect(backend).toBe("markdown");
-      expect(sessiondbBackend).toBe("json");
+      expect(sessiondbBackend).toBe("sqlite");
     });
 
     test("should handle missing configuration values", () => {

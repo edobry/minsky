@@ -155,11 +155,11 @@ export const environmentDefaults = {
   
   test: {
     sessiondb: {
-      backend: "json" as const, // Use JSON for faster tests
+      backend: "sqlite" as const, // Match node-config default
     },
     logger: {
-      mode: "STRUCTURED" as const,
-      level: "warn" as const,
+      mode: "auto" as const, // Match node-config default
+      level: "info" as const, // Match node-config default
       enableAgentLogs: false,
       includeSource: false,
     },
