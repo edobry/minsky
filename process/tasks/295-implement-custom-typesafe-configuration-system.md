@@ -387,53 +387,35 @@ Current environment variables that need mapping:
   - ✅ `health-monitor.ts`: Replace config.get() with getConfiguration()
   - ✅ `taskService.ts`: Replace config.get() with get() function
   - ✅ `logger.ts`: Replace delayed config pattern with direct imports
+  - ✅ `credential-resolver.ts`: Migrated to use new get() function
   - ⚠️ `adapters/shared/commands/config.ts`: Partially migrated (type issues remain)
 
-- 📋 **CLI Command Migration**: Update remaining CLI command files
-  - 📋 `src/commands/config/show.ts`
-  - 📋 `src/commands/config/list.ts`
+- ✅ **CLI Command Migration**: Successfully migrated CLI command files:
+  - ✅ `src/commands/config/show.ts`: Replace node-config with getConfiguration()
+  - ✅ `src/commands/config/list.ts`: Replace node-config with getConfigurationProvider()
 
-- 📋 Remove node-config dependency and setup files
-- 📋 Update configuration files to new format
+- ✅ **Test Configuration Migration**: 
+  - ✅ `test-config.ts`: Migrated to use new configuration API
 
-**Day 7: Testing and Cleanup**
-- 📋 Full integration testing
-- 📋 Performance benchmarking
-- 📋 Documentation updates
-- 📋 Final cleanup and optimization
+- 📋 **Schema Validation Issues**: Critical issues identified in tests
+  - ❌ Configuration schema rejecting 'version' property 
+  - ❌ Missing required fields in backendConfig.github-issues (owner, repo)
+  - ❌ SessionDB configuration null value handling
+  - ❌ Node-config adapter schema compatibility issues
 
-## Files Created ✅
+- 📋 **Remaining Clean-up Tasks**:
+  - 📋 Remove remaining node-config import statements  
+  - 📋 Remove node-config dependency and setup files
+  - 📋 Update configuration files to new format
 
-### **Schema Files** ✅ COMPLETED
-- ✅ `src/domain/configuration/schemas/index.ts` - Root configuration schema
-- ✅ `src/domain/configuration/schemas/base.ts` - Common base schemas and utilities
-- ✅ `src/domain/configuration/schemas/backend.ts` - Task backend configuration
-- ✅ `src/domain/configuration/schemas/sessiondb.ts` - Session database configuration
-- ✅ `src/domain/configuration/schemas/github.ts` - GitHub integration configuration
-- ✅ `src/domain/configuration/schemas/ai.ts` - AI provider configuration
-- ✅ `src/domain/configuration/schemas/logger.ts` - Logger configuration
+**Day 7: Schema Fixes and Final Testing** 📋 NEXT
+- 📋 Fix schema validation to handle legacy configuration structure
+- 📋 Address null value handling in SessionDB configuration
+- 📋 Fix github-issues backend configuration requirements
+- 📋 Full integration testing and performance benchmarking
+- 📋 Documentation updates and final cleanup
 
-### **Source Loaders** ✅ COMPLETED
-- ✅ `src/domain/configuration/sources/defaults.ts` - Application defaults
-- ✅ `src/domain/configuration/sources/environment.ts` - Environment variable handling
-- ✅ `src/domain/configuration/sources/project.ts` - Project-level configuration files
-- ✅ `src/domain/configuration/sources/user.ts` - User-level XDG configuration
-
-### **Core Implementation** ✅ COMPLETED
-- ✅ `src/domain/configuration/loader.ts` - Main configuration loader
-- ✅ `src/domain/configuration/validation.ts` - Validation utilities
-- ✅ `src/domain/configuration/testing.ts` - Testing helpers
-- ✅ `src/domain/configuration/index.ts` - Public API with migration interface
-
-## Timeline
-
-**Estimated Timeline: 7 days total**
-- Phase 2.1: 2 days (Schema + Sources) ✅ COMPLETED
-- Phase 2.2: 2 days (Loading + Validation) ⏳ Day 3 IN PROGRESS
-- Phase 2.3: 1 day (API + Integration)
-- Phase 3: 2 days (Migration + Testing)
-
-**Current Status**: Day 5 of 7 - Public API and migration interface completed, ready for node-config migration
+**Current Status**: Day 6 of 7 - CLI migration completed, schema validation issues identified and need resolution before completing migration
 
 ### **Default Configuration**
 - `src/domain/configuration/defaults/backend.ts`
