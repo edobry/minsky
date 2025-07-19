@@ -162,7 +162,7 @@ Examples:
           session,
         };
       } catch (error) {
-        log.error("Failed to start session", {
+        log.debug("Failed to start session", {
           error: getErrorMessage(error as Error),
           session: params!.name,
           task: params!.task,
