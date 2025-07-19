@@ -445,6 +445,23 @@ Session requested: "${(options as any).session}"
       { workdir, timeout: 30000 }
     );
 
+    // Check merge complexity and warn user if needed
+    try {
+      const diffStats = await execGitWithTimeout(
+        "diff --name-only",
+        `diff --name-only ${prBranch}..${sourceBranch}`,
+        { workdir, timeout: 10000 }
+      );
+      const changedFiles = diffStats.stdout.trim().split("\n").filter(f => f.trim());
+
+      if (changedFiles.length > 5) {
+        log.cli(`📊 Preparing PR with ${changedFiles.length} changed files - this may take a moment...`);
+      }
+    } catch (diffError) {
+      // Ignore diff check errors - merge will proceed anyway
+      log.debug("Could not check merge complexity", { error: getErrorMessage(diffError) });
+    }
+
     // CRITICAL BUG FIX: Use explicit commit message format and verify the merge
     // Use -m instead of -F to avoid potential file reading issues
     const escapedCommitMessage = commitMessage.replace(
@@ -454,7 +471,7 @@ Session requested: "${(options as any).session}"
     await execGitWithTimeout(
       "merge",
       `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
-      { workdir, timeout: 60000 }
+      { workdir, timeout: 180000 }  // Increased to 3 minutes for complex merges
     );
 
     // VERIFICATION: Check that the merge commit has the correct message
