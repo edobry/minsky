@@ -52,13 +52,12 @@ describe("Clone Operations", () => {
       access: createMock(async () => {}), // .git directory exists
     };
 
-    const result = await gitService.cloneWithDependencies(
+    const result = await gitService.clone(
       {
         repoUrl: "https://github.com/user/repo.git",
         session: "test-session",
         workdir: "/test/workdir",
-      },
-      mockDeps
+      }
     );
 
     expect(result.session).toBe("test-session");
@@ -76,13 +75,12 @@ describe("Clone Operations", () => {
     };
 
     await expect(
-      gitService.cloneWithDependencies(
+      gitService.clone(
         {
           repoUrl: "",
           session: "test-session",
           workdir: "/test/workdir",
-        },
-        mockDeps
+        }
       )
     ).rejects.toThrow("Repository URL is required for cloning");
   });
@@ -101,13 +99,12 @@ describe("Clone Operations", () => {
     };
 
     // Should still proceed with clone despite warning about non-empty directory
-    const result = await gitService.cloneWithDependencies(
+    const result = await gitService.clone(
       {
         repoUrl: "https://github.com/user/repo.git",
         session: "test-session",
         workdir: "/test/workdir",
-      },
-      mockDeps
+      }
     );
 
     expect(result.session).toBe("test-session");
@@ -132,13 +129,12 @@ describe("Clone Operations", () => {
     };
 
     await expect(
-      gitService.cloneWithDependencies(
+      gitService.clone(
         {
           repoUrl: "https://github.com/user/nonexistent.git",
           session: "test-session",
           workdir: "/test/workdir",
-        },
-        mockDeps
+        }
       )
     ).rejects.toThrow("Failed to clone git repository");
   });
@@ -161,13 +157,12 @@ describe("Clone Operations", () => {
     };
 
     await expect(
-      gitService.cloneWithDependencies(
+      gitService.clone(
         {
           repoUrl: "https://github.com/user/repo.git",
           session: "test-session",
           workdir: "/test/workdir",
-        },
-        mockDeps
+        }
       )
     ).rejects.toThrow("Git repository was not properly cloned: .git directory not found");
   });
@@ -182,13 +177,12 @@ describe("Clone Operations", () => {
       access: createMock(),
     };
 
-    const result = await gitService.cloneWithDependencies(
+    const result = await gitService.clone(
       {
         repoUrl: "local/path/to/repo",
         session: "test-session",
         workdir: "/test/workdir",
-      },
-      mockDeps
+      }
     );
 
     // NEW: Session-ID-based storage - repository name no longer in filesystem path
@@ -208,13 +202,12 @@ describe("Clone Operations", () => {
     };
 
     await expect(
-      gitService.cloneWithDependencies(
+      gitService.clone(
         {
           repoUrl: "https://github.com/user/repo.git",
           session: "test-session",
           workdir: "/test/workdir",
-        },
-        mockDeps
+        }
       )
     ).rejects.toThrow("Failed to clone git repository");
   });
