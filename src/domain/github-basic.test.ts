@@ -46,6 +46,10 @@ describe("GitHub Basic Functionality", () => {
     const backend = new GitHubBackend({
       type: "github",
       repoUrl: "https://github.com/username/repo.git",
+      github: {
+        owner: "username",
+        repo: "repo",
+      },
     });
 
     expect(backend.getType()).toBe("github");

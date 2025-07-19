@@ -3,7 +3,7 @@
  * @migrated Extracted from git.test.ts as part of modularization
  * @enhanced Enhanced with comprehensive PR workflow coverage and DI patterns
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { GitService } from "../git";
 import {
   createMock,
@@ -39,8 +39,8 @@ mockModule("../../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
 
-// Mock the git-exec-enhanced module to prevent real git execution
-mockModule("../../utils/git-exec-enhanced", () => ({
+// Mock the git-exec module to prevent real git execution
+mockModule("../../utils/git-exec", () => ({
   execGitWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
   gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
   gitMergeWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),

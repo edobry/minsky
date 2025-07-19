@@ -235,4 +235,4 @@ export function createSharedCommandRegistry(): SharedCommandRegistry {
  *
  * @deprecated Use createSharedCommandRegistry() and dependency injection instead
  */
-export const sharedCommandRegistry = createSharedCommandRegistry();
+export const _sharedCommandRegistry = createSharedCommandRegistry();

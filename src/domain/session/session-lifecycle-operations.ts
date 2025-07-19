@@ -54,7 +54,7 @@ export async function getSessionImpl(
  * Using proper dependency injection for better testability
  */
 export async function listSessionsImpl(
-  params: SessionListParams,
+  _params: SessionListParams,
   deps: {
     sessionDB: SessionProviderInterface;
   }
@@ -157,7 +157,7 @@ You must provide either a session name or task ID to get the session directory.
  * Inspects current session based on workspace location
  */
 export async function inspectSessionImpl(
-  params: { json?: boolean },
+  _params: { json?: boolean },
   deps: {
     sessionDB: SessionProviderInterface;
   }

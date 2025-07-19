@@ -35,6 +35,13 @@ mockModule("../../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
 
+// Mock node:child_process exec to prevent real git commands
+const mockExec = createMock() as any;
+mockModule("node:child_process", () => ({
+  exec: mockExec,
+  promisify: (fn: any) => mockExecAsync, // Return our mock when promisify is called on exec
+}));
+
 describe("Parameter-Based Git Functions", () => {
   beforeEach(() => {
     // CRITICAL: Mock GitService methods to prevent real git commands
@@ -161,6 +168,19 @@ describe("commitChangesFromParams - Detailed Tests", () => {
   beforeEach(() => {
     // Reset mockExecAsync for each test
     mockExecAsync.mockReset();
+    
+    // CRITICAL: Mock GitService methods to prevent real git commands
+    // This matches the mocking in the main test section
+    spyOn(GitService.prototype, "stageAll").mockImplementation(async (): Promise<void> => {});
+    spyOn(GitService.prototype, "stageModified").mockImplementation(async (): Promise<void> => {});
+    spyOn(GitService.prototype, "commit").mockImplementation(async (message: string, workdir?: string, amend?: boolean): Promise<string> => {
+      // Extract commit hash from mocked git output
+      const mockOutput = mockExecAsync.getMockReturnValue?.() || { stdout: "[main abc123] mock commit" };
+      const match = mockOutput.stdout?.match(/\[.*?\s+([a-f0-9]+)\]/);
+      return match ? match[1] : "abc123";
+    });
+    spyOn(GitService.prototype, "getCurrentBranch").mockImplementation(async (): Promise<string> => "main");
+    spyOn(GitService.prototype, "push").mockImplementation(async (): Promise<any> => ({ pushed: true }));
   });
 
   test("should commit changes with message and all flag", async () => {
@@ -238,6 +258,24 @@ describe("pushFromParams - Detailed Tests", () => {
   beforeEach(() => {
     // Reset mockExecAsync for each test
     mockExecAsync.mockReset();
+    
+    // CRITICAL: Mock GitService methods to prevent real git commands
+    // This matches the mocking in the main test section
+    spyOn(GitService.prototype, "getCurrentBranch").mockImplementation(async (): Promise<string> => "main");
+    spyOn(GitService.prototype, "push").mockImplementation(async (options: any): Promise<any> => ({ 
+      pushed: true, 
+      workdir: options.repoPath || options.repo 
+    }));
+    spyOn(GitService.prototype, "execInRepository").mockImplementation(async (workdir: string, command: string): Promise<string> => {
+      // Mock specific git commands
+      if (command.includes("rev-parse --abbrev-ref HEAD")) {
+        return "main";
+      }
+      if (command.includes("push")) {
+        return "Everything up-to-date";
+      }
+      return "";
+    });
   });
 
   test("should push changes successfully", async () => {

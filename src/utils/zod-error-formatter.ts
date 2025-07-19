@@ -32,7 +32,7 @@ export function formatZodError(error: ZodError, context?: string): string {
  * @param context Optional context for the error
  * @returns User-friendly error message
  */
-function formatSingleZodIssue(issue: ZodIssue, context?: string): string {
+function formatSingleZodIssue(issue: ZodIssue, _context?: string): string {
   const fieldPath = issue.path.join(".");
   const fieldName = fieldPath || "input";
 

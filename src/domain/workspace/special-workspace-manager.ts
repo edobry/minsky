@@ -6,8 +6,8 @@ import { execAsync } from "../../utils/exec";
 import {
   execGitWithTimeout,
   gitFetchWithTimeout,
-  gitPushWithTimeout
-} from "../../utils/git-exec-enhanced";
+  gitPushWithTimeout,
+} from "../../utils/git-exec";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
@@ -95,9 +95,8 @@ export class SpecialWorkspaceManager {
 
         // Reset to latest upstream
         await execGitWithTimeout(
-          "reset",
-          "reset --hard origin/main",
-          { workdir: this!.workspacePath, timeout: 15000 }
+          "git reset --hard origin/main",
+          this!.workspacePath
         );
 
         log.debug("Special workspace updated to latest upstream", {
@@ -105,11 +104,9 @@ export class SpecialWorkspaceManager {
         });
       } catch (error) {
         log.error("Failed to update workspace, attempting repair", {
-          error: getErrorMessage(error as any),
           workspacePath: this!.workspacePath,
+          error: getErrorMessage(error),
         });
-
-        // Try to repair workspace
         await this.repair();
       }
     });
@@ -122,20 +119,15 @@ export class SpecialWorkspaceManager {
     await this.withLock("commitAndPush", async () => {
       try {
         // Stage all process/ changes
-        await execGitWithTimeout(
-          "add",
-          "add process/",
-          { workdir: this!.workspacePath, timeout: 10000 }
-        );
+        await execGitWithTimeout("git add process/", this!.workspacePath);
 
         // Check if there are any changes to commit
-        const statusResult = await execGitWithTimeout(
-          "status",
-          "status --porcelain",
-          { workdir: this!.workspacePath, timeout: 10000 }
+        const { stdout: statusOutput } = await execGitWithTimeout(
+          "git status --porcelain",
+          this!.workspacePath
         );
 
-        if (!statusResult.stdout.trim()) {
+        if (!statusOutput.trim()) {
           log.debug("No changes to commit in special workspace");
           return;
         }
@@ -143,16 +135,12 @@ export class SpecialWorkspaceManager {
         // Commit changes
         const escapedMessage = message.replace(/"/g, "\\\"");
         await execGitWithTimeout(
-          "commit",
-          `commit -m "${escapedMessage}"`,
-          { workdir: this!.workspacePath, timeout: 15000 }
+          `git commit -m "${escapedMessage}"`,
+          this!.workspacePath
         );
 
         // Push to upstream
-        await gitPushWithTimeout("origin", "HEAD:main", {
-          workdir: this!.workspacePath,
-          timeout: 30000
-        });
+        await gitPushWithTimeout(this!.workspacePath);
 
         log.debug("Successfully committed and pushed changes", {
           message,
@@ -175,11 +163,7 @@ export class SpecialWorkspaceManager {
   async rollback(): Promise<void> {
     await this.withLock("rollback", async () => {
       try {
-        await execGitWithTimeout(
-          "reset",
-          "reset --hard HEAD~1",
-          { workdir: this!.workspacePath, timeout: 15000 }
-        );
+        await execGitWithTimeout("git reset --hard HEAD~1", this!.workspacePath);
 
         log.debug("Successfully rolled back last commit", {
           workspacePath: this!.workspacePath,
@@ -233,11 +217,7 @@ export class SpecialWorkspaceManager {
       }
 
       // Check if it's a valid git repository
-      await execGitWithTimeout(
-        "rev-parse",
-        "rev-parse --git-dir",
-        { workdir: this!.workspacePath, timeout: 10000 }
-      );
+      await execAsync("git rev-parse --git-dir", { cwd: this!.workspacePath });
 
       // Check if process/ directory exists
       const processDir = join(this!.workspacePath, "process");
@@ -267,18 +247,13 @@ export class SpecialWorkspaceManager {
 
     try {
       // Clone with optimizations: shallow, no blobs initially
-      await execGitWithTimeout(
-        "clone",
-        `clone --depth=1 --filter=blob:none --no-checkout "${this!.repoUrl}" "${this!.workspacePath}"`,
-        { workdir: baseDir, timeout: 60000 }
+      await execAsync(
+        `git clone --depth=1 --filter=blob:none --no-checkout "${this!.repoUrl}" "${this!.workspacePath}"`,
+        { cwd: baseDir }
       );
 
       // Configure sparse checkout to only include process/ directory
-      await execGitWithTimeout(
-        "config",
-        "config core.sparseCheckout true",
-        { workdir: this!.workspacePath, timeout: 10000 }
-      );
+      await execGitWithTimeout("git config core.sparseCheckout true", this!.workspacePath);
       await fs.writeFile(
         join(this!.workspacePath, ".git", "info", "sparse-checkout"),
         "process/\n",
@@ -286,11 +261,7 @@ export class SpecialWorkspaceManager {
       );
 
       // Checkout with sparse checkout applied
-      await execGitWithTimeout(
-        "checkout",
-        "checkout main",
-        { workdir: this!.workspacePath, timeout: 15000 }
-      );
+      await execGitWithTimeout("git checkout main", this!.workspacePath);
 
       log.debug("Successfully created optimized workspace", {
         workspacePath: this!.workspacePath,

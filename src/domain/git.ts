@@ -18,13 +18,7 @@ import {
 } from "../errors/index";
 import { log } from "../utils/logger";
 import { getMinskyStateDir } from "../utils/paths";
-import {
-  ConflictDetectionService,
-  ConflictPrediction,
-  BranchDivergenceAnalysis,
-  EnhancedMergeResult,
-  SmartUpdateResult,
-} from "./git/conflict-detection";
+import { ConflictDetectionService } from "./git/conflict-detection";
 import { validateError, validateGitError } from "../schemas/error";
 import { validateDirectoryContents, validateExecResult, validateProcess } from "../schemas/runtime";
 import {
@@ -32,7 +26,7 @@ import {
   gitFetchWithTimeout,
   gitMergeWithTimeout,
   gitPushWithTimeout,
-} from "../utils/git-exec-enhanced";
+} from "../utils/git-exec";
 import {
   preparePrImpl,
   type PreparePrOptions,
