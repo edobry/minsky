@@ -10,10 +10,10 @@ import { z } from "zod";
 import { select, isCancel, cancel } from "@clack/prompts";
 import { getErrorMessage } from "../../../errors/index";
 import {
+  CommandCategory,
   CommandExecutionContext,
   CommandParameterMap,
-} from "../../../schemas/command-registry";
-import { CommandCategory } from "../command-registry";
+} from "../command-registry";
 import { ValidationError } from "../../../errors/index";
 import {
   createTaskFromTitleAndDescription,
@@ -213,10 +213,10 @@ const tasksStatusGetRegistration = {
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    const normalizedTaskId = normalizeTaskId((params as unknown)!.taskId);
+    const normalizedTaskId = normalizeTaskId((params as any).taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${(params as unknown)!.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${(params as any).taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const status = await getTaskStatusFromParams({
