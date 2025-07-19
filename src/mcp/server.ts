@@ -452,4 +452,25 @@ export class MinskyMCPServer {
   getProjectContext(): ProjectContext {
     return this.projectContext;
   }
+
+  /**
+   * Get the registered tools
+   */
+  getTools(): Map<string, ToolDefinition> {
+    return this.tools;
+  }
+
+  /**
+   * Get the registered resources  
+   */
+  getResources(): Map<string, ResourceDefinition> {
+    return this.resources;
+  }
+
+  /**
+   * Get the registered prompts
+   */
+  getPrompts(): Map<string, PromptDefinition> {
+    return this.prompts;
+  }
 }
