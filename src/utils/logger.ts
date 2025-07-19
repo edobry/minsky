@@ -40,7 +40,7 @@ function getLoggerConfig(): LoggerConfig {
   // First try environment variables to avoid early node-config initialization
   const envMode = process.env.MINSKY_LOG_MODE || null;
   const envLevel = process.env.LOGLEVEL || null;
-  const envAgentLogs = (process.env.ENABLE_AGENT_LOGS as unknown) === "true";
+  const envAgentLogs = process.env.ENABLE_AGENT_LOGS === "true";
 
   // If we have all config from environment, use it
   if (envMode && envLevel) {
@@ -151,7 +151,7 @@ export function createLogger(configOverride?: LoggerConfig) {
 
       if (Object.keys(metadata).length > 0) {
         try {
-          log += ` ${JSON.stringify(metadata as unknown)}`;
+          log += ` ${JSON.stringify(metadata)}`;
         } catch (error) {
           // ignore serialization errors for metadata in text logs
         }
@@ -218,7 +218,7 @@ export function createLogger(configOverride?: LoggerConfig) {
       }
       // Otherwise, use agentLogger as normal
       if (context) {
-        agentLogger.debug(message, context as unknown);
+        agentLogger.debug(message, context);
       } else {
         agentLogger.debug(message);
       }
@@ -229,7 +229,7 @@ export function createLogger(configOverride?: LoggerConfig) {
         return;
       }
       if (context) {
-        agentLogger.info(message, context as unknown);
+        agentLogger.info(message, context);
       } else {
         agentLogger.info(message);
       }
@@ -240,7 +240,7 @@ export function createLogger(configOverride?: LoggerConfig) {
         return;
       }
       if (context) {
-        agentLogger.warn(message, context as unknown);
+        agentLogger.warn(message, context);
       } else {
         agentLogger.warn(message);
       }
@@ -263,13 +263,13 @@ export function createLogger(configOverride?: LoggerConfig) {
           (context.originalError || context.stack)
         ) {
           programLogger.error(
-            `${message}: ${context.originalError || JSON.stringify(context as unknown)}`
+            `${message}: ${context.originalError || JSON.stringify(context)}`
           );
           if (context.stack) {
             programLogger.error(context.stack);
           }
         } else {
-          programLogger.error(message, context as unknown);
+          programLogger.error(message, context);
         }
         return;
       }
@@ -286,9 +286,9 @@ export function createLogger(configOverride?: LoggerConfig) {
         context !== null &&
         (context.originalError || context.stack)
       ) {
-        agentLogger.error(message, context as unknown);
+        agentLogger.error(message, context);
       } else {
-        agentLogger.error(message, context as unknown);
+        agentLogger.error(message, context);
       }
     },
     // Program/CLI logs (plain text to stderr)
@@ -339,7 +339,7 @@ export { createLogger as createConfigurableLogger };
 const handleExit = async (error?: Error) => {
   if (error) {
     // Use default logger's internal program logger for unhandled errors that might crash the CLI
-    defaultLogger._internal.programLogger.error("Unhandled error or rejection, exiting.", error as unknown);
+    defaultLogger._internal.programLogger.error("Unhandled error or rejection, exiting.", error);
   }
   // Give logs a moment to flush
   await new Promise((resolve) => setTimeout(resolve, 100));

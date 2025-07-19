@@ -133,7 +133,7 @@ export function outputResult<T>(
     // This ensures machine-readable output is separated from human-readable messages
     if (isStructuredMode()) {
       // In structured mode, log to agent logger
-      log.agent({ message: "Command result", result } as unknown);
+      log.agent({ message: "Command result", result });
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
       log.cli(JSON.stringify(result, undefined, 2));
