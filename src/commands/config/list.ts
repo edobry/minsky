@@ -57,7 +57,7 @@ async function displayConfigurationSources(resolved: any, metadata: any) {
     await Bun.write(Bun.stdout, "Source Precedence (highest to lowest):\n");
     for (let i = 0; i < metadata.sources.length; i++) {
       const source = metadata.sources[i];
-      await Bun.write(Bun.stdout, `  ${i + 1}. ${source.name || source.type || 'Unknown'}\n`);
+      await Bun.write(Bun.stdout, `  ${i + 1}. ${source.name || source.type || "Unknown"}\n`);
     }
   } else {
     await Bun.write(Bun.stdout, "Source information not available\n");
@@ -71,7 +71,7 @@ async function displayConfigurationSources(resolved: any, metadata: any) {
   }
 
   if (resolved.github && resolved.github.token) {
-    await Bun.write(Bun.stdout, `GitHub: Configured\n`);
+    await Bun.write(Bun.stdout, "GitHub: Configured\n");
   }
 
   if (resolved.ai && resolved.ai.providers) {

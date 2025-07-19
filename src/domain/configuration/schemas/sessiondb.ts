@@ -56,10 +56,10 @@ export const sessionDbConfigSchema = z.object({
   // PostgreSQL backend configuration
   postgres: postgresSessionDbConfigSchema.optional(),
   
-  // Legacy fields (for backward compatibility)
-  baseDir: baseSchemas.directoryPath.optional(),
-  dbPath: baseSchemas.filePath.optional(),
-  connectionString: baseSchemas.connectionString.optional(),
+  // Legacy fields (for backward compatibility with existing configurations)
+  baseDir: baseSchemas.directoryPath.nullable().optional(),
+  dbPath: baseSchemas.filePath.nullable().optional(), 
+  connectionString: baseSchemas.postgresConnectionString.nullable().optional(),
 }).strict().transform((config) => {
   // Handle legacy field migration for backward compatibility
   const result = { ...config };
