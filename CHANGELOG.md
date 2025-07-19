@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
   - **Solution**: Implemented fail-fast behavior for any merge error except genuine "already merged" scenarios
   - **Commands Affected**: `minsky session approve --task <id>`
   - **Safety Improvement**: Command now immediately exits on merge failures with proper stash restoration
+  - **Testing**: Added regression tests validating fail-fast behavior and task status protection
 
 - **Auto-Stash Untracked Files**: Fixed session approve auto-stash to include untracked files that would be overwritten by merge
   - **Root Cause**: `git stash push` was missing `-u` flag to include untracked files
@@ -19,6 +20,7 @@ All notable changes to this project will be documented in this file.
   - **Solution**: Added `-u` flag to both `stashChanges()` and `stashChangesWithDependencies()` methods
   - **Commands Affected**: `minsky session approve --task <id>`
   - **User Experience**: Auto-stashing now handles both tracked and untracked files seamlessly
+  - **Testing**: Added comprehensive regression tests following test-driven-bugfix principles (4/5 tests pass)
 
 - **Missing Task Commands**: Restored all task commands that were inadvertently commented out in a recent merge
   - **Root Cause**: All 7 task command registrations were commented out in `registerTasksCommands()` function
