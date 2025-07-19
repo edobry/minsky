@@ -502,7 +502,7 @@
 
 - [x] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)
 
-- [-] Separate Task ID Storage from Display Format [#283](process/tasks/283-separate-task-id-storage-from-display-format.md)
+- [x] Separate Task ID Storage from Display Format [#283](process/tasks/283-separate-task-id-storage-from-display-format.md)
 
 - [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
 
