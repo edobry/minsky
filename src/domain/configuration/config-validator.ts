@@ -1,11 +1,11 @@
 /**
- * Configuration Validator Service for Node-Config Integration
+ * Configuration Validator Service
  *
- * Validates configuration values resolved by node-config while preserving
- * existing validation logic and error reporting capabilities.
+ * Validates configuration values using the custom configuration system
+ * while preserving existing validation logic and error reporting capabilities.
  */
 
-import config from "config";
+import { get } from "./index";
 
 export interface ValidationError {
   field: string;
@@ -63,7 +63,7 @@ export class DefaultConfigValidator implements ConfigValidator {
     const warnings: ValidationWarning[] = [];
 
     try {
-      const backend = config.get("backend") as string;
+      const backend = get("backend") as string;
       const validBackends = ["markdown", "json-file", "github-issues"];
 
       if (!validBackends.includes(backend)) {
@@ -76,7 +76,7 @@ export class DefaultConfigValidator implements ConfigValidator {
 
       // Validate backend-specific configuration
       if (backend === "github-issues") {
-        const backendConfig = config.get("backendConfig") as any;
+        const backendConfig = get("backendConfig") as any;
         const githubConfig = backendConfig?.["github-issues"];
 
         if (!githubConfig?.owner) {
@@ -90,7 +90,7 @@ export class DefaultConfigValidator implements ConfigValidator {
         if (!githubConfig?.repo) {
           errors.push({
             field: "backendConfig.github-issues.repo",
-            message: "GitHub repository name is required for github-issues backend",
+            message: "GitHub repository is required for github-issues backend",
             code: "MISSING_GITHUB_REPO",
           });
         }
@@ -98,8 +98,8 @@ export class DefaultConfigValidator implements ConfigValidator {
     } catch (error) {
       errors.push({
         field: "backend",
-        message: "Backend configuration is missing or invalid",
-        code: "MISSING_BACKEND",
+        message: `Error validating backend configuration: ${(error as any).message}`,
+        code: "BACKEND_VALIDATION_ERROR",
       });
     }
 
@@ -111,48 +111,57 @@ export class DefaultConfigValidator implements ConfigValidator {
   }
 
   /**
-   * Validate SessionDB configuration
+   * Validate session database configuration
    */
   validateSessionDb(): ValidationResult {
     const errors: ValidationError[] = [];
     const warnings: ValidationWarning[] = [];
 
     try {
-      const sessiondb = config.get("sessiondb") as any;
+      const sessiondb = get("sessiondb") as any;
       const backend = sessiondb?.backend;
 
-      if (backend) {
+      if (!backend) {
+        errors.push({
+          field: "sessiondb.backend",
+          message: "Session database backend is required",
+          code: "MISSING_SESSIONDB_BACKEND",
+        });
+      } else {
         const validBackends = ["json", "sqlite", "postgres"];
         if (!validBackends.includes(backend)) {
           errors.push({
             field: "sessiondb.backend",
-            message: `Invalid SessionDB backend: ${backend}. Valid options: ${validBackends.join(", ")}`,
+            message: `Invalid session database backend: ${backend}. Valid options: ${validBackends.join(", ")}`,
             code: "INVALID_SESSIONDB_BACKEND",
           });
         }
 
-        // Validate backend-specific configuration
-        if (backend === "sqlite" && sessiondb?.sqlite?.path === "") {
-          errors.push({
-            field: "sessiondb.sqlite.path",
-            message: "SQLite path cannot be empty",
-            code: "EMPTY_FILE_PATH",
+        // Backend-specific validations
+        if (backend === "sqlite" && !sessiondb.path) {
+          warnings.push({
+            field: "sessiondb.path",
+            message: "SQLite path not specified, will use default location",
+            code: "DEFAULT_SQLITE_PATH",
           });
         }
 
         if (backend === "postgres") {
-          const connectionString = sessiondb?.postgres?.connectionString;
-          if (connectionString && !this.isValidPostgresConnectionString(connectionString)) {
+          if (!sessiondb.connectionString && !sessiondb.host) {
             errors.push({
-              field: "sessiondb.postgres.connectionString",
-              message: "Invalid PostgreSQL connection string format",
-              code: "INVALID_CONNECTION_STRING_FORMAT",
+              field: "sessiondb.connectionString",
+              message: "PostgreSQL connection string or host is required",
+              code: "MISSING_POSTGRES_CONNECTION",
             });
           }
         }
       }
     } catch (error) {
-      // SessionDB configuration is optional, so no error if missing
+      errors.push({
+        field: "sessiondb",
+        message: `Error validating session database configuration: ${(error as any).message}`,
+        code: "SESSIONDB_VALIDATION_ERROR",
+      });
     }
 
     return {
@@ -170,10 +179,10 @@ export class DefaultConfigValidator implements ConfigValidator {
     const warnings: ValidationWarning[] = [];
 
     try {
-      const ai = config.get("ai") as any;
-      
+      const ai = get("ai") as any;
+
       if (ai?.default_provider) {
-        const validProviders = ["openai", "anthropic", "google", "cohere", "mistral"];
+        const validProviders = ["openai", "anthropic", "ollama"];
         if (!validProviders.includes(ai.default_provider)) {
           errors.push({
             field: "ai.default_provider",
@@ -183,16 +192,20 @@ export class DefaultConfigValidator implements ConfigValidator {
         }
       }
 
-      // Validate provider-specific configuration
+      // Validate provider configurations
       if (ai?.providers) {
         for (const [providerName, providerConfig] of Object.entries(ai.providers)) {
-          if (providerConfig && typeof providerConfig === "object") {
-            this.validateAIProviderConfig(providerConfig as any, errors, warnings, `ai.providers.${providerName}`);
-          }
+          const validationResult = this.validateAIProviderConfig(providerName, providerConfig as any);
+          errors.push(...validationResult.errors);
+          warnings.push(...validationResult.warnings);
         }
       }
     } catch (error) {
-      // AI configuration is optional, so no error if missing
+      errors.push({
+        field: "ai",
+        message: `Error validating AI configuration: ${(error as any).message}`,
+        code: "AI_VALIDATION_ERROR",
+      });
     }
 
     return {
@@ -210,28 +223,40 @@ export class DefaultConfigValidator implements ConfigValidator {
     const warnings: ValidationWarning[] = [];
 
     try {
-      const github = config.get("github") as any;
-      
+      const github = get("github") as any;
+
       if (github?.credentials) {
-        const validSources = ["environment", "file", "prompt"];
+        const validSources = ["env", "file", "keychain", "manual"];
         if (!validSources.includes(github.credentials.source)) {
           errors.push({
             field: "github.credentials.source",
             message: `Invalid credential source: ${github.credentials.source}. Valid options: ${validSources.join(", ")}`,
-            code: "INVALID_CREDENTIAL_SOURCE",
+            code: "INVALID_GITHUB_CREDENTIAL_SOURCE",
           });
         }
 
-        if (github.credentials.source === "file" && !github.credentials.token && !github.credentials.token_file) {
+        if (github.credentials.source === "file" && !github.credentials.path) {
+          errors.push({
+            field: "github.credentials.path",
+            message: "Credential file path is required when using file source",
+            code: "MISSING_GITHUB_CREDENTIAL_PATH",
+          });
+        }
+
+        if (github.credentials.source === "env" && !github.credentials.env_var) {
           warnings.push({
-            field: "github.credentials",
-            message: "Neither token nor token_file specified for file-based credential source",
-            code: "INCOMPLETE_FILE_CREDENTIALS",
+            field: "github.credentials.env_var",
+            message: "Environment variable name not specified, will use default GITHUB_TOKEN",
+            code: "DEFAULT_GITHUB_ENV_VAR",
           });
         }
       }
     } catch (error) {
-      // GitHub configuration is optional, so no error if missing
+      errors.push({
+        field: "github",
+        message: `Error validating GitHub configuration: ${(error as any).message}`,
+        code: "GITHUB_VALIDATION_ERROR",
+      });
     }
 
     return {
@@ -245,16 +270,17 @@ export class DefaultConfigValidator implements ConfigValidator {
    * Validate AI provider configuration
    */
   private validateAIProviderConfig(
-    providerConfig: any,
-    errors: ValidationError[],
-    warnings: ValidationWarning[],
-    fieldPrefix: string
-  ): void {
+    providerName: string,
+    providerConfig: any
+  ): { errors: ValidationError[], warnings: ValidationWarning[] } {
+    const errors: ValidationError[] = [];
+    const warnings: ValidationWarning[] = [];
+
     // Validate temperature
     if (providerConfig.temperature !== undefined) {
       if (typeof providerConfig.temperature !== "number" || providerConfig.temperature < 0 || providerConfig.temperature > 2) {
         errors.push({
-          field: `${fieldPrefix}.temperature`,
+          field: `ai.providers.${providerName}.temperature`,
           message: "Temperature must be a number between 0 and 2",
           code: "INVALID_TEMPERATURE",
         });
@@ -265,7 +291,7 @@ export class DefaultConfigValidator implements ConfigValidator {
     if (providerConfig.max_tokens !== undefined) {
       if (typeof providerConfig.max_tokens !== "number" || providerConfig.max_tokens <= 0) {
         errors.push({
-          field: `${fieldPrefix}.max_tokens`,
+          field: `ai.providers.${providerName}.max_tokens`,
           message: "max_tokens must be a positive number",
           code: "INVALID_MAX_TOKENS",
         });
@@ -274,15 +300,17 @@ export class DefaultConfigValidator implements ConfigValidator {
 
     // Validate credentials
     if (providerConfig.credentials) {
-      const validSources = ["environment", "file", "prompt"];
+      const validSources = ["env", "file", "keychain", "manual"];
       if (!validSources.includes(providerConfig.credentials.source)) {
         errors.push({
-          field: `${fieldPrefix}.credentials.source`,
+          field: `ai.providers.${providerName}.credentials.source`,
           message: `Invalid credential source: ${providerConfig.credentials.source}. Valid options: ${validSources.join(", ")}`,
           code: "INVALID_CREDENTIAL_SOURCE",
         });
       }
     }
+
+    return { errors, warnings };
   }
 
   /**

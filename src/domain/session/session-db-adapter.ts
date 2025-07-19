@@ -17,7 +17,7 @@ import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
-import config from "config";
+import { getConfiguration } from "../configuration/index";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -35,9 +35,10 @@ export class SessionDbAdapter implements SessionProviderInterface {
       let sessionDbConfig: any;
       
       try {
-        // Check if sessiondb config exists before trying to get it
-        if ((config as any).has("sessiondb")) {
-          sessionDbConfig = (config as any).get("sessiondb") as any;
+        // Get configuration using the custom configuration system
+        const config = getConfiguration();
+        if (config.sessiondb) {
+          sessionDbConfig = config.sessiondb;
         } else {
           log.debug("Session database configuration not found in config, using defaults");
           sessionDbConfig = null;

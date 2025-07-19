@@ -3,14 +3,7 @@ import * as winston from "winston";
 const { format, transports } = winston;
 import type {} from "logform";
 
-// Delay config import to prevent early initialization before config-setup runs
-let config: any = null;
-function getConfig() {
-  if (!config) {
-    config = require("config");
-  }
-  return config;
-}
+import { has, get } from "../domain/configuration/index";
 
 // Logger configuration interface
 interface LoggerConfig {
@@ -56,9 +49,9 @@ function getLoggerConfig(): LoggerConfig {
 
   try {
     // Try to get configuration from the config system
-    const configMode = getConfig().has("logger.mode") ? getConfig().get("logger.mode") : null;
-    const configLevel = getConfig().has("logger.level") ? getConfig().get("logger.level") : null;
-    const configAgentLogs = getConfig().has("logger.enableAgentLogs") ? getConfig().get("logger.enableAgentLogs") : null;
+      const configMode = has("logger.mode") ? get("logger.mode") : null;
+  const configLevel = has("logger.level") ? get("logger.level") : null;
+  const configAgentLogs = has("logger.enableAgentLogs") ? get("logger.enableAgentLogs") : null;
 
     loggerConfig = {
       mode: (typeof configMode === "string" ? configMode : envMode || "auto") as "HUMAN" | "STRUCTURED" | "auto",
