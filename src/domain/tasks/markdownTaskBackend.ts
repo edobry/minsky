@@ -97,13 +97,18 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
+    console.error("DEBUG markdownTaskBackend setTaskStatus called with:", { id, status });
+
     const result = await this.getTasksData();
     if (!result.success || !result.content) {
       throw new Error("Failed to read tasks data");
     }
 
     const tasks = this.parseTasks(result.content);
+    console.error("DEBUG stored task IDs:", tasks.map(t => t.id).slice(0, 5));
+
     const taskIndex = tasks.findIndex((task) => task.id === id);
+    console.error("DEBUG findIndex result:", { searchId: id, taskIndex, found: taskIndex !== -1 });
 
     if (taskIndex === -1) {
       throw new Error(`Task with id ${id} not found`);
@@ -208,6 +213,80 @@ export class MarkdownTaskBackend implements TaskBackend {
     };
 
     return newTask;
+  }
+
+  /**
+   * Create a new task from title and description
+   * @param title Title of the task
+   * @param description Description of the task
+   * @param options Options for creating the task
+   * @returns Promise resolving to the created task
+   */
+  async createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options: CreateTaskOptions = {}
+  ): Promise<Task> {
+    // Generate a task specification file content
+    const taskSpecContent = this.generateTaskSpecification(title, description);
+
+    // Create a temporary file path for the spec
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const os = await import("os");
+
+    const tempDir = os.tmpdir();
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const tempSpecPath = path.join(
+      tempDir,
+      `temp-task-${normalizedTitle}-${Date.now()}.md`
+    );
+
+    try {
+      // Write the spec content to the temporary file
+      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
+
+      // Use the existing createTask method
+      const task = await this.createTask(tempSpecPath, options);
+
+      // Clean up the temporary file
+      try {
+        await fs.unlink(tempSpecPath);
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+
+      return task;
+    } catch (error) {
+      // Clean up the temporary file on error
+      try {
+        await fs.unlink(tempSpecPath);
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a task specification file content from title and description
+   * @param title Title of the task
+   * @param description Description of the task
+   * @returns The generated task specification content
+   */
+  private generateTaskSpecification(title: string, description: string): string {
+    return `# ${title}
+
+## Context
+
+${description}
+
+## Requirements
+
+## Solution
+
+## Notes
+`;
   }
 
   async deleteTask(id: string, _options?: DeleteTaskOptions): Promise<boolean> {

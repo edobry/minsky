@@ -313,7 +313,8 @@ export async function setTaskStatusFromParams(
 
     // Verify the task exists before setting status and get old status for commit message
     const task = await taskService.getTask(validParams.taskId);
-    if (!task) {
+
+    if (!task || !task.id) {
       throw new ResourceNotFoundError(
         `Task ${validParams.taskId} not found`,
         "task",
