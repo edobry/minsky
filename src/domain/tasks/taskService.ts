@@ -430,6 +430,31 @@ export class TaskService {
   }
 
   /**
+   * Create a task from title and description
+   * @param title Task title
+   * @param description Task description
+   * @param options Create options
+   * @returns Promise resolving to the created task
+   */
+  async createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options: CreateTaskOptions = {}
+  ): Promise<TaskData> {
+    // Delegate to the current backend
+    const task = await this.currentBackend.createTaskFromTitleAndDescription(title, description, options);
+
+    // Convert the backend Task to TaskData format for consistency
+    return {
+      id: task.id,
+      title: task.title,
+      description: task.description || "",
+      status: task.status || "TODO",
+      specPath: task.specPath || "",
+    };
+  }
+
+  /**
    * Get the content of a task specification file
    * @param id Task ID
    * @returns Promise resolving to object with spec content and path
@@ -505,59 +530,6 @@ export class TaskService {
     } catch (error) {
       // Return null if GitHub modules are not available
       return null;
-    }
-  }
-
-  /**
-   * Create a new task from title and description
-   * @param title Title of the task
-   * @param description Description of the task
-   * @param options Options for creating the task
-   * @returns Promise resolving to the created task
-   */
-  async createTaskFromTitleAndDescription(
-    title: string,
-    description: string,
-    options: CreateTaskOptions = {}
-  ): Promise<TaskData> {
-    // Generate a task specification file content
-    const taskSpecContent = this.generateTaskSpecification(title, description);
-
-    // Create a temporary file path for the spec
-    const fs = await import("fs/promises");
-    const path = await import("path");
-    const os = await import("os");
-
-    const tempDir = os.tmpdir();
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(
-      tempDir,
-      `temp-task-${normalizedTitle}-${Date.now()}.md`
-    );
-
-    try {
-      // Write the spec content to the temporary file
-      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
-
-      // Use the existing createTask method
-      const task = await this.createTask(tempSpecPath, options);
-
-      // Clean up the temporary file
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (error) {
-        // Ignore cleanup errors
-      }
-
-      return task;
-    } catch (error) {
-      // Clean up the temporary file on error
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (cleanupError) {
-        // Ignore cleanup errors
-      }
-      throw error;
     }
   }
 
