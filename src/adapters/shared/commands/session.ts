@@ -159,8 +159,7 @@ Examples:
       return {
         success: true,
         session,
-      };
-    },
+      };    },
   });
 
   // Register session dir command
