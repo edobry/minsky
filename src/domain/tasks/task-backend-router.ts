@@ -94,40 +94,21 @@ export class TaskBackendRouter {
   }
 
   /**
-   * Categorize markdown backend based on current workspace context
+   * Categorize markdown backend - ALWAYS requires special workspace
+   * 
+   * CRITICAL ARCHITECTURE REQUIREMENT:
+   * All markdown backend operations MUST use the special workspace,
+   * regardless of current working directory or presence of local tasks.md file.
+   * This ensures proper isolation and synchronization for all task operations.
    */
   private categorizeMarkdownBackend(backend: TaskBackend): BackendRoutingInfo {
-    const fs = require("fs");
-    const path = require("path");
-
-    try {
-      // Check if we're already in a workspace that contains the tasks file
-      const currentDir = (process as any).cwd();
-      const tasksFilePath = path.join(currentDir, "process", "tasks.md");
-
-      // If the current workspace already has the tasks file, use it directly
-      if (fs.existsSync(tasksFilePath)) {
-        return {
-          category: "in-tree",
-          requiresSpecialWorkspace: false,
-          description: "Markdown backend using current workspace with existing tasks file"
-        };
-      }
-
-      // If no tasks file in current workspace, use special workspace
-      return {
-        category: "in-tree",
-        requiresSpecialWorkspace: true,
-        description: "Markdown backend stores data in repository files"
-      };
-    } catch (error) {
-      // If we can't check, default to special workspace for safety
-      return {
-        category: "in-tree",
-        requiresSpecialWorkspace: true,
-        description: "Unable to determine workspace context, using special workspace"
-      };
-    }
+    // ARCHITECTURE ENFORCEMENT: Markdown backends always use special workspace
+    // This was the root cause of the sync issue - conditional workspace usage
+    return {
+      category: "in-tree",
+      requiresSpecialWorkspace: true,
+      description: "Markdown backend stores data in repository files"
+    };
   }
 
   /**
