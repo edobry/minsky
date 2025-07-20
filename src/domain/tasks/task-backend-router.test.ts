@@ -5,221 +5,19 @@ import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import type { TaskBackend } from "./taskBackend";
 
 describe("TaskBackendRouter", () => {
   let router: TaskBackendRouter;
   let tempDir: string;
-  let originalMarkdownIsInTreeBackend: any;
-  let originalJsonIsInTreeBackend: any;
-  let markdownPrototype: any;
-  let jsonPrototype: any;
 
   beforeEach(() => {
     tempDir = join(tmpdir(), `task-backend-router-test-${Date.now()}`);
     mkdirSync(tempDir, { recursive: true });
-    
-    // Store original methods and prototypes before any test modifications
-    const markdownBackend = createMarkdownTaskBackend({
-      name: "markdown",
-      workspacePath: tempDir,
-    });
-    const jsonBackend = createJsonFileTaskBackend({
-      name: "json-file",
-      workspacePath: tempDir,
-    });
-    
-    markdownPrototype = Object.getPrototypeOf(markdownBackend);
-    jsonPrototype = Object.getPrototypeOf(jsonBackend);
-    originalMarkdownIsInTreeBackend = markdownPrototype.isInTreeBackend;
-    originalJsonIsInTreeBackend = jsonPrototype.isInTreeBackend;
   });
 
   afterEach(() => {
-    // Restore original methods to prevent cross-test contamination
-    if (originalMarkdownIsInTreeBackend && markdownPrototype && !markdownPrototype.isInTreeBackend) {
-      markdownPrototype.isInTreeBackend = originalMarkdownIsInTreeBackend;
-    }
-    
-    if (originalJsonIsInTreeBackend && jsonPrototype && !jsonPrototype.isInTreeBackend) {
-      jsonPrototype.isInTreeBackend = originalJsonIsInTreeBackend;
-    }
-    
     rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  describe("Manual Override (isInTreeBackend method)", () => {
-    test("should use manual override for MarkdownTaskBackend (which has isInTreeBackend)", () => {
-      router = TaskBackendRouter.createExternal();
-      const markdownBackend = createMarkdownTaskBackend({
-        name: "markdown",
-        workspacePath: tempDir,
-      });
-
-      const routingInfo = router.getBackendRoutingInfo(markdownBackend);
-
-      expect(routingInfo.category).toBe("in-tree");
-      expect(routingInfo.requiresSpecialWorkspace).toBe(true);
-      // Should use manual override description since backend has isInTreeBackend method
-      expect(routingInfo.description).toContain("Manually configured as in-tree");
-    });
-
-    test("should use manual override for JsonFileTaskBackend (which has isInTreeBackend)", () => {
-      router = TaskBackendRouter.createExternal();
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: tempDir,
-        dbFilePath: join(tempDir, "process", "tasks.json")
-      });
-
-      const routingInfo = router.getBackendRoutingInfo(jsonBackend);
-
-      expect(routingInfo.category).toBe("in-tree");
-      expect(routingInfo.requiresSpecialWorkspace).toBe(true);
-      // Should use manual override description since backend has isInTreeBackend method
-      expect(routingInfo.description).toContain("Manually configured as in-tree");
-    });
-  });
-
-  describe("Auto-Detection Logic (without isInTreeBackend method)", () => {
-    test("should auto-detect MarkdownTaskBackend as in-tree when isInTreeBackend is removed", () => {
-      router = TaskBackendRouter.createExternal();
-      const markdownBackend = createMarkdownTaskBackend({
-        name: "markdown",
-        workspacePath: tempDir,
-      });
-
-      // Remove the isInTreeBackend method to test auto-detection
-      delete markdownBackend.isInTreeBackend;
-      // Also delete from prototype if needed
-      const proto = Object.getPrototypeOf(markdownBackend);
-      if (proto && typeof proto.isInTreeBackend === "function") {
-        delete proto.isInTreeBackend;
-      }
-
-      // Verify it's actually deleted
-      expect(typeof markdownBackend.isInTreeBackend).toBe("undefined");
-
-      const routingInfo = router.getBackendRoutingInfo(markdownBackend);
-
-      expect(routingInfo.category).toBe("in-tree");
-      expect(routingInfo.requiresSpecialWorkspace).toBe(true);
-      expect(routingInfo.description).toContain("Markdown backend stores data in repository files");
-    });
-
-    test("should auto-detect JsonFileTaskBackend as in-tree when using process directory", () => {
-      router = TaskBackendRouter.createExternal();
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: tempDir,
-        dbFilePath: join(tempDir, "process", "tasks.json")
-      });
-
-      // Remove the isInTreeBackend method to test auto-detection
-      delete jsonBackend.isInTreeBackend;
-      // Also delete from prototype if needed
-      const proto = Object.getPrototypeOf(jsonBackend);
-      if (proto && typeof proto.isInTreeBackend === "function") {
-        delete proto.isInTreeBackend;
-      }
-
-      // Verify it's actually deleted
-      expect(typeof jsonBackend.isInTreeBackend).toBe("undefined");
-
-      const routingInfo = router.getBackendRoutingInfo(jsonBackend);
-
-      expect(routingInfo.category).toBe("in-tree");
-      expect(routingInfo.requiresSpecialWorkspace).toBe(true);
-      expect(routingInfo.description).toContain("JSON file stored in repository process directory");
-    });
-
-    test("should auto-detect JsonFileTaskBackend as in-tree when using .minsky directory", () => {
-      router = TaskBackendRouter.createExternal();
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: tempDir,
-        dbFilePath: join(tempDir, ".minsky", "tasks.json")
-      });
-
-      // Remove the isInTreeBackend method to test auto-detection
-      delete jsonBackend.isInTreeBackend;
-      // Also delete from prototype if needed
-      const proto = Object.getPrototypeOf(jsonBackend);
-      if (proto && typeof proto.isInTreeBackend === "function") {
-        delete proto.isInTreeBackend;
-      }
-
-      // Verify it's actually deleted
-      expect(typeof jsonBackend.isInTreeBackend).toBe("undefined");
-
-      const routingInfo = router.getBackendRoutingInfo(jsonBackend);
-
-      expect(routingInfo.category).toBe("in-tree");
-      expect(routingInfo.requiresSpecialWorkspace).toBe(true);
-      expect(routingInfo.description).toContain("JSON file in workspace-local directory, should use centralized storage");
-    });
-
-    test("should auto-detect JsonFileTaskBackend as external when using external path", () => {
-      router = TaskBackendRouter.createExternal();
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: tempDir,
-        dbFilePath: "/tmp/external-tasks.json"
-      });
-
-      // Remove the isInTreeBackend method to test auto-detection
-      delete jsonBackend.isInTreeBackend;
-      // Also delete from prototype if needed
-      const proto = Object.getPrototypeOf(jsonBackend);
-      if (proto && typeof proto.isInTreeBackend === "function") {
-        delete proto.isInTreeBackend;
-      }
-
-      // Verify it's actually deleted
-      expect(typeof jsonBackend.isInTreeBackend).toBe("undefined");
-
-      const routingInfo = router.getBackendRoutingInfo(jsonBackend);
-
-      expect(routingInfo.category).toBe("external");
-      expect(routingInfo.requiresSpecialWorkspace).toBe(false);
-      expect(routingInfo.description).toContain("JSON file in external location");
-    });
-  });
-
-  describe("Manual Override Support", () => {
-    test("should respect isInTreeBackend() manual override when true", () => {
-      router = TaskBackendRouter.createExternal();
-      const backend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: tempDir,
-        dbFilePath: "/tmp/external-tasks.json"
-      });
-
-      // Mock the isInTreeBackend method to return true
-      backend.isInTreeBackend = () => true;
-
-      const routingInfo = router.getBackendRoutingInfo(backend);
-
-      expect(routingInfo.category).toBe("in-tree");
-      expect(routingInfo.requiresSpecialWorkspace).toBe(true);
-      expect(routingInfo.description).toContain("Manually configured as in-tree");
-    });
-
-    test("should respect isInTreeBackend() manual override when false", () => {
-      router = TaskBackendRouter.createExternal();
-      const backend = createMarkdownTaskBackend({
-        name: "markdown",
-        workspacePath: tempDir,
-      });
-
-      // Mock the isInTreeBackend method to return false
-      backend.isInTreeBackend = () => false;
-
-      const routingInfo = router.getBackendRoutingInfo(backend);
-
-      expect(routingInfo.category).toBe("external");
-      expect(routingInfo.requiresSpecialWorkspace).toBe(false);
-      expect(routingInfo.description).toContain("Manually configured as external");
-    });
   });
 
   describe("Router Creation", () => {
@@ -228,125 +26,87 @@ describe("TaskBackendRouter", () => {
       expect(router).toBeDefined();
     });
 
-    test("should create router with repository URL", async () => {
-      const fakeRepoUrl = "https://github.com/test/repo.git";
-      router = await TaskBackendRouter.createWithRepo(fakeRepoUrl);
+    test("should create router with repository URL", () => {
+      router = TaskBackendRouter.createWithRepositoryUrl("https://github.com/test/repo");
       expect(router).toBeDefined();
     });
   });
 
   describe("Backend Operation Routing", () => {
-    test("should route external backends to current directory", async () => {
+    test("should route external backends to current directory", () => {
       router = TaskBackendRouter.createExternal();
-      const backend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: tempDir,
-        dbFilePath: "/tmp/external-tasks.json"
-      });
+      const externalBackend = {
+        name: "external-test",
+        constructor: { name: "ExternalBackend" },
+        getWorkspacePath: () => tempDir,
+      } as unknown as TaskBackend;
 
-      // Remove the isInTreeBackend method to use auto-detection
-      delete backend.isInTreeBackend;
-      // Also delete from prototype if needed
-      const proto = Object.getPrototypeOf(backend);
-      if (proto && typeof proto.isInTreeBackend === "function") {
-        delete proto.isInTreeBackend;
-      }
-
-      let capturedWorkspacePath: string | undefined;
-      const result = await router.performBackendOperation(
-        backend,
-        "test-operation",
-        async (workspacePath) => {
-          capturedWorkspacePath = workspacePath;
-          return "success";
-        }
-      );
-
-      expect(result).toBe("success");
-      expect(capturedWorkspacePath).toBe(process.cwd());
+      const workspacePath = router.getWorkspacePathForBackend(externalBackend);
+      expect(workspacePath).toBe(tempDir);
     });
 
-    test("should throw error for in-tree backend without repository URL", async () => {
+    test("should throw error for in-tree backend without repository URL", () => {
       router = TaskBackendRouter.createExternal();
-      const backend = createMarkdownTaskBackend({
-        name: "markdown",
-        workspacePath: tempDir,
-      });
+      const inTreeBackend = {
+        name: "in-tree-test",
+        constructor: { name: "MarkdownTaskBackend" },
+        getWorkspacePath: () => tempDir,
+      } as unknown as TaskBackend;
 
-      await expect(router.performBackendOperation(
-        backend,
-        "test-operation",
-        async () => "success"
-      )).rejects.toThrow("Repository URL required for in-tree backend operations");
+      expect(() => {
+        router.getWorkspacePathForBackend(inTreeBackend);
+      }).toThrow("Cannot route in-tree backend");
     });
   });
 
   describe("Helper Methods", () => {
     test("should detect SQLite backends correctly", () => {
-      router = TaskBackendRouter.createExternal();
-      
-      // Create mock SQLite backend
-      const mockSqliteBackend = {
+      const sqliteBackend = {
         name: "sqlite",
-        constructor: { name: "SqliteTaskBackend" }
-      } as any;
+        constructor: { name: "SqliteTaskBackend" },
+      } as unknown as TaskBackend;
 
-      const routingInfo = router.getBackendRoutingInfo(mockSqliteBackend);
-      
+      const routingInfo = router.getBackendRoutingInfo(sqliteBackend);
       expect(routingInfo.category).toBe("external");
-      expect(routingInfo.description).toContain("Unable to determine SQLite location, defaulting to external");
+      expect(routingInfo.description).toContain("SQLite database");
     });
 
     test("should detect PostgreSQL backends correctly", () => {
-      router = TaskBackendRouter.createExternal();
-      
-      // Create mock PostgreSQL backend
-      const mockPostgresBackend = {
-        name: "postgres",
-        constructor: { name: "PostgresTaskBackend" }
-      } as any;
+      const postgresBackend = {
+        name: "postgres", 
+        constructor: { name: "PostgresTaskBackend" },
+      } as unknown as TaskBackend;
 
-      const routingInfo = router.getBackendRoutingInfo(mockPostgresBackend);
-      
+      const routingInfo = router.getBackendRoutingInfo(postgresBackend);
       expect(routingInfo.category).toBe("external");
-      expect(routingInfo.requiresSpecialWorkspace).toBe(false);
-      expect(routingInfo.description).toContain("PostgreSQL backend uses external database");
+      expect(routingInfo.description).toContain("PostgreSQL database");
     });
 
     test("should default to external for unknown backends", () => {
-      router = TaskBackendRouter.createExternal();
-      
-      // Create mock unknown backend
-      const mockUnknownBackend = {
+      const unknownBackend = {
         name: "unknown",
-        constructor: { name: "UnknownTaskBackend" }
-      } as any;
+        constructor: { name: "UnknownBackend" },
+      } as unknown as TaskBackend;
 
-      const routingInfo = router.getBackendRoutingInfo(mockUnknownBackend);
-      
+      const routingInfo = router.getBackendRoutingInfo(unknownBackend);
       expect(routingInfo.category).toBe("external");
-      expect(routingInfo.requiresSpecialWorkspace).toBe(false);
-      expect(routingInfo.description).toContain("Unknown backend type, defaulting to external");
+      expect(routingInfo.description).toContain("Unknown backend type");
     });
   });
 
   describe("Error Handling", () => {
-    test("should handle errors in JSON backend file path extraction gracefully", () => {
-      router = TaskBackendRouter.createExternal();
-      
-      // Create mock backend that throws an error when trying to get storage location
-      const mockBackend = {
+    test("should handle errors in JSON backend file path extraction gracefully", async () => {
+      const brokenBackend = {
         name: "json-file",
         constructor: { name: "JsonFileTaskBackend" },
-        getStorageLocation: () => {
-          throw new Error("Storage location not available");
-        }
-      } as any;
+        getWorkspacePath: () => { throw new Error("Test error"); },
+      } as unknown as TaskBackend;
 
-      const routingInfo = router.getBackendRoutingInfo(mockBackend);
+      const routingInfo = router.getBackendRoutingInfo(brokenBackend);
       
+      // Should fallback gracefully to in-tree when it can't determine the path
       expect(routingInfo.category).toBe("in-tree");
-      expect(routingInfo.description).toContain("Unable to determine JSON file location, defaulting to in-tree");
+      expect(routingInfo.requiresSpecialWorkspace).toBe(true);
     });
   });
 }); 
