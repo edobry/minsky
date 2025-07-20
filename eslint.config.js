@@ -104,7 +104,7 @@ export default [
       "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
 
       // === TEST PATTERN ENFORCEMENT ===
-      "custom/no-jest-patterns": "error", // Prevents Jest patterns, enforces Bun test patterns
+      "custom/no-jest-patterns": "off", // TODO: Re-enable after systematic Jest pattern migration (see task for migration plan)
 
       // === GIT OPERATION SAFETY ===
       "custom/no-unsafe-git-exec": ["error", {

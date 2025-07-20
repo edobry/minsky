@@ -284,13 +284,13 @@ describe("Tests", () => {
 
 ## ESLint Integration
 
-### Automated Jest Pattern Prevention (✅ IMPLEMENTED)
+### Automated Jest Pattern Prevention (⚠️ TEMPORARILY DISABLED)
 
-The Minsky project now includes a custom ESLint rule `no-jest-patterns` that automatically detects and prevents Jest patterns while providing Bun alternatives.
+The Minsky project includes a custom ESLint rule `no-jest-patterns` that detects Jest patterns and provides Bun alternatives. **Currently disabled** pending systematic migration of 265+ existing Jest patterns.
 
 **Rule Configuration:**
 ```javascript
-// eslint.config.js - ALREADY CONFIGURED
+// eslint.config.js - TEMPORARILY DISABLED
 export default [
   {
     plugins: {
@@ -301,7 +301,7 @@ export default [
       },
     },
     rules: {
-      "custom/no-jest-patterns": "error",
+      "custom/no-jest-patterns": "off", // TODO: Re-enable after migration (Task #305)
     },
   },
 ];
@@ -325,6 +325,8 @@ bun lint --fix
 ```
 
 The rule runs automatically with `bun lint` and catches violations during development, ensuring consistent Bun test patterns across the codebase.
+
+**Current Status**: Rule temporarily disabled due to 265+ existing Jest patterns. See **Task #305** for systematic migration plan to re-enable full enforcement.
 
 ## Migration Checklist
 
