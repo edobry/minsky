@@ -2,27 +2,49 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { TaskBackendRouter } from "./task-backend-router";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
-import { join } from "path";
 import { rmSync, mkdirSync } from "fs";
+import { join } from "path";
 import { tmpdir } from "os";
 
 describe("TaskBackendRouter", () => {
-  let tempDir: string;
   let router: TaskBackendRouter;
+  let tempDir: string;
+  let originalMarkdownIsInTreeBackend: any;
+  let originalJsonIsInTreeBackend: any;
+  let markdownPrototype: any;
+  let jsonPrototype: any;
 
   beforeEach(() => {
-    // Create temporary directory for testing
-    tempDir = join(tmpdir(), `task-router-test-${Date.now()}`);
+    tempDir = join(tmpdir(), `task-backend-router-test-${Date.now()}`);
     mkdirSync(tempDir, { recursive: true });
+    
+    // Store original methods and prototypes before any test modifications
+    const markdownBackend = createMarkdownTaskBackend({
+      name: "markdown",
+      workspacePath: tempDir,
+    });
+    const jsonBackend = createJsonFileTaskBackend({
+      name: "json-file",
+      workspacePath: tempDir,
+    });
+    
+    markdownPrototype = Object.getPrototypeOf(markdownBackend);
+    jsonPrototype = Object.getPrototypeOf(jsonBackend);
+    originalMarkdownIsInTreeBackend = markdownPrototype.isInTreeBackend;
+    originalJsonIsInTreeBackend = jsonPrototype.isInTreeBackend;
   });
 
   afterEach(() => {
-    // Clean up temporary directory
-    try {
-      rmSync(tempDir, { recursive: true, force: true });
-    } catch (error) {
-      // Ignore cleanup errors
+    // Restore original methods to prevent cross-test contamination
+    if (originalMarkdownIsInTreeBackend && markdownPrototype && !markdownPrototype.isInTreeBackend) {
+      markdownPrototype.isInTreeBackend = originalMarkdownIsInTreeBackend;
     }
+    
+    if (originalJsonIsInTreeBackend && jsonPrototype && !jsonPrototype.isInTreeBackend) {
+      jsonPrototype.isInTreeBackend = originalJsonIsInTreeBackend;
+    }
+    
+    rmSync(tempDir, { recursive: true, force: true });
   });
 
   describe("Manual Override (isInTreeBackend method)", () => {

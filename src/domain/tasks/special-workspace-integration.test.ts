@@ -7,14 +7,42 @@ import { tmpdir } from "os";
 
 describe("Special Workspace Integration", () => {
   let tempDir: string;
+  let originalJsonIsInTreeBackend: any;
+  let originalMarkdownIsInTreeBackend: any;
+  let jsonPrototype: any;
+  let markdownPrototype: any;
 
   beforeEach(() => {
     // Create temporary directory for testing
     tempDir = join(tmpdir(), `special-workspace-integration-test-${Date.now()}`);
     mkdirSync(tempDir, { recursive: true });
+    
+    // Store original methods and prototypes before any test modifications
+    const jsonBackend = require("./jsonFileTaskBackend").createJsonFileTaskBackend({
+      name: "json-file",
+      workspacePath: tempDir,
+    });
+    const markdownBackend = require("./markdownTaskBackend").createMarkdownTaskBackend({
+      name: "markdown",
+      workspacePath: tempDir,
+    });
+    
+    jsonPrototype = Object.getPrototypeOf(jsonBackend);
+    markdownPrototype = Object.getPrototypeOf(markdownBackend);
+    originalJsonIsInTreeBackend = jsonPrototype.isInTreeBackend;
+    originalMarkdownIsInTreeBackend = markdownPrototype.isInTreeBackend;
   });
 
   afterEach(() => {
+    // Restore original methods to prevent cross-test contamination
+    if (originalJsonIsInTreeBackend && jsonPrototype && !jsonPrototype.isInTreeBackend) {
+      jsonPrototype.isInTreeBackend = originalJsonIsInTreeBackend;
+    }
+    
+    if (originalMarkdownIsInTreeBackend && markdownPrototype && !markdownPrototype.isInTreeBackend) {
+      markdownPrototype.isInTreeBackend = originalMarkdownIsInTreeBackend;
+    }
+    
     // Clean up temporary directory
     try {
       rmSync(tempDir, { recursive: true, force: true });
