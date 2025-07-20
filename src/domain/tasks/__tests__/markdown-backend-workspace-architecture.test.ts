@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createMarkdownTaskBackend } from "../markdownTaskBackend";
-import { rmSync, mkdirSync } from "fs";
+import { rmSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -24,16 +24,18 @@ describe("MarkdownTaskBackend Special Workspace Architecture", () => {
 
   beforeEach(() => {
     // Create temporary directory that mimics a workspace with tasks.md
-    tempDir = join(tmpdir(), `minsky-workspace-test-${Date.now()}`);
+    tempDir = join(tmpdir(), `minsky-workspace-test-${Date.now()}-${Math.random().toString(36).substring(7)}`);
     mkdirSync(tempDir, { recursive: true });
 
     const processDir = join(tempDir, "process");
     mkdirSync(processDir, { recursive: true });
 
     // Create a tasks.md file in the temp directory (simulating main workspace)
-    require("fs").writeFileSync(
+    // Use consistent synchronous operations to avoid race conditions
+    writeFileSync(
       join(processDir, "tasks.md"),
-      "# Tasks\n\n- #001: Test Task [TODO]\n"
+      "# Tasks\n\n- #001: Test Task [TODO]\n",
+      { encoding: "utf8" }
     );
   });
 
