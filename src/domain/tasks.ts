@@ -788,6 +788,10 @@ export class TaskService {
     return (this.currentBackend as unknown).createTask(specPath, options as unknown);
   }
 
+  async createTaskFromTitleAndDescription(title: string, description: string, options: CreateTaskOptions = {}): Promise<Task> {
+    return (this.currentBackend as unknown).createTaskFromTitleAndDescription(title, description, options as unknown);
+  }
+
   /**
    * Get the backend for a specific task
    * @param id Task ID
