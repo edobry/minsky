@@ -156,21 +156,10 @@ Examples:
         packageManager: params!.packageManager,
       });
 
-<<<<<<< HEAD
-        return {
-          success: true,
-          session,
-        };
-      } catch (error) {
-        throw error;
-      }
-=======
       return {
         success: true,
         session,
-      };
->>>>>>> origin/main
-    },
+      };    },
   });
 
   // Register session dir command
