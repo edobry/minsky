@@ -1,6 +1,6 @@
 /**
  * Task Domain Types
- * 
+ *
  * Centralized type definitions for the tasks domain.
  * Extracted from tasks.ts to improve modularity and maintainability.
  */
@@ -58,7 +58,7 @@ export interface TaskServiceInterface {
 
 /**
  * Task interface for external use
- * 
+ *
  * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
  * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
  */
@@ -83,6 +83,7 @@ export interface TaskBackend {
   setTaskStatus(id: string, status: string): Promise<void>;
   getWorkspacePath(): string;
   createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
+  createTaskFromTitleAndDescription(title: string, description: string, options?: CreateTaskOptions): Promise<Task>;
   setTaskMetadata?(id: string, metadata: any): Promise<void>;
   deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
 }
@@ -102,4 +103,4 @@ export interface DeleteTaskOptions {
 export interface TaskServiceOptions {
   workspacePath?: string;
   backend?: string;
-} 
+}
