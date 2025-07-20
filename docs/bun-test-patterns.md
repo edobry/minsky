@@ -284,29 +284,47 @@ describe("Tests", () => {
 
 ## ESLint Integration
 
-### Recommended Rules (Future Enhancement)
+### Automated Jest Pattern Prevention (✅ IMPLEMENTED)
 
+The Minsky project now includes a custom ESLint rule `no-jest-patterns` that automatically detects and prevents Jest patterns while providing Bun alternatives.
+
+**Rule Configuration:**
 ```javascript
-// .eslintrc.js
-module.exports = {
-  rules: {
-    // Ban Jest patterns in favor of Bun patterns
-    "no-restricted-syntax": [
-      "error",
-      {
-        "selector": "CallExpression[callee.property.name='mockReturnValue']",
-        "message": "Use Bun test patterns: mock.mockImplementation(() => value)"
+// eslint.config.js - ALREADY CONFIGURED
+export default [
+  {
+    plugins: {
+      custom: {
+        rules: {
+          "no-jest-patterns": noJestPatterns,
+        },
       },
-      {
-        "selector": "CallExpression[callee.property.name='mockResolvedValue']", 
-        "message": "Use Bun test patterns: mock.mockImplementation(() => Promise.resolve(value))"
-      }
-    ]
-  }
-};
+    },
+    rules: {
+      "custom/no-jest-patterns": "error",
+    },
+  },
+];
 ```
 
-This ensures future violations are caught at the linter level, preventing regression to Jest patterns.
+**Detected Patterns & Auto-fixes:**
+- `jest.fn()` → `mock()` (with appropriate import)
+- `.mockReturnValue()` → `mock(() => returnValue)`
+- `.mockResolvedValue()` → `mock(() => Promise.resolve(value))`
+- `.mockRejectedValue()` → `mock(() => Promise.reject(error))`
+- `jest.mock()` → Suggests using `mockModule()` from test-utils
+- Jest imports → Suggests Bun test imports
+
+**Usage:**
+```bash
+# Check for Jest patterns
+bun lint
+
+# Auto-fix simple patterns  
+bun lint --fix
+```
+
+The rule runs automatically with `bun lint` and catches violations during development, ensuring consistent Bun test patterns across the codebase.
 
 ## Migration Checklist
 
