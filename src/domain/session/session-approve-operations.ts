@@ -78,34 +78,62 @@ export async function approveSessionImpl(
     const taskIdToUse = taskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
-    // Get session by task ID
+    // **BUG FIX**: Validate task existence BEFORE checking for session
+    // Create TaskService to check if task actually exists
+    const taskService = new TaskService({
+      workspacePath: params.repo || process.cwd(),
+      backend: "markdown", // Use default backend for validation
+    });
+
+    try {
+      const task = await taskService.getTask(taskIdToUse);
+      if (!task) {
+        // Task doesn't exist - provide clear, concise error
+        throw new ResourceNotFoundError(
+          `❌ Task not found: ${taskIdToUse}
+
+The specified task does not exist.
+
+💡 Available options:
+• Run 'minsky tasks list' to see all available tasks
+• Check your task ID for typos
+• Use 'minsky session list' to see tasks with active sessions`,
+          "task",
+          taskIdToUse
+        );
+      }
+    } catch (error) {
+      // If task validation fails, re-throw with clear error
+      if (error instanceof ResourceNotFoundError) {
+        throw error;
+      }
+      // For other errors (like TaskService issues), provide generic error
+      throw new ResourceNotFoundError(
+        `❌ Could not validate task: ${taskIdToUse}
+
+Unable to check if the task exists.
+
+💡 Available options:
+• Run 'minsky tasks list' to see all available tasks
+• Check your task ID for typos`,
+        "task",
+        taskIdToUse
+      );
+    }
+
+    // Task exists, now check for session
     const session = await sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
+      // Task exists but no session - provide clear, concise error
       throw new ResourceNotFoundError(
-        `🚫 No Session Found for Task ${taskIdToUse}
+        `❌ No session found for task ${taskIdToUse}
 
-Task ${taskIdToUse} exists but has no associated session to approve.
+The task exists but has no associated session to approve.
 
-💡 Here's what you can do:
-
-1️⃣ Check if the task has a session:
-   minsky session list
-
-2️⃣ Start a session for this task:
-   minsky session start --task ${taskIdToUse}
-
-3️⃣ Or approve a different task that has a session:
-   minsky session list | grep "task:"
-   minsky session approve --task <task-id-with-session>
-
-📋 Current available sessions:
-   Run 'minsky session list' to see which tasks have active sessions.
-
-❓ Need help?
-   • Use 'minsky session start --task ${taskIdToUse}' to create a session
-   • Use 'minsky tasks list' to see all available tasks
-   • Use 'minsky session get --task <id>' to check session details`,
-        "task",
+💡 Available options:
+• Run 'minsky session start --task ${taskIdToUse}' to create a session
+• Use 'minsky session list' to see tasks with active sessions`,
+        "session",
         taskIdToUse
       );
     }
