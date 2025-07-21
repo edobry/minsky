@@ -410,14 +410,13 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
   }
 
   /**
-   * Helper method to ensure directory exists
-   * @private
+   * Ensure the directory exists before writing
+   * Fixed: Removed TOCTOU race condition by eliminating existsSync check
+   * mkdirSync with recursive: true is idempotent and safe for concurrent calls
    */
   private ensureDirectory(): void {
     const dir = dirname(this.filePath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
+    mkdirSync(dir, { recursive: true });
   }
 
   /**

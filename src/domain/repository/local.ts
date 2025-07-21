@@ -4,6 +4,10 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
+import { 
+  gitCloneWithTimeout,
+  type GitExecOptions 
+} from "../../utils/git-exec";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -89,7 +93,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const workdir = this.getSessionWorkdir(session);
 
     // Clone the repository
-    await execAsync(`git clone ${this.repoUrl} ${workdir}`);
+    await gitCloneWithTimeout(this.repoUrl, workdir);
 
     return {
       workdir,
