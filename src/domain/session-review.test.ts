@@ -11,41 +11,41 @@ const TEST_ARRAY_SIZE = 3;
 describe("sessionReviewFromParams", () => {
   test("reviews session by name", async () => {
     // Create trackable spies for methods we need to verify
-    const getSessionSpy = createMock();
+    let getSessionSpy = createMock();
     getSessionSpy = mock((name: unknown) =>
-            Promise.resolve({
-              session: name as string,
-              taskId: "#TEST_VALUE",
-              repoName: "test-repo",
-              repoUrl: "https://github.com/test/test-repo",
-              branch: "feature/test",
-              createdAt: new Date().toISOString(),
-            }));
+      Promise.resolve({
+        session: name as string,
+        taskId: "#TEST_VALUE",
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/test-repo",
+        branch: "feature/test",
+        createdAt: new Date().toISOString(),
+      }));
 
-    const getSessionWorkdirSpy = createMock();
+    let getSessionWorkdirSpy = createMock();
     getSessionWorkdirSpy = mock((_sessionName: unknown) => Promise.resolve("/fake/path/to/session"));
 
-    const execInRepositorySpy = createMock();
+    let execInRepositorySpy = createMock();
     execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
-            const cmd = command as string;
-            if (cmd.includes("git ls-remote")) {
-              return Promise.resolve("refs/heads/pr/testSession");
-            }
-            if (cmd.includes("log -1")) {
-              return Promise.resolve("PR Title\n\nPR Description body");
-            }
-            if (cmd.includes("diff --stat")) {
-              return Promise.resolve("3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)");
-            }
-            if (cmd.includes("git diff")) {
-              return Promise.resolve("diff --git a/file.txt b/file.txt\n+new line\n-old line");
-            }
-            return Promise.resolve("");
-          });
+      const cmd = command as string;
+      if (cmd.includes("git ls-remote")) {
+        return Promise.resolve("refs/heads/pr/testSession");
+      }
+      if (cmd.includes("log -1")) {
+        return Promise.resolve("PR Title\n\nPR Description body");
+      }
+      if (cmd.includes("diff --stat")) {
+        return Promise.resolve("3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)");
+      }
+      if (cmd.includes("git diff")) {
+        return Promise.resolve("diff --git a/file.txt b/file.txt\n+new line\n-old line");
+      }
+      return Promise.resolve("");
+    });
 
-    const getTaskSpecDataSpy = createMock();
+    let getTaskSpecDataSpy = createMock();
     getTaskSpecDataSpy = mock(() =>
-            Promise.resolve({ title: "Test Task", description: "Test description" }));
+      Promise.resolve({ title: "Test Task", description: "Test description" }));
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
@@ -66,7 +66,7 @@ describe("sessionReviewFromParams", () => {
       isSessionWorkspace: () => false,
     });
 
-    const getCurrentSessionSpy = createMock();
+    let getCurrentSessionSpy = createMock();
     getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
 
     const deps = {
@@ -95,48 +95,48 @@ describe("sessionReviewFromParams", () => {
 
   test("reviews session by task ID", async () => {
     // Create trackable spies for methods we need to verify
-    const getSessionByTaskIdSpy = createMock();
+    let getSessionByTaskIdSpy = createMock();
     getSessionByTaskIdSpy = mock((taskId: unknown) =>
-            Promise.resolve({
-              session: "task#TEST_VALUE",
-              taskId: taskId as string,
-              repoName: "test-repo",
-              repoUrl: "https://github.com/test/test-repo",
-              branch: "feature/test",
-              createdAt: new Date().toISOString(),
-            }));
+      Promise.resolve({
+        session: "task#TEST_VALUE",
+        taskId: taskId as string,
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/test-repo",
+        branch: "feature/test",
+        createdAt: new Date().toISOString(),
+      }));
 
-    const getSessionSpy = createMock();
+    let getSessionSpy = createMock();
     getSessionSpy = mock((name: unknown) =>
-            Promise.resolve({
-              session: name as string,
-              taskId: "#TEST_VALUE",
-              repoName: "test-repo",
-              repoUrl: "https://github.com/test/test-repo",
-              branch: "feature/test",
-              createdAt: new Date().toISOString(),
-            }));
+      Promise.resolve({
+        session: name as string,
+        taskId: "#TEST_VALUE",
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/test-repo",
+        branch: "feature/test",
+        createdAt: new Date().toISOString(),
+      }));
 
-    const getSessionWorkdirSpy = createMock();
+    let getSessionWorkdirSpy = createMock();
     getSessionWorkdirSpy = mock((_sessionName: unknown) => Promise.resolve("/fake/path/to/session"));
 
-    const execInRepositorySpy = createMock();
+    let execInRepositorySpy = createMock();
     execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
-            const cmd = command as string;
-            if (cmd.includes("git ls-remote")) {
-              return Promise.resolve("refs/heads/pr/task#TEST_VALUE");
-            }
-            if (cmd.includes("log -1")) {
-              return Promise.resolve("PR Title\n\nPR Description body");
-            }
-            if (cmd.includes("diff --stat")) {
-              return Promise.resolve("3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)");
-            }
-            if (cmd.includes("git diff")) {
-              return Promise.resolve("diff --git a/file.txt b/file.txt\n+new line\n-old line");
-            }
-            return Promise.resolve("");
-          });
+      const cmd = command as string;
+      if (cmd.includes("git ls-remote")) {
+        return Promise.resolve("refs/heads/pr/task#TEST_VALUE");
+      }
+      if (cmd.includes("log -1")) {
+        return Promise.resolve("PR Title\n\nPR Description body");
+      }
+      if (cmd.includes("diff --stat")) {
+        return Promise.resolve("3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)");
+      }
+      if (cmd.includes("git diff")) {
+        return Promise.resolve("diff --git a/file.txt b/file.txt\n+new line\n-old line");
+      }
+      return Promise.resolve("");
+    });
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
@@ -160,7 +160,7 @@ describe("sessionReviewFromParams", () => {
       isSessionWorkspace: () => false,
     });
 
-    const getCurrentSessionSpy = createMock();
+    let getCurrentSessionSpy = createMock();
     getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
 
     const deps = {
@@ -200,7 +200,7 @@ describe("sessionReviewFromParams", () => {
       isSessionWorkspace: () => false,
     });
 
-    const getCurrentSessionSpy = createMock();
+    let getCurrentSessionSpy = createMock();
     getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve(null));
 
     const deps = {

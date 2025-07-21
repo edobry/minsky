@@ -34,15 +34,15 @@ describe("Session Approve Workflow", () => {
     // Create fresh spies for each test
     getSessionSpy = createMock();
     getSessionSpy = mock((name) =>
-            Promise.resolve({
-              session: name, // Fixed: use 'session' instead of '_session'
-              repoName: "test-repo",
-              repoUrl: "/test/repo/path",
-              backendType: "local",
-              remote: { authMethod: "ssh", depth: 1 },
-              createdAt: new Date().toISOString(),
-              taskId: "task025",
-            }));
+      Promise.resolve({
+        session: name, // Fixed: use 'session' instead of '_session'
+        repoName: "test-repo",
+        repoUrl: "/test/repo/path",
+        backendType: "local",
+        remote: { authMethod: "ssh", depth: 1 },
+        createdAt: new Date().toISOString(),
+        taskId: "task025",
+      }));
 
     getSessionWorkdirSpy = createMock();
     getSessionWorkdirSpy = mock(() => Promise.resolve("/test/repo/path/sessions/test-session"));
@@ -52,23 +52,23 @@ describe("Session Approve Workflow", () => {
 
     execInRepositorySpy = createMock();
     execInRepositorySpy = mock((workdir, command) => {
-            if (command.includes("rev-parse HEAD")) {
-              return Promise.resolve("abc123");
-            }
-            if (command.includes("config user.name")) {
-              return Promise.resolve("test-user");
-            }
-            return Promise.resolve("Successfully merged PR");
-          });
+      if (command.includes("rev-parse HEAD")) {
+        return Promise.resolve("abc123");
+      }
+      if (command.includes("config user.name")) {
+        return Promise.resolve("test-user");
+      }
+      return Promise.resolve("Successfully merged PR");
+    });
 
     getTaskSpy = createMock();
     getTaskSpy = mock((id) =>
-            Promise.resolve({
-              id,
-              title: "Test Task", // Fixed: use 'title' instead of '_title'
-              description: "A test task",
-              status: "in-progress", // Fixed: use 'status' instead of '_status'
-            }));
+      Promise.resolve({
+        id,
+        title: "Test Task", // Fixed: use 'title' instead of '_title'
+        description: "A test task",
+        status: "in-progress", // Fixed: use 'status' instead of '_status'
+      }));
 
     setTaskStatusSpy = createMock();
     setTaskStatusSpy = mock(() => Promise.resolve(true));
@@ -145,7 +145,7 @@ describe("Session Approve Workflow", () => {
 
   test("handles git command failures gracefully", async () => {
     // Override execInRepository to simulate failure
-    const failingExecSpy = createMock();
+    let failingExecSpy = createMock();
     failingExecSpy = mock(() => Promise.reject(new Error("Git command failed")));
     
     const failingGitService = createMockGitService({

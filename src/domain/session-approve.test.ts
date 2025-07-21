@@ -23,53 +23,53 @@ const TEST_VALUE = 123;
 describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {
     // Create trackable spies for methods we need to verify (simplified typing)
-    const getSessionSpy = createMock();
+    let getSessionSpy = createMock();
     getSessionSpy = mock((name) =>
-            Promise.resolve({
-              session: name, // Fixed: use 'session' instead of '_session' 
-              repoName: "test-repo",
-              repoUrl: "/test/repo/path",
-              taskId: "#TEST_VALUE",
-              createdAt: new Date().toISOString(),
-            }));
+      Promise.resolve({
+        session: name, // Fixed: use 'session' instead of '_session' 
+        repoName: "test-repo",
+        repoUrl: "/test/repo/path",
+        taskId: "#TEST_VALUE",
+        createdAt: new Date().toISOString(),
+      }));
 
-    const getSessionByTaskIdSpy = createMock();
+    let getSessionByTaskIdSpy = createMock();
     getSessionByTaskIdSpy = mock((taskId) => {
-            if (taskId === "#TEST_VALUE") {
-              return Promise.resolve({
-                session: "test-session", // Fixed: use 'session' instead of '_session'
-                repoName: "test-repo",
-                repoUrl: "/test/repo/path",
-                taskId: "#TEST_VALUE",
-                createdAt: new Date().toISOString(),
-              });
-            }
-            return Promise.resolve(null);
-          });
+      if (taskId === "#TEST_VALUE") {
+        return Promise.resolve({
+          session: "test-session", // Fixed: use 'session' instead of '_session'
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "#TEST_VALUE",
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return Promise.resolve(null);
+    });
 
-    const getSessionWorkdirSpy = createMock();
+    let getSessionWorkdirSpy = createMock();
     getSessionWorkdirSpy = mock(() =>
-            Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+      Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
 
-    const execInRepositorySpy = createMock();
+    let execInRepositorySpy = createMock();
     execInRepositorySpy = mock((_workdir, command) => {
-            if (command.includes("rev-parse HEAD")) {
-              return Promise.resolve("abcdef123456");
-            }
-            if (command.includes("config user.name")) {
-              return Promise.resolve("Test User");
-            }
-            return Promise.resolve("");
-          });
+      if (command.includes("rev-parse HEAD")) {
+        return Promise.resolve("abcdef123456");
+      }
+      if (command.includes("config user.name")) {
+        return Promise.resolve("Test User");
+      }
+      return Promise.resolve("");
+    });
 
-    const setTaskStatusSpy = createMock();
+    let setTaskStatusSpy = createMock();
     setTaskStatusSpy = mock(() => Promise.resolve());
 
-    const getBackendForTaskSpy = createMock();
+    let getBackendForTaskSpy = createMock();
     getBackendForTaskSpy = mock(() =>
-            Promise.resolve({
-              setTaskMetadata: createMock(() => Promise.resolve()),
-            }));
+      Promise.resolve({
+        setTaskMetadata: createMock(() => Promise.resolve()),
+      }));
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
@@ -139,45 +139,45 @@ describe("Session Approve", () => {
 
   test("detects current session when repo path is provided", async () => {
     // Create trackable spies for methods we need to verify
-    const getSessionSpy = createMock();
+    let getSessionSpy = createMock();
     getSessionSpy = mock((name) => {
-            if (name === "current-session") {
-              return Promise.resolve({
-                session: name, // Fixed: use 'session' instead of '_session'
-                repoName: "test-repo",
-                repoUrl: "/test/repo/path",
-                createdAt: new Date().toISOString(),
-              });
-            }
-            return Promise.resolve(null);
-          });
+      if (name === "current-session") {
+        return Promise.resolve({
+          session: name, // Fixed: use 'session' instead of '_session'
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return Promise.resolve(null);
+    });
 
-    const getSessionByTaskIdSpy = createMock();
+    let getSessionByTaskIdSpy = createMock();
     getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
-    const getSessionWorkdirSpy = createMock();
+    let getSessionWorkdirSpy = createMock();
     getSessionWorkdirSpy = mock((_sessionName) =>
-            Promise.resolve("/test/workdir/test-repo/sessions/current-session"));
+      Promise.resolve("/test/workdir/test-repo/sessions/current-session"));
 
-    const execInRepositorySpy = createMock();
+    let execInRepositorySpy = createMock();
     execInRepositorySpy = mock((_workdir, command) => {
-            if (command.includes("rev-parse HEAD")) {
-              return Promise.resolve("abcdef123456");
-            }
-            if (command.includes("config user.name")) {
-              return Promise.resolve("Test User");
-            }
-            return Promise.resolve("");
-          });
+      if (command.includes("rev-parse HEAD")) {
+        return Promise.resolve("abcdef123456");
+      }
+      if (command.includes("config user.name")) {
+        return Promise.resolve("Test User");
+      }
+      return Promise.resolve("");
+    });
 
-    const setTaskStatusSpy = createMock();
+    let setTaskStatusSpy = createMock();
     setTaskStatusSpy = mock(() => Promise.resolve());
 
-    const getBackendForTaskSpy = createMock();
+    let getBackendForTaskSpy = createMock();
     getBackendForTaskSpy = mock(() =>
-            Promise.resolve({
-              setTaskMetadata: createMock(() => Promise.resolve()),
-            }));
+      Promise.resolve({
+        setTaskMetadata: createMock(() => Promise.resolve()),
+      }));
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
@@ -380,49 +380,49 @@ describe("Session Approve", () => {
 
   test("merges from local PR branch and handles missing remote branch gracefully", async () => {
     // Create trackable spies for methods we need to verify
-    const getSessionSpy = createMock();
+    let getSessionSpy = createMock();
     getSessionSpy = mock((name) =>
-            Promise.resolve({
-              session: name, // Fixed: use 'session' instead of '_session'
-              repoName: "test-repo",
-              repoUrl: "/test/repo/path",
-              taskId: "#TEST_VALUE",
-              createdAt: new Date().toISOString(),
-            }));
+      Promise.resolve({
+        session: name, // Fixed: use 'session' instead of '_session'
+        repoName: "test-repo",
+        repoUrl: "/test/repo/path",
+        taskId: "#TEST_VALUE",
+        createdAt: new Date().toISOString(),
+      }));
 
-    const getSessionByTaskIdSpy = createMock();
+    let getSessionByTaskIdSpy = createMock();
     getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
-    const getSessionWorkdirSpy = createMock();
+    let getSessionWorkdirSpy = createMock();
     getSessionWorkdirSpy = mock(() =>
-            Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+      Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
 
     const gitCommands: string[] = [];
-    const execInRepositorySpy = createMock();
+    let execInRepositorySpy = createMock();
     execInRepositorySpy = mock((_workdir, command) => {
-            gitCommands.push(command);
+      gitCommands.push(command);
 
-            if (command.includes("rev-parse HEAD")) {
-              return Promise.resolve("abcdef123456");
-            }
-            if (command.includes("config user.name")) {
-              return Promise.resolve("Test User");
-            }
-            // Simulate remote branch check failure (branch doesn't exist on remote)
-            if (command.includes("show-ref --verify --quiet refs/remotes/origin/pr/test-session")) {
-              throw new Error("Command failed: git show-ref");
-            }
-            return Promise.resolve("");
-          });
+      if (command.includes("rev-parse HEAD")) {
+        return Promise.resolve("abcdef123456");
+      }
+      if (command.includes("config user.name")) {
+        return Promise.resolve("Test User");
+      }
+      // Simulate remote branch check failure (branch doesn't exist on remote)
+      if (command.includes("show-ref --verify --quiet refs/remotes/origin/pr/test-session")) {
+        throw new Error("Command failed: git show-ref");
+      }
+      return Promise.resolve("");
+    });
 
-    const setTaskStatusSpy = createMock();
+    let setTaskStatusSpy = createMock();
     setTaskStatusSpy = mock(() => Promise.resolve());
 
-    const getBackendForTaskSpy = createMock();
+    let getBackendForTaskSpy = createMock();
     getBackendForTaskSpy = mock(() =>
-            Promise.resolve({
-              setTaskMetadata: createMock(() => Promise.resolve()),
-            }));
+      Promise.resolve({
+        setTaskMetadata: createMock(() => Promise.resolve()),
+      }));
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
@@ -489,46 +489,46 @@ describe("Session Approve", () => {
   describe("branch cleanup after successful merge", () => {
     test("should delete local PR branch and task branch after successful merge", async () => {
       // Create trackable spies for methods we need to verify
-      const getSessionSpy = createMock();
+      let getSessionSpy = createMock();
       getSessionSpy = mock((name) =>
-                Promise.resolve({
-                  session: name,
-                  repoName: "test-repo",
-                  repoUrl: "/test/repo/path",
-                  taskId: "#265",
-                  createdAt: new Date().toISOString(),
-                }));
+        Promise.resolve({
+          session: name,
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "#265",
+          createdAt: new Date().toISOString(),
+        }));
 
-      const getSessionByTaskIdSpy = createMock();
+      let getSessionByTaskIdSpy = createMock();
       getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
-      const getSessionWorkdirSpy = createMock();
+      let getSessionWorkdirSpy = createMock();
       getSessionWorkdirSpy = mock(() =>
-                Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
 
       const gitCommands: string[] = [];
-      const execInRepositorySpy = createMock();
+      let execInRepositorySpy = createMock();
       execInRepositorySpy = mock((_workdir, command) => {
-                gitCommands.push(command);
+        gitCommands.push(command);
 
-                if (command.includes("rev-parse HEAD")) {
-                  return Promise.resolve("abcdef123456");
-                }
-                if (command.includes("config user.name")) {
-                  return Promise.resolve("Test User");
-                }
-                // Simulate successful branch operations
-                return Promise.resolve("");
-              });
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        // Simulate successful branch operations
+        return Promise.resolve("");
+      });
 
-      const setTaskStatusSpy = createMock();
+      let setTaskStatusSpy = createMock();
       setTaskStatusSpy = mock(() => Promise.resolve());
 
-      const getBackendForTaskSpy = createMock();
+      let getBackendForTaskSpy = createMock();
       getBackendForTaskSpy = mock(() =>
-                Promise.resolve({
-                  setTaskMetadata: createMock(() => Promise.resolve()),
-                }));
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        }));
 
       // Create mocks using centralized factories with spy integration
       const mockSessionDB = createMockSessionProvider({
@@ -579,49 +579,49 @@ describe("Session Approve", () => {
 
     test("should handle branch cleanup failures gracefully without failing the operation", async () => {
       // Create trackable spies for methods we need to verify
-      const getSessionSpy = createMock();
+      let getSessionSpy = createMock();
       getSessionSpy = mock((name) =>
-                Promise.resolve({
-                  session: name,
-                  repoName: "test-repo",
-                  repoUrl: "/test/repo/path",
-                  taskId: "#265",
-                  createdAt: new Date().toISOString(),
-                }));
+        Promise.resolve({
+          session: name,
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "#265",
+          createdAt: new Date().toISOString(),
+        }));
 
-      const getSessionByTaskIdSpy = createMock();
+      let getSessionByTaskIdSpy = createMock();
       getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
-      const getSessionWorkdirSpy = createMock();
+      let getSessionWorkdirSpy = createMock();
       getSessionWorkdirSpy = mock(() =>
-                Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
 
       const gitCommands: string[] = [];
-      const execInRepositorySpy = createMock();
+      let execInRepositorySpy = createMock();
       execInRepositorySpy = mock((_workdir, command) => {
-                gitCommands.push(command);
+        gitCommands.push(command);
 
-                if (command.includes("rev-parse HEAD")) {
-                  return Promise.resolve("abcdef123456");
-                }
-                if (command.includes("config user.name")) {
-                  return Promise.resolve("Test User");
-                }
-                // Simulate branch deletion failures
-                if (command.includes("branch -d")) {
-                  throw new Error("branch deletion failed - branch not found or has unmerged changes");
-                }
-                return Promise.resolve("");
-              });
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        // Simulate branch deletion failures
+        if (command.includes("branch -d")) {
+          throw new Error("branch deletion failed - branch not found or has unmerged changes");
+        }
+        return Promise.resolve("");
+      });
 
-      const setTaskStatusSpy = createMock();
+      let setTaskStatusSpy = createMock();
       setTaskStatusSpy = mock(() => Promise.resolve());
 
-      const getBackendForTaskSpy = createMock();
+      let getBackendForTaskSpy = createMock();
       getBackendForTaskSpy = mock(() =>
-                Promise.resolve({
-                  setTaskMetadata: createMock(() => Promise.resolve()),
-                }));
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        }));
 
       // Create mocks using centralized factories with spy integration
       const mockSessionDB = createMockSessionProvider({
@@ -669,53 +669,53 @@ describe("Session Approve", () => {
 
     test("should not attempt branch cleanup for already approved sessions", async () => {
       // Create trackable spies for methods we need to verify
-      const getSessionSpy = createMock();
+      let getSessionSpy = createMock();
       getSessionSpy = mock((name) =>
-                Promise.resolve({
-                  session: name,
-                  repoName: "test-repo",
-                  repoUrl: "/test/repo/path",
-                  taskId: "#265",
-                  createdAt: new Date().toISOString(),
-                }));
+        Promise.resolve({
+          session: name,
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "#265",
+          createdAt: new Date().toISOString(),
+        }));
 
-      const getSessionByTaskIdSpy = createMock();
+      let getSessionByTaskIdSpy = createMock();
       getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
-      const getSessionWorkdirSpy = createMock();
+      let getSessionWorkdirSpy = createMock();
       getSessionWorkdirSpy = mock(() =>
-                Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
 
       const gitCommands: string[] = [];
-      const execInRepositorySpy = createMock();
+      let execInRepositorySpy = createMock();
       execInRepositorySpy = mock((_workdir, command) => {
-                gitCommands.push(command);
+        gitCommands.push(command);
 
-                if (command.includes("rev-parse HEAD")) {
-                  return Promise.resolve("abcdef123456");
-                }
-                if (command.includes("config user.name")) {
-                  return Promise.resolve("Test User");
-                }
-                // Simulate that PR branch doesn't exist (already cleaned up)
-                if (command.includes("show-ref --verify --quiet refs/heads/pr/task#265")) {
-                  throw new Error("branch doesn't exist");
-                }
-                // Simulate merge-base check shows branch is already merged
-                if (command.includes("merge-base --is-ancestor")) {
-                  return Promise.resolve("");  // Success means it's already merged
-                }
-                return Promise.resolve("");
-              });
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        // Simulate that PR branch doesn't exist (already cleaned up)
+        if (command.includes("show-ref --verify --quiet refs/heads/pr/task#265")) {
+          throw new Error("branch doesn't exist");
+        }
+        // Simulate merge-base check shows branch is already merged
+        if (command.includes("merge-base --is-ancestor")) {
+          return Promise.resolve("");  // Success means it's already merged
+        }
+        return Promise.resolve("");
+      });
 
-      const setTaskStatusSpy = createMock();
+      let setTaskStatusSpy = createMock();
       setTaskStatusSpy = mock(() => Promise.resolve());
 
-      const getBackendForTaskSpy = createMock();
+      let getBackendForTaskSpy = createMock();
       getBackendForTaskSpy = mock(() =>
-                Promise.resolve({
-                  setTaskMetadata: createMock(() => Promise.resolve()),
-                }));
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        }));
 
       // Create mocks using centralized factories with spy integration
       const mockSessionDB = createMockSessionProvider({
@@ -762,49 +762,49 @@ describe("Session Approve", () => {
 
     test("should handle case where task branch doesn't exist but PR branch does", async () => {
       // Create trackable spies for methods we need to verify
-      const getSessionSpy = createMock();
+      let getSessionSpy = createMock();
       getSessionSpy = mock((name) =>
-                Promise.resolve({
-                  session: name,
-                  repoName: "test-repo",
-                  repoUrl: "/test/repo/path",
-                  taskId: "#265",
-                  createdAt: new Date().toISOString(),
-                }));
+        Promise.resolve({
+          session: name,
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "#265",
+          createdAt: new Date().toISOString(),
+        }));
 
-      const getSessionByTaskIdSpy = createMock();
+      let getSessionByTaskIdSpy = createMock();
       getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
-      const getSessionWorkdirSpy = createMock();
+      let getSessionWorkdirSpy = createMock();
       getSessionWorkdirSpy = mock(() =>
-                Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
 
       const gitCommands: string[] = [];
-      const execInRepositorySpy = createMock();
+      let execInRepositorySpy = createMock();
       execInRepositorySpy = mock((_workdir, command) => {
-                gitCommands.push(command);
+        gitCommands.push(command);
 
-                if (command.includes("rev-parse HEAD")) {
-                  return Promise.resolve("abcdef123456");
-                }
-                if (command.includes("config user.name")) {
-                  return Promise.resolve("Test User");
-                }
-                // Simulate that task branch doesn't exist but PR branch cleanup succeeds
-                if (command.includes("branch -d task#265")) {
-                  throw new Error("branch 'task#265' not found");
-                }
-                return Promise.resolve("");
-              });
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        // Simulate that task branch doesn't exist but PR branch cleanup succeeds
+        if (command.includes("branch -d task#265")) {
+          throw new Error("branch 'task#265' not found");
+        }
+        return Promise.resolve("");
+      });
 
-      const setTaskStatusSpy = createMock();
+      let setTaskStatusSpy = createMock();
       setTaskStatusSpy = mock(() => Promise.resolve());
 
-      const getBackendForTaskSpy = createMock();
+      let getBackendForTaskSpy = createMock();
       getBackendForTaskSpy = mock(() =>
-                Promise.resolve({
-                  setTaskMetadata: createMock(() => Promise.resolve()),
-                }));
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        }));
 
       // Create mocks using centralized factories with spy integration
       const mockSessionDB = createMockSessionProvider({

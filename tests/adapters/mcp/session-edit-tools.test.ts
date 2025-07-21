@@ -10,8 +10,8 @@ import { readFile, writeFile } from "fs/promises";
 setupTestMocks();
 
 // Mock fs operations
-const mockReadFile = createMock() as any;
-const mockWriteFile = createMock() as any;
+let mockReadFile = createMock() as any;
+let mockWriteFile = createMock() as any;
 const mockMkdir = createMock() as any;
 const mockStat = createMock() as any;
 
@@ -33,9 +33,9 @@ mockModule("../../../src/utils/logger", () => ({
 }));
 
 // CRITICAL: Mock SessionPathResolver at module level to control its behavior
-const mockResolvePath = createMock() as any;
-const mockValidatePath = createMock() as any;
-const mockValidatePathExists = createMock() as any;
+let mockResolvePath = createMock() as any;
+let mockValidatePath = createMock() as any;
+let mockValidatePathExists = createMock() as any;
 
 mockModule("../../../src/adapters/mcp/session-files", () => ({
   SessionPathResolver: class MockSessionPathResolver {
@@ -82,13 +82,13 @@ describe("Session Edit Tools", () => {
 
     // Mock addTool to capture registered tools
     commandMapper.addCommand = mock((command: { name: string; description: string; parameters?: any; handler: any }) => {
-            registeredTools[command.name] = {
-              name: command.name,
-              description: command.description,
-              schema: command.parameters,
-              handler: command.handler,
-            };
-          });
+      registeredTools[command.name] = {
+        name: command.name,
+        description: command.description,
+        schema: command.parameters,
+        handler: command.handler,
+      };
+    });
 
     // Register the tools
     registerSessionEditTools(commandMapper);
@@ -164,11 +164,11 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_search_replace"].handler;
 
       // Mock file content
-      const mockReadFile = readFile as unknown;
+      let mockReadFile = readFile as unknown;
       mockReadFile = mock(() => Promise.resolve("This is oldText in the file"));
 
       // Mock successful write
-      const mockWriteFile = writeFile as unknown;
+      let mockWriteFile = writeFile as unknown;
       mockWriteFile = mock(() => Promise.resolve(undefined));
 
       // Mock path resolver - use module-level mocks
@@ -195,7 +195,7 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_search_replace"].handler;
 
       // Mock file content
-      const mockReadFile = readFile as unknown;
+      let mockReadFile = readFile as unknown;
       mockReadFile = mock(() => Promise.resolve("This is some text in the file"));
 
       // Mock path resolver - use module-level mocks
@@ -217,7 +217,7 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_search_replace"].handler;
 
       // Mock file content with multiple occurrences
-      const mockReadFile = readFile as unknown;
+      let mockReadFile = readFile as unknown;
       mockReadFile = mock(() => Promise.resolve("This is oldText and another oldText in the file"));
 
       // Mock path resolver - use module-level mocks
