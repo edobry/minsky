@@ -1,5 +1,5 @@
-import { existsSync, rmSync } from "fs";
-import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
+import { existsSync } from "fs";
+import { readFile, writeFile, mkdir, access } from "fs/promises";
 import { join } from "path";
 import { getMinskyStateDir, getSessionDir } from "../../utils/paths";
 import {
@@ -7,8 +7,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-  createCommandFailureMessage,
-  createErrorContext
+  createCommandFailureMessage
 } from "../../errors/index";
 import { taskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
@@ -23,6 +22,9 @@ import {
 } from "../workspace";
 import * as WorkspaceUtils from "../workspace";
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
+import {
+  gitFetchWithTimeout
+} from "../../utils/git-exec";
 
 /**
  * Interface for session review parameters
@@ -205,7 +207,7 @@ export async function sessionReviewImpl(
 
     if (remoteBranchExists) {
       // Fetch the PR branch to ensure we have latest
-      await deps.gitService.execInRepository(sessionWorkdir, `git fetch origin ${prBranchToUse}`);
+      await gitFetchWithTimeout("origin", prBranchToUse, { workdir: sessionWorkdir });
 
       // Get the PR description from the remote branch's last commit
       const prDescription = await deps.gitService.execInRepository(
@@ -242,7 +244,7 @@ export async function sessionReviewImpl(
   // 3. Get diff stats and full diff
   try {
     // Fetch latest changes
-    await deps.gitService.execInRepository(sessionWorkdir, "git fetch origin");
+    await gitFetchWithTimeout("origin", undefined, { workdir: sessionWorkdir });
 
     // Get diff stats
     const diffStatsOutput = await deps.gitService.execInRepository(

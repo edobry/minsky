@@ -16,6 +16,11 @@ import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "../tasks";
 import { execAsync } from "../../utils/exec";
+import { 
+  gitPushWithTimeout, 
+  gitFetchWithTimeout,
+  execGitWithTimeout 
+} from "../../utils/git-exec";
 import {
   type WorkspaceUtilsInterface,
   getCurrentSession,
@@ -284,7 +289,7 @@ The task exists but has no associated session to approve.
     if (!params.json) {
       log.cli("📡 Fetching latest changes...");
     }
-    await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
+    await gitFetchWithTimeout("origin", undefined, { workdir: workingDirectory });
 
     // Check if the PR branch has already been merged
     let isNewlyApproved = true;
@@ -329,14 +334,14 @@ The task exists but has no associated session to approve.
         ).trim();
 
         // Push the changes
-        await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
+        await gitPushWithTimeout("origin", baseBranch, { workdir: workingDirectory });
 
         // Delete the PR branch from remote only if it exists there
         try {
-          // Check if remote branch exists first using execAsync directly to avoid error logging
+          // Check if remote branch exists first using timeout wrapper to avoid hanging
           // This is expected to fail if the branch doesn't exist, which is normal
-          await execAsync(`git show-ref --verify --quiet refs/remotes/origin/${prBranch}`, {
-            cwd: workingDirectory
+          await execGitWithTimeout("check-remote-ref", `show-ref --verify --quiet refs/remotes/origin/${prBranch}`, {
+            workdir: workingDirectory
           });
           // If it exists, delete it
           await deps.gitService.execInRepository(
@@ -465,7 +470,7 @@ The task exists but has no associated session to approve.
               await deps.gitService.execInRepository(workingDirectory, `git commit -m "chore(${taskId}): update task status to DONE"`);
 
               // Push the commit
-              await deps.gitService.execInRepository(workingDirectory, "git push");
+              await gitPushWithTimeout("origin", undefined, { workdir: workingDirectory });
 
               log.debug(`Committed and pushed task ${taskId} status update`);
             } else {
