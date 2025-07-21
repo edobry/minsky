@@ -10,7 +10,10 @@ import type { TaskBackend } from "./taskBackend";
 import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
+  TaskData,
+  TaskStatus,
 } from "../../types/tasks/taskData";
+import type { Task } from "./types";
 
 // Create a mock backend for testing
 function createMockBackend(): TaskBackend {
@@ -104,6 +107,16 @@ function createMockBackend(): TaskBackend {
     getTask: mock(() => Promise.resolve(null)),
     getTaskStatus: mock(() => Promise.resolve(undefined)),
     setTaskStatus: mock(() => Promise.resolve()),
+    deleteTask: mock(() => Promise.resolve(true)),
+    createTaskFromTitleAndDescription: mock((title: string, description: string) => 
+      Promise.resolve({
+        id: "#TEST_VALUE",
+        title: title,
+        description: description,
+        status: "TODO",
+        specPath: "process/tasks/123-test-task.md", // Proper spec path, not temporary
+      })
+    ),
   };
 }
 
@@ -274,7 +287,8 @@ describe("TaskService", () => {
 
       // Verify the task has the expected properties
       expect(task.id).toBe("#TEST_VALUE");
-      expect(task.title).toBe("Test Task");
+      expect(task.title).toBe(title); // Should return the actual title passed in
+      expect(task.description).toBe(description); // Should return the actual description passed in
       expect(task.status).toBe("TODO");
     });
 
