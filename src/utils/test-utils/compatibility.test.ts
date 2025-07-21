@@ -70,7 +70,7 @@ describe("Mock Function Compatibility", () => {
     const mockFn = compat.createCompatMock();
 
     // Implement the function
-    mockFn.mockImplementation(() => "mocked");
+    mockFn = mock(() => "mocked");
 
     // Verify implementation is used
     expect(mockFn()).toBe("mocked");
@@ -81,7 +81,7 @@ describe("Mock Function Compatibility", () => {
     const mockFn = compat.createCompatMock();
 
     // Set a return value
-    mockFn.mockReturnValue("value");
+    mockFn = mock(() => "value");
 
     // Verify return value is used
     expect(mockFn()).toBe("value");
@@ -116,7 +116,7 @@ describe("Mock Function Compatibility", () => {
     const mockFn = compat.createCompatMock();
 
     // Set resolved value
-    mockFn.mockResolvedValue("resolved");
+    mockFn = mock(() => Promise.resolve("resolved"));
 
     // Verify resolved value by directly calling the function
     const result = await mockFn();
@@ -124,7 +124,7 @@ describe("Mock Function Compatibility", () => {
 
     // Create another mock for rejection testing
     const mockFn2 = compat.createCompatMock();
-    mockFn2.mockRejectedValue(new Error("rejected"));
+    mockFn2 = mock(() => Promise.reject(new Error("rejected")));
 
     // Verify rejection with try/catch
     let error: Error | null = null;
@@ -217,8 +217,8 @@ describe("Module Mocking Compatibility", () => {
   test("mockModule works with factory", () => {
     // Mock a module with a factory
     const mockExports = {
-      foo: compat.createCompatMock().mockReturnValue("mocked foo"),
-      bar: compat.createCompatMock().mockReturnValue("mocked bar"),
+      foo: compat.createCompatMock() = mock(() => "mocked foo"),
+      bar: compat.createCompatMock() = mock(() => "mocked bar"),
     };
 
     compat.mockModule("some/module/path", () => mockExports);
@@ -233,7 +233,7 @@ describe("Module Mocking Compatibility", () => {
   test("jest.mock provides Jest-like syntax", () => {
     // Mock a module using jest.mock
     compat.jest.mock("another/module/path", () => ({
-      baz: compat.createCompatMock().mockReturnValue("mocked baz"),
+      baz: compat.createCompatMock() = mock(() => "mocked baz"),
     }));
 
     // The module should be mocked

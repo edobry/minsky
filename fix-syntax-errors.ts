@@ -1,35 +1,125 @@
 #!/usr/bin/env bun
 
-import { readFileSync, writeFileSync } from "fs";
-import { glob } from "glob";
+import { readdirSync, readFileSync, writeFileSync, statSync } from "fs";
+import { join } from "path";
 
-async function fixSyntaxErrors() {
-  console.log("🔧 Fixing syntax errors introduced by automated fixes...");
+/**
+ * Fix syntax errors created by incorrect ESLint auto-fixes
+ * Pattern: .mockResolvedValueOnce(...) = mock(() => Promise.resolve(...))
+ * Should be: = mock(() => Promise.resolve(...))
+ */
+
+function findTypeScriptFiles(dir: string): string[] {
+  const files: string[] = [];
   
-  const files = await glob("src/**/*.ts", { absolute: true });
-  let totalFixes = 0;
-  
-  for (const file of files) {
-    const content = readFileSync(file, "utf-8");
-    const originalContent = content;
+  function walk(currentDir: string) {
+    const items = readdirSync(currentDir);
     
-    // Fix (this as unknown)?.name = "ErrorName"; -> (this as unknown).name = "ErrorName";
-    let fixedContent = content.replace(/\(this as unknown\)\?\.name = /g, "(this as unknown).name = ");
-    
-    // Fix other potential ?. assignment issues
-    fixedContent = fixedContent.replace(/\(this as unknown\)\?\.([a-zA-Z_][a-zA-Z0-9_]*) = /g, "(this as unknown).$1 = ");
-    
-    if (fixedContent !== originalContent) {
-      writeFileSync(file, fixedContent);
-      const fixes = (originalContent.match(/\(this as unknown\)\?\./g) || []).length;
-      console.log(`✅ Fixed ${fixes} syntax errors in ${file}`);
-      totalFixes += fixes;
+    for (const item of items) {
+      const fullPath = join(currentDir, item);
+      const stat = statSync(fullPath);
+      
+      if (stat.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+        walk(fullPath);
+      } else if (item.endsWith('.ts') || item.endsWith('.js')) {
+        files.push(fullPath);
+      }
     }
   }
   
-  console.log(`\n📊 Total syntax fixes applied: ${totalFixes}`);
+  walk(dir);
+  return files;
 }
 
-if (import.meta.main) {
-  fixSyntaxErrors().catch(console.error);
-} 
+function fixSyntaxErrors(content: string): { content: string; changed: boolean } {
+  let changed = false;
+  
+  // Pattern 1: .mockResolvedValueOnce(...) = mock(() => Promise.resolve(...))
+  // Should be: = mock(() => Promise.resolve(...))
+  content = content.replace(
+    /(\s+)\.mockResolvedValueOnce\([^)]*\)\s*=\s*(mock\([^)]*\))/g,
+    (match, indent, mockCall) => {
+      changed = true;
+      return `${indent}= ${mockCall}`;
+    }
+  );
+  
+  // Pattern 2: .mockResolvedValue(...) = mock(() => Promise.resolve(...))
+  // Should be: = mock(() => Promise.resolve(...))
+  content = content.replace(
+    /(\s+)\.mockResolvedValue\([^)]*\)\s*=\s*(mock\([^)]*\))/g,
+    (match, indent, mockCall) => {
+      changed = true;
+      return `${indent}= ${mockCall}`;
+    }
+  );
+  
+  // Pattern 3: .mockReturnValue(...) = mock(() => ...)
+  // Should be: = mock(() => ...)
+  content = content.replace(
+    /(\s+)\.mockReturnValue\([^)]*\)\s*=\s*(mock\([^)]*\))/g,
+    (match, indent, mockCall) => {
+      changed = true;
+      return `${indent}= ${mockCall}`;
+    }
+  );
+  
+  // Pattern 4: Double assignment patterns like:
+  // }).mockResolvedValueOnce(...) = mock(() => ...)(...) = mock(() => ...)
+  content = content.replace(
+    /(\s+)\.mockResolvedValueOnce\([^)]*\)\s*=\s*mock\([^)]*\)\([^)]*\)\s*=\s*(mock\([^)]*\))/g,
+    (match, indent, finalMock) => {
+      changed = true;
+      return `${indent}= ${finalMock}`;
+    }
+  );
+  
+  return { content, changed };
+}
+
+function main() {
+  const srcFiles = findTypeScriptFiles("src");
+  const testFiles = findTypeScriptFiles("tests");
+  const allFiles = [...srcFiles, ...testFiles];
+  
+  let totalFixed = 0;
+  
+  for (const file of allFiles) {
+    try {
+      const content = readFileSync(file, "utf-8");
+      const { content: newContent, changed } = fixSyntaxErrors(content);
+      
+      if (changed) {
+        writeFileSync(file, newContent, "utf-8");
+        console.log(`Fixed syntax errors in: ${file}`);
+        totalFixed++;
+      }
+    } catch (error) {
+      console.error(`Error processing ${file}:`, error);
+    }
+  }
+  
+  console.log(`\nFixed syntax errors in ${totalFixed} files`);
+  
+  // Report remaining patterns that need manual attention
+  console.log("\nChecking for remaining problematic patterns...");
+  
+  for (const file of allFiles) {
+    try {
+      const content = readFileSync(file, "utf-8");
+      
+      // Check for remaining broken patterns
+      if (content.includes(".mockResolvedValueOnce(") && content.includes("= mock(")) {
+        console.log(`⚠️  Still has syntax issues: ${file}`);
+      }
+      
+      if (content.includes(".mockResolvedValue(") && content.includes("= mock(")) {
+        console.log(`⚠️  Still has syntax issues: ${file}`);
+      }
+    } catch (error) {
+      // Ignore file read errors
+    }
+  }
+}
+
+main(); 

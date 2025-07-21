@@ -14,11 +14,11 @@ describe("GitService PR Functionality", () => {
 
     // Directly mock the PR method to avoid complex dependencies
     spyOn(GitService.prototype, "pr").mockImplementation(async () => {
-      return {
-        markdown:
-          "# Mock PR Description\n\nThis is a mock PR description generated for testing.\n\n## Changes\n\n- Mock change 1\n- Mock change 2\n\n## Testing\n\nTested with mock tests.",
-      };
-    });
+                        return {
+                          markdown:
+                            "# Mock PR Description\n\nThis is a mock PR description generated for testing.\n\n## Changes\n\n- Mock change 1\n- Mock change 2\n\n## Testing\n\nTested with mock tests.",
+                        };
+                      });
 
     // Mock the child_process module to prevent any actual command execution
     mock.module("node:child_process", () => ({

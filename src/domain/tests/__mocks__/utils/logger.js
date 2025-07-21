@@ -1,17 +1,18 @@
 /**
  * Mock implementation of the logger module for tests
  */
+const { mock } = require("bun:test");
 
 const log = {
-  agent: jest.fn(),
-  debug: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-  cli: jest.fn(),
-  cliWarn: jest.fn(),
-  cliError: jest.fn(),
-  setLevel: jest.fn(),
-  cliDebug: jest.fn(),
+  agent: mock(),
+  debug: mock(),
+  warn: mock(),
+  error: mock(),
+  cli: mock(),
+  cliWarn: mock(),
+  cliError: mock(),
+  setLevel: mock(),
+  cliDebug: mock(),
 };
 
 module.exports = { log };
