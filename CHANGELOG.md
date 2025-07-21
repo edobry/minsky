@@ -1399,3 +1399,26 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Zero breaking changes during migration
   - Performance optimization with caching
   - Complete removal of node-config dependency
+
+- **TaskService Integration with Workspace-Resolving Backends (Task #276 Option 1)**: Complete integration of TaskService with workspace-resolving backend architecture
+  - `WorkspaceResolvingTaskService` class with simplified one-step creation pattern
+  - Convenience methods: `createMarkdownWithRepo()`, `createMarkdownWithWorkspace()`, `createMarkdownWithAutoDetection()`
+  - Full configuration support via `createWithWorkspaceResolvingBackend()`
+  - Eliminates need for external `resolveTaskWorkspacePath()` + `TaskService()` pattern
+  - Complete test coverage with 19/19 tests passing (5 new TaskService integration tests)
+  - Maintains backward compatibility while providing simplified API
+
+- **Follow-up Task Created**: Task #306 "Migrate codebase from TaskBackendRouter to workspace-resolving backends"
+  - Covers Options 2-4: Migrate task commands, create JSON backend, deprecate TaskBackendRouter
+  - Completes broader codebase migration from over-engineered routing patterns
+
+### Fixed
+
+- **Prototype Pollution Issues (Task #276)**: Resolved infinite loops in test suite caused by TaskBackendRouter design flaws
+  - Tests now complete in <60 seconds vs 500+ seconds infinite execution
+  - Eliminated `isInTreeBackend()` method checking/deletion causing infinite loops
+
+### Changed
+
+- **Backend Architecture**: Backends now handle workspace resolution internally instead of requiring external resolution
+- **API Simplification**: One-step backend creation eliminates complex router patterns
