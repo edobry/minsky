@@ -1400,11 +1400,10 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Performance optimization with caching
   - Complete removal of node-config dependency
 
-- **TaskService Integration with Workspace-Resolving Backends (Task #276 Option 1)**: Complete integration of TaskService with workspace-resolving backend architecture
-  - `WorkspaceResolvingTaskService` class with simplified one-step creation pattern
-  - Convenience methods: `createMarkdownWithRepo()`, `createMarkdownWithWorkspace()`, `createMarkdownWithAutoDetection()`
-  - Full configuration support via `createWithWorkspaceResolvingBackend()`
+- **Enhanced TaskService with Workspace-Resolving Backends (Task #276 Option 1)**: Enhanced existing TaskService with workspace-resolving capabilities
+  - Added static factory methods directly to TaskService class: `createWithWorkspaceResolvingBackend()`, `createMarkdownWithRepo()`, `createMarkdownWithWorkspace()`, `createMarkdownWithAutoDetection()`
   - Eliminates need for external `resolveTaskWorkspacePath()` + `TaskService()` pattern
+  - Single class approach (no separate service hierarchy)
   - Complete test coverage with 19/19 tests passing (5 new TaskService integration tests)
   - Maintains backward compatibility while providing simplified API
 
