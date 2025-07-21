@@ -536,8 +536,8 @@
 
 - [x] Improve Task Operations Workflow with Auto-Commit for Markdown Backend [#303](process/tasks/303-improve-task-operations-workflow-with-auto-commit-for-markdown-backend.md)
 
-- [-] Fix special workspace auto-commit sync issue [#304](process/tasks/304-fix-special-workspace-auto-commit-sync-issue.md)
+- [x] Fix special workspace auto-commit sync issue [#304](process/tasks/304-fix-special-workspace-auto-commit-sync-issue.md)
 
 - [+] Systematic Jest Pattern Migration & ESLint Rule Re-enablement [#305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md)
 
-- [+] Migrate codebase from TaskBackendRouter to workspace-resolving backends [#306](process/tasks/306-migrate-codebase-from-taskbackendrouter-to-workspace-resolving-backends.md)
+- [x] Migrate codebase from TaskBackendRouter to workspace-resolving backends [#306](process/tasks/306-migrate-codebase-from-taskbackendrouter-to-workspace-resolving-backends.md)
