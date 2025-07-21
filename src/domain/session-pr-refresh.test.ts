@@ -15,7 +15,7 @@ const mockSessionProvider = {
   getSessionByTaskId: mock(),
 };
 
-const mockPreparePrFromParams
+let mockPreparePrFromParams;
 // Note: Using simple mock functions instead of jest.mock for Bun compatibility
 // TODO: Replace with proper Bun mocking patterns if needed
 
@@ -78,9 +78,9 @@ describe.skip("Session PR Refresh Functionality", () => {
       mockPreparePrFromParams = mock(() => Promise.resolve({
         prBranch: "pr/task#231",
         baseBranch: "main",
-        title: "feat(#231)): Updated implementation",
+        title: "feat(#231): Updated implementation",
         body: "Updated body",
-      });
+      }));
 
       const result = await sessionPrFromParams({
         session: "task#231",
@@ -106,9 +106,9 @@ describe.skip("Session PR Refresh Functionality", () => {
       mockPreparePrFromParams = mock(() => Promise.resolve({
         prBranch: "pr/task#231",
         baseBranch: "main",
-        title: "feat(#231)): New implementation",
+        title: "feat(#231): New implementation",
         body: "New body",
-      });
+      }));
 
       const result = await sessionPrFromParams({
         session: "task#231",
@@ -141,8 +141,7 @@ describe.skip("Session PR Refresh Functionality", () => {
 
     it("should error when PR exists but cannot extract description", async () => {
       // Mock PR branch exists but description extraction fails
-      mockGitService.execInRepository = mock(() => Promise.resolve("not-exists")) // local branch check
-                .mockResolvedValueOnce("refs/heads/pr/task#231\torigin/pr/task#231") // remote branch check
+      mockGitService.execInRepository = mock(() => Promise.resolve("not-exists")).mockImplementationOnce(() => Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")) // remote branch check
                 = mock(() => Promise.reject(new Error("Git command failed"))); // get commit message fails
 
       await expect(sessionPrFromParams({
@@ -155,16 +154,15 @@ describe.skip("Session PR Refresh Functionality", () => {
   describe("Title/Body Extraction", () => {
     it("should correctly parse commit message with title and body", async () => {
       // Mock PR branch exists with multi-line commit message
-      mockGitService.execInRepository = mock(() => Promise.resolve("not-exists")) // local branch check
-                .mockResolvedValueOnce("refs/heads/pr/task#231\torigin/pr/task#231") // remote branch check
+      mockGitService.execInRepository = mock(() => Promise.resolve("not-exists")).mockImplementationOnce(() => Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")) // remote branch check
                 = mock(() => Promise.resolve("feat(#231): Add new feature\n\nThis is the detailed description\nwith multiple lines")); // get commit message
 
       mockPreparePrFromParams = mock(() => Promise.resolve({
         prBranch: "pr/task#231",
         baseBranch: "main",
-        title: "feat(#231)): Add new feature",
+        title: "feat(#231): Add new feature",
         body: "This is the detailed description\nwith multiple lines",
-      });
+      }));
 
       const result = await sessionPrFromParams({
         session: "task#231",
@@ -176,16 +174,15 @@ describe.skip("Session PR Refresh Functionality", () => {
 
     it("should handle commit message with title only", async () => {
       // Mock PR branch exists with single-line commit message
-      mockGitService.execInRepository = mock(() => Promise.resolve("not-exists")) // local branch check
-                .mockResolvedValueOnce("refs/heads/pr/task#231\torigin/pr/task#231") // remote branch check
+      mockGitService.execInRepository = mock(() => Promise.resolve("not-exists")).mockImplementationOnce(() => Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")) // remote branch check
                 = mock(() => Promise.resolve("feat(#231): Simple title only")); // get commit message
 
       mockPreparePrFromParams = mock(() => Promise.resolve({
         prBranch: "pr/task#231",
         baseBranch: "main",
-        title: "feat(#231)): Simple title only",
+        title: "feat(#231): Simple title only",
         body: "",
-      });
+      }));
 
       const result = await sessionPrFromParams({
         session: "task#231",
@@ -199,17 +196,15 @@ describe.skip("Session PR Refresh Functionality", () => {
   describe("Schema Validation", () => {
     it("should accept optional title parameter", async () => {
       // Mock PR branch exists
-      mockGitService.execInRepository
-                .mockResolvedValueOnce("not-exists") // local branch check
-                .mockResolvedValueOnce("refs/heads/pr/task#231\torigin/pr/task#231") // remote branch check
+      mockGitService.execInRepository.mockImplementationOnce(() => Promise.resolve("not-exists")).mockImplementationOnce(() => Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")) // remote branch check
                 = mock(() => Promise.resolve("feat(#231): Existing title\n\nExisting body")); // get commit message
 
       mockPreparePrFromParams = mock(() => Promise.resolve({
         prBranch: "pr/task#231",
         baseBranch: "main",
-        title: "feat(#231)): Existing title",
+        title: "feat(#231): Existing title",
         body: "Existing body",
-      });
+      }));
 
       // Should not throw validation error for missing title
       await expect(sessionPrFromParams({
