@@ -528,8 +528,6 @@
 
 - [x] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
 
-- [x] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
-
 - [x] Implement Custom Type-Safe Configuration System [#295](process/tasks/295-implement-custom-type-safe-configuration-system.md)
 
 - [ ] Audit codebase for git command timeout issues and create ESLint rule [#301](process/tasks/301-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
@@ -538,8 +536,8 @@
 
 - [x] Improve Task Operations Workflow with Auto-Commit for Markdown Backend [#303](process/tasks/303-improve-task-operations-workflow-with-auto-commit-for-markdown-backend.md)
 
-- [+] Fix special workspace auto-commit sync issue [#304](process/tasks/304-fix-special-workspace-auto-commit-sync-issue.md)
+- [x] Fix special workspace auto-commit sync issue [#304](process/tasks/304-fix-special-workspace-auto-commit-sync-issue.md)
 
-- [ ] Systematic Jest Pattern Migration & ESLint Rule Re-enablement [#305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md)
+- [+] Systematic Jest Pattern Migration & ESLint Rule Re-enablement [#305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md)
 
 - [x] Migrate codebase from TaskBackendRouter to workspace-resolving backends [#306](process/tasks/306-migrate-codebase-from-taskbackendrouter-to-workspace-resolving-backends.md)
