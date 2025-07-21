@@ -317,41 +317,25 @@ Repository: ${this.repoUrl}
           const branch = branchOutput.trim();
 
           // Push to remote
-          await gitPushWithTimeout(workdir, branch);
+          await gitPushWithTimeout("origin", branch, { workdir });
         } catch (error) {
           const normalizedError = error instanceof Error ? error : new Error(String(error as any));
           if ((normalizedError?.message as any).includes("Authentication failed")) {
             return {
               success: false,
-              message: "Git authentication failed. Check your credentials or SSH key.",
-              error: error instanceof Error ? error : new Error(String(error)),
-            };
-          } else if ((error as any).message.includes("[rejected]")) {
-            return {
-              success: false,
-              message: "Push rejected. Try pulling changes first or use force push if appropriate.",
-              error: error instanceof Error ? error : new Error(String(error)),
-            };
-          } else {
-            return {
-              success: false,
-              message: `Failed to push to remote repository: ${(error as any).message}`,
-              error: error instanceof Error ? error : new Error(String(error)),
+              error: new Error("Authentication failed during push operation. Please check your credentials."),
             };
           }
+          throw normalizedError;
         }
       }
 
-      return {
-        success: true,
-        message: "Successfully pushed changes to remote repository",
-      };
+      return { success: true };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
-        message: `Failed to push to remote repository: ${normalizedError.message}`,
-        error: normalizedError,
+        error: new Error(`Failed to push changes: ${normalizedError.message}`),
       };
     }
   }
