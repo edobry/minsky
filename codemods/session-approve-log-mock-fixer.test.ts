@@ -23,7 +23,8 @@ describe("Session Approve Log Mock Fixer", () => {
     
     test("should skip files that already have log.cli mock", () => {
       const project = new Project();
-      const sourceFile = project.createSourceFile("virtual-test-1.test.ts", `
+      const timestamp = Date.now();
+      const sourceFile = project.createSourceFile(`virtual-test-1-${timestamp}.test.ts`, `
         const log = {
           cli: vi.fn(),
           info: vi.fn()
@@ -38,7 +39,8 @@ describe("Session Approve Log Mock Fixer", () => {
     
     test("should add cli method to existing log mock", () => {
       const project = new Project();
-      const sourceFile = project.createSourceFile("virtual-test-2.test.ts", `
+      const timestamp = Date.now();
+      const sourceFile = project.createSourceFile(`virtual-test-2-${timestamp}.test.ts`, `
         const mockLog = {
           info: vi.fn(),
           debug: vi.fn(),
@@ -56,7 +58,8 @@ describe("Session Approve Log Mock Fixer", () => {
     
     test("should add complete log mock for session approve tests without existing mock", () => {
       const project = new Project();
-      const sourceFile = project.createSourceFile("virtual-session-approve.test.ts", `
+      const timestamp = Date.now();
+      const sourceFile = project.createSourceFile(`virtual-session-approve-${timestamp}.test.ts`, `
         describe("Session Approve", () => {
           test("should approve session", () => {
             // test that uses approveSession function
@@ -74,7 +77,8 @@ describe("Session Approve Log Mock Fixer", () => {
     
     test("should not modify files that don't need log mocks", () => {
       const project = new Project();
-      const sourceFile = project.createSourceFile("virtual-other.test.ts", `
+      const timestamp = Date.now();
+      const sourceFile = project.createSourceFile(`virtual-other-${timestamp}.test.ts`, `
         describe("Some Other Test", () => {
           test("should do something", () => {
             expect(true).toBe(true);
@@ -154,8 +158,9 @@ describe("Session Approve Log Mock Fixer", () => {
     
     test("should maintain valid TypeScript syntax after modifications", () => {
       const project = new Project();
+      const timestamp = Date.now();
       
-      const sourceFile = project.createSourceFile("virtual-syntax-test.test.ts", `
+      const sourceFile = project.createSourceFile(`virtual-syntax-test-${timestamp}.test.ts`, `
         const mockLog = {
           info: vi.fn(),
           error: vi.fn()

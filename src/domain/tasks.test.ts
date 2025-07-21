@@ -64,7 +64,8 @@ const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
   resolveWorkspacePath: mockResolveWorkspacePath,
   createTaskService: mockCreateTaskService,
-  resolveMainWorkspacePath: createMock(() => Promise.resolve("/test/workspace/path"))
+  resolveMainWorkspacePath: createMock(() => Promise.resolve("/test/workspace/path")),
+  resolveTaskWorkspacePath: createMock(() => Promise.resolve("/mock/task/workspace/path"))
 } as any; // Cast to any to avoid TypeScript errors with the deps parameter
 
 describe("interface-agnostic task functions", () => {
