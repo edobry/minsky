@@ -607,7 +607,9 @@ export class GitService implements GitServiceInterface {
       const { stdout } = await execAsync(command!, { cwd: workdir });
       return stdout;
     } catch (error) {
-      log.error("Command execution failed", {
+      // Use debug logging instead of error logging since these failures are often expected
+      // and caught by calling code (e.g., checking if a branch exists)
+      log.debug("Git command failed (this may be expected)", {
         error: getErrorMessage(error as any),
         command,
         workdir,
