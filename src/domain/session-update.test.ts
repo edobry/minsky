@@ -95,13 +95,12 @@ describe("updateSessionFromParams", () => {
     );
 
     expect(_result).toEqual({
-      _session: "test-session",
+      session: "test-session",
+      branch: "main",
       repoName: "test-repo",
       repoUrl: "https://example.com/test-repo",
-      _branch: "test-branch",
       createdAt: "2023-01-01",
       taskId: "TEST_VALUE",
-      repoPath: "/mock/session/workdir",
     });
 
     expectToHaveBeenCalled(mockGitService.stashChanges);

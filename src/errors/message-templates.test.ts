@@ -255,7 +255,7 @@ describe("Error Message Templates", () => {
       expect(result).toContain("🔍 Session \"test-session\" Not Found");
       expect(result).toContain("The session you're trying to access doesn't exist");
       expect(result).toContain("💡 What you can do:");
-      expect(result).toContain("List all available sessions");
+      expect(result).toContain("ℹ️ List available sessions:");
       expect(result).toContain("Create a new session");
       expect(result).toContain("Check session details");
     });

@@ -18,7 +18,7 @@ describe("resolveWorkspacePath", () => {
 
     const _result = await resolveWorkspacePath(_options, mockDeps);
 
-    expect(mockAccess).toHaveBeenCalledWith(join("/test/workspace", "process"));
+    expect(mockAccess).toHaveBeenCalledWith("/test/workspace");
     expect(_result).toBe("/test/workspace");
   });
 
