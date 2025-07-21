@@ -50,7 +50,7 @@ describe.skip("Session PR Refresh Functionality", () => {
       mockPreparePrFromParams = mock(() => Promise.resolve({
         prBranch: "pr/task#231",
         baseBranch: "main",
-        title: "feat(#231)): Initial implementation",
+        title: "feat(#231): Initial implementation",
         body: "This is the PR body",
       });
 

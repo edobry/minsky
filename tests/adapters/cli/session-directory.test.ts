@@ -92,17 +92,17 @@ describe("session dir command", () => {
 
     // CORRECT BEHAVIOR: getEntities filters sessions by taskId
     mockStorage.getEntities = mock(async (options?: any) => {
-            if (!options?.taskId) {
-              return testData.mockSessions;
-            }
+      if (!options?.taskId) {
+        return testData.mockSessions;
+      }
             
-            // Implement the same filtering logic as SQLite storage
-            const normalizedTaskId = options.taskId.replace(/^#/, "");
-            return testData.mockSessions.filter((s) => {
-              if (!s.taskId) return false;
-              return s.taskId.replace(/^#/, "") === normalizedTaskId;
-            });
-          });
+      // Implement the same filtering logic as SQLite storage
+      const normalizedTaskId = options.taskId.replace(/^#/, "");
+      return testData.mockSessions.filter((s) => {
+        if (!s.taskId) return false;
+        return s.taskId.replace(/^#/, "") === normalizedTaskId;
+      });
+    });
 
     // Act: Simulate the SessionDbAdapter.getSessionByTaskId logic
     const normalizedTaskId = "160".replace(/^#/, "");

@@ -106,7 +106,7 @@ export const _compat = {
   },
 
   createCompatMock: (implementation?: (...args: any[]) => any) => {
-    const mockFn = createMock(implementation);
+    let mockFn = createMock(implementation);
 
     // Store the original implementation for "once" functionality
     let originalImplementation = implementation;

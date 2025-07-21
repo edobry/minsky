@@ -131,21 +131,21 @@ export function createSessionTestData(): SessionTestData {
   // Set up mock implementations manually to avoid type issues
   (mockSessionDB.listSessions as any) = mock(() => Promise.resolve(mockSessions));
   (mockSessionDB.getSession as any) = mock((name: string) => {
-        return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
-      });
+    return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
+  });
   (mockSessionDB.getSessionByTaskId as any) = mock((taskId: string) => {
-        return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
-      });
+    return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
+  });
   (mockSessionDB.getRepoPath as any) = mock((record: any) => {
-        return Promise.resolve(record.repoPath || "/default/path");
-      });
+    return Promise.resolve(record.repoPath || "/default/path");
+  });
   (mockSessionDB.addSession as any) = mock(() => Promise.resolve(undefined));
   (mockSessionDB.updateSession as any) = mock(() => Promise.resolve(undefined));
   (mockSessionDB.deleteSession as any) = mock(() => Promise.resolve(true));
   (mockSessionDB.getSessionWorkdir as any) = mock((sessionName: string) => {
-        const session = mockSessions.find((s) => s.session === sessionName);
-        return Promise.resolve(session?.repoPath || "/default/workdir");
-      });
+    const session = mockSessions.find((s) => s.session === sessionName);
+    return Promise.resolve(session?.repoPath || "/default/workdir");
+  });
 
   return {
     mockSessionDB,

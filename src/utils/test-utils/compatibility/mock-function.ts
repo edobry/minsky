@@ -232,9 +232,9 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   };
 
   // Create the Bun mock function with our implementation
-  const _bunMockFn
+  const _bunMockFn;
   // create a new function that delegates to it
-  const mockFn = function (...args: Parameters<T>): ReturnType<T> {
+  let mockFn = function (...args: Parameters<T>): ReturnType<T> {
     // Call the original function directly instead of through bunMockFn
     return implementationFn(...args);
   } as CompatMockFunction<ReturnType<T>, Parameters<T>>;
@@ -375,7 +375,7 @@ export function spyOn<T extends object, M extends keyof T>(
   const original = object[method];
 
   // Create a mock function that wraps the original
-  const mockFn = createCompatMock((...args: unknown[]) => {
+  let mockFn = createCompatMock((...args: unknown[]) => {
     if (typeof original === "function") {
       return (original as Function).apply(object, args);
     }

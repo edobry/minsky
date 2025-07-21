@@ -16,7 +16,7 @@ describe("Session Context Resolution Architecture Issues", () => {
 
   beforeEach(() => {
     originalCwd = process.cwd;
-    mockCwd
+    mockCwd;
     process.cwd = mockCwd;
   });
 

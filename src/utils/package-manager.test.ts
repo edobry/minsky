@@ -19,9 +19,9 @@ import {
 
 describe("Package Manager Utilities", () => {
   // Mock fs.existsSync
-  const existsSyncMock = spyOn(fs, "existsSync");
+  let existsSyncMock = spyOn(fs, "existsSync");
   // Mock childProcess.execSync
-  const execSyncMock = spyOn(childProcess, "execSync");
+  let execSyncMock = spyOn(childProcess, "execSync");
 
   beforeEach(() => {
     // Reset mocks before each test
@@ -38,9 +38,9 @@ describe("Package Manager Utilities", () => {
   describe("detectPackageManager", () => {
     test("detects bun from bun.lock", () => {
       existsSyncMock = mock((filepath) => {
-                if (filepath.toString().includes("bun.lock")) return true;
-                return false;
-              });
+        if (filepath.toString().includes("bun.lock")) return true;
+        return false;
+      });
 
       const result = detectPackageManager("/fake/repo");
       expect(result).toBe("bun");
@@ -48,9 +48,9 @@ describe("Package Manager Utilities", () => {
 
     test("detects yarn from yarn.lock", () => {
       existsSyncMock = mock((filepath) => {
-                if (filepath.toString().includes("yarn.lock")) return true;
-                return false;
-              });
+        if (filepath.toString().includes("yarn.lock")) return true;
+        return false;
+      });
 
       const result = detectPackageManager("/fake/repo");
       expect(result).toBe("yarn");
@@ -58,9 +58,9 @@ describe("Package Manager Utilities", () => {
 
     test("detects pnpm from pnpm-lock.yaml", () => {
       existsSyncMock = mock((filepath) => {
-                if (filepath.toString().includes("pnpm-lock.yaml")) return true;
-                return false;
-              });
+        if (filepath.toString().includes("pnpm-lock.yaml")) return true;
+        return false;
+      });
 
       const result = detectPackageManager("/fake/repo");
       expect(result).toBe("pnpm");
@@ -68,9 +68,9 @@ describe("Package Manager Utilities", () => {
 
     test("detects npm from package-lock.json", () => {
       existsSyncMock = mock((filepath) => {
-                if (filepath.toString().includes("package-lock.json")) return true;
-                return false;
-              });
+        if (filepath.toString().includes("package-lock.json")) return true;
+        return false;
+      });
 
       const result = detectPackageManager("/fake/repo");
       expect(result).toBe("npm");
@@ -78,9 +78,9 @@ describe("Package Manager Utilities", () => {
 
     test("defaults to npm if only package.json exists", () => {
       existsSyncMock = mock((filepath) => {
-                if (filepath.toString().includes("package.json")) return true;
-                return false;
-              });
+        if (filepath.toString().includes("package.json")) return true;
+        return false;
+      });
 
       const result = detectPackageManager("/fake/repo");
       expect(result).toBe("npm");
@@ -119,9 +119,9 @@ describe("Package Manager Utilities", () => {
   describe("installDependencies", () => {
     test("successfully installs dependencies", async () => {
       existsSyncMock = mock((filepath) => {
-                if (filepath.toString().includes("package.json")) return true;
-                return false;
-              });
+        if (filepath.toString().includes("package.json")) return true;
+        return false;
+      });
 
       execSyncMock = mock(() => Buffer.from("Success"));
 
@@ -169,13 +169,13 @@ describe("Package Manager Utilities", () => {
 
     test("handles installation errors", async () => {
       existsSyncMock = mock((filepath) => {
-                if (filepath.toString().includes("package.json")) return true;
-                return false;
-              });
+        if (filepath.toString().includes("package.json")) return true;
+        return false;
+      });
 
       execSyncMock = mock(() => {
-                throw new Error("Installation failed");
-              });
+        throw new Error("Installation failed");
+      });
 
       const result = await installDependencies("/fake/repo");
 
@@ -185,9 +185,9 @@ describe("Package Manager Utilities", () => {
 
     test("respects quiet option for stdio", async () => {
       existsSyncMock = mock((filepath) => {
-                if (filepath.toString().includes("package.json")) return true;
-                return false;
-              });
+        if (filepath.toString().includes("package.json")) return true;
+        return false;
+      });
 
       execSyncMock = mock(() => Buffer.from("Success"));
 

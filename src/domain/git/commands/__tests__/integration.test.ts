@@ -13,7 +13,7 @@ import {
 } from "../index";
 
 // Mock all git execution paths comprehensively
-const mockExecAsync = createMock() as any;
+let mockExecAsync = createMock() as any;
 const mockGitService = {
   clone: createMock(),
   createBranch: createMock(),
@@ -28,7 +28,7 @@ const mockGitService = {
 } as any;
 
 // Mock the createGitService factory to return our mock
-const mockCreateGitService = createMock() as any;
+let mockCreateGitService = createMock() as any;
 mockCreateGitService = mock(() => mockGitService);
 
 // Mock git execution at multiple levels
@@ -139,11 +139,11 @@ describe("Git Commands Integration Tests", () => {
       
     // Mock execAsync for any direct usage
     mockExecAsync = mock((command: string) => {
-            return Promise.resolve({
-              stdout: "Mock git command success",
-              stderr: "",
-            });
-          });
+      return Promise.resolve({
+        stdout: "Mock git command success",
+        stderr: "",
+      });
+    });
   });
 
   afterEach(() => {
@@ -179,12 +179,12 @@ describe("Git Commands Integration Tests", () => {
   describe("commitChangesFromParams", () => {
     test("should commit changes successfully", async () => {
       mockExecAsync = mock((command: string, callback: any) => {
-                if (command.includes("git commit")) {
-                  callback(null, "abc123", "");
-                } else {
-                  callback(null, "Command successful", "");
-                }
-              });
+        if (command.includes("git commit")) {
+          callback(null, "abc123", "");
+        } else {
+          callback(null, "Command successful", "");
+        }
+      });
 
       const params = {
         repo: tempWorkdir,
@@ -249,17 +249,17 @@ describe("Git Commands Integration Tests", () => {
   describe("createPullRequestFromParams", () => {
     test("should generate PR successfully", async () => {
       mockExecAsync = mock(async (command: string) => {
-                if (command.includes("git log --oneline")) {
-                  return { stdout: "abc123 feat: add new feature", stderr: "" };
-                }
-                if (command.includes("git diff --name-only")) {
-                  return { stdout: "src/feature.ts", stderr: "" };
-                }
-                if (command.includes("git branch --show-current")) {
-                  return { stdout: "feature-branch", stderr: "" };
-                }
-                return { stdout: "", stderr: "" };
-              });
+        if (command.includes("git log --oneline")) {
+          return { stdout: "abc123 feat: add new feature", stderr: "" };
+        }
+        if (command.includes("git diff --name-only")) {
+          return { stdout: "src/feature.ts", stderr: "" };
+        }
+        if (command.includes("git branch --show-current")) {
+          return { stdout: "feature-branch", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      });
 
       const params = {
         repo: tempWorkdir,
@@ -276,23 +276,23 @@ describe("Git Commands Integration Tests", () => {
     test("should execute a complete workflow", async () => {
       // Mock sequence of git operations
       mockExecAsync = mock(async (command: string) => {
-                if (command.includes("git clone")) {
-                  return { stdout: "Cloning...", stderr: "" };
-                }
-                if (command.includes("git checkout -b") || command.includes("git switch -c")) {
-                  return { stdout: "Switched to new branch", stderr: "" };
-                }
-                if (command.includes("git add")) {
-                  return { stdout: "", stderr: "" };
-                }
-                if (command.includes("git commit")) {
-                  return { stdout: "abc123", stderr: "" };
-                }
-                if (command.includes("git push")) {
-                  return { stdout: "Pushed", stderr: "" };
-                }
-                return { stdout: "", stderr: "" };
-              });
+        if (command.includes("git clone")) {
+          return { stdout: "Cloning...", stderr: "" };
+        }
+        if (command.includes("git checkout -b") || command.includes("git switch -c")) {
+          return { stdout: "Switched to new branch", stderr: "" };
+        }
+        if (command.includes("git add")) {
+          return { stdout: "", stderr: "" };
+        }
+        if (command.includes("git commit")) {
+          return { stdout: "abc123", stderr: "" };
+        }
+        if (command.includes("git push")) {
+          return { stdout: "Pushed", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      });
 
       // Updated: Test expects error due to git repository constraints in workflow
       await expect(cloneFromParams({

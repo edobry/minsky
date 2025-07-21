@@ -83,10 +83,10 @@ describe("interface-agnostic task functions", () => {
 
     test("should filter out DONE tasks when all is false", async () => {
       mockTaskService.listTasks = mock(() =>
-                Promise.resolve([
-                  { ...mockTask, status: TASK_STATUS.TODO },
-                  { ...mockTask, id: "#124", status: TASK_STATUS.DONE },
-                ]));
+        Promise.resolve([
+          { ...mockTask, status: TASK_STATUS.TODO },
+          { ...mockTask, id: "#124", status: TASK_STATUS.DONE },
+        ]));
 
       const params = { all: false };
 
@@ -140,11 +140,11 @@ describe("interface-agnostic task functions", () => {
       // Modify mock implementation to return task with ID 'TEST_VALUE' for both '#TEST_VALUE' and '#23'
       // This simulates the updated MarkdownTaskBackend.getTask behavior
       mockTaskService.getTask = mock((id) =>
-                Promise.resolve(
-                  parseInt(id.replace(/^#/, ""), 10) === TASK_ID_WITHOUT_LEADING_ZEROS
-                    ? { ...mockTask, id: "#023" }
-                    : null
-                ));
+        Promise.resolve(
+          parseInt(id.replace(/^#/, ""), 10) === TASK_ID_WITHOUT_LEADING_ZEROS
+            ? { ...mockTask, id: "#023" }
+            : null
+        ));
 
       const params = {
         taskId: "23", // without leading zeros
