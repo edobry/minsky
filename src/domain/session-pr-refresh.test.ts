@@ -52,7 +52,7 @@ describe.skip("Session PR Refresh Functionality", () => {
         baseBranch: "main",
         title: "feat(#231): Initial implementation",
         body: "This is the PR body",
-      });
+      }));
 
       const result = await sessionPrFromParams({
         session: "task#231",
