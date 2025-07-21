@@ -48,25 +48,25 @@ export class WorkspaceResolvingTaskService extends TaskService {
     let resolvedBackend: any; // Using any for now since workspace-resolving backends extend the interface
     
     switch (backend) {
-      case "markdown": {
-        if (!backendConfig) {
-          throw new Error("Backend configuration required for markdown backend");
-        }
+    case "markdown": {
+      if (!backendConfig) {
+        throw new Error("Backend configuration required for markdown backend");
+      }
         
-        resolvedBackend = await createWorkspaceResolvingMarkdownBackend(
+      resolvedBackend = await createWorkspaceResolvingMarkdownBackend(
           backendConfig as WorkspaceResolvingMarkdownConfig
-        );
-        break;
-      }
+      );
+      break;
+    }
       
-      case "json-file": {
-        // TODO: Implement workspace-resolving JSON backend (Task #306)
-        throw new Error("Workspace-resolving JSON backend not yet implemented (see Task #306)");
-      }
+    case "json-file": {
+      // TODO: Implement workspace-resolving JSON backend (Task #306)
+      throw new Error("Workspace-resolving JSON backend not yet implemented (see Task #306)");
+    }
       
-      default: {
-        throw new Error(`Workspace-resolving backend not available for type: ${backend}`);
-      }
+    default: {
+      throw new Error(`Workspace-resolving backend not available for type: ${backend}`);
+    }
     }
 
     // Create TaskService with the resolved backend
