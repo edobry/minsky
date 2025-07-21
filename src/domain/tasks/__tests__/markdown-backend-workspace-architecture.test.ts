@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createMarkdownTaskBackend } from "../markdownTaskBackend";
-import { rmSync, mkdirSync, writeFileSync } from "fs";
+import { rmSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
@@ -24,24 +24,64 @@ describe("MarkdownTaskBackend Special Workspace Architecture", () => {
 
   beforeEach(() => {
     // Create temporary directory that mimics a workspace with tasks.md
-    tempDir = join(tmpdir(), `minsky-workspace-test-${Date.now()}-${Math.random().toString(36).substring(7)}`);
-    mkdirSync(tempDir, { recursive: true });
+    // Use more unique naming to prevent race conditions with other tests
+    tempDir = join(tmpdir(), `minsky-workspace-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+    
+    // Ensure directory creation is atomic and race-condition safe
+    let retryCount = 0;
+    while (retryCount < 5) {
+      try {
+        mkdirSync(tempDir, { recursive: true });
+        break;
+      } catch (error) {
+        retryCount++;
+        if (retryCount >= 5) {
+          throw new Error(`Failed to create temp directory after 5 attempts: ${error}`);
+        }
+        // Small delay to avoid race conditions
+        Bun.sleepSync(1);
+      }
+    }
 
     const processDir = join(tempDir, "process");
-    mkdirSync(processDir, { recursive: true });
+    
+    // Ensure process directory creation is safe
+    try {
+      mkdirSync(processDir, { recursive: true });
+    } catch (error) {
+      throw new Error(`Failed to create process directory: ${error}`);
+    }
 
     // Create a tasks.md file in the temp directory (simulating main workspace)
-    // Use consistent synchronous operations to avoid race conditions
-    writeFileSync(
-      join(processDir, "tasks.md"),
-      "# Tasks\n\n- #001: Test Task [TODO]\n",
-      { encoding: "utf8" }
-    );
+    // Use sync operation to avoid race conditions
+    try {
+      require("fs").writeFileSync(
+        join(processDir, "tasks.md"),
+        "# Tasks\n\n- #001: Test Task [TODO]\n"
+      );
+    } catch (error) {
+      throw new Error(`Failed to create tasks.md file: ${error}`);
+    }
   });
 
   afterEach(() => {
-    // Clean up temporary directory
-    rmSync(tempDir, { recursive: true, force: true });
+    // Clean up temporary directory with retry logic to handle race conditions
+    let retryCount = 0;
+    while (retryCount < 5 && existsSync(tempDir)) {
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        retryCount++;
+        if (retryCount >= 5) {
+          // Log error but don't fail the test
+          console.warn(`Failed to cleanup temp directory ${tempDir}: ${error}`);
+        } else {
+          // Small delay before retry
+          Bun.sleepSync(1);
+        }
+      }
+    }
   });
 
   /**
