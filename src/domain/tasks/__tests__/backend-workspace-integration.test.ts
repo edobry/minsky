@@ -271,7 +271,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       // Verify workspace resolution happened correctly
       const resolutionInfo = (backend as any).getWorkspaceResolutionInfo();
       expect(resolutionInfo.workspacePath).toBe(tempDir);
-      expect(resolutionInfo.method).toBe("explicit");
+      expect(resolutionInfo.method).toBe('explicit');
     });
 
     test("should eliminate external workspace resolution for repo URLs", async () => {
@@ -289,7 +289,73 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       
       // Verify it used special workspace
       const resolutionInfo = (backend as any).getWorkspaceResolutionInfo();
-      expect(resolutionInfo.method).toBe("special-workspace");
+      expect(resolutionInfo.method).toBe('special-workspace');
+    });
+
+    test("should enable complete TaskService workflow with workspace-resolving backends", async () => {
+      const { WorkspaceResolvingTaskService } = await import("../workspace-resolving-task-service");
+      
+      // Complete workflow test - from configuration to task operations
+      const taskService = await WorkspaceResolvingTaskService.createMarkdownWithWorkspace({
+        workspacePath: tempDir
+      });
+
+      // Should be able to perform task operations
+      expect(taskService).toBeDefined();
+      const tasks = await taskService.listTasks();
+      expect(Array.isArray(tasks)).toBe(true);
+      
+      // Should have proper workspace
+      expect(taskService.getWorkspacePath()).toBe(tempDir);
+    });
+
+    test("should support repository-based TaskService creation", async () => {
+      const { WorkspaceResolvingTaskService } = await import("../workspace-resolving-task-service");
+      
+      // Repository-based creation
+      const taskService = await WorkspaceResolvingTaskService.createMarkdownWithRepo({
+        repoUrl: "https://github.com/test/repo.git"
+      });
+
+      // Should work with special workspace
+      expect(taskService).toBeDefined();
+      expect(taskService.getWorkspacePath()).toContain("task-operations");
+      
+      const tasks = await taskService.listTasks();
+      expect(Array.isArray(tasks)).toBe(true);
+    });
+
+    test("should support auto-detection TaskService creation", async () => {
+      const { WorkspaceResolvingTaskService } = await import("../workspace-resolving-task-service");
+      
+      // Auto-detection creation (uses current workspace)
+      const taskService = await WorkspaceResolvingTaskService.createMarkdownWithAutoDetection();
+
+      expect(taskService).toBeDefined();
+      expect(taskService.getWorkspacePath()).toBe((process as any).cwd());
+      
+      const tasks = await taskService.listTasks();
+      expect(Array.isArray(tasks)).toBe(true);
+    });
+
+    test("should support full configuration pattern", async () => {
+      const { WorkspaceResolvingTaskService } = await import("../workspace-resolving-task-service");
+      
+      // Full configuration pattern
+      const taskService = await WorkspaceResolvingTaskService.createWithWorkspaceResolvingBackend({
+        backend: "markdown",
+        backendConfig: {
+          name: "markdown",
+          workspacePath: tempDir,
+          forceSpecialWorkspace: false
+        }
+      });
+
+      expect(taskService).toBeDefined();
+      expect(taskService.getWorkspacePath()).toBe(tempDir);
+      
+      const tasks = await taskService.listTasks();
+      expect(Array.isArray(tasks)).toBe(true);
     });
   });
 }); 
