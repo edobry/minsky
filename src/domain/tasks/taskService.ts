@@ -608,8 +608,8 @@ ${description}
         throw new Error("Backend configuration required for json-file backend");
       }
         
-      const { createJsonBackendWithAutoConfig } = await import("./self-contained-json-backend");
-      resolvedBackend = await createJsonBackendWithAutoConfig(backendConfig);
+      const { createJsonBackendWithConfig } = await import("./jsonFileTaskBackend");
+      resolvedBackend = await createJsonBackendWithConfig(backendConfig);
       break;
     }
       
@@ -721,50 +721,6 @@ ${description}
     });
   }
 
-  /**
-   * Convenience method for markdown backends with repo URLs
-   */
-  static async createMarkdownWithRepo(config: {
-    repoUrl: string;
-    forceSpecialWorkspace?: boolean;
-  }): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
-      backend: "markdown",
-      backendConfig: {
-        name: "markdown",
-        repoUrl: config.repoUrl,
-        forceSpecialWorkspace: config.forceSpecialWorkspace
-      }
-    });
-  }
-
-  /**
-   * Convenience method for markdown backends with explicit workspace paths
-   */
-  static async createMarkdownWithWorkspace(config: {
-    workspacePath: string;
-  }): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
-      backend: "markdown", 
-      backendConfig: {
-        name: "markdown",
-        workspacePath: config.workspacePath
-      }
-    });
-  }
-
-  /**
-   * Convenience method for current directory workspace detection
-   */
-  static async createMarkdownWithAutoDetection(): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
-      backend: "markdown",
-      backendConfig: {
-        name: "markdown"
-        // No explicit config - will auto-detect workspace
-      }
-    });
-  }
 }
 
 /**
