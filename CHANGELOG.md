@@ -1413,11 +1413,18 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 
 ### Fixed
 
-- **Prototype Pollution Issues (Task #276)**: Resolved infinite loops in test suite caused by TaskBackendRouter design flaws
+- **Prototype Pollution Issues (Task #276)**: COMPLETELY ELIMINATED dangerous test patterns causing infinite loops
+  - Removed all `delete backend.isInTreeBackend` prototype manipulation from tests
   - Tests now complete in <60 seconds vs 500+ seconds infinite execution
-  - Eliminated `isInTreeBackend()` method checking/deletion causing infinite loops
+  - Replaced TaskBackendRouter tests with clean enhanced workspace resolution tests (28/28 passing)
+
+- **Real-World TaskBackendRouter Usage (Task #276)**: Migrated core workspace resolution to enhanced TaskService
+  - Updated `resolveTaskWorkspacePath()` to use `TaskService.createMarkdownWithRepo()` instead of TaskBackendRouter
+  - All 8+ functions in `taskCommands.ts` now use improved workspace resolution pattern
+  - Proper fallback handling with auto-detection for robust error recovery
 
 ### Changed
 
 - **Backend Architecture**: Backends now handle workspace resolution internally instead of requiring external resolution
 - **API Simplification**: One-step backend creation eliminates complex router patterns
+- **Workspace Resolution**: Enhanced TaskService approach replaces TaskBackendRouter complexity in production code
