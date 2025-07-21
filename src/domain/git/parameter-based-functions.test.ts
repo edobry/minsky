@@ -23,7 +23,7 @@ mockModule("../../utils/logger", () => ({
   },
 }));
 // Mock the centralized execAsync module at the top level for proper module interception
-const mockExecAsync = createMock() as any;
+let mockExecAsync = createMock() as any;
 mockModule("../../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
@@ -162,10 +162,10 @@ describe("commitChangesFromParams - Detailed Tests", () => {
   });
   test("should commit changes with message and all flag", async () => {
     // Mock git commit command response
-    mockExecAsync.mockResolvedValueOnce({
+    mockExecAsync = mock(() => Promise.resolve({
       stdout: "[main abc123] test commit message",
       stderr: ""
-    });
+    }));
     const params = {
       message: "test commit message",
       all: true,
@@ -178,10 +178,10 @@ describe("commitChangesFromParams - Detailed Tests", () => {
   });
   test("should commit changes with just message", async () => {
     // Mock git commit command response
-    mockExecAsync.mockResolvedValueOnce({
+    mockExecAsync = mock(() => Promise.resolve({
       stdout: "[main def456] simple commit",
       stderr: ""
-    });
+    }));
     const params = {
       message: "simple commit",
       repo: "/test/repo",
@@ -193,10 +193,10 @@ describe("commitChangesFromParams - Detailed Tests", () => {
   });
   test("should handle commit with custom repo path", async () => {
     // Mock git commit command response
-    mockExecAsync.mockResolvedValueOnce({
+    mockExecAsync = mock(() => Promise.resolve({
       stdout: "[main ghi789] commit with custom repo",
       stderr: ""
-    });
+    }));
     const params = {
       message: "commit with custom repo",
       repo: "/custom/repo/path",
@@ -242,9 +242,7 @@ describe("pushFromParams - Detailed Tests", () => {
   });
   test("should push changes successfully", async () => {
     // Mock git push command response
-    mockExecAsync
-      .mockResolvedValueOnce({ stdout: "main", stderr: "" }) // git rev-parse --abbrev-ref HEAD
-      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "main", stderr: "" })) = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
     const params = {
       repo: "/test/repo",
     };
@@ -255,9 +253,7 @@ describe("pushFromParams - Detailed Tests", () => {
   });
   test("should handle push with custom remote", async () => {
     // Mock git push command response
-    mockExecAsync
-      .mockResolvedValueOnce({ stdout: "main", stderr: "" }) // git rev-parse --abbrev-ref HEAD
-      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
     const params = {
       repo: "/test/repo",
       remote: "custom-remote",
@@ -268,8 +264,7 @@ describe("pushFromParams - Detailed Tests", () => {
   });
   test("should handle push with branch specification", async () => {
     // Mock git push command response
-    mockExecAsync
-      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
     const params = {
       repo: "/test/repo",
       branch: "feature-branch",

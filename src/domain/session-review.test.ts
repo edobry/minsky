@@ -11,8 +11,8 @@ const TEST_ARRAY_SIZE = 3;
 describe("sessionReviewFromParams", () => {
   test("reviews session by name", async () => {
     // Create trackable spies for methods we need to verify
-    const getSessionSpy = createMock();
-    getSessionSpy.mockImplementation((name: unknown) =>
+    let getSessionSpy = createMock();
+    getSessionSpy = mock((name: unknown) =>
       Promise.resolve({
         session: name as string,
         taskId: "#TEST_VALUE",
@@ -20,14 +20,13 @@ describe("sessionReviewFromParams", () => {
         repoUrl: "https://github.com/test/test-repo",
         branch: "feature/test",
         createdAt: new Date().toISOString(),
-      })
-    );
+      }));
 
-    const getSessionWorkdirSpy = createMock();
-    getSessionWorkdirSpy.mockImplementation((_sessionName: unknown) => Promise.resolve("/fake/path/to/session"));
+    let getSessionWorkdirSpy = createMock();
+    getSessionWorkdirSpy = mock((_sessionName: unknown) => Promise.resolve("/fake/path/to/session"));
 
-    const execInRepositorySpy = createMock();
-    execInRepositorySpy.mockImplementation((_workdir: unknown, command: unknown) => {
+    let execInRepositorySpy = createMock();
+    execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
       const cmd = command as string;
       if (cmd.includes("git ls-remote")) {
         return Promise.resolve("refs/heads/pr/testSession");
@@ -44,10 +43,9 @@ describe("sessionReviewFromParams", () => {
       return Promise.resolve("");
     });
 
-    const getTaskSpecDataSpy = createMock();
-    getTaskSpecDataSpy.mockImplementation(() =>
-      Promise.resolve({ title: "Test Task", description: "Test description" })
-    );
+    let getTaskSpecDataSpy = createMock();
+    getTaskSpecDataSpy = mock(() =>
+      Promise.resolve({ title: "Test Task", description: "Test description" }));
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
@@ -68,8 +66,8 @@ describe("sessionReviewFromParams", () => {
       isSessionWorkspace: () => false,
     });
 
-    const getCurrentSessionSpy = createMock();
-    getCurrentSessionSpy.mockImplementation((_cwd?: unknown) => Promise.resolve("testSession"));
+    let getCurrentSessionSpy = createMock();
+    getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
 
     const deps = {
       sessionDB: mockSessionDB,
@@ -97,8 +95,8 @@ describe("sessionReviewFromParams", () => {
 
   test("reviews session by task ID", async () => {
     // Create trackable spies for methods we need to verify
-    const getSessionByTaskIdSpy = createMock();
-    getSessionByTaskIdSpy.mockImplementation((taskId: unknown) =>
+    let getSessionByTaskIdSpy = createMock();
+    getSessionByTaskIdSpy = mock((taskId: unknown) =>
       Promise.resolve({
         session: "task#TEST_VALUE",
         taskId: taskId as string,
@@ -106,11 +104,10 @@ describe("sessionReviewFromParams", () => {
         repoUrl: "https://github.com/test/test-repo",
         branch: "feature/test",
         createdAt: new Date().toISOString(),
-      })
-    );
+      }));
 
-    const getSessionSpy = createMock();
-    getSessionSpy.mockImplementation((name: unknown) =>
+    let getSessionSpy = createMock();
+    getSessionSpy = mock((name: unknown) =>
       Promise.resolve({
         session: name as string,
         taskId: "#TEST_VALUE",
@@ -118,14 +115,13 @@ describe("sessionReviewFromParams", () => {
         repoUrl: "https://github.com/test/test-repo",
         branch: "feature/test",
         createdAt: new Date().toISOString(),
-      })
-    );
+      }));
 
-    const getSessionWorkdirSpy = createMock();
-    getSessionWorkdirSpy.mockImplementation((_sessionName: unknown) => Promise.resolve("/fake/path/to/session"));
+    let getSessionWorkdirSpy = createMock();
+    getSessionWorkdirSpy = mock((_sessionName: unknown) => Promise.resolve("/fake/path/to/session"));
 
-    const execInRepositorySpy = createMock();
-    execInRepositorySpy.mockImplementation((_workdir: unknown, command: unknown) => {
+    let execInRepositorySpy = createMock();
+    execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
       const cmd = command as string;
       if (cmd.includes("git ls-remote")) {
         return Promise.resolve("refs/heads/pr/task#TEST_VALUE");
@@ -164,8 +160,8 @@ describe("sessionReviewFromParams", () => {
       isSessionWorkspace: () => false,
     });
 
-    const getCurrentSessionSpy = createMock();
-    getCurrentSessionSpy.mockImplementation((_cwd?: unknown) => Promise.resolve("testSession"));
+    let getCurrentSessionSpy = createMock();
+    getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
 
     const deps = {
       sessionDB: mockSessionDB,
@@ -204,8 +200,8 @@ describe("sessionReviewFromParams", () => {
       isSessionWorkspace: () => false,
     });
 
-    const getCurrentSessionSpy = createMock();
-    getCurrentSessionSpy.mockImplementation((_cwd?: unknown) => Promise.resolve(null));
+    let getCurrentSessionSpy = createMock();
+    getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve(null));
 
     const deps = {
       sessionDB: mockSessionDB,

@@ -67,7 +67,7 @@ describe("updateSessionFromParams", () => {
   });
 
   test("throws ResourceNotFoundError when session does not exist", async () => {
-    mockSessionProvider.getSession.mockImplementation(() => Promise.resolve(null));
+    mockSessionProvider.getSession = mock(() => Promise.resolve(null));
 
     try {
       await updateSessionFromParams(
@@ -112,7 +112,7 @@ describe("updateSessionFromParams", () => {
 
   test("throws error when workspace is dirty and force is not set", async () => {
     // Mock dirty workspace
-    mockGitService.execInRepository.mockImplementation(() => Promise.resolve("M file.txt"));
+    mockGitService.execInRepository = mock(() => Promise.resolve("M file.txt"));
 
     try {
       await updateSessionFromParams(
@@ -131,7 +131,7 @@ describe("updateSessionFromParams", () => {
 
   test("updates session when workspace is dirty and force is set", async () => {
     // Mock dirty workspace
-    mockGitService.execInRepository.mockImplementation(() => Promise.resolve("M file.txt"));
+    mockGitService.execInRepository = mock(() => Promise.resolve("M file.txt"));
 
     const _result = await updateSessionFromParams(
       { name: "test-session", force: true, noStash: false, noPush: false },
@@ -194,7 +194,7 @@ describe("updateSessionFromParams", () => {
   });
 
   test("throws error when merge conflicts are detected", async () => {
-    mockGitService.mergeBranch.mockImplementation(() => Promise.resolve({ conflicts: true }));
+    mockGitService.mergeBranch = mock(() => Promise.resolve({ conflicts: true }));
 
     try {
       await updateSessionFromParams(

@@ -114,10 +114,10 @@ export default {
           node.callee.property.name === "mockImplementation"
         ) {
           const object = context.getSourceCode().getText(node.callee.object);
-
-          // Skip spyOn().mockImplementation() - it works in Bun
+          
+          // ALLOW: spyOn().mockImplementation() - this is valid Bun pattern
           if (object.includes("spyOn")) {
-            return;
+            return; // Skip - this is a valid pattern
           }
 
           context.report({
@@ -126,10 +126,6 @@ export default {
             fix(fixer) {
               const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "() => {}";
 
-              // Handle spyOn().mockImplementation() pattern
-              if (object.includes("spyOn")) {
-                return fixer.replaceText(node, `${object} = mock(${arg})`);
-              }
 
               // Handle createMock().mockImplementation() pattern
               if (object.includes("createMock()")) {

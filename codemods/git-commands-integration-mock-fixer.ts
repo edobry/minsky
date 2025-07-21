@@ -55,7 +55,7 @@ export function fixGitCommandsIntegrationMocks(sourceFile: SourceFile): GitMockF
     // Replace the existing mock setup with a comprehensive one
     const newMockSetup = `
 // Mock all git execution paths comprehensively
-const mockExecAsync = createMock() as any;
+let mockExecAsync = createMock() as any;
 const mockGitService = {
   clone: createMock(),
   createBranch: createMock(),
@@ -70,7 +70,7 @@ const mockGitService = {
 } as any;
 
 // Mock the createGitService factory to return our mock
-const mockCreateGitService = createMock() as any;
+let mockCreateGitService = createMock() as any;
 mockCreateGitService.mockReturnValue(mockGitService);
 
 // Mock git execution at multiple levels
