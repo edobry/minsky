@@ -1,6 +1,5 @@
 # Fix special workspace auto-commit sync issue
 
-<<<<<<< HEAD
 ## Status
 
 COMPLETED
@@ -149,14 +148,3 @@ All tests now pass with proper isolation:
 ## Notes
 
 This fix resolves the root cause of sync issues between task operations and auto-commit functionality in special workspace environments. The architectural violation was preventing the auto-commit system from working correctly, as it depended on consistent backend routing to the special workspace. 
-=======
-## Context
-
-Auto-created task for session: Fix special workspace auto-commit sync issue
-
-## Requirements
-
-## Solution
-
-## Notes
->>>>>>> origin/main
