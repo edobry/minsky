@@ -16,6 +16,10 @@ import {
 } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import * as WorkspaceUtils from "../../workspace";
+import { 
+  gitPushWithTimeout,
+  execGitWithTimeout 
+} from "../../../utils/git-exec";
 
 /**
  * Approves a session (merges PR) based on parameters
@@ -105,7 +109,7 @@ export async function sessionApprove(
     // Clean up PR branch
     try {
       await deps.gitService.execInRepository(workdir, `git branch -d ${currentBranch}`);
-      await deps.gitService.execInRepository(workdir, `git push origin --delete ${currentBranch}`);
+      await execGitWithTimeout("delete-remote-branch", `push origin --delete ${currentBranch}`, { workdir });
     } catch (error) {
       log.debug("Could not clean up PR branch", { error });
     }
@@ -130,7 +134,7 @@ export async function sessionApprove(
           await deps.gitService.execInRepository(workdir, `git commit -m "chore(${taskId}): update task status to DONE"`);
           
           // Push the commit
-          await deps.gitService.execInRepository(workdir, "git push");
+          await gitPushWithTimeout("origin", undefined, { workdir });
           
           log.info(`Task status commit for ${taskId} pushed successfully`);
         }

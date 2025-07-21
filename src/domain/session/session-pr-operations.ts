@@ -245,8 +245,16 @@ Need help? Run 'git status' to see what files have changed.
     // 1. No existing PR to reuse from (prBranchExists=false), OR
     // 2. Existing PR but new title provided (titleToUse=true) indicating update
     if (!prBranchExists) {
-      log.cli("💡 Tip: For new PRs, consider providing --body or --body-path for a complete description");
-      // Allow empty body for new PRs (user choice)
+      // BUG FIX: Require body/bodyPath for new PRs instead of just showing a tip
+      throw new ValidationError(
+        `PR description is required for new pull requests. Please provide one of:
+  --body <text>       Direct PR body text
+  --body-path <path>  Path to file containing PR body
+
+Example:
+  minsky session pr --title "feat: Add new feature" --body "This PR adds..."
+  minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md`
+      );
     }
   }
 
