@@ -4,6 +4,11 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
+import { 
+  gitPushWithTimeout, 
+  gitPullWithTimeout,
+  type GitExecOptions 
+} from "../../utils/git-exec";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -312,7 +317,7 @@ Repository: ${this.repoUrl}
           const branch = branchOutput.trim();
 
           // Push to remote
-          await execAsync(`git -C ${workdir} push origin ${branch}`);
+          await gitPushWithTimeout(workdir, branch);
         } catch (error) {
           const normalizedError = error instanceof Error ? error : new Error(String(error as any));
           if ((normalizedError?.message as any).includes("Authentication failed")) {
@@ -390,7 +395,7 @@ Repository: ${this.repoUrl}
           const branch = branchOutput.trim();
 
           // Pull from remote
-          await execAsync(`git -C ${workdir} pull origin ${branch}`);
+          await gitPullWithTimeout(workdir, branch);
         } catch (error) {
           const normalizedError = error instanceof Error ? error : new Error(String(error as any));
           if ((normalizedError?.message as any).includes("Authentication failed")) {
