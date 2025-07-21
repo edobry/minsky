@@ -126,6 +126,7 @@ export default {
             fix(fixer) {
               const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "() => {}";
 
+
               // Handle createMock().mockImplementation() pattern
               if (object.includes("createMock()")) {
                 return fixer.replaceText(node, `mock(${arg})`);

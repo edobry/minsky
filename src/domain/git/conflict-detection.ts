@@ -6,6 +6,9 @@
  */
 import { execAsync } from "../../utils/exec";
 import { log } from "../../utils/logger";
+import { 
+  gitFetchWithTimeout 
+} from "../../utils/git-exec";
 import { predictRebaseConflictsImpl } from "./rebase-conflict-prediction";
 import { generateAdvancedResolutionStrategiesImpl } from "./advanced-resolution-strategies";
 import { simulateMergeImpl } from "./merge-simulation";
@@ -523,7 +526,7 @@ export class ConflictDetectionService {
       // Perform update based on divergence analysis
       if (divergence.recommendedAction === "fast_forward") {
         // Simple fast-forward - merge from the remote branch we analyzed against
-        await execAsync(`git -C ${repoPath} fetch origin ${baseBranch}`);
+        await gitFetchWithTimeout("origin", baseBranch, { workdir: repoPath });
         await execAsync(`git -C ${repoPath} merge --ff-only ${remoteBranch}`);
 
         return {
