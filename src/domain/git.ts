@@ -526,7 +526,7 @@ export class GitService implements GitServiceInterface {
 
       // Fetch latest changes from remote (don't pull current branch)
       // This gets all refs from remote without merging anything
-      await execAsync(`git -C ${workdir} fetch ${remote}`);
+      await gitFetchWithTimeout(remote, undefined, { workdir });
 
       // Get commit hash after fetch (should be the same since we only fetched)
       const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
@@ -860,7 +860,7 @@ export class GitService implements GitServiceInterface {
       );
 
       // Fetch latest changes from remote using dependency-injected execution
-      await deps.execAsync(`git -C ${workdir} fetch ${remote}`);
+      await gitFetchWithTimeout(remote, undefined, { workdir });
 
       // Get commit hash after fetch (should be the same since we only fetched)
       const { stdout: afterHash } = await deps.execAsync(
