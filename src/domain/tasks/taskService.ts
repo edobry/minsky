@@ -589,21 +589,41 @@ ${description}
       });
     }
 
-    // For now, only markdown backend supports workspace resolution
-    if (backend === "markdown" && backendConfig) {
+    // Create workspace-resolving backend based on type
+    let resolvedBackend: any;
+
+    switch (backend) {
+    case "markdown": {
+      if (!backendConfig) {
+        throw new Error("Backend configuration required for markdown backend");
+      }
+
       const { createWorkspaceResolvingMarkdownBackend } = await import("./workspace-resolving-markdown-backend");
-      
-      const resolvedBackend = await createWorkspaceResolvingMarkdownBackend(backendConfig);
-      
-      return new TaskService({
-        workspacePath: (resolvedBackend as any).getWorkspacePath(),
-        backend,
-        customBackends: [resolvedBackend as any]
-      });
+      resolvedBackend = await createWorkspaceResolvingMarkdownBackend(backendConfig);
+      break;
     }
 
-    // Fallback to standard backend creation
-    throw new Error(`Workspace-resolving backend not available for type: ${backend}`);
+    case "json-file": {
+      if (!backendConfig) {
+        throw new Error("Backend configuration required for json-file backend");
+      }
+
+      const { createWorkspaceResolvingJsonBackend } = await import("./workspace-resolving-json-backend");
+      resolvedBackend = await createWorkspaceResolvingJsonBackend(backendConfig);
+      break;
+    }
+
+    default: {
+      throw new Error(`Workspace-resolving backend not available for type: ${backend}`);
+    }
+    }
+
+    // Create TaskService with the resolved backend
+    return new TaskService({
+      workspacePath: resolvedBackend.getWorkspacePath(),
+      backend,
+      customBackends: [resolvedBackend]
+    });
   }
 
   /**
@@ -630,7 +650,102 @@ ${description}
     workspacePath: string;
   }): Promise<TaskService> {
     return TaskService.createWithWorkspaceResolvingBackend({
-      backend: "markdown", 
+      backend: "markdown",
+      backendConfig: {
+        name: "markdown",
+        workspacePath: config.workspacePath
+      }
+    });
+  }
+
+  /**
+   * Convenience method for current directory workspace detection
+   */
+  static async createMarkdownWithAutoDetection(): Promise<TaskService> {
+    return TaskService.createWithWorkspaceResolvingBackend({
+      backend: "markdown",
+      backendConfig: {
+        name: "markdown"
+        // No explicit config - will auto-detect workspace
+      }
+    });
+  }
+
+  /**
+   * Convenience method for JSON backends with repo URLs
+   */
+  static async createJsonWithRepo(config: {
+    repoUrl: string;
+    dbFilePath?: string;
+  }): Promise<TaskService> {
+    return TaskService.createWithWorkspaceResolvingBackend({
+      backend: "json-file",
+      backendConfig: {
+        name: "json-file",
+        repoUrl: config.repoUrl,
+        dbFilePath: config.dbFilePath
+      }
+    });
+  }
+
+  /**
+   * Convenience method for JSON backends with explicit workspace paths
+   */
+  static async createJsonWithWorkspace(config: {
+    workspacePath: string;
+    dbFilePath?: string;
+  }): Promise<TaskService> {
+    return TaskService.createWithWorkspaceResolvingBackend({
+      backend: "json-file",
+      backendConfig: {
+        name: "json-file",
+        workspacePath: config.workspacePath,
+        dbFilePath: config.dbFilePath
+      }
+    });
+  }
+
+  /**
+   * Convenience method for JSON backend with auto-detection
+   */
+  static async createJsonWithAutoDetection(config?: {
+    dbFilePath?: string;
+  }): Promise<TaskService> {
+    return TaskService.createWithWorkspaceResolvingBackend({
+      backend: "json-file",
+      backendConfig: {
+        name: "json-file",
+        dbFilePath: config?.dbFilePath
+        // No explicit workspace config - will auto-detect workspace
+      }
+    });
+  }
+
+  /**
+   * Convenience method for markdown backends with repo URLs
+   */
+  static async createMarkdownWithRepo(config: {
+    repoUrl: string;
+    forceSpecialWorkspace?: boolean;
+  }): Promise<TaskService> {
+    return TaskService.createWithWorkspaceResolvingBackend({
+      backend: "markdown",
+      backendConfig: {
+        name: "markdown",
+        repoUrl: config.repoUrl,
+        forceSpecialWorkspace: config.forceSpecialWorkspace
+      }
+    });
+  }
+
+  /**
+   * Convenience method for markdown backends with explicit workspace paths
+   */
+  static async createMarkdownWithWorkspace(config: {
+    workspacePath: string;
+  }): Promise<TaskService> {
+    return TaskService.createWithWorkspaceResolvingBackend({
+      backend: "markdown",
       backendConfig: {
         name: "markdown",
         workspacePath: config.workspacePath
