@@ -9,8 +9,8 @@ describe("resolveWorkspacePath", () => {
       workspace: "/test/workspace",
     };
 
-    const mockAccess = mock(fs.access);
-    mockAccess.mockImplementation(() => Promise.resolve());
+    let mockAccess = mock(fs.access);
+    mockAccess = mock(() => Promise.resolve());
 
     const mockDeps: TestDependencies = {
       access: mockAccess,
@@ -50,8 +50,8 @@ describe("resolveWorkspacePath", () => {
       workspace: "/invalid/workspace",
     };
 
-    const mockAccess = mock(fs.access);
-    mockAccess.mockImplementation(() => Promise.reject(new Error("ENOENT")));
+    let mockAccess = mock(fs.access);
+    mockAccess = mock(() => Promise.reject(new Error("ENOENT")));
 
     const mockDeps: TestDependencies = {
       access: mockAccess,

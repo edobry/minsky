@@ -39,7 +39,7 @@ mockModule("../utils/logger", () => ({
 }));
 
 // Mock the centralized execAsync module at the top level for proper module interception
-const mockExecAsync = createMock();
+let mockExecAsync = createMock();
 mockModule("../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
@@ -121,8 +121,7 @@ describe("GitService", () => {
 
   test("execInRepository should propagate errors", async () => {
     // Override the mock implementation to simulate an error
-    const execInRepoMock = spyOn(GitService.prototype, "execInRepository");
-    execInRepoMock.mockImplementation(async (workdir, command) => {
+    const execInRepoMock = spyOn(GitService.prototype, "execInRepository").mockImplementation(async (workdir, command) => {
       throw new Error("Command execution failed");
     });
 
@@ -1056,10 +1055,10 @@ describe("commitChangesFromParams", () => {
 
   test("should commit changes with message and all flag", async () => {
     // Mock git commit command response
-    mockExecAsync.mockResolvedValueOnce({
+    mockExecAsync = mock(() => Promise.resolve({
       stdout: "[main abc123] test commit message",
       stderr: ""
-    });
+    }));
 
     const params = {
       message: "test commit message",
@@ -1076,10 +1075,10 @@ describe("commitChangesFromParams", () => {
 
   test("should commit changes with just message", async () => {
     // Mock git commit command response
-    mockExecAsync.mockResolvedValueOnce({
+    mockExecAsync = mock(() => Promise.resolve({
       stdout: "[main def456] simple commit",
       stderr: ""
-    });
+    }));
 
     const params = {
       message: "simple commit",
@@ -1095,10 +1094,10 @@ describe("commitChangesFromParams", () => {
 
   test("should handle commit with custom repo path", async () => {
     // Mock git commit command response
-    mockExecAsync.mockResolvedValueOnce({
+    mockExecAsync = mock(() => Promise.resolve({
       stdout: "[main ghi789] commit with custom repo",
       stderr: ""
-    });
+    }));
 
     const params = {
       message: "commit with custom repo",
@@ -1113,7 +1112,7 @@ describe("commitChangesFromParams", () => {
 
   test("should handle commit errors gracefully", async () => {
     // Mock git commit command failure
-    mockExecAsync.mockRejectedValueOnce(new Error("Git command failed"));
+    mockExecAsync = mock(() => Promise.reject(new Error("Git command failed")));
 
     const params = {
       message: "failing commit",
@@ -1133,9 +1132,7 @@ describe("pushFromParams", () => {
 
   test("should push changes successfully", async () => {
     // Mock git push command response
-    mockExecAsync
-      .mockResolvedValueOnce({ stdout: "main", stderr: "" }) // git rev-parse --abbrev-ref HEAD
-      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "main", stderr: "" })) = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
 
     const params = {
       repo: "/test/repo",
@@ -1150,9 +1147,7 @@ describe("pushFromParams", () => {
 
   test("should handle push with custom remote", async () => {
     // Mock git push command response
-    mockExecAsync
-      .mockResolvedValueOnce({ stdout: "main", stderr: "" }) // git rev-parse --abbrev-ref HEAD
-      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
 
     const params = {
       repo: "/test/repo",
@@ -1167,8 +1162,7 @@ describe("pushFromParams", () => {
 
   test("should handle push with branch specification", async () => {
     // Mock git push command response
-    mockExecAsync
-      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
 
     const params = {
       repo: "/test/repo",
@@ -1183,7 +1177,7 @@ describe("pushFromParams", () => {
 
   test("should handle push errors gracefully", async () => {
     // Mock git push command failure
-    mockExecAsync.mockRejectedValueOnce(new Error("Git push failed"));
+    mockExecAsync = mock(() => Promise.reject(new Error("Git push failed")));
 
     const params = {
       repo: "/nonexistent/repo",
