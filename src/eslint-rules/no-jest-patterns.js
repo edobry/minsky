@@ -113,11 +113,17 @@ export default {
           node.callee.type === "MemberExpression" &&
           node.callee.property.name === "mockImplementation"
         ) {
+          const object = context.getSourceCode().getText(node.callee.object);
+
+          // Skip spyOn().mockImplementation() - it works in Bun
+          if (object.includes("spyOn")) {
+            return;
+          }
+
           context.report({
             node,
             messageId: "mockImplementation",
             fix(fixer) {
-              const object = context.getSourceCode().getText(node.callee.object);
               const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "() => {}";
 
               // Handle spyOn().mockImplementation() pattern
