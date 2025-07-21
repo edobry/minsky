@@ -1,8 +1,8 @@
 /**
- * Simple workspace resolution for task operations
- * Determines whether to use special workspace or current directory based on backend type
+ * IMPROVED: Workspace resolution using enhanced TaskService
+ * Eliminates TaskBackendRouter complexity and provides cleaner workspace resolution
  */
-import { TaskBackendRouter } from "../domain/tasks/task-backend-router";
+import { TaskService } from "../domain/tasks/taskService";
 import { resolveRepoPath } from "../domain/repo-utils";
 
 /**
@@ -16,17 +16,30 @@ export interface WorkspaceResolverOptions {
 }
 
 /**
- * Simple function that replaces resolveMainWorkspacePath in task commands
- * Uses special workspace for markdown backend, current directory for others
+ * Enhanced workspace resolution using improved TaskService
+ * Replaces the complex TaskBackendRouter pattern with simple enhanced TaskService
  */
 export async function resolveTaskWorkspacePath(options: WorkspaceResolverOptions = {}): Promise<string> {
   const { backend = "markdown", repoUrl } = options;
 
-  // For markdown backend, use special workspace
+  // For markdown backend, use enhanced TaskService with workspace resolution
   if (backend === "markdown") {
-    const effectiveRepoUrl = repoUrl || await resolveRepoPath({});
-    const router = await TaskBackendRouter.createWithRepo(effectiveRepoUrl);
-    return await router.getInTreeWorkspacePath();
+    if (repoUrl) {
+      // Use repo-based creation
+      const taskService = await TaskService.createMarkdownWithRepo({ repoUrl });
+      return taskService.getWorkspacePath();
+    } else {
+      // Try to resolve repo URL, fall back to auto-detection
+      try {
+        const effectiveRepoUrl = await resolveRepoPath({});
+        const taskService = await TaskService.createMarkdownWithRepo({ repoUrl: effectiveRepoUrl });
+        return taskService.getWorkspacePath();
+      } catch (error) {
+        // Fall back to auto-detection if repo resolution fails
+        const taskService = await TaskService.createMarkdownWithAutoDetection();
+        return taskService.getWorkspacePath();
+      }
+    }
   }
 
   // For other backends, use current directory
