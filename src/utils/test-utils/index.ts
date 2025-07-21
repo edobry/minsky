@@ -118,7 +118,7 @@ export const _compat = {
     compatMock.mock = mockFn.mock;
     compatMock.mockImplementation = (newImpl: (...args: any[]) => any) => {
       originalImplementation = newImpl;
-      return mockFn.mockImplementation(newImpl);
+      return mockFn = mock(newImpl);
     };
     compatMock.mockReturnValue = mockFn.mockReturnValue.bind(mockFn);
     compatMock.mockResolvedValue = mockFn.mockResolvedValue.bind(mockFn);
@@ -135,7 +135,7 @@ export const _compat = {
       mockFn.mock.calls.length = 0;
       mockFn.mock.results.length = 0;
       originalImplementation = undefined;
-      mockFn.mockImplementation(() => undefined);
+      mockFn = mock(() => undefined);
       return compatMock;
     };
 
@@ -152,7 +152,7 @@ export const _compat = {
         return originalImplementation ? originalImplementation(...args) : undefined;
       };
 
-      mockFn.mockImplementation(onceWrapper);
+      mockFn = mock(onceWrapper);
       return compatMock;
     };
 

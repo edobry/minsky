@@ -129,23 +129,23 @@ export function createSessionTestData(): SessionTestData {
   } as unknown as SessionProviderInterface;
 
   // Set up mock implementations manually to avoid type issues
-  (mockSessionDB.listSessions as any).mockResolvedValue(mockSessions);
-  (mockSessionDB.getSession as any).mockImplementation((name: string) => {
-    return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
-  });
-  (mockSessionDB.getSessionByTaskId as any).mockImplementation((taskId: string) => {
-    return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
-  });
-  (mockSessionDB.getRepoPath as any).mockImplementation((record: any) => {
-    return Promise.resolve(record.repoPath || "/default/path");
-  });
-  (mockSessionDB.addSession as any).mockResolvedValue(undefined);
-  (mockSessionDB.updateSession as any).mockResolvedValue(undefined);
-  (mockSessionDB.deleteSession as any).mockResolvedValue(true);
-  (mockSessionDB.getSessionWorkdir as any).mockImplementation((sessionName: string) => {
-    const session = mockSessions.find((s) => s.session === sessionName);
-    return Promise.resolve(session?.repoPath || "/default/workdir");
-  });
+  (mockSessionDB.listSessions as any) = mock(() => Promise.resolve(mockSessions));
+  (mockSessionDB.getSession as any) = mock((name: string) => {
+        return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
+      });
+  (mockSessionDB.getSessionByTaskId as any) = mock((taskId: string) => {
+        return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
+      });
+  (mockSessionDB.getRepoPath as any) = mock((record: any) => {
+        return Promise.resolve(record.repoPath || "/default/path");
+      });
+  (mockSessionDB.addSession as any) = mock(() => Promise.resolve(undefined));
+  (mockSessionDB.updateSession as any) = mock(() => Promise.resolve(undefined));
+  (mockSessionDB.deleteSession as any) = mock(() => Promise.resolve(true));
+  (mockSessionDB.getSessionWorkdir as any) = mock((sessionName: string) => {
+        const session = mockSessions.find((s) => s.session === sessionName);
+        return Promise.resolve(session?.repoPath || "/default/workdir");
+      });
 
   return {
     mockSessionDB,
@@ -162,22 +162,22 @@ export async function cleanupSessionTestData(tempDir: string): Promise<void> {
 
 export function createGitServiceMock(): GitServiceInterface {
   return {
-    getCurrentBranch: createMock().mockResolvedValue("main"),
-    getRemoteUrl: createMock().mockResolvedValue("https://github.com/edobry/minsky"),
-    getRepoPath: createMock().mockResolvedValue("/Users/edobry/Projects/minsky"),
-    clone: createMock().mockResolvedValue(undefined),
-    checkout: createMock().mockResolvedValue(undefined),
-    createBranch: createMock().mockResolvedValue(undefined),
-    push: createMock().mockResolvedValue(undefined),
-    pull: createMock().mockResolvedValue(undefined),
-    merge: createMock().mockResolvedValue(undefined),
-    getStatus: createMock().mockResolvedValue({ hasChanges: false, changes: [] }),
-    add: createMock().mockResolvedValue(undefined),
-    commit: createMock().mockResolvedValue(undefined),
-    reset: createMock().mockResolvedValue(undefined),
-    stash: createMock().mockResolvedValue(undefined),
-    stashPop: createMock().mockResolvedValue(undefined),
-    getCommitHash: createMock().mockResolvedValue("abc123"),
+    getCurrentBranch: createMock() = mock(() => Promise.resolve("main")),
+    getRemoteUrl: createMock() = mock(() => Promise.resolve("https://github.com/edobry/minsky")),
+    getRepoPath: createMock() = mock(() => Promise.resolve("/Users/edobry/Projects/minsky")),
+    clone: createMock() = mock(() => Promise.resolve(undefined)),
+    checkout: createMock() = mock(() => Promise.resolve(undefined)),
+    createBranch: createMock() = mock(() => Promise.resolve(undefined)),
+    push: createMock() = mock(() => Promise.resolve(undefined)),
+    pull: createMock() = mock(() => Promise.resolve(undefined)),
+    merge: createMock() = mock(() => Promise.resolve(undefined)),
+    getStatus: createMock() = mock(() => Promise.resolve({ hasChanges: false, changes: [] })),
+    add: createMock() = mock(() => Promise.resolve(undefined)),
+    commit: createMock() = mock(() => Promise.resolve(undefined)),
+    reset: createMock() = mock(() => Promise.resolve(undefined)),
+    stash: createMock() = mock(() => Promise.resolve(undefined)),
+    stashPop: createMock() = mock(() => Promise.resolve(undefined)),
+    getCommitHash: createMock() = mock(() => Promise.resolve("abc123")),
   } as unknown as GitServiceInterface;
 }
 

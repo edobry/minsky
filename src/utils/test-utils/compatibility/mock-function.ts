@@ -232,9 +232,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   };
 
   // Create the Bun mock function with our implementation
-  const _bunMockFn = mock(implementationFn);
-
-  // Instead of trying to modify Bun"s mock function directly (which may be read-only),
+  const _bunMockFn
   // create a new function that delegates to it
   const mockFn = function (...args: Parameters<T>): ReturnType<T> {
     // Call the original function directly instead of through bunMockFn
@@ -304,7 +302,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
 
   // Add mockReturnValue method
   mockFn.mockReturnValue = function (value) {
-    return mockFn.mockImplementation(() => value);
+    return mockFn = mock(() => value);
   };
 
   // Add mockReturnValueOnce method
@@ -315,9 +313,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   // Add mockResolvedValue method
   mockFn.mockResolvedValue = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
-    return mockFn.mockImplementation(
-      () => Promise.resolve(value) as ReturnType<T>
-    );
+    return mockFn = mock(() => Promise.resolve(value) as ReturnType<T>);
   };
 
   // Add mockResolvedValueOnce method
@@ -331,9 +327,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   // Add mockRejectedValue method
   mockFn.mockRejectedValue = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
-    return mockFn.mockImplementation(
-      () => Promise.reject(value) as ReturnType<T>
-    );
+    return mockFn = mock(() => Promise.reject(value) as ReturnType<T>);
   };
 
   // Add mockRejectedValueOnce method
@@ -346,7 +340,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
 
   // If there"s an initial implementation, set it
   if (implementation) {
-    mockFn.mockImplementation(implementation);
+    mockFn = mock(implementation);
   }
 
   return mockFn;

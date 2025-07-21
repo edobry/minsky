@@ -51,23 +51,23 @@ describe("GitService", () => {
 
     // Mock getStatus method to return canned data
     spyOn(GitService.prototype, "getStatus").mockImplementation(async () => {
-      return {
-        modified: ["file1.ts", "file2.ts"],
-        untracked: ["newfile1.ts", "newfile2.ts"],
-        deleted: ["deletedfile1.ts"],
-      };
-    });
+                        return {
+                          modified: ["file1.ts", "file2.ts"],
+                          untracked: ["newfile1.ts", "newfile2.ts"],
+                          deleted: ["deletedfile1.ts"],
+                        };
+                      });
 
     // Mock execInRepository to avoid actual git commands
     spyOn(GitService.prototype, "execInRepository").mockImplementation(async (workdir, command) => {
-      if (command === "rev-parse --abbrev-ref HEAD") {
-        return "main";
-      }
-      if (command === "rev-parse --show-toplevel") {
-        return "/mock/repo/path";
-      }
-      return "";
-    });
+                        if (command === "rev-parse --abbrev-ref HEAD") {
+                          return "main";
+                        }
+                        if (command === "rev-parse --show-toplevel") {
+                          return "/mock/repo/path";
+                        }
+                        return "";
+                      });
   });
 
   afterEach(() => {
@@ -103,9 +103,9 @@ describe("GitService", () => {
   test("execInRepository should propagate errors", async () => {
     // Override the mock implementation to simulate an error
     const execInRepoMock = spyOn(GitService.prototype, "execInRepository");
-    execInRepoMock.mockImplementation(async (workdir, command) => {
-      throw new Error("Command execution failed");
-    });
+    execInRepoMock = mock(async (workdir, command) => {
+            throw new Error("Command execution failed");
+          });
 
     try {
       await gitService.execInRepository("/mock/repo/path", "rev-parse --abbrev-ref HEAD");

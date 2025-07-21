@@ -45,12 +45,10 @@ describe("ConflictDetectionService", () => {
   describe("analyzeBranchDivergence", () => {
     test("should detect when session is ahead of base", async () => {
       // Setup: session has 2 commits ahead, 0 behind
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "0\t2", stderr: "" }) // behind, ahead
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
-        .mockResolvedValueOnce({ stdout: "commit1\ncommit2", stderr: "" }) // session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }); // base tree
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "0\t2", stderr: "" })) // behind, ahead
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
+                .mockResolvedValueOnce({ stdout: "commit1\ncommit2", stderr: "" }) // session commits
+                = mock(() => Promise.resolve({ stdout: "tree2", stderr: "" })); // base tree
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
         testRepoPath, sessionBranch, baseBranch
@@ -70,12 +68,10 @@ describe("ConflictDetectionService", () => {
 
     test("should detect when session changes are already in base", async () => {
       // Setup: session has commits but trees are identical
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "0\t1", stderr: "" }) // behind, ahead
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
-        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }); // base tree (same)
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "0\t1", stderr: "" })) // behind, ahead
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
+                .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
+                = mock(() => Promise.resolve({ stdout: "tree1", stderr: "" })); // base tree (same)
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
         testRepoPath, sessionBranch, baseBranch
@@ -86,12 +82,10 @@ describe("ConflictDetectionService", () => {
     });
 
     test("should detect when session is behind base", async () => {
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "3\t0", stderr: "" }) // behind, ahead
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // no session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }); // base tree
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "3\t0", stderr: "" })) // behind, ahead
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // no session commits
+                = mock(() => Promise.resolve({ stdout: "tree2", stderr: "" })); // base tree
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
         testRepoPath, sessionBranch, baseBranch
@@ -102,12 +96,10 @@ describe("ConflictDetectionService", () => {
     });
 
     test("should detect when branches have diverged", async () => {
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "2\t3", stderr: "" }) // behind, ahead
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
-        .mockResolvedValueOnce({ stdout: "commit1\ncommit2", stderr: "" }) // session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }); // base tree
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "2\t3", stderr: "" })) // behind, ahead
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
+                .mockResolvedValueOnce({ stdout: "commit1\ncommit2", stderr: "" }) // session commits
+                = mock(() => Promise.resolve({ stdout: "tree2", stderr: "" })); // base tree
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
         testRepoPath, sessionBranch, baseBranch
@@ -122,12 +114,10 @@ describe("ConflictDetectionService", () => {
     test("should return no conflicts when already merged", async () => {
       // Setup: Complete call sequence for already-merged detection
       // Session has commits ahead but trees are identical (changes already merged)
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "0\t1", stderr: "" }) // 1. rev-list --left-right --count
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
-        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // 3. checkSessionChangesInBase: rev-list (session commits)
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }); // 5. base tree (same = already merged)
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "0\t1", stderr: "" })) // 1. rev-list --left-right --count
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
+                .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // 3. checkSessionChangesInBase: rev-list (session commits)
+                = mock(() => Promise.resolve({ stdout: "tree1", stderr: "" })); // 5. base tree (same = already merged)
 
       const result = await ConflictDetectionService.predictConflicts(
         testRepoPath, sessionBranch, baseBranch
@@ -141,21 +131,19 @@ describe("ConflictDetectionService", () => {
 
     test("should detect delete/modify conflicts", async () => {
       // Setup: divergence analysis and simulate merge with delete conflicts
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // branch divergence
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
-        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // base tree
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // create temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout temp branch
-        .mockRejectedValueOnce(new Error("CONFLICT: deleted in main, modified in session")) // merge fails
-        .mockResolvedValueOnce({ stdout: "DU deleted-file.ts\nUD another-deleted.ts", stderr: "" }) // git status
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // abort merge
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout original
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // delete temp branch
-        .mockResolvedValueOnce({ stdout: "abc456", stderr: "" }) // last commit for deleted file
-        .mockResolvedValueOnce({ stdout: "def789", stderr: "" }); // last commit for another file
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "1\t1", stderr: "" })) // branch divergence
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
+                .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
+                .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
+                .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // base tree
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // create temp branch
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout temp branch
+                .mockRejectedValueOnce(new Error("CONFLICT: deleted in main, modified in session")) // merge fails
+                .mockResolvedValueOnce({ stdout: "DU deleted-file.ts\nUD another-deleted.ts", stderr: "" }) // git status
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // abort merge
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout original
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // delete temp branch
+                = mock(() => Promise.resolve({ stdout: "def789", stderr: "" })); // last commit for another file
 
       const result = await ConflictDetectionService.predictConflicts(
         testRepoPath, sessionBranch, baseBranch
@@ -174,21 +162,19 @@ describe("ConflictDetectionService", () => {
 
     test("should detect content conflicts", async () => {
       // Setup: divergence analysis and simulate merge with content conflicts
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // branch divergence
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
-        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // base tree
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // create temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout temp branch
-        .mockRejectedValueOnce(new Error("CONFLICT: Merge conflict in file.ts")) // merge fails
-        .mockResolvedValueOnce({ stdout: "UU file.ts\nUU another.ts", stderr: "" }) // git status
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // abort merge
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout original
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // delete temp branch
-        .mockResolvedValueOnce({ stdout: "line1\n<<<<<<< HEAD\nchanges\n=======\nother changes\n>>>>>>> main\nline3", stderr: "" }) // file content
-        .mockResolvedValueOnce({ stdout: "line1\n<<<<<<< HEAD\nmore changes\n=======\nother changes\n>>>>>>> main\nline3", stderr: "" }); // another file content
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "1\t1", stderr: "" })) // branch divergence
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
+                .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
+                .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
+                .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // base tree
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // create temp branch
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout temp branch
+                .mockRejectedValueOnce(new Error("CONFLICT: Merge conflict in file.ts")) // merge fails
+                .mockResolvedValueOnce({ stdout: "UU file.ts\nUU another.ts", stderr: "" }) // git status
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // abort merge
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout original
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // delete temp branch
+                = mock(() => Promise.resolve({ stdout: "line1\n<<<<<<< HEAD\nmore changes\n=======\nother changes\n>>>>>>> main\nline3", stderr: "" })); // another file content
 
       const result = await ConflictDetectionService.predictConflicts(
         testRepoPath, sessionBranch, baseBranch
@@ -206,17 +192,15 @@ describe("ConflictDetectionService", () => {
     test("should return no conflicts when merge succeeds", async () => {
       // Setup: successful merge simulation
       mockExecAsync
-        .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // branch divergence
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
-        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // base tree
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // create temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // merge succeeds
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // reset
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout original
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }); // delete temp branch
+                        .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // branch divergence
+                        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
+                        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
+                        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
+                        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // base tree
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // create temp branch
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout temp branch
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // merge succeeds
+                        = mock(() => Promise.resolve({ stdout: "", stderr: "" }))({ stdout: "", stderr: "" }) = mock(() => Promise.resolve({ stdout: "", stderr: "" })); // delete temp branch
 
       const result = await ConflictDetectionService.predictConflicts(
         testRepoPath, sessionBranch, baseBranch
@@ -233,22 +217,19 @@ describe("ConflictDetectionService", () => {
   describe("mergeWithConflictPrevention", () => {
     test("should perform dry run without actual merge", async () => {
       // Setup: Complete call sequence that detects conflicts during prediction
-      mockExecAsync
-        // analyzeBranchDivergence calls:
-        .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // 1. rev-list --left-right --count
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
-        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // 3. checkSessionChangesInBase: rev-list (not empty)
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // 5. base tree (different - not already merged)
-        // simulateMerge calls:
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 6. create temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 7. checkout temp branch
-        .mockRejectedValueOnce(new Error("CONFLICT")) // 8. merge fails with conflicts
-        .mockResolvedValueOnce({ stdout: "UU file.ts", stderr: "" }) // 9. git status shows conflicts
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 10. abort merge
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 11. checkout original
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 12. delete temp branch
-        .mockResolvedValueOnce({ stdout: "conflict content", stderr: "" }); // 13. analyze conflict regions
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "1\t1", stderr: "" })) // 1. rev-list --left-right --count
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
+                .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // 3. checkSessionChangesInBase: rev-list (not empty)
+                .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
+                .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // 5. base tree (different - not already merged)
+                // simulateMerge calls:
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 6. create temp branch
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 7. checkout temp branch
+                .mockRejectedValueOnce(new Error("CONFLICT")) // 8. merge fails with conflicts
+                .mockResolvedValueOnce({ stdout: "UU file.ts", stderr: "" }) // 9. git status shows conflicts
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 10. abort merge
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 11. checkout original
+                = mock(() => Promise.resolve({ stdout: "conflict content", stderr: "" })); // 13. analyze conflict regions
 
       const result = await ConflictDetectionService.mergeWithConflictPrevention(
         testRepoPath, sessionBranch, baseBranch, { dryRun: true }
@@ -263,20 +244,18 @@ describe("ConflictDetectionService", () => {
     test("should perform actual merge when no conflicts predicted", async () => {
       // Setup: no conflicts, successful merge
       mockExecAsync
-        .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // branch divergence
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
-        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // base tree
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // create temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // merge succeeds
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // reset
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout original
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // delete temp branch
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // before hash
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // actual merge
-        .mockResolvedValueOnce({ stdout: "def456", stderr: "" }); // after hash
+                        .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // branch divergence
+                        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
+                        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
+                        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
+                        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // base tree
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // create temp branch
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout temp branch
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // merge succeeds
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // reset
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout original
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // delete temp branch
+                        = mock(() => Promise.resolve({ stdout: "", stderr: "" }))({ stdout: "", stderr: "" }) = mock(() => Promise.resolve({ stdout: "def456", stderr: "" })); // after hash
 
       const result = await ConflictDetectionService.mergeWithConflictPrevention(
         testRepoPath, sessionBranch, baseBranch, { dryRun: false }
@@ -289,28 +268,26 @@ describe("ConflictDetectionService", () => {
     test("should auto-resolve delete conflicts when enabled", async () => {
       // Setup: Complete call sequence for delete conflicts with auto-resolution
       mockExecAsync
-        // analyzeBranchDivergence calls:
-        .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // 1. rev-list --left-right --count
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
-        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // 3. checkSessionChangesInBase: rev-list (not empty)
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // 5. base tree (different)
-        // simulateMerge calls:
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 6. create temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 7. checkout temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 8. merge succeeds (updated for systematic fix)
-        .mockResolvedValueOnce({ stdout: "DU deleted-file.ts", stderr: "" }) // 9. git status
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 10. abort merge
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 11. checkout original
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 12. delete temp branch
-        .mockResolvedValueOnce({ stdout: "abc456", stderr: "" }) // 13. last commit for deleted file
-        // autoResolveDeleteConflicts calls:
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 14. git rm for auto-resolution
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 15. commit resolution
-        // actual merge calls:
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 16. before hash
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 17. actual merge
-        .mockResolvedValueOnce({ stdout: "def456", stderr: "" }); // 18. after hash
+                        // analyzeBranchDivergence calls:
+                        .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // 1. rev-list --left-right --count
+                        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
+                        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // 3. checkSessionChangesInBase: rev-list (not empty)
+                        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
+                        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // 5. base tree (different)
+                        // simulateMerge calls:
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 6. create temp branch
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 7. checkout temp branch
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 8. merge succeeds (updated for systematic fix)
+                        .mockResolvedValueOnce({ stdout: "DU deleted-file.ts", stderr: "" }) // 9. git status
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 10. abort merge
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 11. checkout original
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 12. delete temp branch
+                        .mockResolvedValueOnce({ stdout: "abc456", stderr: "" }) // 13. last commit for deleted file
+                        // autoResolveDeleteConflicts calls:
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 14. git rm for auto-resolution
+                        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 15. commit resolution
+                        // actual merge calls:
+                        = mock(() => Promise.resolve({ stdout: "", stderr: "" }))" })); // 18. after hash
 
       const result = await ConflictDetectionService.mergeWithConflictPrevention(
         testRepoPath, sessionBranch, baseBranch, { 
@@ -334,14 +311,12 @@ describe("ConflictDetectionService", () => {
       const baseBranch = "main";
       
       // Setup mock responses for behind-only scenario (should trigger fast-forward)
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "2\t0", stderr: "" }) // behind=2, ahead=0 (fast-forward needed)
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // merge-base origin/main task#231
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkSessionChangesInBase: no session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // cat-file session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // cat-file base tree (different)
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // fetch origin main
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }); // merge --ff-only origin/main
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "2\t0", stderr: "" })) // behind=2, ahead=0 (fast-forward needed)
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // merge-base origin/main task#231
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkSessionChangesInBase: no session commits
+                .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // cat-file session tree
+                .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // cat-file base tree (different)
+                = mock(() => Promise.resolve({ stdout: "", stderr: "" })); // merge --ff-only origin/main
 
       const result = await ConflictDetectionService.smartSessionUpdate(
         testRepoPath, sessionBranch, baseBranch
@@ -366,12 +341,10 @@ describe("ConflictDetectionService", () => {
 
     test("should skip update when session changes already in base", async () => {
       // Setup: session is up-to-date with base (divergence = none)
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "0\t0", stderr: "" }) // 1. behind=0, ahead=0 (up-to-date)
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 3. no session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }); // 5. base tree (same = already merged)
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "0\t0", stderr: "" })) // 1. behind=0, ahead=0 (up-to-date)
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 3. no session commits
+                = mock(() => Promise.resolve({ stdout: "tree1", stderr: "" })); // 5. base tree (same = already merged)
 
       const result = await ConflictDetectionService.smartSessionUpdate(
         testRepoPath, sessionBranch, baseBranch, { skipIfAlreadyMerged: true }
@@ -388,15 +361,13 @@ describe("ConflictDetectionService", () => {
 
     test("should perform fast-forward when session is behind", async () => {
       // Setup: session is behind, not already merged
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "2\t0", stderr: "" }) // 1. behind=2, ahead=0
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 3. no session commits (behind only)
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // 5. base tree (different)
-        // fast-forward update calls:
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 6. fetch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }); // 7. fast-forward merge
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "2\t0", stderr: "" })) // 1. behind=2, ahead=0
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // 2. merge-base
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 3. no session commits (behind only)
+                .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
+                .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // 5. base tree (different)
+                // fast-forward update calls:
+                = mock(() => Promise.resolve({ stdout: "", stderr: "" })); // 7. fast-forward merge
 
       const result = await ConflictDetectionService.smartSessionUpdate(
         testRepoPath, sessionBranch, baseBranch
@@ -408,12 +379,10 @@ describe("ConflictDetectionService", () => {
     });
 
     test("should skip when session is ahead and no update needed", async () => {
-      mockExecAsync
-        .mockResolvedValueOnce({ stdout: "0\t2", stderr: "" }) // branch divergence: behind=0, ahead=2
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
-        .mockResolvedValueOnce({ stdout: "commit1\ncommit2", stderr: "" }) // session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }); // base tree
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "0\t2", stderr: "" })) // branch divergence: behind=0, ahead=2
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
+                .mockResolvedValueOnce({ stdout: "commit1\ncommit2", stderr: "" }) // session commits
+                = mock(() => Promise.resolve({ stdout: "tree2", stderr: "" })); // base tree
 
       const result = await ConflictDetectionService.smartSessionUpdate(
         testRepoPath, sessionBranch, baseBranch
@@ -446,17 +415,16 @@ describe("ConflictDetectionService", () => {
     test("should handle merge simulation cleanup failures gracefully", async () => {
       // Setup: successful merge simulation that fails during cleanup
       mockExecAsync
-        .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // branch divergence
-        .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
-        .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
-        .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
-        .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // base tree
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // create temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout temp branch
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // merge succeeds
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // reset
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout original
-        .mockResolvedValueOnce({ stdout: "", stderr: "" }); // delete temp branch succeeds
+                .mockResolvedValueOnce({ stdout: "1\t1", stderr: "" }) // branch divergence
+                .mockResolvedValueOnce({ stdout: "abc123", stderr: "" }) // common commit
+                .mockResolvedValueOnce({ stdout: "commit1", stderr: "" }) // session commits
+                .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // session tree
+                .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // base tree
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // create temp branch
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // checkout temp branch
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // merge succeeds
+                .mockResolvedValueOnce({ stdout: "", stderr: "" }) // reset
+                = mock(() => Promise.resolve({ stdout: "", stderr: "" })); // delete temp branch succeeds
 
       const result = await ConflictDetectionService.predictConflicts(
         testRepoPath, sessionBranch, baseBranch

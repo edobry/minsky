@@ -23,12 +23,12 @@ describe("Session Auto-Task Creation", () => {
   beforeEach(() => {
     // Create spy for the method we want to track using createMock for proper Bun test tracking
     createTaskFromTitleAndDescriptionSpy = createMock();
-    createTaskFromTitleAndDescriptionSpy.mockImplementation((title: string, description: string) => Promise.resolve({
-      id: "#001",
-      title,
-      description,
-      status: "TODO",
-    }));
+    createTaskFromTitleAndDescriptionSpy = mock((title: string, description: string) => Promise.resolve({
+            id: "#001",
+            title,
+            description,
+            status: "TODO",
+          }));
 
     // Mock session database using centralized factory
     mockSessionDB = createMockSessionProvider({

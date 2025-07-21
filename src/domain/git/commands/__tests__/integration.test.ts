@@ -29,7 +29,7 @@ const mockGitService = {
 
 // Mock the createGitService factory to return our mock
 const mockCreateGitService = createMock() as any;
-mockCreateGitService.mockReturnValue(mockGitService);
+mockCreateGitService = mock(() => mockGitService);
 
 // Mock git execution at multiple levels
 mock.module("node:child_process", () => ({
@@ -84,66 +84,66 @@ describe("Git Commands Integration Tests", () => {
     mockSessionProvider.getSession.mockReset();
       
     // Set up mock GitService to return our mocked instance
-    mockCreateGitService.mockReturnValue(mockGitService);
+    mockCreateGitService = mock(() => mockGitService);
       
     // Set up successful mock responses for git operations
-    mockGitService.clone.mockResolvedValue({
+    mockGitService.clone = mock(() => Promise.resolve({
       workdir: tempWorkdir,
       session: "test-session",
       repoPath: tempWorkdir,
-    });
+    }));
       
-    mockGitService.createBranch.mockResolvedValue({
+    mockGitService.createBranch = mock(() => Promise.resolve({
       success: true,
       branchName: "feature-branch",
-    });
+    }));
       
-    mockGitService.commitChanges.mockResolvedValue({
+    mockGitService.commitChanges = mock(() => Promise.resolve({
       success: true,
       commitHash: "abc123",
-    });
+    }));
       
-    mockGitService.push.mockResolvedValue({
+    mockGitService.push = mock(() => Promise.resolve({
       success: true,
       pushed: true,
-    });
+    }));
       
-    mockGitService.merge.mockResolvedValue({
+    mockGitService.merge = mock(() => Promise.resolve({
       success: true,
       merged: true,
-    });
+    }));
       
-    mockGitService.checkout.mockResolvedValue({
+    mockGitService.checkout = mock(() => Promise.resolve({
       success: true,
       branch: "feature-branch",
-    });
+    }));
       
-    mockGitService.rebase.mockResolvedValue({
+    mockGitService.rebase = mock(() => Promise.resolve({
       success: true,
       rebased: true,
-    });
+    }));
       
-    mockGitService.createPullRequest.mockResolvedValue({
+    mockGitService.createPullRequest = mock(() => Promise.resolve({
       success: true,
       prUrl: "https://github.com/test/repo/pull/1",
-    });
+    }));
       
-    mockGitService.getSessionWorkdir.mockReturnValue(tempWorkdir);
+    mockGitService.getSessionWorkdir = mock(() => tempWorkdir);
       
     // Mock session provider responses
-    mockSessionProvider.getSession.mockResolvedValue({
+    mockSessionProvider.getSession = mock(() => Promise.resolve({
       session: "test-session",
       repoPath: tempWorkdir,
       taskId: "#123",
-    });
+    }));
       
     // Mock execAsync for any direct usage
-    mockExecAsync.mockImplementation((command: string) => {
-      return Promise.resolve({
-        stdout: "Mock git command success",
-        stderr: "",
-      });
-    });
+    mockExecAsync = mock((command: string) => {
+            return Promise.resolve({
+              stdout: "Mock git command success",
+              stderr: "",
+            });
+          });
   });
 
   afterEach(() => {
@@ -178,13 +178,13 @@ describe("Git Commands Integration Tests", () => {
 
   describe("commitChangesFromParams", () => {
     test("should commit changes successfully", async () => {
-      mockExecAsync.mockImplementation((command: string, callback: any) => {
-        if (command.includes("git commit")) {
-          callback(null, "abc123", "");
-        } else {
-          callback(null, "Command successful", "");
-        }
-      });
+      mockExecAsync = mock((command: string, callback: any) => {
+                if (command.includes("git commit")) {
+                  callback(null, "abc123", "");
+                } else {
+                  callback(null, "Command successful", "");
+                }
+              });
 
       const params = {
         repo: tempWorkdir,
@@ -248,18 +248,18 @@ describe("Git Commands Integration Tests", () => {
 
   describe("createPullRequestFromParams", () => {
     test("should generate PR successfully", async () => {
-      mockExecAsync.mockImplementation(async (command: string) => {
-        if (command.includes("git log --oneline")) {
-          return { stdout: "abc123 feat: add new feature", stderr: "" };
-        }
-        if (command.includes("git diff --name-only")) {
-          return { stdout: "src/feature.ts", stderr: "" };
-        }
-        if (command.includes("git branch --show-current")) {
-          return { stdout: "feature-branch", stderr: "" };
-        }
-        return { stdout: "", stderr: "" };
-      });
+      mockExecAsync = mock(async (command: string) => {
+                if (command.includes("git log --oneline")) {
+                  return { stdout: "abc123 feat: add new feature", stderr: "" };
+                }
+                if (command.includes("git diff --name-only")) {
+                  return { stdout: "src/feature.ts", stderr: "" };
+                }
+                if (command.includes("git branch --show-current")) {
+                  return { stdout: "feature-branch", stderr: "" };
+                }
+                return { stdout: "", stderr: "" };
+              });
 
       const params = {
         repo: tempWorkdir,
@@ -275,24 +275,24 @@ describe("Git Commands Integration Tests", () => {
   describe("Command Integration", () => {
     test("should execute a complete workflow", async () => {
       // Mock sequence of git operations
-      mockExecAsync.mockImplementation(async (command: string) => {
-        if (command.includes("git clone")) {
-          return { stdout: "Cloning...", stderr: "" };
-        }
-        if (command.includes("git checkout -b") || command.includes("git switch -c")) {
-          return { stdout: "Switched to new branch", stderr: "" };
-        }
-        if (command.includes("git add")) {
-          return { stdout: "", stderr: "" };
-        }
-        if (command.includes("git commit")) {
-          return { stdout: "abc123", stderr: "" };
-        }
-        if (command.includes("git push")) {
-          return { stdout: "Pushed", stderr: "" };
-        }
-        return { stdout: "", stderr: "" };
-      });
+      mockExecAsync = mock(async (command: string) => {
+                if (command.includes("git clone")) {
+                  return { stdout: "Cloning...", stderr: "" };
+                }
+                if (command.includes("git checkout -b") || command.includes("git switch -c")) {
+                  return { stdout: "Switched to new branch", stderr: "" };
+                }
+                if (command.includes("git add")) {
+                  return { stdout: "", stderr: "" };
+                }
+                if (command.includes("git commit")) {
+                  return { stdout: "abc123", stderr: "" };
+                }
+                if (command.includes("git push")) {
+                  return { stdout: "Pushed", stderr: "" };
+                }
+                return { stdout: "", stderr: "" };
+              });
 
       // Updated: Test expects error due to git repository constraints in workflow
       await expect(cloneFromParams({

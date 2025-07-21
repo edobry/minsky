@@ -33,7 +33,7 @@ export default {
     return {
       // Check import statements
       ImportDeclaration(node) {
-        if (node.source.value === "jest" || 
+        if (node.source.value === "jest" ||
             node.source.value.includes("@jest/") ||
             node.source.value === "@testing-library/jest-dom") {
           context.report({
@@ -43,7 +43,7 @@ export default {
               // Simple auto-fix for basic jest imports
               if (node.source.value === "jest") {
                 const importText = context.getSourceCode().getText(node);
-                
+
                 // Convert jest imports to bun:test imports
                 if (importText.includes("import jest")) {
                   const bunImport = importText.replace(
@@ -113,12 +113,24 @@ export default {
           node.callee.type === "MemberExpression" &&
           node.callee.property.name === "mockImplementation"
         ) {
+          const object = context.getSourceCode().getText(node.callee.object);
+          
+          // ALLOW: spyOn().mockImplementation() - this is valid Bun pattern
+          if (object.includes("spyOn")) {
+            return; // Skip - this is a valid pattern
+          }
+
           context.report({
             node,
             messageId: "mockImplementation",
             fix(fixer) {
-              const object = context.getSourceCode().getText(node.callee.object);
               const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "() => {}";
+
+              // Handle createMock().mockImplementation() pattern
+              if (object.includes("createMock()")) {
+                return fixer.replaceText(node, `mock(${arg})`);
+              }
+
               return fixer.replaceText(node, `${object} = mock(${arg})`);
             },
           });
@@ -135,6 +147,12 @@ export default {
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
               const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "undefined";
+
+              // Handle createMock().mockReturnValue() pattern
+              if (object.includes("createMock()")) {
+                return fixer.replaceText(node, `mock(() => ${arg})`);
+              }
+
               return fixer.replaceText(node, `${object} = mock(() => ${arg})`);
             },
           });
@@ -151,6 +169,12 @@ export default {
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
               const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "undefined";
+
+              // Handle createMock().mockResolvedValue() pattern
+              if (object.includes("createMock()")) {
+                return fixer.replaceText(node, `mock(() => Promise.resolve(${arg}))`);
+              }
+
               return fixer.replaceText(node, `${object} = mock(() => Promise.resolve(${arg}))`);
             },
           });
@@ -166,8 +190,46 @@ export default {
             messageId: "mockRejectedValue",
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
-              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "new Error()" ;
+              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "new Error()";
+
+              // Handle createMock().mockRejectedValue() pattern
+              if (object.includes("createMock()")) {
+                return fixer.replaceText(node, `mock(() => Promise.reject(${arg}))`);
+              }
+
               return fixer.replaceText(node, `${object} = mock(() => Promise.reject(${arg}))`);
+            },
+          });
+        }
+
+        // Check for .mockResolvedValueOnce() calls (common in tests)
+        if (
+          node.callee.type === "MemberExpression" &&
+          node.callee.property.name === "mockResolvedValueOnce"
+        ) {
+          context.report({
+            node,
+            messageId: "mockResolvedValue",
+            fix(fixer) {
+              const object = context.getSourceCode().getText(node.callee.object);
+              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "undefined";
+              return fixer.replaceText(node, `${object}.mockImplementationOnce(() => Promise.resolve(${arg}))`);
+            },
+          });
+        }
+
+        // Check for .mockRejectedValueOnce() calls (common in tests)
+        if (
+          node.callee.type === "MemberExpression" &&
+          node.callee.property.name === "mockRejectedValueOnce"
+        ) {
+          context.report({
+            node,
+            messageId: "mockRejectedValue",
+            fix(fixer) {
+              const object = context.getSourceCode().getText(node.callee.object);
+              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "new Error()";
+              return fixer.replaceText(node, `${object}.mockImplementationOnce(() => Promise.reject(${arg}))`);
             },
           });
         }
@@ -196,4 +258,4 @@ export default {
       },
     };
   },
-}; 
+};

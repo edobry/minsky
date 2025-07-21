@@ -19,15 +19,15 @@ describe("Session Git Clone Bug Regression Test", () => {
     
     // Create trackable spies for methods we need to verify
     const addSessionSpy = createMock();
-    addSessionSpy.mockImplementation(() => Promise.resolve(undefined));
+    addSessionSpy = mock(() => Promise.resolve(undefined));
 
     const cloneSpy = createMock();
-    cloneSpy.mockImplementation(() => Promise.reject(
-      new Error("fatal: destination path 'task#160' already exists and is not an empty directory")
-    ));
+    cloneSpy = mock(() => Promise.reject(
+            new Error("fatal: destination path 'task#160' already exists and is not an empty directory")
+          ));
 
     const branchSpy = createMock();
-    branchSpy.mockImplementation(() => Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" }));
+    branchSpy = mock(() => Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" }));
 
     const mockSessionDB = createMockSessionProvider({
       getSession: () => Promise.resolve(null),
@@ -94,13 +94,13 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     // Create trackable spies for methods we need to verify
     const addSessionSpy = createMock();
-    addSessionSpy.mockImplementation(() => Promise.resolve(undefined));
+    addSessionSpy = mock(() => Promise.resolve(undefined));
 
     const cloneSpy = createMock();
-    cloneSpy.mockImplementation(() => Promise.resolve({ workdir: "/test/sessions/task#160", session: "task#160" }));
+    cloneSpy = mock(() => Promise.resolve({ workdir: "/test/sessions/task#160", session: "task#160" }));
 
     const branchSpy = createMock();
-    branchSpy.mockImplementation(() => Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" }));
+    branchSpy = mock(() => Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" }));
 
     const mockSessionDB = createMockSessionProvider({
       getSession: () => Promise.resolve(null),
