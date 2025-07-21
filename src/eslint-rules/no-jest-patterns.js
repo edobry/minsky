@@ -33,7 +33,7 @@ export default {
     return {
       // Check import statements
       ImportDeclaration(node) {
-        if (node.source.value === "jest" || 
+        if (node.source.value === "jest" ||
             node.source.value.includes("@jest/") ||
             node.source.value === "@testing-library/jest-dom") {
           context.report({
@@ -43,7 +43,7 @@ export default {
               // Simple auto-fix for basic jest imports
               if (node.source.value === "jest") {
                 const importText = context.getSourceCode().getText(node);
-                
+
                 // Convert jest imports to bun:test imports
                 if (importText.includes("import jest")) {
                   const bunImport = importText.replace(
@@ -113,11 +113,17 @@ export default {
           node.callee.type === "MemberExpression" &&
           node.callee.property.name === "mockImplementation"
         ) {
+          const object = context.getSourceCode().getText(node.callee.object);
+
+          // Skip spyOn().mockImplementation() - it works in Bun
+          if (object.includes("spyOn")) {
+            return;
+          }
+
           context.report({
             node,
             messageId: "mockImplementation",
             fix(fixer) {
-              const object = context.getSourceCode().getText(node.callee.object);
               const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "() => {}";
               return fixer.replaceText(node, `${object} = mock(${arg})`);
             },
@@ -196,4 +202,4 @@ export default {
       },
     };
   },
-}; 
+};
