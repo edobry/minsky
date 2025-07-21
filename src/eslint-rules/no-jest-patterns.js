@@ -125,6 +125,17 @@ export default {
             messageId: "mockImplementation",
             fix(fixer) {
               const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "() => {}";
+
+              // Handle spyOn().mockImplementation() pattern
+              if (object.includes("spyOn")) {
+                return fixer.replaceText(node, `${object} = mock(${arg})`);
+              }
+
+              // Handle createMock().mockImplementation() pattern
+              if (object.includes("createMock()")) {
+                return fixer.replaceText(node, `mock(${arg})`);
+              }
+
               return fixer.replaceText(node, `${object} = mock(${arg})`);
             },
           });
@@ -141,6 +152,12 @@ export default {
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
               const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "undefined";
+
+              // Handle createMock().mockReturnValue() pattern
+              if (object.includes("createMock()")) {
+                return fixer.replaceText(node, `mock(() => ${arg})`);
+              }
+
               return fixer.replaceText(node, `${object} = mock(() => ${arg})`);
             },
           });
@@ -157,6 +174,12 @@ export default {
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
               const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "undefined";
+
+              // Handle createMock().mockResolvedValue() pattern
+              if (object.includes("createMock()")) {
+                return fixer.replaceText(node, `mock(() => Promise.resolve(${arg}))`);
+              }
+
               return fixer.replaceText(node, `${object} = mock(() => Promise.resolve(${arg}))`);
             },
           });
@@ -172,8 +195,46 @@ export default {
             messageId: "mockRejectedValue",
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
-              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "new Error()" ;
+              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "new Error()";
+
+              // Handle createMock().mockRejectedValue() pattern
+              if (object.includes("createMock()")) {
+                return fixer.replaceText(node, `mock(() => Promise.reject(${arg}))`);
+              }
+
               return fixer.replaceText(node, `${object} = mock(() => Promise.reject(${arg}))`);
+            },
+          });
+        }
+
+        // Check for .mockResolvedValueOnce() calls (common in tests)
+        if (
+          node.callee.type === "MemberExpression" &&
+          node.callee.property.name === "mockResolvedValueOnce"
+        ) {
+          context.report({
+            node,
+            messageId: "mockResolvedValue",
+            fix(fixer) {
+              const object = context.getSourceCode().getText(node.callee.object);
+              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "undefined";
+              return fixer.replaceText(node, `${object}.mockImplementationOnce(() => Promise.resolve(${arg}))`);
+            },
+          });
+        }
+
+        // Check for .mockRejectedValueOnce() calls (common in tests)
+        if (
+          node.callee.type === "MemberExpression" &&
+          node.callee.property.name === "mockRejectedValueOnce"
+        ) {
+          context.report({
+            node,
+            messageId: "mockRejectedValue",
+            fix(fixer) {
+              const object = context.getSourceCode().getText(node.callee.object);
+              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "new Error()";
+              return fixer.replaceText(node, `${object}.mockImplementationOnce(() => Promise.reject(${arg}))`);
             },
           });
         }
