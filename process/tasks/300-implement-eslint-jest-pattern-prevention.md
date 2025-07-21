@@ -24,7 +24,19 @@ Task #061 Phase 3 created comprehensive Bun test pattern documentation and infra
 - `jest.mock()` → "Use centralized mockModule() from test-utils/mocking.ts"
 - Jest imports → "Use Bun test imports instead of Jest"
 
-### 2. ESLint Configuration Integration
+### 2. Session Start Bug Fixes (Added During Implementation)
+
+**Issue 1: Missing `createTaskFromTitleAndDescription` Method**
+- **Problem**: `minsky session start --description "..."` failed with "createTaskFromTitleAndDescription is not a function"
+- **Root Cause**: Method existed in TaskService class but was missing from TaskBackend interface and implementations
+- **Solution**: ✅ Added method to TaskBackend interface and all backend implementations
+
+**Issue 2: Unfriendly JSON Error Messages**
+- **Problem**: Users saw ugly JSON dumps alongside clean error messages
+- **Root Cause**: `log.error()` call was outputting raw JSON metadata to users
+- **Solution**: ✅ Removed the log.error call that dumped JSON to user output
+
+### 3. ESLint Configuration Integration
 
 **File**: `.eslintrc.js` or `eslint.config.js`
 
@@ -37,14 +49,14 @@ Add the custom rule to project ESLint configuration:
 }
 ```
 
-### 3. Auto-Fix Capabilities
+### 4. Auto-Fix Capabilities
 
 Implement automatic fixes for common patterns:
 - `jest.fn()` → `mock()` (with appropriate import)
 - Simple `.mockReturnValue()` → Bun equivalent
 - Jest import statements → Bun import statements
 
-### 4. Integration with Development Workflow
+### 5. Integration with Development Workflow
 
 - Ensure rule runs in existing lint commands
 - Verify integration with pre-commit hooks (if any)
