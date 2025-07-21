@@ -52,6 +52,9 @@
   - **Performance optimizations**: Fixed session PR creation hangs caused by commit-msg hook processing large commit messages
   - **Impact**: Eliminates need for manual git commits after task operations - agents can perform task status updates, creation, and deletion seamlessly
 
+- Enhanced Implementation Verification Protocol with mandatory triggers to prevent premature completion declarations ([Task #305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md))
+- AST-based Jest-to-Bun migration codemod in `codemods/` directory following established framework patterns ([Task #305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md))
+
 ### Fixed
 
 - **Session Start --description Flag Error (Task #300)**: Fixed missing `createTaskFromTitleAndDescription` method in `TaskBackend` interface and all backend implementations. Users can now successfully use `minsky session start --description "..."` without getting "is not a function" errors.
@@ -1367,3 +1370,8 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **Backend Architecture**: Backends now handle workspace resolution internally instead of requiring external resolution
 - **API Simplification**: One-step backend creation eliminates complex router patterns
 - **Workspace Resolution**: Enhanced TaskService approach replaces TaskBackendRouter complexity in production code
+
+- Updated Task #305 status to IN-PROGRESS with detailed progress tracking and enhanced acceptance criteria
+- Jest pattern migration achieved 78% ESLint violation reduction (217→48 patterns) using systematic AST approach
+
+- Regulatory system gap that allowed premature completion claims without verification command output
