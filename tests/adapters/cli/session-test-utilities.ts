@@ -126,7 +126,7 @@ export function createSessionTestData(): SessionTestData {
     deleteSession: createMock(),
     getRepoPath: createMock(),
     getSessionWorkdir: createMock(),
-  } as unknown as SessionProviderInterface;
+  } as SessionProviderInterface;
 
   // Set up mock implementations manually to avoid type issues
   (mockSessionDB.listSessions as any) = mock(() => Promise.resolve(mockSessions));
@@ -178,7 +178,7 @@ export function createGitServiceMock(): GitServiceInterface {
     stash: createMock() = mock(() => Promise.resolve(undefined)),
     stashPop: createMock() = mock(() => Promise.resolve(undefined)),
     getCommitHash: createMock() = mock(() => Promise.resolve("abc123")),
-  } as unknown as GitServiceInterface;
+  } as GitServiceInterface;
 }
 
 // Helper function to create session records for testing
