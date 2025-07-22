@@ -107,7 +107,9 @@ export function registerSessionCommands(): void {
 
       try {
         const session = await sessionGet({
-          session: params!.sessionName || params!.name || params!.task,
+          name: params!.sessionName || params!.name,
+          task: params!.task,
+          repo: params!.repo,
           json: params!.json,
         });
 
