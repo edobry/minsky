@@ -3,7 +3,7 @@
  * Title Duplication Checker for Commit Messages
  * Validates commit messages to prevent title duplication in body
  * Reuses validation logic from session PR workflow
- * 
+ *
  * NOTE: This duplicates validation logic from src/domain/session/pr-validation.ts
  * due to import complexity in bun scripts. Keep in sync when logic changes.
  */
@@ -42,7 +42,9 @@ function isDuplicateContent(content1: string, content2: string): boolean {
   const normalized2 = normalize(content2);
 
   // Early exit if one is much longer than the other (unlikely to be duplicates)
-  const lengthRatio = Math.max(normalized1.length, normalized2.length) / Math.min(normalized1.length, normalized2.length);
+  const lengthRatio =
+    Math.max(normalized1.length, normalized2.length) /
+    Math.min(normalized1.length, normalized2.length);
   if (lengthRatio > 3) {
     return false;
   }
@@ -67,7 +69,9 @@ function validatePrContent(title: string, body: string): string[] {
   // performance issues with massive commit messages (like auto-generated changelogs)
   const MAX_BODY_LENGTH_FOR_VALIDATION = 5000;
   if (body.length > MAX_BODY_LENGTH_FOR_VALIDATION) {
-    console.log(`⚡ Skipping title duplication check for extremely large commit message (${body.length} chars)`);
+    console.log(
+      `⚡ Skipping title duplication check for extremely large commit message (${body.length} chars)`
+    );
     return issues;
   }
 
@@ -76,7 +80,9 @@ function validatePrContent(title: string, body: string): string[] {
 
   // Check if title appears as first line of body
   if (firstLine && isDuplicateContent(title.trim(), firstLine)) {
-    issues.push(`Title "${title.trim()}" appears to be duplicated as the first line of the body: "${firstLine}"`);
+    issues.push(
+      `Title "${title.trim()}" appears to be duplicated as the first line of the body: "${firstLine}"`
+    );
   }
 
   return issues;
@@ -87,7 +93,7 @@ function validatePrContent(title: string, body: string): string[] {
  */
 function main(): void {
   const commitMsgFile = process.argv[2];
-  
+
   if (!commitMsgFile) {
     console.error("Usage: bun check-title-duplication.ts <commit-msg-file>");
     process.exit(1);
@@ -109,13 +115,13 @@ function main(): void {
   // Parse commit message into title and body
   const lines = commitMessage.split("\n");
   const title = lines[0]?.trim();
-  
+
   // Body starts after the first blank line (standard git commit format)
   let bodyStartIndex = 1;
   while (bodyStartIndex < lines.length && lines[bodyStartIndex]?.trim() === "") {
     bodyStartIndex++;
   }
-  
+
   const body = lines.slice(bodyStartIndex).join("\n").trim();
 
   if (!title) {
@@ -138,11 +144,11 @@ function main(): void {
 
   console.log("❌ Title duplication detected in commit message:");
   console.log("");
-  
+
   for (const issue of issues) {
     console.log(`   • ${issue}`);
   }
-  
+
   console.log("");
   console.log("💡 Please fix the title duplication before committing.");
   console.log("   Example:");
@@ -153,10 +159,10 @@ function main(): void {
   console.log("   Use:");
   console.log("     Title: fix: Fix user authentication bug");
   console.log("     Body:  Resolves issue where users couldn't log in...");
-  
+
   process.exit(1);
 }
 
 if (import.meta.main) {
   main();
-} 
+}

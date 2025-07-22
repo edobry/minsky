@@ -10,11 +10,13 @@ File operation tools currently have poor UX for AI agents:
 ## Experienced Issues
 
 In Task #308, encountered:
+
 ```json
-{"success":false,"error":"ENOENT: no such file or directory, open '/path/file.ts'"}
+{ "success": false, "error": "ENOENT: no such file or directory, open '/path/file.ts'" }
 ```
 
 **Problems:**
+
 - AI agents must decode filesystem errors
 - No guidance on how to fix the issue
 - Forces manual directory creation before file operations
@@ -25,16 +27,18 @@ In Task #308, encountered:
 ### 1. Auto-Create Directory Support
 
 Update `edit_file` tool to match session tools:
+
 ```typescript
 // Current session tool behavior (works well)
-mcp_minsky-server_session_write_file({
-  createDirs: true  // default
-})
+mcp_minsky -
+  server_session_write_file({
+    createDirs: true, // default
+  });
 
 // Proposed: same for regular tools
 edit_file(path, content, {
-  createDirs: true  // new default
-})
+  createDirs: true, // new default
+});
 ```
 
 ### 2. Semantic Error Messages
@@ -42,11 +46,13 @@ edit_file(path, content, {
 Replace cryptic filesystem errors with actionable messages:
 
 **Before:**
+
 ```json
-{"success":false,"error":"ENOENT: no such file or directory"}
+{ "success": false, "error": "ENOENT: no such file or directory" }
 ```
 
 **After:**
+
 ```json
 {
   "success": false,
@@ -64,25 +70,26 @@ Replace cryptic filesystem errors with actionable messages:
 
 ### Error Code Mapping
 
-| Filesystem Error | Semantic Error | Agent Guidance |
-|------------------|----------------|----------------|
-| ENOENT (file) | `FILE_NOT_FOUND` | Check file path, use file_search |
-| ENOENT (dir) | `DIRECTORY_NOT_FOUND` | Set createDirs or use create_directory |
-| EACCES | `PERMISSION_DENIED` | Check file permissions, use different path |
-| EEXIST | `PATH_ALREADY_EXISTS` | Use force flag or different name |
-| EINVAL | `INVALID_PATH` | Check path format, avoid special characters |
+| Filesystem Error | Semantic Error        | Agent Guidance                              |
+| ---------------- | --------------------- | ------------------------------------------- |
+| ENOENT (file)    | `FILE_NOT_FOUND`      | Check file path, use file_search            |
+| ENOENT (dir)     | `DIRECTORY_NOT_FOUND` | Set createDirs or use create_directory      |
+| EACCES           | `PERMISSION_DENIED`   | Check file permissions, use different path  |
+| EEXIST           | `PATH_ALREADY_EXISTS` | Use force flag or different name            |
+| EINVAL           | `INVALID_PATH`        | Check path format, avoid special characters |
 
 ### Session-Specific Errors
 
-| Current Error | Semantic Error | Recovery Guidance |
-|---------------|----------------|-------------------|
-| "Session not found" | `SESSION_NOT_FOUND` | Use session_list, verify name/ID |
-| Git conflicts | `GIT_BRANCH_CONFLICT` | Use conflict resolution flags |
-| Missing workspace | `SESSION_WORKSPACE_INVALID` | Check session status, recreate if needed |
+| Current Error       | Semantic Error              | Recovery Guidance                        |
+| ------------------- | --------------------------- | ---------------------------------------- |
+| "Session not found" | `SESSION_NOT_FOUND`         | Use session_list, verify name/ID         |
+| Git conflicts       | `GIT_BRANCH_CONFLICT`       | Use conflict resolution flags            |
+| Missing workspace   | `SESSION_WORKSPACE_INVALID` | Check session status, recreate if needed |
 
 ## Implementation Scope
 
 **Tools to Update:**
+
 - `edit_file` - add createDirs support + semantic errors
 - `read_file` - semantic error messages
 - `delete_file` - semantic error messages
@@ -91,14 +98,15 @@ Replace cryptic filesystem errors with actionable messages:
 - Session management tools - semantic session errors
 
 **Error Response Schema:**
+
 ```typescript
 interface ToolErrorResponse {
   success: false;
-  error: string;           // Human-readable message
-  errorCode: string;       // Semantic error type
-  reason?: string;         // Technical details
-  solutions: string[];     // Actionable recovery steps
-  retryable: boolean;      // Can operation be retried
+  error: string; // Human-readable message
+  errorCode: string; // Semantic error type
+  reason?: string; // Technical details
+  solutions: string[]; // Actionable recovery steps
+  retryable: boolean; // Can operation be retried
   relatedTools?: string[]; // Tools that might help
 }
 ```
@@ -124,6 +132,7 @@ interface ToolErrorResponse {
 ## Example Before/After
 
 **Before (Task #308 experience):**
+
 ```bash
 edit_file(src/domain/session/validation/__tests__/file.ts)
 # Error: ENOENT: no such file or directory
@@ -132,6 +141,7 @@ edit_file(src/domain/session/validation/__tests__/file.ts)
 ```
 
 **After:**
+
 ```bash
 edit_file(src/domain/session/validation/__tests__/file.ts)
 # Works automatically - creates directories and file

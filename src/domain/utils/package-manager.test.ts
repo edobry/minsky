@@ -11,28 +11,24 @@ mock.module("../logger.js", () => ({
   },
 }));
 
-import {
-  detectPackageManager,
-  getInstallCommand,
-  installDependencies,
-} from "./package-manager";
+import { detectPackageManager, getInstallCommand, installDependencies } from "./package-manager";
 
 describe("Package Manager Utilities", () => {
   // Mock fs.existsSync
-  const existsSyncMock = spyOn(fs, "existsSync");
+  let existsSyncMock = spyOn(fs, "existsSync");
   // Mock childProcess.execSync
-  const execSyncMock = spyOn(childProcess, "execSync");
+  let execSyncMock = spyOn(childProcess, "execSync");
 
   beforeEach(() => {
     // Reset mocks before each test
-    existsSyncMock.mockReset();
-    execSyncMock.mockReset();
+    existsSyncMock = spyOn(fs, "existsSync");
+    execSyncMock = spyOn(childProcess, "execSync");
   });
 
   afterEach(() => {
     // Reset mocks after each test
-    existsSyncMock.mockReset();
-    execSyncMock.mockReset();
+    existsSyncMock = spyOn(fs, "existsSync");
+    execSyncMock = spyOn(childProcess, "execSync");
   });
 
   describe("detectPackageManager", () => {

@@ -21,7 +21,8 @@ export const gitCloneParamsSchema = z
     directory: pathSchema.optional().describe("Target directory for the clone"),
     branch: z.string().optional().describe("Branch to checkout after cloning"),
     depth: z.number().optional().describe("Create a shallow clone with specified depth"),
-  }).merge(commonCommandOptionsSchema);
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for git clone parameters
@@ -35,7 +36,8 @@ export const gitBranchParamsSchema = z
   .object({
     name: z.string().min(1).describe("Name of the _branch to create"),
     repo: repoPathSchema.optional().describe("Path to the git repository"),
-  }).merge(commonCommandOptionsSchema);
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for git branch parameters
@@ -90,7 +92,8 @@ export const gitPushParamsSchema = z
     remote: z.string().optional().default("origin").describe("Remote to push to"),
     branch: z.string().optional().describe("Branch to push"),
     force: flagSchema("Force push"),
-  }).merge(commonCommandOptionsSchema);
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for git push parameters

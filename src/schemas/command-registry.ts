@@ -9,7 +9,7 @@ import { z } from "zod";
  */
 export const commandCategorySchema = z.enum([
   "CORE",
-  "GIT", 
+  "GIT",
   "TASKS",
   "SESSION",
   "RULES",
@@ -98,4 +98,4 @@ export function validateCommandDefinition(data: unknown): CommandDefinition {
 
 export function validateCommandRegistrationOptions(data: unknown): CommandRegistrationOptions {
   return commandRegistrationOptionsSchema.parse(data);
-} 
+}

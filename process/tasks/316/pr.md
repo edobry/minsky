@@ -17,7 +17,7 @@ Additionally, this PR improves the backward compatibility of session commands by
 
 - ESLint `max-lines` rule with:
   - Warning at 400 lines (non-blocking for existing files)
-  - Error at 1500 lines (prevents extremely large files) 
+  - Error at 1500 lines (prevents extremely large files)
   - Configuration to skip blank lines and comments
 - Backward compatibility for session command parameters:
   - Added `sessionname` parameter for MCP
@@ -44,4 +44,4 @@ Additionally, this PR improves the backward compatibility of session commands by
 - [x] Session command backward compatibility ensured
 - [x] Code quality maintained
 - [x] Documentation updated
-- [x] Changelog updated 
+- [x] Changelog updated

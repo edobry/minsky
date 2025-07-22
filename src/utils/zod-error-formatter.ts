@@ -22,8 +22,8 @@ export function formatZodError(error: ZodError, context?: string): string {
   }
 
   // Handle multiple issues
-  const formattedIssues = error.issues.map(issue => formatSingleZodIssue(issue, context));
-  return `Multiple validation errors:\n${formattedIssues.map(msg => `• ${msg}`).join("\n")}`;
+  const formattedIssues = error.issues.map((issue) => formatSingleZodIssue(issue, context));
+  return `Multiple validation errors:\n${formattedIssues.map((msg) => `• ${msg}`).join("\n")}`;
 }
 
 /**
@@ -37,26 +37,26 @@ function formatSingleZodIssue(issue: ZodIssue, _context?: string): string {
   const fieldName = fieldPath || "input";
 
   switch (issue.code) {
-  case "invalid_enum_value":
-    return formatEnumError(issue, fieldName);
-  
-  case "invalid_type":
-    return formatTypeError(issue, fieldName);
-  
-  case "too_small":
-    return formatTooSmallError(issue, fieldName);
-  
-  case "too_big":
-    return formatTooBigError(issue, fieldName);
-  
-  case "invalid_string":
-    return formatStringError(issue, fieldName);
-  
-  case "custom":
-    return issue.message || `Invalid ${fieldName}`;
-  
-  default:
-    return issue.message || `Invalid ${fieldName}`;
+    case "invalid_enum_value":
+      return formatEnumError(issue, fieldName);
+
+    case "invalid_type":
+      return formatTypeError(issue, fieldName);
+
+    case "too_small":
+      return formatTooSmallError(issue, fieldName);
+
+    case "too_big":
+      return formatTooBigError(issue, fieldName);
+
+    case "invalid_string":
+      return formatStringError(issue, fieldName);
+
+    case "custom":
+      return issue.message || `Invalid ${fieldName}`;
+
+    default:
+      return issue.message || `Invalid ${fieldName}`;
   }
 }
 
@@ -68,34 +68,24 @@ function formatEnumError(issue: ZodIssue, fieldName: string): string {
   if (issue.code !== "invalid_enum_value") {
     return `Invalid ${fieldName}`;
   }
-  
+
   const enumIssue = issue; // Cast to access enum-specific properties
   const value = enumIssue.received;
   const options = enumIssue.options as string[];
-  
+
   // Special handling for task status enum
   if (fieldName === "status" && isTaskStatusEnum(options)) {
-    return createValidationErrorMessage(
-      "status",
-      String(value),
-      TASK_STATUS_VALUES,
-      [
-        { label: "Field", value: fieldName },
-        { label: "Provided", value: String(value) }
-      ]
-    );
-  }
-  
-  // Generic enum error
-  return createValidationErrorMessage(
-    fieldName,
-    String(value),
-    options,
-    [
+    return createValidationErrorMessage("status", String(value), TASK_STATUS_VALUES, [
       { label: "Field", value: fieldName },
-      { label: "Provided", value: String(value) }
-    ]
-  );
+      { label: "Provided", value: String(value) },
+    ]);
+  }
+
+  // Generic enum error
+  return createValidationErrorMessage(fieldName, String(value), options, [
+    { label: "Field", value: fieldName },
+    { label: "Provided", value: String(value) },
+  ]);
 }
 
 /**
@@ -105,11 +95,11 @@ function formatTypeError(issue: ZodIssue, fieldName: string): string {
   if (issue.code !== "invalid_type") {
     return `Invalid ${fieldName}`;
   }
-  
+
   const typeIssue = issue; // Cast to access type-specific properties
   const expectedType = typeIssue.expected;
   const receivedType = typeIssue.received;
-  
+
   return `Invalid ${fieldName}: expected ${expectedType}, received ${receivedType}`;
 }
 
@@ -120,11 +110,11 @@ function formatTooSmallError(issue: ZodIssue, fieldName: string): string {
   if (issue.code !== "too_small") {
     return `${fieldName} is too small`;
   }
-  
+
   const sizeIssue = issue; // Cast to access size-specific properties
   const minimum = sizeIssue.minimum;
   const type = sizeIssue.type;
-  
+
   if (type === "string") {
     return `${fieldName} must be at least ${minimum} characters long`;
   } else if (type === "number") {
@@ -132,7 +122,7 @@ function formatTooSmallError(issue: ZodIssue, fieldName: string): string {
   } else if (type === "array") {
     return `${fieldName} must contain at least ${minimum} item(s)`;
   }
-  
+
   return `${fieldName} is too small`;
 }
 
@@ -143,11 +133,11 @@ function formatTooBigError(issue: ZodIssue, fieldName: string): string {
   if (issue.code !== "too_big") {
     return `${fieldName} is too big`;
   }
-  
+
   const sizeIssue = issue; // Cast to access size-specific properties
   const maximum = sizeIssue.maximum;
   const type = sizeIssue.type;
-  
+
   if (type === "string") {
     return `${fieldName} must be at most ${maximum} characters long`;
   } else if (type === "number") {
@@ -155,7 +145,7 @@ function formatTooBigError(issue: ZodIssue, fieldName: string): string {
   } else if (type === "array") {
     return `${fieldName} must contain at most ${maximum} item(s)`;
   }
-  
+
   return `${fieldName} is too big`;
 }
 
@@ -166,10 +156,10 @@ function formatStringError(issue: ZodIssue, fieldName: string): string {
   if (issue.code !== "invalid_string") {
     return `${fieldName} format is invalid`;
   }
-  
+
   const stringIssue = issue; // Cast to access string-specific properties
   const validation = stringIssue.validation;
-  
+
   if (validation === "email") {
     return `${fieldName} must be a valid email address`;
   } else if (validation === "url") {
@@ -177,7 +167,7 @@ function formatStringError(issue: ZodIssue, fieldName: string): string {
   } else if (validation === "uuid") {
     return `${fieldName} must be a valid UUID`;
   }
-  
+
   return `${fieldName} format is invalid`;
 }
 
@@ -185,8 +175,10 @@ function formatStringError(issue: ZodIssue, fieldName: string): string {
  * Check if the enum options are task status values
  */
 function isTaskStatusEnum(options: string[]): boolean {
-  return options.length === TASK_STATUS_VALUES.length &&
-         options.every(option => TASK_STATUS_VALUES.includes(option));
+  return (
+    options.length === TASK_STATUS_VALUES.length &&
+    options.every((option) => TASK_STATUS_VALUES.includes(option))
+  );
 }
 
 /**
@@ -198,4 +190,4 @@ function isTaskStatusEnum(options: string[]): boolean {
 export function createFormattedValidationError(operation: string, error: ZodError): string {
   const formattedError = formatZodError(error, operation);
   return `Invalid parameters for ${operation}:\n${formattedError}`;
-} 
+}

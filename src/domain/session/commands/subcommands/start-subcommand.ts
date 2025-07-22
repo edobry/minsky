@@ -75,21 +75,25 @@ export const sessionStartCommandParams: CommandParameterMap = {
  * Execute the session start command
  */
 export async function executeSessionStartCommand(
-  parameters: { [K in keyof typeof sessionStartCommandParams]: z.infer<typeof sessionStartCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof sessionStartCommandParams]: z.infer<
+      (typeof sessionStartCommandParams)[K]["schema"]
+    >;
+  },
   context: CommandExecutionContext
 ): Promise<any> {
-  const { 
-    name, 
-    task, 
-    description, 
-    branch, 
-    repo, 
-    session, 
-    json, 
-    quiet, 
-    noStatusUpdate, 
-    skipInstall, 
-    packageManager 
+  const {
+    name,
+    task,
+    description,
+    branch,
+    repo,
+    session,
+    json,
+    quiet,
+    noStatusUpdate,
+    skipInstall,
+    packageManager,
   } = parameters;
 
   const result = await startSessionFromParams({
@@ -110,4 +114,4 @@ export async function executeSessionStartCommand(
   }
 
   return result;
-} 
+}

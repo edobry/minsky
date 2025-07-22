@@ -39,9 +39,8 @@ async function migrateBackupToSqlite(): Promise<void> {
 
   // Check current state
   const currentState = await storage.readState();
-  const currentSessionCount = currentState.success && currentState.data
-    ? currentState.data.sessions.length
-    : 0;
+  const currentSessionCount =
+    currentState.success && currentState.data ? currentState.data.sessions.length : 0;
 
   log.info(`Current SQLite database has ${currentSessionCount} sessions`);
 
@@ -78,16 +77,17 @@ async function migrateBackupToSqlite(): Promise<void> {
 
   // Verify final state
   const finalState = await storage.readState();
-  const finalSessionCount = finalState.success && finalState.data
-    ? finalState.data.sessions.length
-    : 0;
+  const finalSessionCount =
+    finalState.success && finalState.data ? finalState.data.sessions.length : 0;
 
   log.info(`Final SQLite database has ${finalSessionCount} sessions`);
 
   if (finalSessionCount >= sessionCount) {
     log.info("✅ Migration successful! All sessions are now in SQLite database.");
   } else {
-    log.warn(`⚠️  Migration may be incomplete. Expected ${sessionCount} sessions, found ${finalSessionCount}`);
+    log.warn(
+      `⚠️  Migration may be incomplete. Expected ${sessionCount} sessions, found ${finalSessionCount}`
+    );
   }
 }
 
@@ -95,4 +95,4 @@ async function migrateBackupToSqlite(): Promise<void> {
 migrateBackupToSqlite().catch((error) => {
   log.error("Migration failed:", error as Error);
   process.exit(1);
-}); 
+});

@@ -1,17 +1,17 @@
 /**
  * GitHub Task Backend
- * 
+ *
  * Implementation of TaskBackend for GitHub-based task storage.
  * Extracted from tasks.ts to improve modularity and maintainability.
  */
 
 import { log } from "../../utils/logger";
-import type { 
-  TaskBackend, 
-  Task, 
-  TaskListOptions, 
-  CreateTaskOptions, 
-  DeleteTaskOptions 
+import type {
+  TaskBackend,
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions,
 } from "./types";
 
 export class GitHubTaskBackend implements TaskBackend {
@@ -59,4 +59,4 @@ export class GitHubTaskBackend implements TaskBackend {
     // Implementation needed
     throw new Error("Method not implemented");
   }
-} 
+}

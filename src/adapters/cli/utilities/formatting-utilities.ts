@@ -10,14 +10,14 @@
  */
 export function getBackendDisplayName(backend: string): string {
   switch (backend) {
-  case "markdown":
-    return "Markdown files (process/tasks.md)";
-  case "json-file":
-    return "JSON files";
-  case "github-issues":
-    return "GitHub Issues";
-  default:
-    return backend;
+    case "markdown":
+      return "Markdown files (process/tasks.md)";
+    case "json-file":
+      return "JSON files";
+    case "github-issues":
+      return "GitHub Issues";
+    default:
+      return backend;
   }
 }
 
@@ -28,14 +28,14 @@ export function getBackendDisplayName(backend: string): string {
  */
 export function getSessionBackendDisplayName(backend: string): string {
   switch (backend) {
-  case "json":
-    return "JSON files";
-  case "sqlite":
-    return "SQLite database";
-  case "postgres":
-    return "PostgreSQL database";
-  default:
-    return backend;
+    case "json":
+      return "JSON files";
+    case "sqlite":
+      return "SQLite database";
+    case "postgres":
+      return "PostgreSQL database";
+    default:
+      return backend;
   }
 }
 
@@ -46,14 +46,14 @@ export function getSessionBackendDisplayName(backend: string): string {
  */
 export function formatDetectionCondition(condition: string): string {
   switch (condition) {
-  case "tasks_md_exists":
-    return "If process/tasks.md exists";
-  case "json_file_exists":
-    return "If JSON task files exist";
-  case "always":
-    return "As default fallback";
-  default:
-    return condition;
+    case "tasks_md_exists":
+      return "If process/tasks.md exists";
+    case "json_file_exists":
+      return "If JSON task files exist";
+    case "always":
+      return "As default fallback";
+    default:
+      return condition;
   }
 }
 
@@ -188,4 +188,4 @@ export function formatResolvedConfiguration(resolved: any): string {
   }
 
   return output;
-} 
+}

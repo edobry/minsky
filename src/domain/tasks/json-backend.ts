@@ -17,7 +17,9 @@ import { log } from "../../utils/logger";
 /**
  * Resolve workspace path and database file path using configuration
  */
-async function resolveWorkspacePath(config: WorkspaceResolvingJsonConfig): Promise<WorkspaceResolutionResult & { dbFilePath: string }> {
+async function resolveWorkspacePath(
+  config: WorkspaceResolvingJsonConfig
+): Promise<WorkspaceResolutionResult & { dbFilePath: string }> {
   // 1. Explicit workspace path override
   if (config.workspacePath) {
     const dbFilePath = config.dbFilePath || join(config.workspacePath, "process", "tasks.json");
@@ -25,14 +27,14 @@ async function resolveWorkspacePath(config: WorkspaceResolvingJsonConfig): Promi
       workspacePath: config.workspacePath,
       method: "explicit",
       description: "Using explicitly provided workspace path",
-      dbFilePath
+      dbFilePath,
     };
   }
 
   // 2. Repository URL provided - use special workspace
   if (config.repoUrl) {
     const specialWorkspaceManager = createSpecialWorkspaceManager({
-      repoUrl: config.repoUrl
+      repoUrl: config.repoUrl,
     });
 
     // Initialize the workspace if it doesn't exist
@@ -45,7 +47,7 @@ async function resolveWorkspacePath(config: WorkspaceResolvingJsonConfig): Promi
       workspacePath,
       method: "special-workspace",
       description: `Using special workspace for repository: ${config.repoUrl}`,
-      dbFilePath
+      dbFilePath,
     };
   }
 
@@ -58,7 +60,7 @@ async function resolveWorkspacePath(config: WorkspaceResolvingJsonConfig): Promi
       workspacePath: currentDir,
       method: "local-tasks-md",
       description: "Using current directory with existing tasks.json file",
-      dbFilePath: config.dbFilePath || localTasksPath
+      dbFilePath: config.dbFilePath || localTasksPath,
     };
   }
 
@@ -68,7 +70,7 @@ async function resolveWorkspacePath(config: WorkspaceResolvingJsonConfig): Promi
     workspacePath: currentDir,
     method: "current-directory",
     description: "Using current directory as default workspace",
-    dbFilePath
+    dbFilePath,
   };
 }
 
@@ -95,8 +97,10 @@ export class WorkspaceResolvingJsonBackend extends JsonFileTaskBackend {
    * Determine based on resolution method
    */
   isInTreeBackend(): boolean {
-    return this.workspaceResolutionResult.method === "special-workspace" ||
-           this.workspaceResolutionResult.method === "local-tasks-md";
+    return (
+      this.workspaceResolutionResult.method === "special-workspace" ||
+      this.workspaceResolutionResult.method === "local-tasks-md"
+    );
   }
 }
 
@@ -104,7 +108,9 @@ export class WorkspaceResolvingJsonBackend extends JsonFileTaskBackend {
  * Create an enhanced JSON backend
  * This factory function handles async workspace resolution before backend creation
  */
-export async function createWorkspaceResolvingJsonBackend(config: WorkspaceResolvingJsonConfig): Promise<TaskBackend> {
+export async function createWorkspaceResolvingJsonBackend(
+  config: WorkspaceResolvingJsonConfig
+): Promise<TaskBackend> {
   // Resolve workspace path and database file path first
   const resolutionResult = await resolveWorkspacePath(config);
 
@@ -112,14 +118,14 @@ export async function createWorkspaceResolvingJsonBackend(config: WorkspaceResol
     method: resolutionResult.method,
     path: resolutionResult.workspacePath,
     dbFilePath: resolutionResult.dbFilePath,
-    description: resolutionResult.description
+    description: resolutionResult.description,
   });
 
   // Create backend with resolved workspace and database file path
   const backendConfig: JsonFileTaskBackendOptions = {
     ...config,
     workspacePath: resolutionResult.workspacePath,
-    dbFilePath: resolutionResult.dbFilePath
+    dbFilePath: resolutionResult.dbFilePath,
   };
 
   return new WorkspaceResolvingJsonBackend(backendConfig, resolutionResult);

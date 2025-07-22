@@ -269,7 +269,6 @@ jobs:
 - Support for multiple project types
 - Integration with deployment pipelines
 
-
 ## Requirements
 
 [To be filled in]

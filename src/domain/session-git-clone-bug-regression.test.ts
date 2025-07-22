@@ -10,24 +10,32 @@
 import { describe, it, expect } from "bun:test";
 import { startSessionFromParams } from "./session";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
-import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/dependencies";
+import {
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+} from "../utils/test-utils/dependencies";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
 describe("Session Git Clone Bug Regression Test", () => {
   it("should not leave orphaned session records when git clone fails", async () => {
     // Arrange - Simulate the exact error scenario that caused the bug using centralized factories
-    
+
     // Create trackable spies for methods we need to verify
     let addSessionSpy = createMock();
     addSessionSpy = mock(() => Promise.resolve(undefined));
 
     let cloneSpy = createMock();
-    cloneSpy = mock(() => Promise.reject(
-      new Error("fatal: destination path 'task#160' already exists and is not an empty directory")
-    ));
+    cloneSpy = mock(() =>
+      Promise.reject(
+        new Error("fatal: destination path 'task#160' already exists and is not an empty directory")
+      )
+    );
 
     let branchSpy = createMock();
-    branchSpy = mock(() => Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" }));
+    branchSpy = mock(() =>
+      Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" })
+    );
 
     const mockSessionDB = createMockSessionProvider({
       getSession: () => Promise.resolve(null),
@@ -97,10 +105,14 @@ describe("Session Git Clone Bug Regression Test", () => {
     addSessionSpy = mock(() => Promise.resolve(undefined));
 
     let cloneSpy = createMock();
-    cloneSpy = mock(() => Promise.resolve({ workdir: "/test/sessions/task#160", session: "task#160" }));
+    cloneSpy = mock(() =>
+      Promise.resolve({ workdir: "/test/sessions/task#160", session: "task#160" })
+    );
 
     let branchSpy = createMock();
-    branchSpy = mock(() => Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" }));
+    branchSpy = mock(() =>
+      Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" })
+    );
 
     const mockSessionDB = createMockSessionProvider({
       getSession: () => Promise.resolve(null),

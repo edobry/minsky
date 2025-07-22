@@ -51,7 +51,9 @@ export const pushCommandParams: CommandParameterMap = {
  * Execute the push command
  */
 export async function executePushCommand(
-  parameters: { [K in keyof typeof pushCommandParams]: z.infer<typeof pushCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof pushCommandParams]: z.infer<(typeof pushCommandParams)[K]["schema"]>;
+  },
   context: CommandExecutionContext
 ): Promise<{ workdir: string; pushed: boolean }> {
   const { repo, session, remote, force, debug } = parameters;
@@ -69,4 +71,4 @@ export async function executePushCommand(
   }
 
   return result;
-} 
+}

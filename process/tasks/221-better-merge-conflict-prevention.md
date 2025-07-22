@@ -25,7 +25,7 @@ Implement strategies to reduce merge conflicts when creating PR branches from se
 ### 2. Smart Session Update Enhancement
 
 - **Enhanced updateSessionFromParams()** with intelligent conflict handling
-- **Already-merged detection** to skip unnecessary updates  
+- **Already-merged detection** to skip unnecessary updates
 - **Auto-resolution of delete conflicts** when appropriate
 - **Dry-run capability** for conflict checking without actual updates
 - **Context-aware error messages** with actionable recovery guidance
@@ -75,7 +75,7 @@ Implement strategies to reduce merge conflicts when creating PR branches from se
 
 - [x] Unit tests: Individual tests pass in isolation (test isolation issue in full suite)
 - [x] 5/5 integration tests passing
-- [x] 5/5 CLI integration tests passing  
+- [x] 5/5 CLI integration tests passing
 - [x] ESLint compliance and code quality maintained
 - [x] Core functionality verified through integration testing
 
