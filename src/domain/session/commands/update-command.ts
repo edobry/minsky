@@ -1,4 +1,4 @@
-import type { SessionUpdateParams } from "../../schemas/session";
+import type { SessionUpdateParams } from "../../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
 import { getCurrentSession } from "../../workspace";
@@ -14,7 +14,7 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
-import { log } from "../../utils/logger";
+import { log } from "../../../utils/logger";
 
 /**
  * Updates a session based on parameters
