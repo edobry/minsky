@@ -1,6 +1,6 @@
 /**
  * Semantic Error Response Types
- * 
+ *
  * This module defines the semantic error response schema for better AI agent UX
  * as specified in Task #309.
  */
@@ -11,21 +11,21 @@
 export enum SemanticErrorCode {
   // File/Directory errors
   FILE_NOT_FOUND = "FILE_NOT_FOUND",
-  DIRECTORY_NOT_FOUND = "DIRECTORY_NOT_FOUND", 
+  DIRECTORY_NOT_FOUND = "DIRECTORY_NOT_FOUND",
   PATH_ALREADY_EXISTS = "PATH_ALREADY_EXISTS",
   INVALID_PATH = "INVALID_PATH",
-  
+
   // Permission errors
   PERMISSION_DENIED = "PERMISSION_DENIED",
-  
+
   // Session errors
   SESSION_NOT_FOUND = "SESSION_NOT_FOUND",
   SESSION_WORKSPACE_INVALID = "SESSION_WORKSPACE_INVALID",
-  
+
   // Git errors
   GIT_BRANCH_CONFLICT = "GIT_BRANCH_CONFLICT",
   GIT_AUTHENTICATION_FAILED = "GIT_AUTHENTICATION_FAILED",
-  
+
   // Generic errors
   OPERATION_FAILED = "OPERATION_FAILED",
   INVALID_INPUT = "INVALID_INPUT"
@@ -97,7 +97,7 @@ export const FILESYSTEM_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     retryable: false,
     relatedTools: ["file_search", "session_write_file"]
   },
-  
+
   ENOENT_DIR: {
     errorCode: SemanticErrorCode.DIRECTORY_NOT_FOUND,
     message: "Directory not found - parent directory does not exist",
@@ -109,7 +109,7 @@ export const FILESYSTEM_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     retryable: true,
     relatedTools: ["session_create_directory"]
   },
-  
+
   EACCES: {
     errorCode: SemanticErrorCode.PERMISSION_DENIED,
     message: "Permission denied - insufficient permissions to access file/directory",
@@ -120,7 +120,7 @@ export const FILESYSTEM_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     ],
     retryable: false
   },
-  
+
   EEXIST: {
     errorCode: SemanticErrorCode.PATH_ALREADY_EXISTS,
     message: "Path already exists",
@@ -132,7 +132,7 @@ export const FILESYSTEM_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     retryable: false,
     relatedTools: ["session_delete_file"]
   },
-  
+
   EINVAL: {
     errorCode: SemanticErrorCode.INVALID_PATH,
     message: "Invalid path format",
@@ -160,7 +160,7 @@ export const SESSION_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     retryable: false,
     relatedTools: ["session_list", "session_start"]
   },
-  
+
   SESSION_WORKSPACE_INVALID: {
     errorCode: SemanticErrorCode.SESSION_WORKSPACE_INVALID,
     message: "Session workspace is invalid or inaccessible",
@@ -189,7 +189,7 @@ export const GIT_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     retryable: true,
     relatedTools: ["session_commit"]
   },
-  
+
   GIT_AUTH_FAILED: {
     errorCode: SemanticErrorCode.GIT_AUTHENTICATION_FAILED,
     message: "Git authentication failed",
