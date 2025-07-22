@@ -5,6 +5,9 @@
  * Extracted from ConflictDetectionService to improve modularity.
  */
 import { execAsync } from "../../utils/exec";
+import { execGitWithTimeout } from "../../utils/git-exec";
+import { readFile } from "fs/promises";
+import { join } from "path";
 import { log } from "../../utils/logger";
 import {
   ConflictFile,
@@ -20,8 +23,10 @@ import {
  */
 export async function analyzeConflictFiles(repoPath: string): Promise<ConflictFile[]> {
   try {
-    const { stdout: statusOutput } = await execAsync(
-      `git -C ${repoPath} status --porcelain`
+    const { stdout: statusOutput } = await execGitWithTimeout(
+      "analyze-conflict-files", 
+      "status --porcelain",
+      { workdir: repoPath }
     );
 
     const conflictFiles: ConflictFile[] = [];
@@ -89,8 +94,10 @@ export async function analyzeDeletion(
 ): Promise<DeletionInfo> {
   try {
     // Get the last commit that touched this file
-    const { stdout: lastCommit } = await execAsync(
-      `git -C ${repoPath} log -n 1 --format=%H -- ${filePath}`
+    const { stdout: lastCommit } = await execGitWithTimeout(
+      "analyze-deletion-last-commit", 
+      `log -n 1 --format=%H -- ${filePath}`,
+      { workdir: repoPath }
     );
 
     return {
@@ -118,9 +125,7 @@ export async function analyzeConflictRegions(
   filePath: string
 ): Promise<ConflictRegion[]> {
   try {
-    const { stdout: fileContent } = await execAsync(
-      `cat "${repoPath}/${filePath}"`
-    );
+    const fileContent = await readFile(join(repoPath, filePath), "utf-8") as string;
     const lines = fileContent.split("\n");
 
     const regions: ConflictRegion[] = [];
@@ -163,8 +168,10 @@ export async function checkSessionChangesInBase(
 ): Promise<boolean> {
   try {
     // Get session commits not in base
-    const { stdout: sessionCommits } = await execAsync(
-      `git -C ${repoPath} rev-list ${baseBranch}..${sessionBranch}`
+    const { stdout: sessionCommits } = await execGitWithTimeout(
+      "check-session-changes-commits", 
+      `rev-list ${baseBranch}..${sessionBranch}`,
+      { workdir: repoPath }
     );
 
     if (!sessionCommits.trim()) {
@@ -206,12 +213,10 @@ export async function autoResolveDeleteConflicts(
       for (const file of deleteConflicts) {
         if (file.status === FileConflictStatus.DELETED_BY_US) {
           // Accept the deletion (remove the file)
-          await execAsync(`git -C ${repoPath} rm "${file.path}"`);
+          await execGitWithTimeout("auto-resolve-rm", `rm "${file.path}"`, { workdir: repoPath });
         } else if (file.status === FileConflictStatus.DELETED_BY_THEM) {
           // Keep the modified file (add it)
-          await execAsync(
-            `git -C ${repoPath} add "${file.path}"`
-          );
+          await execGitWithTimeout("auto-resolve-add", `add "${file.path}"`, { workdir: repoPath });
         }
       }
 
