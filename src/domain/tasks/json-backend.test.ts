@@ -1,10 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { createWorkspaceResolvingJsonBackend } from "../workspace-resolving-json-backend";
+import { createJsonBackend } from "../json-backend";
 import { rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
-describe("Workspace-Resolving JSON Backend", () => {
+describe("Enhanced JSON Backend", () => {
   let testDir: string;
 
   beforeEach(() => {
