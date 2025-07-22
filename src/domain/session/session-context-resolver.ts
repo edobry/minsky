@@ -107,8 +107,15 @@ export async function resolveSessionContext(
     const sessionRecord = await sessionProvider!.getSessionByTaskId(normalizedTaskId);
     
     if (!sessionRecord) {
+      // Provide a more helpful error message with available sessions
+      const allSessions = await sessionProvider!.listSessions();
+      const sessionNames = allSessions.map(s => 
+        `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ''}`
+      ).join(", ");
+      
       throw new ResourceNotFoundError(
-        `No session found for task ${normalizedTaskId}`,
+        `No session found for task ID "${normalizedTaskId}"\n\n` +
+        `💡 Available sessions: ${sessionNames}`,
         "task",
         normalizedTaskId
       );
