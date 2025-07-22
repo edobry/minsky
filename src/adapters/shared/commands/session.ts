@@ -105,14 +105,9 @@ export function registerSessionCommands(): void {
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.get command", { params, context });
 
-      // CLI compatibility: map name or task to session if not provided
-      if (!params!.session && (params!.name || params!.task)) {
-        params!.session = params!.name || params!.task;
-      }
-
       try {
         const session = await sessionGet({
-          session: params!.session,
+          session: params!.sessionName || params!.name || params!.task,
           json: params!.json,
         });
 
@@ -123,7 +118,9 @@ export function registerSessionCommands(): void {
       } catch (error) {
         log.error("Failed to get session", {
           error: getErrorMessage(error as Error),
-          session: params!.session,
+          sessionName: params!.sessionName,
+          name: params!.name,
+          task: params!.task,
         });
         throw error;
       }
@@ -196,19 +193,13 @@ Examples:
         description: "Repository path",
         required: false,
       },
-      // Remove the session parameter
     },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.dir command", { params, context });
-      
-      // CLI compatibility: map name or task to sessionname if not provided
-      if (!params!.sessionname && (params!.name || params!.task)) {
-        params!.sessionname = params!.name || params!.task;
-      }
 
       try {
         const directory = await sessionDir({
-          sessionname: params!.sessionname,
+          sessionName: params!.sessionName || params!.name || params!.task,
           name: params!.name,
           task: params!.task,
           json: params!.json,
@@ -221,7 +212,9 @@ Examples:
       } catch (error) {
         log.debug("Failed to get session directory", {
           error: getErrorMessage(error as Error),
-          sessionname: params!.sessionname,
+          sessionName: params!.sessionName,
+          name: params!.name,
+          task: params!.task,
         });
         
         // Improve error message for better user experience
@@ -233,7 +226,7 @@ Examples:
             if (params!.task) {
               error.message = formatSessionErrorMessage(
                 originalMessage,
-                `Try using the full session name (e.g., task-${params!.task}) or use "minsky session list" to see available sessions.`
+                "Try using the full session name (e.g., task-${params!.task}) or use \"minsky session list\" to see available sessions."
               );
             } else {
               error.message = formatSessionErrorMessage(
@@ -273,24 +266,13 @@ Examples:
         description: "Repository path",
         required: false,
       },
-      // Add the sessionname parameter for MCP
-      sessionname: {
-        schema: z.string().min(1),
-        description: "Session identifier (name or task ID)",
-        required: false,
-      },
     },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.delete command", { params, context });
 
-      // CLI compatibility: map name or task to sessionname if not provided
-      if (!params!.sessionname && (params!.name || params!.task)) {
-        params!.sessionname = params!.name || params!.task;
-      }
-
       try {
         const deleted = await sessionDelete({
-          sessionname: params!.sessionname,
+          sessionName: params!.sessionName || params!.name || params!.task,
           name: params!.name,
           task: params!.task,
           repo: params!.repo,
@@ -303,7 +285,9 @@ Examples:
       } catch (error) {
         log.debug("Failed to delete session", {
           error: getErrorMessage(error as Error),
-          sessionname: params!.sessionname,
+          sessionName: params!.sessionName,
+          name: params!.name,
+          task: params!.task,
         });
         
         // Improve error message for better user experience
@@ -315,7 +299,7 @@ Examples:
             if (params!.task) {
               error.message = formatSessionErrorMessage(
                 originalMessage,
-                `Try using the full session name (e.g., task-${params!.task}) or use "minsky session list" to see available sessions.`
+                "Try using the full session name (e.g., task-${params!.task}) or use \"minsky session list\" to see available sessions."
               );
             } else {
               error.message = formatSessionErrorMessage(
@@ -359,14 +343,11 @@ Examples:
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.update command", { params, context });
 
-      // CLI compatibility: map name or task to session if not provided
-      if (!params!.session && (params!.name || params!.task)) {
-        params!.session = params!.name || params!.task;
-      }
-
       try {
         await sessionUpdate({
-          session: params!.session,
+          name: params!.sessionName || params!.name,
+          task: params!.task,
+          repo: params!.repo,
           branch: params!.branch,
           noStash: params!.noStash,
           noPush: params!.noPush,
@@ -380,12 +361,14 @@ Examples:
 
         return {
           success: true,
-          session: params!.session,
+          session: params!.sessionName || params!.name,
         };
       } catch (error) {
         log.error("Failed to update session", {
           error: getErrorMessage(error as Error),
-          session: params!.session,
+          sessionName: params!.sessionName,
+          name: params!.name,
+          task: params!.task,
         });
         throw error;
       }
@@ -400,15 +383,15 @@ Examples:
     description: "Approve a session pull request",
     parameters: {
       ...sessionApproveCommandParams,
-      // Add backward compatible parameters for CLI
+      // CLI-only parameters for backward compatibility
       name: {
         schema: z.string(),
-        description: "Session name",
+        description: "Session name (CLI only)",
         required: false,
       },
       task: {
         schema: z.string(),
-        description: "Task ID associated with the session",
+        description: "Task ID (CLI only)",
         required: false,
       },
       repo: {
@@ -420,25 +403,26 @@ Examples:
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.approve command", { params, context });
 
-      // CLI compatibility: map name or task to session if not provided
-      if (!params!.session && (params!.name || params!.task)) {
-        params!.session = params!.name || params!.task;
-      }
-
       try {
+        // Map interface parameters to domain parameters correctly:
+        // - sessionName/name → session (direct session identifier)  
+        // - task → task (for lookup by task ID)
         const result = (await sessionApprove({
-          session: params!.session,
-          noStash: params!.noStash,
+          session: params!.sessionName || params!.name,  // Direct session identifier
+          task: params!.task,         // Task ID for lookup (not session identifier!)
+          repo: params!.repo,         
           json: params!.json,
+          noStash: params!.noStash,   // Add the missing parameter
         })) as unknown;
 
         log.debug("Session approve result", { result });
-
         return result;
       } catch (error) {
         log.error("Failed to approve session", {
           error: getErrorMessage(error as Error),
-          session: params!.session,
+          sessionName: params!.sessionName,
+          name: params!.name,
+          task: params!.task,
         });
         throw error;
       }
@@ -473,95 +457,27 @@ Examples:
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
-      // CLI compatibility: map name or task to session if not provided
-      if (!params!.session && (params!.name || params!.task)) {
-        params!.session = params!.name || params!.task;
-      }
-
-      // Check if we need body/bodyPath for new PRs (keep existing PR branch logic)
-      if (!params!.body && !params!.bodyPath) {
-        // Import gitService for validation
-        const { createGitService } = await import("../../../domain/git.js");
-        const { SessionPathResolver } = await import("../../mcp/session-files.js");
-
-        const gitService = createGitService();
-        const pathResolver = new SessionPathResolver();
-        const prBranch = `pr/${params!.session}`;
-
-        try {
-          // Get session workspace path for git operations
-          const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(params!.session);
-
-          // Check if PR branch exists locally or remotely
-          let prBranchExists = false;
-          try {
-            // Check if branch exists locally
-            const localBranchOutput = await gitService.execInRepository(
-              sessionWorkspacePath,
-              `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
-            );
-            const localBranchExists = localBranchOutput.trim() !== "not-exists";
-
-            if (localBranchExists) {
-              prBranchExists = true;
-            } else {
-              // Check if branch exists remotely
-              const remoteBranchOutput = await gitService.execInRepository(
-                sessionWorkspacePath,
-                `git ls-remote --heads origin ${prBranch}`
-              );
-              prBranchExists = remoteBranchOutput.trim().length > 0;
-            }
-
-            log.debug(`PR branch check: ${prBranchExists ? "exists" : "does not exist"}`, {
-              prBranch,
-              sessionWorkspacePath
-            });
-          } catch (branchCheckError) {
-            log.debug("Failed to check PR branch existence", {
-              error: getErrorMessage(branchCheckError as Error),
-              prBranch
-            });
-          }
-
-          if (!prBranchExists) {
-            // No existing PR branch, so body/bodyPath is required for new PR
-            throw new Error(`PR description is required for meaningful pull requests.
-Please provide one of:
-  --body <text>       Direct PR body text
-  --body-path <path>  Path to file containing PR body
-
-Example:
-  minsky session pr --session "${params!.session}" --title "feat: Add new feature" --body "This PR adds..."
-  minsky session pr --session "${params!.session}" --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
-          }
-          // If prBranchExists is true, we can proceed with refresh (no body/bodyPath needed)
-        } catch (error) {
-          // If we can't determine session workspace, let the domain function handle the error
-          log.debug("Could not validate PR branch existence", { error: getErrorMessage(error) });
-        }
-      }
-
       try {
+        // Validate PR parameters before proceeding
+        validatePrParameters(params!.body, params!.bodyPath, params!.sessionName || params!.name);
+
         const result = await sessionPr({
+          session: params!.sessionName || params!.name,
+          task: params!.task,
+          repo: params!.repo,
           title: params!.title,
           body: params!.body,
           bodyPath: params!.bodyPath,
-          session: params!.session,
-          noStatusUpdate: params!.noStatusUpdate,
           debug: params!.debug,
+          noStatusUpdate: params!.noStatusUpdate,
           skipUpdate: params!.skipUpdate,
-          skipConflictCheck: params!.skipConflictCheck,
           autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
+          skipConflictCheck: params!.skipConflictCheck,
         });
 
         return result;
       } catch (error) {
-        log.error("Failed to create PR for session", {
-          error: getErrorMessage(error as Error),
-          session: params!.session,
-        });
-        throw error;
+        return handleSessionPrError(error as Error, params!.sessionName || params!.name, params!.task);
       }
     },
   });
