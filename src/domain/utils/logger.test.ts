@@ -20,13 +20,17 @@ describe("Logger", () => {
     });
 
     test("should return STRUCTURED when configuration mode is set to STRUCTURED", () => {
-      const config = { mode: "STRUCTURED" as const, level: "info" as const, enableAgentLogs: false };
+      const config = {
+        mode: "STRUCTURED" as const,
+        level: "info" as const,
+        enableAgentLogs: false,
+      };
       expect(getLogMode(config)).toBe(LogMode.STRUCTURED);
     });
 
     test("should default to HUMAN when mode is auto and TTY is available", () => {
       const config = { mode: "auto" as const, level: "info" as const, enableAgentLogs: false };
-      
+
       // Mock TTY to be true
       const originalIsTTY = process.stdout.isTTY;
       Object.defineProperty(process.stdout, "isTTY", {
@@ -45,7 +49,7 @@ describe("Logger", () => {
 
     test("should default to STRUCTURED when mode is auto and TTY is not available", () => {
       const config = { mode: "auto" as const, level: "info" as const, enableAgentLogs: false };
-      
+
       // Mock TTY to be false
       const originalIsTTY = process.stdout.isTTY;
       Object.defineProperty(process.stdout, "isTTY", {
@@ -75,7 +79,11 @@ describe("Logger", () => {
     });
 
     test("should create logger with STRUCTURED mode", () => {
-      const config = { mode: "STRUCTURED" as const, level: "info" as const, enableAgentLogs: false };
+      const config = {
+        mode: "STRUCTURED" as const,
+        level: "info" as const,
+        enableAgentLogs: false,
+      };
       const logger = createConfigurableLogger(config);
 
       expect(logger.mode).toBe(LogMode.STRUCTURED);
@@ -103,7 +111,11 @@ describe("Logger", () => {
     });
 
     test("should support dependency injection for testing", () => {
-      const testConfig = { mode: "STRUCTURED" as const, level: "debug" as const, enableAgentLogs: true };
+      const testConfig = {
+        mode: "STRUCTURED" as const,
+        level: "debug" as const,
+        enableAgentLogs: true,
+      };
       const logger = createConfigurableLogger(testConfig);
 
       // Logger should use the injected configuration
@@ -112,9 +124,17 @@ describe("Logger", () => {
     });
 
     test("should handle different log levels", () => {
-      const debugConfig = { mode: "STRUCTURED" as const, level: "debug" as const, enableAgentLogs: true };
-      const infoConfig = { mode: "STRUCTURED" as const, level: "info" as const, enableAgentLogs: true };
-      
+      const debugConfig = {
+        mode: "STRUCTURED" as const,
+        level: "debug" as const,
+        enableAgentLogs: true,
+      };
+      const infoConfig = {
+        mode: "STRUCTURED" as const,
+        level: "info" as const,
+        enableAgentLogs: true,
+      };
+
       const debugLogger = createConfigurableLogger(debugConfig);
       const infoLogger = createConfigurableLogger(infoConfig);
 
@@ -124,8 +144,12 @@ describe("Logger", () => {
 
     test("should isolate logger instances", () => {
       const config1 = { mode: "HUMAN" as const, level: "info" as const, enableAgentLogs: false };
-      const config2 = { mode: "STRUCTURED" as const, level: "debug" as const, enableAgentLogs: true };
-      
+      const config2 = {
+        mode: "STRUCTURED" as const,
+        level: "debug" as const,
+        enableAgentLogs: true,
+      };
+
       const logger1 = createConfigurableLogger(config1);
       const logger2 = createConfigurableLogger(config2);
 
@@ -141,16 +165,24 @@ describe("Logger", () => {
     test("should maintain backward compatibility", () => {
       // Default logger should still work
       const logger = createConfigurableLogger();
-      
+
       expect(logger.mode).toBeDefined();
       expect(logger.config).toBeDefined();
       expect(typeof logger.agent).toBe("function");
     });
 
     test("should support enableAgentLogs configuration", () => {
-      const configWithAgent = { mode: "HUMAN" as const, level: "info" as const, enableAgentLogs: true };
-      const configWithoutAgent = { mode: "HUMAN" as const, level: "info" as const, enableAgentLogs: false };
-      
+      const configWithAgent = {
+        mode: "HUMAN" as const,
+        level: "info" as const,
+        enableAgentLogs: true,
+      };
+      const configWithoutAgent = {
+        mode: "HUMAN" as const,
+        level: "info" as const,
+        enableAgentLogs: false,
+      };
+
       const loggerWithAgent = createConfigurableLogger(configWithAgent);
       const loggerWithoutAgent = createConfigurableLogger(configWithoutAgent);
 

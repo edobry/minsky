@@ -22,10 +22,14 @@ export default {
       jestFn: "Use Bun test patterns: import { mock } from 'bun:test'; const mockFn = mock();",
       jestMock: "Use centralized mockModule() from test-utils/mocking.ts instead of jest.mock()",
       jestSpyOn: "Use Bun test patterns: import { spyOn } from 'bun:test'; spyOn(obj, 'method');",
-      mockImplementation: "Use Bun mock patterns: mock(() => returnValue) or mock().mockImplementation(() => returnValue)",
-      mockReturnValue: "Use Bun mock patterns: mock(() => returnValue) instead of .mockReturnValue()",
-      mockResolvedValue: "Use Bun mock patterns: mock(() => Promise.resolve(value)) instead of .mockResolvedValue()",
-      mockRejectedValue: "Use Bun mock patterns: mock(() => Promise.reject(error)) instead of .mockRejectedValue()",
+      mockImplementation:
+        "Use Bun mock patterns: mock(() => returnValue) or mock().mockImplementation(() => returnValue)",
+      mockReturnValue:
+        "Use Bun mock patterns: mock(() => returnValue) instead of .mockReturnValue()",
+      mockResolvedValue:
+        "Use Bun mock patterns: mock(() => Promise.resolve(value)) instead of .mockResolvedValue()",
+      mockRejectedValue:
+        "Use Bun mock patterns: mock(() => Promise.reject(error)) instead of .mockRejectedValue()",
     },
   },
 
@@ -33,9 +37,11 @@ export default {
     return {
       // Check import statements
       ImportDeclaration(node) {
-        if (node.source.value === "jest" ||
-            node.source.value.includes("@jest/") ||
-            node.source.value === "@testing-library/jest-dom") {
+        if (
+          node.source.value === "jest" ||
+          node.source.value.includes("@jest/") ||
+          node.source.value === "@testing-library/jest-dom"
+        ) {
           context.report({
             node,
             messageId: "jestImport",
@@ -86,7 +92,9 @@ export default {
             messageId: "jestMock",
             fix(fixer) {
               // For simple cases, suggest using mockModule
-              const args = node.arguments.map(arg => context.getSourceCode().getText(arg)).join(", ");
+              const args = node.arguments
+                .map((arg) => context.getSourceCode().getText(arg))
+                .join(", ");
               return fixer.replaceText(node, `mockModule(${args})`);
             },
           });
@@ -102,7 +110,9 @@ export default {
             node,
             messageId: "jestSpyOn",
             fix(fixer) {
-              const args = node.arguments.map(arg => context.getSourceCode().getText(arg)).join(", ");
+              const args = node.arguments
+                .map((arg) => context.getSourceCode().getText(arg))
+                .join(", ");
               return fixer.replaceText(node, `spyOn(${args})`);
             },
           });
@@ -114,7 +124,7 @@ export default {
           node.callee.property.name === "mockImplementation"
         ) {
           const object = context.getSourceCode().getText(node.callee.object);
-          
+
           // ALLOW: spyOn().mockImplementation() - this is valid Bun pattern
           if (object.includes("spyOn")) {
             return; // Skip - this is a valid pattern
@@ -124,8 +134,9 @@ export default {
             node,
             messageId: "mockImplementation",
             fix(fixer) {
-              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "() => {}";
-
+              const arg = node.arguments[0]
+                ? context.getSourceCode().getText(node.arguments[0])
+                : "() => {}";
 
               // Handle createMock().mockImplementation() pattern
               if (object.includes("createMock()")) {
@@ -147,7 +158,9 @@ export default {
             messageId: "mockReturnValue",
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
-              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "undefined";
+              const arg = node.arguments[0]
+                ? context.getSourceCode().getText(node.arguments[0])
+                : "undefined";
 
               // Handle createMock().mockReturnValue() pattern
               if (object.includes("createMock()")) {
@@ -169,7 +182,9 @@ export default {
             messageId: "mockResolvedValue",
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
-              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "undefined";
+              const arg = node.arguments[0]
+                ? context.getSourceCode().getText(node.arguments[0])
+                : "undefined";
 
               // Handle createMock().mockResolvedValue() pattern
               if (object.includes("createMock()")) {
@@ -191,7 +206,9 @@ export default {
             messageId: "mockRejectedValue",
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
-              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "new Error()";
+              const arg = node.arguments[0]
+                ? context.getSourceCode().getText(node.arguments[0])
+                : "new Error()";
 
               // Handle createMock().mockRejectedValue() pattern
               if (object.includes("createMock()")) {
@@ -213,8 +230,13 @@ export default {
             messageId: "mockResolvedValue",
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
-              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "undefined";
-              return fixer.replaceText(node, `${object}.mockImplementationOnce(() => Promise.resolve(${arg}))`);
+              const arg = node.arguments[0]
+                ? context.getSourceCode().getText(node.arguments[0])
+                : "undefined";
+              return fixer.replaceText(
+                node,
+                `${object}.mockImplementationOnce(() => Promise.resolve(${arg}))`
+              );
             },
           });
         }
@@ -229,8 +251,13 @@ export default {
             messageId: "mockRejectedValue",
             fix(fixer) {
               const object = context.getSourceCode().getText(node.callee.object);
-              const arg = node.arguments[0] ? context.getSourceCode().getText(node.arguments[0]) : "new Error()";
-              return fixer.replaceText(node, `${object}.mockImplementationOnce(() => Promise.reject(${arg}))`);
+              const arg = node.arguments[0]
+                ? context.getSourceCode().getText(node.arguments[0])
+                : "new Error()";
+              return fixer.replaceText(
+                node,
+                `${object}.mockImplementationOnce(() => Promise.reject(${arg}))`
+              );
             },
           });
         }

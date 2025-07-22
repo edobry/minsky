@@ -39,7 +39,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
       // Current behavior: resolveTaskWorkspacePath determines workspace
       const workspacePath = await resolveTaskWorkspacePath({
         backend: "markdown",
-        repoUrl: "https://github.com/test/repo.git"
+        repoUrl: "https://github.com/test/repo.git",
       });
 
       // Workspace should be special workspace path, not current dir
@@ -51,7 +51,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
       // Current: backend created with pre-resolved workspace
       const backend = createMarkdownTaskBackend({
         name: "markdown",
-        workspacePath: tempDir
+        workspacePath: tempDir,
       });
 
       expect(backend.name).toBe("markdown");
@@ -63,7 +63,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
       const workspacePath = tempDir;
       const taskService = new TaskService({
         workspacePath,
-        backend: "markdown"
+        backend: "markdown",
       });
 
       // Should be able to list tasks (empty list is fine)
@@ -75,7 +75,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
   describe("Current JSON Backend Behavior", () => {
     test("json backend should use current directory for external files", async () => {
       const workspacePath = await resolveTaskWorkspacePath({
-        backend: "json-file"
+        backend: "json-file",
       });
 
       // JSON backend uses current directory
@@ -86,7 +86,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
       const backend = createJsonFileTaskBackend({
         name: "json-file",
         workspacePath: tempDir,
-        dbFilePath: join(tempDir, "tasks.json")
+        dbFilePath: join(tempDir, "tasks.json"),
       });
 
       expect(backend.name).toBe("json-file");
@@ -101,7 +101,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
 
       const taskService = new TaskService({
         workspacePath,
-        backend: "markdown"
+        backend: "markdown",
       });
 
       // Should work
@@ -115,7 +115,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
 
       const taskService = new TaskService({
         workspacePath,
-        backend: "json-file"
+        backend: "json-file",
       });
 
       expect(taskService).toBeDefined();
@@ -129,13 +129,13 @@ describe("Backend Workspace Integration - Current Behavior", () => {
       // Step 1: External resolution
       const workspacePath = await resolveTaskWorkspacePath({
         backend: "markdown",
-        repoUrl: "https://github.com/test/repo.git"
+        repoUrl: "https://github.com/test/repo.git",
       });
 
       // Step 2: Create TaskService with resolved workspace
       const taskService = new TaskService({
         workspacePath,
-        backend: "markdown"
+        backend: "markdown",
       });
 
       // Step 3: Operations work
@@ -155,7 +155,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
 
       const workspacePath = await resolveTaskWorkspacePath({
         backend: "markdown",
-        repoUrl: "https://github.com/test/repo.git"
+        repoUrl: "https://github.com/test/repo.git",
       });
 
       // Should still use special workspace for consistency
@@ -163,7 +163,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
 
       const taskService = new TaskService({
         workspacePath,
-        backend: "markdown"
+        backend: "markdown",
       });
 
       expect(taskService).toBeDefined();
@@ -192,7 +192,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
       const backend = await createMarkdownBackend({
         name: "markdown",
-        workspacePath: tempDir
+        workspacePath: tempDir,
       });
 
       expect(backend.name).toBe("markdown");
@@ -207,7 +207,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       const { createMarkdownBackend } = await import("./markdown-backend");
 
       const backend = await createMarkdownBackend({
-        name: "markdown"
+        name: "markdown",
         // No explicit config - should use current directory
       });
 
@@ -223,7 +223,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
       const backend = await createMarkdownBackend({
         name: "markdown",
-        repoUrl: "https://github.com/test/repo.git"
+        repoUrl: "https://github.com/test/repo.git",
       });
 
       expect(backend.name).toBe("markdown");
@@ -239,7 +239,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
       const backend = await createMarkdownBackend({
         name: "markdown",
-        workspacePath: tempDir
+        workspacePath: tempDir,
       });
 
       // Core functionality test - backend should be created successfully
@@ -259,7 +259,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       // One-step creation - no resolveTaskWorkspacePath needed
       const backend = await createMarkdownBackend({
         name: "markdown",
-        workspacePath: tempDir
+        workspacePath: tempDir,
       });
 
       // No TaskBackendRouter needed
@@ -279,7 +279,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       // One-step creation with repo URL
       const backend = await createMarkdownBackend({
         name: "markdown",
-        repoUrl: "https://github.com/test/repo.git"
+        repoUrl: "https://github.com/test/repo.git",
       });
 
       // Backend resolved workspace internally
@@ -296,7 +296,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
       // Complete workflow test - from configuration to task operations
       const taskService = await TaskService.createMarkdownWithWorkspace({
-        workspacePath: tempDir
+        workspacePath: tempDir,
       });
 
       // Should be able to perform task operations
@@ -313,7 +313,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
       // Repository-based creation
       const taskService = await TaskService.createMarkdownWithRepo({
-        repoUrl: "https://github.com/test/repo.git"
+        repoUrl: "https://github.com/test/repo.git",
       });
 
       // Should work with special workspace
@@ -346,8 +346,8 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
         backendConfig: {
           name: "markdown",
           workspacePath: tempDir,
-          forceSpecialWorkspace: false
-        }
+          forceSpecialWorkspace: false,
+        },
       });
 
       expect(taskService).toBeDefined();

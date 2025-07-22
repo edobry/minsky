@@ -1,6 +1,6 @@
 /**
  * Configuration Validation Utilities
- * 
+ *
  * Additional validation helpers and utilities for configuration validation
  * beyond what's provided by the Zod schemas.
  */
@@ -73,10 +73,10 @@ export class ConfigurationValidator {
    */
   validate(config: PartialConfiguration): EnhancedValidationResult {
     const issues: ValidationIssue[] = [];
-    
+
     // Run Zod validation first
     const zodResult = configurationSchema.safeParse(config);
-    
+
     if (!zodResult.success) {
       // Convert Zod errors to enhanced issues
       for (const error of zodResult.error.issues) {
@@ -96,7 +96,7 @@ export class ConfigurationValidator {
 
     // Build result
     const summary = this.summarizeIssues(issues);
-    
+
     return {
       valid: summary.errors === 0,
       config: zodResult.success ? zodResult.data : undefined,
@@ -110,7 +110,7 @@ export class ConfigurationValidator {
    */
   validateLoadResult(loadResult: ConfigurationLoadResult): EnhancedValidationResult {
     const issues: ValidationIssue[] = [];
-    
+
     // Check source loading issues
     for (const sourceResult of loadResult.sources) {
       if (!sourceResult.success && sourceResult.source.required) {
@@ -138,7 +138,7 @@ export class ConfigurationValidator {
     issues.push(...configValidation.issues);
 
     const summary = this.summarizeIssues(issues);
-    
+
     return {
       valid: summary.errors === 0,
       config: loadResult.config,
@@ -153,13 +153,13 @@ export class ConfigurationValidator {
   private runCustomValidations(config: Configuration, issues: ValidationIssue[]): void {
     // Validate GitHub configuration
     this.validateGitHubConfig(config, issues);
-    
+
     // Validate session database configuration
     this.validateSessionDbConfig(config, issues);
-    
+
     // Validate AI provider configuration
     this.validateAIConfig(config, issues);
-    
+
     // Validate environment-specific configurations
     this.validateEnvironmentConfig(config, issues);
   }
@@ -169,7 +169,7 @@ export class ConfigurationValidator {
    */
   private validateGitHubConfig(config: Configuration, issues: ValidationIssue[]): void {
     const github = config.github;
-    
+
     // Check if both token and tokenFile are specified
     if (github.token && github.tokenFile) {
       issues.push({
@@ -179,7 +179,7 @@ export class ConfigurationValidator {
         suggestion: "Use either 'token' OR 'tokenFile', not both",
       });
     }
-    
+
     // Check if organization and repository are both specified when needed
     if (config.backend === "github-issues") {
       const backendConfig = config.backendConfig["github-issues"];
@@ -199,31 +199,31 @@ export class ConfigurationValidator {
    */
   private validateSessionDbConfig(config: Configuration, issues: ValidationIssue[]): void {
     const sessiondb = config.sessiondb;
-    
+
     // Check backend-specific requirements
     switch (sessiondb.backend) {
-    case "postgres":
-      if (!sessiondb.postgres?.connectionString) {
-        issues.push({
-          path: "sessiondb.postgres.connectionString",
-          message: "PostgreSQL backend requires a connection string",
-          severity: ValidationSeverity.ERROR,
-          suggestion: "Add connectionString to sessiondb.postgres configuration",
-        });
-      }
-      break;
-        
-    case "sqlite":
-      // SQLite is more flexible, but warn about default behavior
-      if (!sessiondb.sqlite?.path && !sessiondb.sqlite?.baseDir) {
-        issues.push({
-          path: "sessiondb.sqlite",
-          message: "SQLite backend will use default database location",
-          severity: ValidationSeverity.INFO,
-          suggestion: "Consider specifying 'path' or 'baseDir' for explicit control",
-        });
-      }
-      break;
+      case "postgres":
+        if (!sessiondb.postgres?.connectionString) {
+          issues.push({
+            path: "sessiondb.postgres.connectionString",
+            message: "PostgreSQL backend requires a connection string",
+            severity: ValidationSeverity.ERROR,
+            suggestion: "Add connectionString to sessiondb.postgres configuration",
+          });
+        }
+        break;
+
+      case "sqlite":
+        // SQLite is more flexible, but warn about default behavior
+        if (!sessiondb.sqlite?.path && !sessiondb.sqlite?.baseDir) {
+          issues.push({
+            path: "sessiondb.sqlite",
+            message: "SQLite backend will use default database location",
+            severity: ValidationSeverity.INFO,
+            suggestion: "Consider specifying 'path' or 'baseDir' for explicit control",
+          });
+        }
+        break;
     }
   }
 
@@ -232,7 +232,7 @@ export class ConfigurationValidator {
    */
   private validateAIConfig(config: Configuration, issues: ValidationIssue[]): void {
     const ai = config.ai;
-    
+
     // Check if default provider is configured
     if (ai.defaultProvider) {
       const providerConfig = ai.providers[ai.defaultProvider];
@@ -252,7 +252,7 @@ export class ConfigurationValidator {
         });
       }
     }
-    
+
     // Check for conflicting API key configurations
     for (const [providerName, providerConfig] of Object.entries(ai.providers)) {
       if (providerConfig?.apiKey && providerConfig?.apiKeyFile) {
@@ -280,7 +280,7 @@ export class ConfigurationValidator {
           suggestion: "Consider using 'info' or 'warn' level in production",
         });
       }
-      
+
       if (config.logger.enableAgentLogs) {
         issues.push({
           path: "logger.enableAgentLogs",
@@ -295,21 +295,24 @@ export class ConfigurationValidator {
   /**
    * Check for configuration conflicts across sources
    */
-  private checkConfigurationConflicts(loadResult: ConfigurationLoadResult, issues: ValidationIssue[]): void {
+  private checkConfigurationConflicts(
+    loadResult: ConfigurationLoadResult,
+    issues: ValidationIssue[]
+  ): void {
     // Check for values that were overridden multiple times
     const overrideCount: Record<string, number> = {};
-    
+
     for (const [path, valueInfo] of Object.entries(loadResult.effectiveValues)) {
       // Count how many sources provided this value
-      const sourcesWithValue = loadResult.sources
-        .filter(s => s.success && this.hasValueAtPath(s.config, path))
-        .length;
-        
+      const sourcesWithValue = loadResult.sources.filter(
+        (s) => s.success && this.hasValueAtPath(s.config, path)
+      ).length;
+
       if (sourcesWithValue > 1) {
         overrideCount[path] = sourcesWithValue;
       }
     }
-    
+
     // Report heavily overridden values as info
     for (const [path, count] of Object.entries(overrideCount)) {
       if (count >= 3) {
@@ -330,33 +333,37 @@ export class ConfigurationValidator {
   private hasValueAtPath(config: any, path: string): boolean {
     const parts = path.split(".");
     let current = config;
-    
+
     for (const part of parts) {
       if (current === null || current === undefined || !(part in current)) {
         return false;
       }
       current = current[part];
     }
-    
+
     return current !== undefined;
   }
 
   /**
    * Summarize validation issues by severity
    */
-  private summarizeIssues(issues: ValidationIssue[]): { errors: number; warnings: number; infos: number } {
+  private summarizeIssues(issues: ValidationIssue[]): {
+    errors: number;
+    warnings: number;
+    infos: number;
+  } {
     return issues.reduce(
       (summary, issue) => {
         switch (issue.severity) {
-        case ValidationSeverity.ERROR:
-          summary.errors++;
-          break;
-        case ValidationSeverity.WARNING:
-          summary.warnings++;
-          break;
-        case ValidationSeverity.INFO:
-          summary.infos++;
-          break;
+          case ValidationSeverity.ERROR:
+            summary.errors++;
+            break;
+          case ValidationSeverity.WARNING:
+            summary.warnings++;
+            break;
+          case ValidationSeverity.INFO:
+            summary.infos++;
+            break;
         }
         return summary;
       },
@@ -385,4 +392,4 @@ export function validateLoadResult(
 ): EnhancedValidationResult {
   const validator = new ConfigurationValidator(context);
   return validator.validateLoadResult(loadResult);
-} 
+}

@@ -7,7 +7,10 @@ import { cliFactory, type CliFactoryConfig } from "../core/cli-command-factory-c
 import { getTasksCustomizations } from "../customizations/tasks-customizations";
 import { getGitCustomizations } from "../customizations/git-customizations";
 import { getSessionCustomizations } from "../customizations/session-customizations";
-import { getConfigCustomizations, getSessiondbCustomizations } from "../customizations/config-customizations";
+import {
+  getConfigCustomizations,
+  getSessiondbCustomizations,
+} from "../customizations/config-customizations";
 
 /**
  * Helper function to setup common CLI command customizations
@@ -50,4 +53,4 @@ export function initializeCliCommands(program: Command, config?: Partial<CliFact
 
   // Register all commands in the program
   cliFactory.registerAllCommands(program);
-} 
+}

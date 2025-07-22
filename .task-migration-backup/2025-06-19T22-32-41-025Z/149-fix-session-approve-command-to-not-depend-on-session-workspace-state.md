@@ -73,6 +73,7 @@ await deps.gitService.execInRepository(sessionWorkdir, `git checkout ${baseBranc
 ## Implementation Planning
 
 ### Rule Verification
+
 **REQUIRED FIRST STEP**: Relevant rules for this implementation:
 
 1. **session-first-workflow**: All changes must be made in session workspace with absolute paths
@@ -86,7 +87,7 @@ await deps.gitService.execInRepository(sessionWorkdir, `git checkout ${baseBranc
 **Replace session workspace with main repository workspace for all git operations in approval flow:**
 
 1. **Use `originalRepoPath` instead of `sessionWorkdir`** for all git operations
-2. **The `originalRepoPath` is already correctly calculated** on line 1046: 
+2. **The `originalRepoPath` is already correctly calculated** on line 1046:
    ```typescript
    const originalRepoPath = params.repo || sessionRecord.repoUrl || process.cwd();
    ```
@@ -95,12 +96,14 @@ await deps.gitService.execInRepository(sessionWorkdir, `git checkout ${baseBranc
 ## Requirements Checklist
 
 ### Core Requirements
+
 - [x] **Decouple approval from session workspace**: Replace sessionWorkdir with originalRepoPath in all git operations ✓
-- [x] **Focus on main repository**: Verify all operations target main repo, not session workspace ✓  
+- [x] **Focus on main repository**: Verify all operations target main repo, not session workspace ✓
 - [x] **Preserve existing functionality**: Ensure task status updates and PR cleanup still work ✓
 - [x] **Maintain safety**: Keep all existing safety checks and error handling ✓
 
 ### Implementation Steps
+
 - [x] **Analyze current `session approve` implementation** in `src/domain/session.ts` ✓
 - [x] **Identify session workspace dependencies** in the approval flow ✓
 - [x] **Refactor to operate on main repository only**:
@@ -112,6 +115,7 @@ await deps.gitService.execInRepository(sessionWorkdir, `git checkout ${baseBranc
 - [ ] **Update documentation** to reflect the corrected workflow
 
 ### Verification Requirements
+
 - [ ] `session approve` works when session workspace has uncommitted changes
 - [ ] `session approve` works when session workspace is on any branch
 - [ ] `session approve` works when session workspace is in a conflicted state
@@ -134,9 +138,10 @@ await deps.gitService.execInRepository(sessionWorkdir, `git checkout ${baseBranc
 The implementation has been tested with automated unit tests that verify the fix works correctly.
 
 ## Work Log
+
 - 2025-01-20: Analyzed current implementation and identified root cause
 - 2025-01-20: Created detailed implementation plan with specific code changes required
-- 2025-01-20: Implemented fix to use originalRepoPath instead of sessionWorkdir  
+- 2025-01-20: Implemented fix to use originalRepoPath instead of sessionWorkdir
 - 2025-01-20: Fixed dependency injection and session auto-detection
 - 2025-01-20: Updated tests and verified all session approve tests pass
 - 2025-01-20: Committed implementation with comprehensive testing ✓
@@ -153,12 +158,14 @@ The implementation has been tested with automated unit tests that verify the fix
 In `src/domain/session.ts`, `approveSessionFromParams` function:
 
 **Replace line 1067:**
+
 ```typescript
 // OLD: const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
 // NEW: Use originalRepoPath directly for all git operations
 ```
 
 **Replace lines 1074-1090:** Change all `sessionWorkdir` references to `originalRepoPath`:
+
 ```typescript
 // All these lines should use originalRepoPath instead of sessionWorkdir:
 await deps.gitService.execInRepository(originalRepoPath, `git checkout ${baseBranch}`);

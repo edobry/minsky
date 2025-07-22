@@ -87,7 +87,14 @@
  * - Compliance: 100% (all Bun-native style violations resolved)
  */
 
-import { Project, SourceFile, Node, SyntaxKind, ImportDeclaration, ExportDeclaration } from "ts-morph";
+import {
+  Project,
+  SourceFile,
+  Node,
+  SyntaxKind,
+  ImportDeclaration,
+  ExportDeclaration,
+} from "ts-morph";
 import { globSync } from "glob";
 
 /**
@@ -145,7 +152,7 @@ class ImportExtensionFixer {
     totalTransformations: 0,
     processingTime: 0,
     successRate: 0,
-    errors: []
+    errors: [],
   };
 
   constructor() {
@@ -178,7 +185,6 @@ class ImportExtensionFixer {
       // Phase 4: Calculate metrics and generate report
       this.calculateMetrics(startTime);
       this.generateReport();
-
     } catch (error) {
       this.metrics.errors.push(`Fatal error: ${error}`);
       throw error;
@@ -189,11 +195,7 @@ class ImportExtensionFixer {
    * Add source files to the project using established patterns
    */
   private addSourceFiles(): void {
-    const patterns = [
-      "src/**/*.ts",
-      "src/**/*.tsx",
-      "src/**/*.js"
-    ];
+    const patterns = ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js"];
 
     const exclude = [
       "**/*.d.ts",
@@ -201,12 +203,10 @@ class ImportExtensionFixer {
       "**/*.spec.ts",
       "**/node_modules/**",
       "**/dist/**",
-      "**/build/**"
+      "**/build/**",
     ];
 
-    const files = patterns.flatMap(pattern =>
-      globSync(pattern, { ignore: exclude })
-    );
+    const files = patterns.flatMap((pattern) => globSync(pattern, { ignore: exclude }));
 
     console.log(`📁 Found ${files.length} files to process`);
 
@@ -228,7 +228,7 @@ class ImportExtensionFixer {
       file: filePath,
       importsFixed: 0,
       exportsFixed: 0,
-      errors: []
+      errors: [],
     };
 
     try {
@@ -257,7 +257,6 @@ class ImportExtensionFixer {
       if (result.importsFixed > 0 || result.exportsFixed > 0) {
         this.metrics.filesModified++;
       }
-
     } catch (error) {
       result.errors.push(`Error processing file: ${error}`);
       this.metrics.errors.push(`${filePath}: ${error}`);
@@ -321,21 +320,21 @@ class ImportExtensionFixer {
    * Check if a module specifier is a local path
    */
   private isLocalPath(path: string): boolean {
-    return path.startsWith('./') || path.startsWith('../');
+    return path.startsWith("./") || path.startsWith("../");
   }
 
   /**
    * Check if a module specifier has .js or .ts extension
    */
   private hasTargetExtension(path: string): boolean {
-    return path.endsWith('.js') || path.endsWith('.ts');
+    return path.endsWith(".js") || path.endsWith(".ts");
   }
 
   /**
    * Remove .js or .ts extension from a module specifier
    */
   private removeExtension(path: string): string {
-    return path.replace(/\.(js|ts)$/, '');
+    return path.replace(/\.(js|ts)$/, "");
   }
 
   /**
@@ -369,9 +368,14 @@ class ImportExtensionFixer {
    */
   private calculateMetrics(startTime: number): void {
     this.metrics.processingTime = Date.now() - startTime;
-    this.metrics.totalTransformations = this.metrics.totalImportsFixed + this.metrics.totalExportsFixed;
-    this.metrics.successRate = this.metrics.errors.length === 0 ? 100 :
-      ((this.metrics.filesProcessed - this.metrics.errors.length) / this.metrics.filesProcessed) * 100;
+    this.metrics.totalTransformations =
+      this.metrics.totalImportsFixed + this.metrics.totalExportsFixed;
+    this.metrics.successRate =
+      this.metrics.errors.length === 0
+        ? 100
+        : ((this.metrics.filesProcessed - this.metrics.errors.length) /
+            this.metrics.filesProcessed) *
+          100;
   }
 
   /**
@@ -391,7 +395,7 @@ class ImportExtensionFixer {
 
     if (this.metrics.errors.length > 0) {
       console.log(`❌ Errors encountered: ${this.metrics.errors.length}`);
-      this.metrics.errors.forEach(error => console.log(`  - ${error}`));
+      this.metrics.errors.forEach((error) => console.log(`  - ${error}`));
     }
 
     // Show files with changes
@@ -402,7 +406,7 @@ class ImportExtensionFixer {
           const changes = [];
           if (result.importsFixed > 0) changes.push(`${result.importsFixed} imports`);
           if (result.exportsFixed > 0) changes.push(`${result.exportsFixed} exports`);
-          console.log(`  ${result.file}: ${changes.join(', ')}`);
+          console.log(`  ${result.file}: ${changes.join(", ")}`);
         }
       }
     }

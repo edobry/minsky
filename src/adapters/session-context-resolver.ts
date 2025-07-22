@@ -1,6 +1,6 @@
 /**
  * Interface-Layer Session Context Resolution
- * 
+ *
  * This implements the clean architecture solution where session context resolution
  * is handled at the interface adapter layer, keeping domain logic pure.
  */
@@ -21,38 +21,46 @@ export interface SessionContext {
  * Handles auto-detection from working directory
  */
 export class CLISessionContextResolver {
-  
   /**
    * Resolve session context for CLI interface
    * Auto-detects session from working directory when possible
    */
   static resolveSessionContext(params: any, workingDir?: string): any {
-    // If session is explicitly provided, use it (CLI supports name or task parameters)
-    if (params.name || params.task) {
+    // If session is explicitly provided via name parameter, use it
+    if (params.name) {
       return {
         ...params,
-        session: params.name || params.task
+        session: params.name,
+      };
+    }
+
+    // If task is provided, keep it as task parameter for task ID lookup
+    // Don't override session parameter - let domain layer handle task ID resolution
+    if (params.task) {
+      return {
+        ...params,
+        // Keep task as task parameter for proper task ID lookup
       };
     }
 
     // CLI auto-detection: extract session from working directory
     const currentDir = workingDir || process.cwd();
-    
+
     if (currentDir.includes("/sessions/")) {
       const pathParts = currentDir.split("/");
       const sessionsIndex = pathParts.indexOf("sessions");
-      
+
       if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
         const detectedSession = pathParts[sessionsIndex + 1];
-        
+
         log.debug("CLI auto-detected session from working directory", {
           workingDir: currentDir,
-          detectedSession
+          detectedSession,
         });
-        
+
         return {
           ...params,
-          session: detectedSession
+          session: detectedSession,
         };
       }
     }
@@ -67,17 +75,25 @@ export class CLISessionContextResolver {
  * Requires explicit session parameter - no auto-detection
  */
 export class MCPSessionContextResolver {
-  
   /**
    * Resolve session context for MCP interface
    * Always requires explicit session parameter
    */
   static resolveSessionContext(params: any, workingDir?: string): any {
-    // If session is explicitly provided, use it (support session, name, or task parameters)
-    if (params.session || params.name || params.task) {
+    // If session is explicitly provided via session or name parameter, use it
+    if (params.session || params.name) {
       return {
         ...params,
-        session: params.session || params.name || params.task
+        session: params.session || params.name,
+      };
+    }
+
+    // If task is provided, keep it as task parameter for task ID lookup
+    // Don't override session parameter - let domain layer handle task ID resolution
+    if (params.task) {
+      return {
+        ...params,
+        // Keep task as task parameter for proper task ID lookup
       };
     }
 
@@ -105,27 +121,24 @@ Examples:
  * Returns the appropriate resolver based on interface type
  */
 export class SessionContextResolverFactory {
-  
-  static getResolver(interfaceType: string): typeof CLISessionContextResolver | typeof MCPSessionContextResolver {
+  static getResolver(
+    interfaceType: string
+  ): typeof CLISessionContextResolver | typeof MCPSessionContextResolver {
     switch (interfaceType.toLowerCase()) {
-    case "cli":
-      return CLISessionContextResolver;
-    case "mcp":
-      return MCPSessionContextResolver;
-    default:
-      // Default to MCP behavior (require explicit session)
-      return MCPSessionContextResolver;
+      case "cli":
+        return CLISessionContextResolver;
+      case "mcp":
+        return MCPSessionContextResolver;
+      default:
+        // Default to MCP behavior (require explicit session)
+        return MCPSessionContextResolver;
     }
   }
-  
+
   /**
    * Resolve session context based on interface type
    */
-  static resolveSessionContext(
-    params: any, 
-    interfaceType: string, 
-    workingDir?: string
-  ): any {
+  static resolveSessionContext(params: any, interfaceType: string, workingDir?: string): any {
     const resolver = this.getResolver(interfaceType);
     return resolver.resolveSessionContext(params, workingDir);
   }
@@ -145,30 +158,32 @@ export function resolveSessionForInterface(
       interfaceType,
       workingDir
     );
-    
+
     // Validate that we ended up with a session
     if (!resolvedParams.session) {
       throw new ValidationError(
         `No session context available.
-        
+
 Interface: ${interfaceType}
 Parameters: ${JSON.stringify(params, null, 2)}
 Working Directory: ${workingDir || process.cwd()}
 
-${interfaceType === "cli" 
+${
+  interfaceType === "cli"
     ? "Try running this command from a session workspace, or provide --name <session>"
-    : "Provide session parameter: { session: \"task#158\" }"}`
+    : 'Provide session parameter: { session: "task#158" }'
+}`
       );
     }
-    
+
     return resolvedParams;
   } catch (error) {
     log.error("Session context resolution failed", {
       interfaceType,
       params,
       workingDir,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
     throw error;
   }
-} 
+}

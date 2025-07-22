@@ -9,7 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ESLint and Prettier Integration Fix** - Fixed autofix functionality for formatting issues like indentation and quote style
+
+  - **Issue Resolution**: ESLint autofix now properly handles "Expected indentation of 0 spaces but found 8" and "Strings must use doublequote" errors
+  - **Integration Setup**: Added `eslint-config-prettier` and `eslint-plugin-prettier` to eliminate conflicts between tools
+  - **Configuration Cleanup**: Removed conflicting ESLint formatting rules (indent, quotes, semi) that were fighting with Prettier
+  - **Unified Workflow**: Added `format:all` script that runs Prettier followed by ESLint autofix for comprehensive formatting
+  - **Legacy Removal**: Removed outdated `.eslintrc.json` file since ESLint v9 uses flat config by default
+  - **Verification**: Confirmed autofix now works for indentation, quotes, semicolons, and other formatting issues
+
 - **Task #300: ESLint Jest Pattern Prevention & Session Start Bug Fixes Complete** - Implemented comprehensive ESLint rule and fixed critical UX bugs
+
   - **ESLint Rule Implementation**: Created `no-jest-patterns` rule with auto-fix capabilities for comprehensive Jest pattern detection
     - **Pattern Detection**: Covers jest.fn(), jest.mock(), jest.spyOn(), .mockReturnValue(), .mockResolvedValue(), .mockRejectedValue(), .mockImplementation()
     - **Auto-Fix Features**: Converts Jest patterns to Bun equivalents (jest.fn() → mock(), .mockReturnValue() → mock(() => value))
@@ -24,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Quality Metrics**: 3/4 session approval tests passing, ESLint rule detecting patterns with 100% accuracy
 
 - **Task #283: Task ID Storage/Display Format Separation Complete** - Successfully implemented comprehensive task ID format separation with test-driven bugfix completion
+
   - **Core Implementation**: 8 phases completed with 30 comprehensive utility tests (29/29 passing)
   - **Storage Layer**: All task IDs stored in plain format ("283") across JSON, Markdown, and Session backends
   - **Display Layer**: Consistent # prefix display ("#283") in CLI and MCP interfaces
@@ -37,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Performance**: Minimal overhead with format conversion only at input/output boundaries
 
 - **Systematic AST Codemod Test Infrastructure Optimization**: Implemented comprehensive systematic approach to fix test failures across multiple categories
+
   - **Achievement**: +36 passing tests across 8 complete categories using systematic AST codemod methodology
   - **Categories Fixed**:
     - Session Edit Tools: 0 → 7 passing tests (+7)
@@ -51,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Tools Created**: 9 comprehensive AST codemods for automated test infrastructure fixes
 
 - **Task #303: Auto-commit integration for task operations** - Implemented complete auto-commit functionality for all task operations in markdown backend
+
   - **Auto-commit integration**: Added to all 8 task command functions (list, get, status get/set, create, delete, spec)
   - **Backend-aware workspace resolution**: Uses `TaskBackendRouter` and `resolveTaskWorkspacePath` for session-first workflow
   - **Comprehensive test coverage**: Updated all test mocks to use new workspace resolution (20/20 tests passing)
@@ -68,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Critical Bug**: Resolved task status set backend inconsistency through systematic task ID format migration and proper normalization. Completed the architectural separation where storage uses plain format (`"295"`) and display uses hash format (`"#295"`). Applied comprehensive migration to session database with backups. Implemented transition-period handling using `normalizeTaskIdForStorage()` utility to support both legacy hash and new plain formats. This fixes the issue where `minsky tasks status get 158` worked but `minsky tasks status set 158 IN-REVIEW` failed with "Task with ID 158 not found" despite the task existing.
 
 ### Added
+
 - **Task ID Migration**: Completed migration script execution with backup support for converting hash format to plain storage format
 - **Transition Period Support**: Added robust handling of mixed storage formats during migration period
 
@@ -84,6 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.14.0] - 2024-01-15
 
 - **Task #061 - PHASE 3 COMPLETE**: Finalized test fixture factory pattern implementation with comprehensive documentation and enforcement
+
   - **Documentation**: Created `docs/bun-test-patterns.md` with complete migration guidelines, best practices, and examples
   - **ESLint enforcement**: Implemented `src/eslint-rules/no-jest-patterns.js` with auto-fix capabilities for Jest pattern violations
   - **Logger mock infrastructure**: Added centralized `src/utils/test-utils/logger-mock.ts` to fix "log.cli is not a function" errors
@@ -93,6 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Prevention**: ESLint rule with auto-fix prevents future Jest pattern violations and enforces centralized factory usage
 
 - **Task #061 - PHASE 1 COMPLETE**: Successfully migrated all critical test files from Jest patterns to centralized Bun test factory patterns
+
   - **Completed files**: `session-git-clone-bug-regression.test.ts`, `git-pr-workflow.test.ts`, `session-approve.test.ts` (3/3 Phase 1 targets)
   - **Pattern established**: Comprehensive Jest → Bun migration with centralized factories (`createMockSessionProvider`, `createMockGitService`, `createMockTaskService`)
   - **Interface standardization**: Systematic naming fixes (`_session` → `session`, `_title` → `title`, `_status` → `status`) applied across complex scenarios
@@ -108,6 +124,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Session Tools API Compatibility**: Fixed `commandMapper.addTool is not a function` error preventing MCP server startup
+
   - **CRITICAL**: Fixed incompatible API usage in session-files.ts and session-edit-tools.ts
   - **Root Cause**: Session tools were using deprecated `addTool()` method instead of `addCommand()`
   - **Resolution**: Updated all session tools to use `addCommand()` with proper parameters object structure
@@ -115,6 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Files Fixed**: `src/adapters/mcp/session-files.ts`, `src/adapters/mcp/session-edit-tools.ts`
 
 - **HTTP Transport Restoration**: Fixed complete loss of HTTP transport functionality during merge
+
   - **CRITICAL**: Restored missing `handleHttpRequest()` method that was lost during task 286 merge
   - **CRITICAL**: Restored `--http` CLI flag that was replaced with older `--transport` syntax
   - **Root Cause**: Git restore commands pulled from wrong commits, losing working implementation
@@ -123,6 +141,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Browser connection error FIXED**: Inspector can now connect to `http://localhost:3001/mcp`
 
 - **Task #280**: Completed aggressive cleanup of excessive 'as unknown' assertions with exceptional results
+
   - **96.9% total reduction** achieved: from 2,495 original assertions to 78 final count
   - Extended comprehensive-as-unknown-fixer.ts with 5 new Phase 6 pattern methods for advanced cleanup
   - Implemented proper two-pass AST traversal preventing node invalidation errors
@@ -134,17 +153,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Task #286**: Added complete HTTP transport support for MCP server
 
 ### Changed
+
 - **Code Reduction**: Eliminated ~100+ lines of duplicate mock object declarations in `session-approve.test.ts`
 - **Jest Pattern Elimination**: Removed all local mock object patterns in favor of centralized factories
 - **Interface Standardization**: Applied consistent property naming fixes across all test methods
 - **Test Architecture**: Established reusable pattern for spy integration with centralized factories
 
 ### Fixed
+
 - Test assertion for git branch reference check (refs/remotes/ vs refs/heads/)
 - Interface mismatches causing TypeScript warnings in centralized factory usage
 - Call tracking verification using individual spy methods instead of direct mock references
 
 ### Technical Details
+
 - **Files Modified**: `src/domain/session-approve.test.ts`, task specification documentation
 - **Pattern Established**: Individual spy creation + centralized factory integration + interface fixes
 - **Test Status**: All 10 tests passing, 49 expect() calls verified
@@ -153,6 +175,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This completes the largest and most complex test file migration in the centralized factory pattern initiative, demonstrating the effectiveness and scalability of the established approach.
 
 - **Task #285**: Fixed session PR title duplication bug in the extractPrDescription function
+
   - Enhanced parsing logic to detect and remove duplicate title lines in PR body content
   - Consolidated multiple implementations of extractPrDescription into a single fixed version
   - Added comprehensive test coverage with 21 tests to prevent regression
@@ -166,6 +189,7 @@ This completes the largest and most complex test file migration in the centraliz
   - Added test coverage with both unit and integration tests following test-driven bugfix approach
   - Resolves issue where Task #285 and similar tasks had incorrect file paths in tasks.md
 - **Module Resolution Errors**: Implemented directory-structure-aware import path fixing
+
   - Created comprehensive test suite using actual directory structure analysis
   - Built directory-aware codemod using path.relative() instead of pattern matching
   - Achieved 100% success rate with 138 import fixes across 70 files (vs 85% with pattern-based)
@@ -175,6 +199,7 @@ This completes the largest and most complex test file migration in the centraliz
   - Updated codemod-development-standards.mdc with key learnings about structure-aware transformations
 
 - **Linter Issues**: Resolved all 119 linter errors using AST-based codemod approach
+
   - Created comprehensive AST-based import extension fixer using ts-morph for safe, precise transformations
   - Fixed 48 import statements and 5 export statements across 38 files
   - Removed .js/.ts extensions from local imports/exports following Bun-native style guidelines
@@ -183,6 +208,7 @@ This completes the largest and most complex test file migration in the centraliz
   - All linter checks now pass with zero errors
 
 - **Session Start Output**: Enhanced `session start` command output formatting for improved user experience
+
   - Replaced raw JSON output with user-friendly formatted display
   - Added emojis and clear section headers for better readability
   - Included helpful next steps for users after session creation
@@ -190,6 +216,7 @@ This completes the largest and most complex test file migration in the centraliz
   - Provided clear session details: session name, task ID, repository, and branch
 
 - **Task #270**: Restructured test architecture to use co-location instead of separate `__tests__` directories
+
   - Adopted standard TypeScript/JavaScript co-location pattern where tests are placed next to their modules
   - Updated test naming conventions: `[module].test.ts`, `[module].commands.test.ts`, `[module].adapter.test.ts`
   - Reserve `tests/` directories only for complex integration tests that don't fit co-location
@@ -201,12 +228,14 @@ This completes the largest and most complex test file migration in the centraliz
   - Updated cursor rules (`test-organization`, `testing-router`, `bun-test-patterns`) to promote co-location
 
 - **Session Directory Command Path Resolution**
+
   - Fixed session dir command returning incorrect old per-repo structure paths
   - Changed from `/minsky/local-minsky/sessions/task#181` (old/wrong) to `/minsky/sessions/task#181` (correct)
   - Updated getRepoPathFn to use simplified session-based structure matching actual filesystem layout
   - Sessions are now correctly located directly in sessions/ directory, not per-repo subdirectories
 
 - **Session Directory Command Error Message**
+
   - Improved error message for `minsky session dir` command when no parameters provided
   - Replaced unfriendly error message with helpful usage examples and command syntax
   - Added specific examples for both session name and task ID usage patterns
@@ -215,12 +244,14 @@ This completes the largest and most complex test file migration in the centraliz
   - Removed ugly JSON error logging that was cluttering the console output
 
 - **Session Approve Command Output Formatting**
+
   - Fixed confusing output in `minsky session approve` command that showed error messages for expected operations
   - Replaced raw JSON output with user-friendly formatted messages showing session details, task status, and merge information
   - Removed misleading "Command execution failed" error messages that appeared even when operations succeeded
   - Added proper CLI formatting with clear success indicators and structured information display
 
 - **Session Approve Command Idempotency**
+
   - Made `minsky session approve` command fully idempotent - can be run multiple times safely
   - Added detection of already-approved sessions by checking git merge ancestry
   - Shows different status messages for newly approved vs already approved sessions:
@@ -1114,6 +1145,7 @@ _See: Task #085 for migrating CLI adapter tests to test domain methods instead_
 _See: This task was implemented as part of Task #014._
 
 - Fixed missing command creator functions in `session.ts` that caused "createListCommand is not defined" error
+
   - Added createListCommand, createGetCommand, createDirCommand, createDeleteCommand, createUpdateCommand, and createApproveCommand functions
   - Fixed parameter types to match the schema definitions
   - Restored ability to use tasks status set command
@@ -1124,6 +1156,7 @@ _See: This task was implemented as part of Task #014._
 - Added MCP adapters for init and rules commands to align with CLI implementations
 
 - Standardized Repository URI handling with new repository-uri.ts module
+
   - Support for HTTPS URLs, SSH URLs, file:// URIs, local paths, and GitHub shorthand notation
   - URI parsing, normalization, validation, and conversion
   - Full test coverage
@@ -1168,6 +1201,7 @@ _See: SpecStory history [YYYY-MM-DD_HH-MM-topic](mdc:.specstory/history/YYYY-MM-
   - Will standardize test data generation and setup/teardown
 
 - Task #104: Re-implemented Disabled Integration Tests
+
   - Re-implemented `workspace.test.ts` integration tests using proper dependency injection for mocking
   - Re-implemented `git.test.ts` tests with improved isolation and test environment setup
   - Implemented proper tests for the GitHub backend with dependency injection
@@ -1286,6 +1320,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Added script `scripts/normalize-session-task-ids.ts` for future task ID format normalization
 
 ### Fixed
+
 - **Test Infrastructure**: Fixed session directory resolution by adding missing await in getSessionDirFromParams
 - **Test Infrastructure**: Updated session tests to use proper session test utilities with complete mock implementations
 - **Test Infrastructure**: Fixed isSessionWorkspace function to use actual getSessionsDir() path instead of hardcoded paths
@@ -1339,16 +1374,18 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ## Previous Entries
 
 - **Custom Type-Safe Configuration System (#295)**: Implemented and fully migrated from node-config to a custom configuration system with:
+
   - Full TypeScript integration with Zod schema validation
   - Hierarchical configuration loading (Environment → User → Project → Defaults)
   - Domain-oriented configuration organization (backend, sessiondb, github, ai)
-  - Automatic environment variable mapping with MINSKY_* prefix support
+  - Automatic environment variable mapping with MINSKY\_\* prefix support
   - 35 comprehensive tests with 100% pass rate
   - Zero breaking changes during migration
   - Performance optimization with caching
   - Complete removal of node-config dependency
 
 - **Enhanced TaskService with Workspace-Resolving Backends (Task #276 Option 1)**: Enhanced existing TaskService with workspace-resolving capabilities
+
   - Added static factory methods directly to TaskService class: `createWithWorkspaceResolvingBackend()`, `createMarkdownWithRepo()`, `createMarkdownWithWorkspace()`, `createMarkdownWithAutoDetection()`
   - Eliminates need for external `resolveTaskWorkspacePath()` + `TaskService()` pattern
   - Single class approach (no separate service hierarchy)
@@ -1362,6 +1399,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ### Fixed
 
 - **Prototype Pollution Issues (Task #276)**: COMPLETELY ELIMINATED dangerous test patterns causing infinite loops
+
   - Removed all `delete backend.isInTreeBackend` prototype manipulation from tests
   - Tests now complete in <60 seconds vs 500+ seconds infinite execution
   - Replaced TaskBackendRouter tests with clean enhanced workspace resolution tests (28/28 passing)
@@ -1401,12 +1439,14 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ## Engineering Notes
 
 **Task #305 Achievement Summary:**
+
 - ✅ **PRIMARY OBJECTIVE MET**: 0 ESLint Jest pattern violations (`bun lint | grep "custom/no-jest-patterns" | wc -l` → 0)
 - ✅ **Verification Protocol**: Verified with actual command output following Implementation Verification Protocol
 - ⚠️ **Remaining Work**: 176 linting errors from codemod transformations need cleanup
 - 🚨 **Critical Lesson**: Cannot commit broken code even when primary metric achieved
 
 **Quality Control Enforcement:**
+
 - User correctly prevented attempt to bypass quality controls with `HUSKY=0`
 - Engineering principle: Fix ALL issues systematically while preserving achievements
 - No shortcuts or bypasses - maintain codebase integrity throughout process
@@ -1443,26 +1483,31 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ## Engineering Notes
 
 **Task #305 Final Success Status:**
+
 - ✅ **BOTH PRIMARY OBJECTIVES COMPLETELY ACHIEVED**: Session workspace has 0 Jest violations AND 0 linting errors
 - ✅ **Perfect Code Quality**: Session workspace pristine and ready for PR creation
 - ✅ **Technical Approach Perfected**: 100% error elimination achieved through systematic methodology
 - ✅ **Implementation Verification Protocol**: Successfully enhanced and applied with complete verification
 
 **Critical Discoveries:**
+
 - Session workspace: 0 Jest violations + 176 syntax errors from codemod
 - Main workspace: 434 Jest violations + clean code (untouched)
 - Implementation Verification Protocol failed: checked session instead of main workspace
 - User correctly prevented bypass of quality controls
 
 **Quality Control Enforcement:**
+
 - User correctly prevented attempt to bypass quality controls with `HUSKY=0`
 - Engineering principle: Must verify achievements globally, not just in isolated workspaces
 - Systematic approach required: Apply proven migration technology to main workspace cleanly
 - No shortcuts or bypasses - maintain codebase integrity throughout process
 
 **Next Steps:**
+
 - Apply proven AST migration approach to main workspace (434 violations)
 - Fix session workspace syntax errors (176 issues) without losing Jest migration
+
   - Achieve true global completion: 0 violations in ALL workspaces with clean code
 
 - Added ESLint max-lines rule with two-phase approach (400 lines warning, 1500 lines error) to improve code maintainability

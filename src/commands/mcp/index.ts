@@ -53,11 +53,7 @@ export function createMCPCommand(): Command {
       `HTTP port (required for http transport, default: ${DEFAULT_HTTP_PORT})`,
       DEFAULT_HTTP_PORT.toString()
     )
-    .option(
-      "--host <host>",
-      `HTTP host (default: ${DEFAULT_HTTP_HOST})`,
-      DEFAULT_HTTP_HOST
-    )
+    .option("--host <host>", `HTTP host (default: ${DEFAULT_HTTP_HOST})`, DEFAULT_HTTP_HOST)
     .option(
       "--endpoint <path>",
       `HTTP endpoint path (default: ${DEFAULT_HTTP_ENDPOINT})`,
@@ -135,10 +131,7 @@ export function createMCPCommand(): Command {
         // No need to register them again here
 
         // Register tools via adapter-based approach
-        const commandMapper = new CommandMapper(
-          server,
-          server.getProjectContext()
-        );
+        const commandMapper = new CommandMapper(server, server.getProjectContext());
 
         // Register debug tools first to ensure they're available for debugging
         registerDebugTools(commandMapper);
@@ -147,11 +140,11 @@ export function createMCPCommand(): Command {
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
         registerSessionWorkspaceTools(commandMapper);
-        
+
         // Dynamic import to avoid module loading issues during CLI initialization
         const { registerSessionFileTools } = await import("../../adapters/mcp/session-files");
         registerSessionFileTools(commandMapper);
-        
+
         registerSessionEditTools(commandMapper);
         registerGitTools(commandMapper);
         registerInitTools(commandMapper);
@@ -181,7 +174,9 @@ export function createMCPCommand(): Command {
               log.cli(`MCP Inspector started on port ${inspectorPort}`);
               log.cli(`Open your browser at ${inspectorResult.url} to access the inspector`);
               if (transportType === "http") {
-                log.cli(`Inspector will connect to MCP server via HTTP at ${options.host}:${options.port}${options.endpoint}`);
+                log.cli(
+                  `Inspector will connect to MCP server via HTTP at ${options.host}:${options.port}${options.endpoint}`
+                );
               } else {
                 log.cli("The inspector will start its own MCP server instance");
               }
@@ -219,7 +214,7 @@ export function createMCPCommand(): Command {
               if (!res.headersSent) {
                 res.status(500).json({
                   error: "Internal server error",
-                  message: getErrorMessage(error)
+                  message: getErrorMessage(error),
                 });
               }
             }
@@ -232,7 +227,7 @@ export function createMCPCommand(): Command {
               server: "Minsky MCP Server",
               transport: "http",
               endpoint: options.endpoint,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
             });
           });
 

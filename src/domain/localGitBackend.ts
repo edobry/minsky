@@ -154,7 +154,11 @@ export class LocalGitBackend implements RepositoryBackend {
           let trackingOutput = "";
 
           try {
-            trackingOutput = await this.execGit(["rev-parse", "--abbrev-ref", "@{upstream}"] as any[]);
+            trackingOutput = await this.execGit([
+              "rev-parse",
+              "--abbrev-ref",
+              "@{upstream}",
+            ] as any[]);
           } catch (error) {
             // No upstream branch is set, this is not an error
             trackingOutput = "";

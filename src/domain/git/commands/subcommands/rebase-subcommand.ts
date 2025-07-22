@@ -58,10 +58,13 @@ export const rebaseCommandParams: CommandParameterMap = {
  * Execute the rebase command
  */
 export async function executeRebaseCommand(
-  parameters: { [K in keyof typeof rebaseCommandParams]: z.infer<typeof rebaseCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof rebaseCommandParams]: z.infer<(typeof rebaseCommandParams)[K]["schema"]>;
+  },
   context: CommandExecutionContext
 ): Promise<any> {
-  const { baseBranch, featureBranch, session, repo, preview, autoResolve, conflictStrategy } = parameters;
+  const { baseBranch, featureBranch, session, repo, preview, autoResolve, conflictStrategy } =
+    parameters;
 
   const result = await rebaseFromParams({
     baseBranch,
@@ -78,4 +81,4 @@ export async function executeRebaseCommand(
   }
 
   return result;
-} 
+}

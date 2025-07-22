@@ -9,7 +9,10 @@ import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
  * Get git command customizations configuration
  * @returns Git category customization options
  */
-export function getGitCustomizations(): { category: CommandCategory; options: CategoryCommandOptions } {
+export function getGitCustomizations(): {
+  category: CommandCategory;
+  options: CategoryCommandOptions;
+} {
   return {
     category: CommandCategory.GIT,
     options: {
@@ -24,4 +27,4 @@ export function getGitCustomizations(): { category: CommandCategory; options: Ca
       },
     },
   };
-} 
+}

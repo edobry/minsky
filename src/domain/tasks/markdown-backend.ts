@@ -23,7 +23,7 @@ async function resolveWorkspacePath(config: MarkdownConfig): Promise<WorkspaceRe
     return {
       workspacePath: config.workspacePath,
       method: "explicit",
-      description: "Using explicitly provided workspace path"
+      description: "Using explicitly provided workspace path",
     };
   }
 
@@ -31,7 +31,7 @@ async function resolveWorkspacePath(config: MarkdownConfig): Promise<WorkspaceRe
   if (config.repoUrl) {
     try {
       const specialWorkspaceManager = createSpecialWorkspaceManager({
-        repoUrl: config.repoUrl
+        repoUrl: config.repoUrl,
       });
 
       // Add timeout protection for initialization
@@ -46,12 +46,12 @@ async function resolveWorkspacePath(config: MarkdownConfig): Promise<WorkspaceRe
       return {
         workspacePath: specialWorkspaceManager.getWorkspacePath(),
         method: "special-workspace",
-        description: `Using special workspace for repository: ${config.repoUrl}`
+        description: `Using special workspace for repository: ${config.repoUrl}`,
       };
     } catch (error) {
       log.warn("Special workspace failed, falling back to current directory", {
         error: error instanceof Error ? error.message : String(error),
-        repoUrl: config.repoUrl
+        repoUrl: config.repoUrl,
       });
       // Fall through to current directory fallback
     }
@@ -66,7 +66,7 @@ async function resolveWorkspacePath(config: MarkdownConfig): Promise<WorkspaceRe
       return {
         workspacePath: currentDir,
         method: "local-tasks-md",
-        description: "Using current directory with existing tasks.md file"
+        description: "Using current directory with existing tasks.md file",
       };
     }
   }
@@ -75,7 +75,7 @@ async function resolveWorkspacePath(config: MarkdownConfig): Promise<WorkspaceRe
   return {
     workspacePath: (process as any).cwd(),
     method: "current-directory",
-    description: "Using current directory as default workspace"
+    description: "Using current directory as default workspace",
   };
 }
 
@@ -102,8 +102,10 @@ export class ConfigurableMarkdownBackend extends MarkdownTaskBackend {
    * Determine based on resolution method
    */
   isInTreeBackend(): boolean {
-    return this.workspaceResolutionResult.method === "special-workspace" ||
-           this.workspaceResolutionResult.method === "local-tasks-md";
+    return (
+      this.workspaceResolutionResult.method === "special-workspace" ||
+      this.workspaceResolutionResult.method === "local-tasks-md"
+    );
   }
 }
 
@@ -118,13 +120,13 @@ export async function createMarkdownBackend(config: MarkdownConfig): Promise<Tas
   log.debug("Workspace resolution completed", {
     method: resolutionResult.method,
     path: resolutionResult.workspacePath,
-    description: resolutionResult.description
+    description: resolutionResult.description,
   });
 
   // Create backend with resolved workspace
   const backendConfig: TaskBackendConfig = {
     ...config,
-    workspacePath: resolutionResult.workspacePath
+    workspacePath: resolutionResult.workspacePath,
   };
 
   return new ConfigurableMarkdownBackend(backendConfig, resolutionResult);

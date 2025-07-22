@@ -11,10 +11,7 @@ import { homedir } from "os";
  * @returns XDG_STATE_HOME or fallback to ~/.local/state
  */
 export function getXdgStateHome(): string {
-  return (
-    process.env.XDG_STATE_HOME ||
-    join(process.env.HOME || homedir(), ".local/state")
-  );
+  return process.env.XDG_STATE_HOME || join(process.env.HOME || homedir(), ".local/state");
 }
 
 /**
@@ -22,9 +19,7 @@ export function getXdgStateHome(): string {
  * @returns XDG_CONFIG_HOME or fallback to ~/.config
  */
 export function getXdgConfigHome(): string {
-  return (
-    process.env.XDG_CONFIG_HOME || join(process.env.HOME || homedir(), ".config")
-  );
+  return process.env.XDG_CONFIG_HOME || join(process.env.HOME || homedir(), ".config");
 }
 
 /**

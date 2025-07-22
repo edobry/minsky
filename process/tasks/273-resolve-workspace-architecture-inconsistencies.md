@@ -28,9 +28,9 @@ Investigation during Task #272 (testing-boundaries violations) revealed signific
 ```typescript
 // Current (artificial distinctions)
 interface WorkspaceResolutionOptions {
-  workspace?: string;        // Gets process/ validation
-  sessionWorkspace?: string; // Trusted blindly  
-  sessionRepo?: string;      // Trusted blindly (deprecated)
+  workspace?: string; // Gets process/ validation
+  sessionWorkspace?: string; // Trusted blindly
+  sessionRepo?: string; // Trusted blindly (deprecated)
   forTaskOperations?: boolean;
 }
 ```
@@ -42,7 +42,7 @@ interface WorkspaceResolutionOptions {
 ```typescript
 // Current meaningless validation
 const processDir = join(options.workspace, "process");
-await access(processDir);  // Checking for process/ subdirectory
+await access(processDir); // Checking for process/ subdirectory
 ```
 
 **Issue**: Sessions are git repo clones. The `process/` directory is only relevant for local task management backend, which projects don't have to use.
@@ -50,6 +50,7 @@ await access(processDir);  // Checking for process/ subdirectory
 ### Problem 3: Unused Special Workspace Infrastructure
 
 **Discovered**: Task #193 implemented a complete special workspace system:
+
 - `SpecialWorkspaceManager` - Atomic operations with git-based transactions
 - `TaskBackendRouter` - Intelligent routing for in-tree vs external backends
 - Backend integration for JSON and Markdown backends
@@ -62,14 +63,16 @@ await access(processDir);  // Checking for process/ subdirectory
 ### Phase 1: Remove Artificial Distinctions
 
 1. **Simplify WorkspaceResolutionOptions Interface**:
+
    ```typescript
    interface WorkspaceResolutionOptions {
-     workspace?: string;  // Any workspace path - basic validation only
+     workspace?: string; // Any workspace path - basic validation only
      forTaskOperations?: boolean;
    }
    ```
 
 2. **Remove Meaningless Validation**:
+
    - Remove `process/` directory checks
    - Use basic existence validation: `await access(workspace)`
    - Remove `isWorkspace()` function that checks for process directory
@@ -82,19 +85,22 @@ await access(processDir);  // Checking for process/ subdirectory
 ### Phase 2: Utilize Special Workspace System
 
 1. **Update Task Commands to Use TaskBackendRouter**:
+
    - Replace `resolveMainWorkspacePath()` calls with `TaskBackendRouter`
    - Use `TaskBackendRouter.createWithRepo()` for task operations
    - Let the router handle in-tree vs external backend routing
 
 2. **Integrate TaskService with Special Workspace**:
+
    - Use `TaskService.createWithSpecialWorkspace()` where appropriate
    - Ensure JSON and Markdown backends use special workspace for team-shareable storage
 
 3. **Update TaskService Creation Pattern**:
+
    ```typescript
    // Instead of:
    const taskService = await createTaskService({ workspacePath });
-   
+
    // Use:
    const router = await TaskBackendRouter.createWithRepo(repoUrl);
    const taskService = await TaskService.createWithSpecialWorkspace(router);
@@ -103,11 +109,13 @@ await access(processDir);  // Checking for process/ subdirectory
 ### Phase 3: Update Tests and Call Sites
 
 1. **Update All Call Sites**:
+
    - Replace `sessionWorkspace` and `sessionRepo` with `workspace`
    - Update command handlers to use new interface
    - Update MCP adapters to use unified approach
 
 2. **Fix Test Expectations**:
+
    - Remove tests that validate artificial distinctions
    - Update tests to use unified workspace parameter
    - Add tests for special workspace integration
@@ -122,10 +130,12 @@ await access(processDir);  // Checking for process/ subdirectory
 ### Step 1: Interface Cleanup
 
 1. **Update `WorkspaceResolutionOptions`**:
+
    - Remove `sessionWorkspace` and `sessionRepo` fields
    - Keep only `workspace` and `forTaskOperations`
 
 2. **Update `resolveWorkspacePath()` Function**:
+
    - Remove artificial branching logic
    - Use consistent validation for all workspace paths
    - Remove `process/` directory checks
@@ -137,11 +147,13 @@ await access(processDir);  // Checking for process/ subdirectory
 ### Step 2: Special Workspace Integration
 
 1. **Update Task Commands**:
+
    - Replace `resolveMainWorkspacePath()` with `TaskBackendRouter`
    - Use special workspace for task operations
    - Ensure atomic operations through `SpecialWorkspaceManager`
 
 2. **Update TaskService Usage**:
+
    - Use `TaskService.createWithSpecialWorkspace()` for commands
    - Ensure backends get routed correctly
    - Test both in-tree and external backends
@@ -154,11 +166,13 @@ await access(processDir);  // Checking for process/ subdirectory
 ### Step 3: Call Site Updates
 
 1. **Update All Command Handlers**:
+
    - Search for `sessionWorkspace` and replace with `workspace`
    - Search for `sessionRepo` and replace with `workspace`
    - Update parameter validation
 
 2. **Update MCP Adapters**:
+
    - Update session workspace tools
    - Use unified workspace parameter
 
@@ -170,23 +184,27 @@ await access(processDir);  // Checking for process/ subdirectory
 ## Verification Checklist
 
 ### Interface Consistency
+
 - [ ] All workspace parameters use unified `workspace` field
 - [ ] No artificial distinctions in interfaces
 - [ ] Consistent validation for all workspace paths
 
 ### Special Workspace Integration
+
 - [ ] Task commands use `TaskBackendRouter`
 - [ ] Markdown backend uses special workspace
 - [ ] JSON backend uses special workspace for team storage
 - [ ] GitHub backend uses normal workspace resolution
 
 ### Functionality Preservation
+
 - [ ] All existing task operations work correctly
 - [ ] Session operations work from any workspace
 - [ ] Main workspace operations work correctly
 - [ ] MCP tools work with unified interface
 
 ### Test Coverage
+
 - [ ] All tests pass with new interface
 - [ ] Special workspace integration tested
 - [ ] End-to-end workflows verified
@@ -209,9 +227,10 @@ await access(processDir);  // Checking for process/ subdirectory
 ## Notes
 
 This task combines architectural cleanup with infrastructure utilization. The special workspace system provides significant benefits:
+
 - Atomic operations with git-based transactions
 - Optimized repository handling (shallow clones, sparse checkout)
 - Intelligent backend routing
 - Team-shareable storage for JSON backends
 
-The cleanup ensures the architecture matches the domain model where all workspaces are sessions. 
+The cleanup ensures the architecture matches the domain model where all workspaces are sessions.
