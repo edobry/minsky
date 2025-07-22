@@ -1,8 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { createMarkdownTaskBackend } from "../markdownTaskBackend";
-import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
-import { TaskService } from "../taskService";
-import { resolveTaskWorkspacePath } from "../../../utils/workspace-resolver";
+import { MarkdownTaskBackend } from "./markdownTaskBackend";
+import { JsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { TaskService } from "./taskService";
+import { resolveTaskWorkspacePath } from "../../utils/workspace-resolver";
 import { rmSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -49,7 +49,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
 
     test("markdown backend should work with resolved workspace", () => {
       // Current: backend created with pre-resolved workspace
-      const backend = createMarkdownTaskBackend({
+      const backend = new MarkdownTaskBackend({
         name: "markdown",
         workspacePath: tempDir
       });
@@ -83,7 +83,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
     });
 
     test("json backend should work with resolved workspace", () => {
-      const backend = createJsonFileTaskBackend({
+      const backend = new JsonFileTaskBackend({
         name: "json-file", 
         workspacePath: tempDir,
         dbFilePath: join(tempDir, "tasks.json")
@@ -188,9 +188,9 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
   describe("Enhanced Markdown Backend", () => {
     test("should handle workspace resolution internally with explicit path", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
+      const { MarkdownTaskBackend } = await import("./markdownTaskBackend");
       
-      const backend = await createMarkdownBackend({
+      const backend = await new MarkdownTaskBackend({
         name: "markdown",
         workspacePath: tempDir
       });
@@ -204,9 +204,9 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should handle current directory workspace resolution", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
+      const { MarkdownTaskBackend } = await import("./markdownTaskBackend");
       
-      const backend = await createMarkdownBackend({
+      const backend = await new MarkdownTaskBackend({
         name: "markdown"
         // No explicit config - should use current directory
       });
@@ -220,9 +220,9 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should handle special workspace resolution with repo URL", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
+      const { MarkdownTaskBackend } = await import("./markdownTaskBackend");
       
-      const backend = await createMarkdownBackend({
+      const backend = await new MarkdownTaskBackend({
         name: "markdown",
         repoUrl: "https://github.com/test/repo.git"
       });
@@ -236,9 +236,9 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should work with task operations", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
+      const { MarkdownTaskBackend } = await import("./markdownTaskBackend");
       
-      const backend = await createMarkdownBackend({
+      const backend = await new MarkdownTaskBackend({
         name: "markdown",
         workspacePath: tempDir
       });
@@ -255,10 +255,10 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
   describe("Simplified Workflow", () => {
     test("should eliminate external workspace resolution for explicit paths", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
+      const { MarkdownTaskBackend } = await import("./markdownTaskBackend");
       
       // One-step creation - no resolveTaskWorkspacePath needed
-      const backend = await createMarkdownBackend({
+      const backend = await new MarkdownTaskBackend({
         name: "markdown",
         workspacePath: tempDir
       });
@@ -275,10 +275,10 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should eliminate external workspace resolution for repo URLs", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
+      const { MarkdownTaskBackend } = await import("./markdownTaskBackend");
       
       // One-step creation with repo URL
-      const backend = await createMarkdownBackend({
+      const backend = await new MarkdownTaskBackend({
         name: "markdown",
         repoUrl: "https://github.com/test/repo.git"
       });
@@ -293,7 +293,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should enable complete TaskService workflow with enhanced backends", async () => {
-      const { TaskService } = await import("../taskService");
+      const { TaskService } = await import("./taskService");
       
       // Complete workflow test - from configuration to task operations
       const taskService = await TaskService.createMarkdownWithWorkspace({
@@ -310,7 +310,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test.skip("should support repository-based TaskService creation", async () => {
-      const { TaskService } = await import("../taskService");
+      const { TaskService } = await import("./taskService");
       
       // Repository-based creation
       const taskService = await TaskService.createMarkdownWithRepo({
@@ -326,7 +326,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should support auto-detection TaskService creation", async () => {
-      const { TaskService } = await import("../taskService");
+      const { TaskService } = await import("./taskService");
       
       // Auto-detection creation (uses current workspace)
       const taskService = await TaskService.createMarkdownWithAutoDetection();
@@ -339,7 +339,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should support full configuration pattern", async () => {
-      const { TaskService } = await import("../taskService");
+      const { TaskService } = await import("./taskService");
       
       // Full configuration pattern
       const taskService = await TaskService.createWithEnhancedBackend({
