@@ -407,16 +407,21 @@ Examples:
         // Map interface parameters to domain parameters correctly:
         // - sessionName/name → session (direct session identifier)  
         // - task → task (for lookup by task ID)
-        const result = (await sessionApprove({
+        const approvalResult = await sessionApprove({
           session: params!.sessionName || params!.name,  // Direct session identifier
           task: params!.task,         // Task ID for lookup (not session identifier!)
           repo: params!.repo,         
           json: params!.json,
           noStash: params!.noStash,   // Add the missing parameter
-        })) as unknown;
+        });
 
-        log.debug("Session approve result", { result });
-        return result;
+        log.debug("Session approve result", { result: approvalResult });
+        
+        // Return in the expected command response format
+        return {
+          success: true,
+          ...approvalResult,  // Spread the domain result fields
+        };
       } catch (error) {
         log.error("Failed to approve session", {
           error: getErrorMessage(error as Error),
