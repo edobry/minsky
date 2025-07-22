@@ -4,7 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { mergeFromParams } from "../merge-command";
-import { log } from "../../../../../utils/logger";
+import { log } from "../../../../utils/logger";
 import {
   REPO_DESCRIPTION,
   SESSION_DESCRIPTION,

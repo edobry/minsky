@@ -4,7 +4,7 @@ import { createGitService } from "../../git";
 import { TaskService } from "../../tasks";
 import { normalizeRepoName, resolveRepoPath } from "../../repo-utils";
 import { createTaskFromDescription } from "../../templates/session-templates";
-import { installDependencies } from "../../utils/package-manager";
+import { detectPackageManager, installDependencies } from "../../../utils/package-manager";
 import { log } from "../../utils/logger";
 import { 
   Session, 
