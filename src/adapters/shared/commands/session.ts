@@ -307,7 +307,12 @@ Examples:
     description: "Update a session",
     parameters: {
       ...sessionUpdateCommandParams,
-      // Add backward compatible parameters for CLI
+      // Add backward compatible parameters for CLI and MCP
+      session: {
+        schema: z.string(),
+        description: "Session identifier (alias for sessionName, used by MCP)",
+        required: false,
+      },
       name: {
         schema: z.string(),
         description: "Session name",
@@ -329,7 +334,7 @@ Examples:
 
       try {
         await sessionUpdate({
-          name: params!.sessionName || params!.name,
+          name: params!.sessionName || params!.session || params!.name,
           task: params!.task,
           repo: params!.repo,
           branch: params!.branch,
@@ -367,7 +372,12 @@ Examples:
     description: "Approve a session pull request",
     parameters: {
       ...sessionApproveCommandParams,
-      // CLI-only parameters for backward compatibility
+      // CLI and MCP parameters for backward compatibility
+      session: {
+        schema: z.string(),
+        description: "Session identifier (alias for sessionName, used by MCP)",
+        required: false,
+      },
       name: {
         schema: z.string(),
         description: "Session name (CLI only)",
@@ -392,7 +402,7 @@ Examples:
         // - sessionName/name → session (direct session identifier)
         // - task → task (for lookup by task ID)
         const approvalResult = await sessionApprove({
-          session: params!.sessionName || params!.name,  // Direct session identifier
+          session: params!.sessionName || params!.session || params!.name,  // Direct session identifier
           task: params!.task,         // Task ID for lookup (not session identifier!)
           repo: params!.repo,
           json: params!.json,
@@ -426,7 +436,12 @@ Examples:
     description: "Create a pull request for a session",
     parameters: {
       ...sessionPrCommandParams,
-      // Add backward compatible parameters for CLI
+      // Add backward compatible parameters for CLI and MCP
+      session: {
+        schema: z.string(),
+        description: "Session identifier (alias for sessionName, used by MCP)",
+        required: false,
+      },
       name: {
         schema: z.string(),
         description: "Session name",
@@ -448,10 +463,10 @@ Examples:
 
       try {
         // Validate PR parameters before proceeding
-        validatePrParameters(params!.body, params!.bodyPath, params!.sessionName || params!.name);
+        validatePrParameters(params!.body, params!.bodyPath, params!.sessionName || params!.session || params!.name);
 
         const result = await sessionPr({
-          session: params!.sessionName || params!.name,
+          session: params!.sessionName || params!.session || params!.name,
           task: params!.task,
           repo: params!.repo,
           title: params!.title,

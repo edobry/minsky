@@ -53,14 +53,28 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
      minsky tasks spec <task-id>
      ```
    - Alternatively, locate the task spec file at `process/tasks/<task-id>-<task-name>.md`
+   - **CRITICAL**: If standard access methods fail, MUST investigate all possible locations:
+     - Search codebase for task specification using semantic search
+     - Check special workspace: `~/.local/state/minsky/task-operations/process/tasks/`
+     - Use file search tools to locate specification by task ID
+     - Investigate workspace routing architecture to understand storage patterns
+     - **NEVER proceed with implementation based on title/database info only**
    - Review all requirements and acceptance criteria
+   - **MANDATORY**: Confirm complete specification is located and read before proceeding
 
-2. **Plan your implementation**:
+2. **Understand architectural context**:
+   - **BEFORE starting implementation**, investigate relevant architectural patterns
+   - Search for documentation about systems being modified
+   - Understand workspace routing, backend systems, and integration points
+   - Take initiative to research unfamiliar concepts mentioned in specifications
+   - **REQUIREMENT**: Complete architectural understanding before code changes
+
+3. **Plan your implementation**:
    - Identify the files you need to modify
    - Sketch out the changes you'll make
    - Identify any dependencies or potential issues
 
-3. **Document your plan**:
+4. **Document your plan**:
    - Add your implementation plan to the task specification file
    - Commit this update:
      ```bash
