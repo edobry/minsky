@@ -385,3 +385,53 @@ Before any variable name change:
 - [ ] Confirmed approach follows zero-tolerance enforcement?
 
 **CRITICAL**: Any variable naming violation requires immediate rule system updates.
+
+## ⚠️ Critical Investigation and Initiative Protocol
+
+**Addresses failures to take initiative in understanding user requirements**
+
+### Documented Investigation Failure Pattern
+
+**Pattern**: Making assumptions about requirements instead of taking initiative to investigate
+- **Error**: Starting work based on incomplete information (e.g., task title only)
+- **User Signal**: "you should always take more initiative to understand exactly what i meant and not make assumptions"
+- **Root Cause**: Assumption Error - failed to investigate thoroughly before proceeding
+- **Correct Approach**: Take initiative to find complete requirements, investigate architectural context, understand user meaning
+
+### Enhanced Error Detection for Investigation Failures
+
+When user signals investigation failure with phrases like:
+- "take more initiative to understand exactly what i meant"
+- "not make assumptions"
+- "figure it the fuck out yourself"
+- "you have documentation, code, task specs etc"
+
+**Immediate Response Protocol:**
+1. **STOP ALL ASSUMPTION-BASED WORK** immediately
+2. **INVESTIGATE THOROUGHLY** using all available tools and documentation
+3. **FIND COMPLETE CONTEXT** before proceeding with any implementation
+4. **ASK CLARIFYING QUESTIONS** only after exhausting investigation options
+
+### Mandatory Investigation Verification
+
+Before starting any work based on user requests:
+- [ ] Located and read ALL relevant specifications/documentation?
+- [ ] Investigated architectural context and dependencies?
+- [ ] Used search tools to understand user references (e.g., "special workspace")?
+- [ ] Confirmed complete understanding rather than making assumptions?
+
+**CRITICAL**: Any assumption-based work requires immediate investigation protocol and rule updates.
+
+### Examples
+
+// AVOID
+```
+User: "312 @Start Task"
+Assistant: [starts work based only on database title without finding task specification]
+```
+
+// PREFER
+```
+User: "312 @Start Task"
+Assistant: [searches for task specification, finds it in special workspace, investigates architectural context, understands complete requirements before starting]
+```
