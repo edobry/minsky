@@ -421,7 +421,7 @@ export class RuleTemplateService {
         description: "Minsky workflow orchestration guide",
         tags: ["workflow"],
         generateContent: (context) => {
-          return `# Minsky Workflow\n\nThis is a fallback template due to an error loading templates.`;
+          return "# Minsky Workflow\n\nThis is a fallback template due to an error loading templates.";
         }
       });
     }

@@ -151,14 +151,14 @@ export function getCommandSyntax(
   }
   
   switch (config.interfaceMode) {
-    case "cli":
-      return representation.cliSyntax;
-    case "mcp":
-      return representation.mcpSyntax;
-    case "hybrid":
-      return config.preferMcp ? representation.mcpSyntax : representation.cliSyntax;
-    default:
-      return representation.cliSyntax;
+  case "cli":
+    return representation.cliSyntax;
+  case "mcp":
+    return representation.mcpSyntax;
+  case "hybrid":
+    return config.preferMcp ? representation.mcpSyntax : representation.cliSyntax;
+  default:
+    return representation.cliSyntax;
   }
 }
 

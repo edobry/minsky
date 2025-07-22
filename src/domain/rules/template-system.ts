@@ -103,7 +103,7 @@ function createTemplateHelpers(config: RuleGenerationConfig, commandGenerator: C
     },
 
     codeBlock: (content: string, language: string = "bash") => {
-      return "```" + language + "\n" + content + "\n```";
+      return `\`\`\`${  language  }\n${  content  }\n\`\`\``;
     },
 
     conditionalSection: (condition: boolean, content: string, fallback?: string) => {
