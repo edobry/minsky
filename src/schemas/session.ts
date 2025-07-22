@@ -103,7 +103,8 @@ export const sessionDeleteParamsSchema = z
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     force: flagSchema("Skip confirmation prompt"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => data.name !== undefined || data.task !== undefined, {
+  .merge(commonCommandOptionsSchema).refine((data) =>
+    data.name !== undefined || data.task !== undefined, {
     message: "Either session name or task ID must be provided",
   });
 
@@ -120,7 +121,8 @@ export const sessionDirParamsSchema = z
     name: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => data.name !== undefined || data.task !== undefined, {
+  .merge(commonCommandOptionsSchema).refine((data) =>
+    data.name !== undefined || data.task !== undefined, {
     message: "Either session name or task ID must be provided",
   });
 

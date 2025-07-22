@@ -446,6 +446,22 @@ export class CliCommandBridge {
       }
     });
 
+    // Handle parameter mappings with mapTo property
+    for (const mapping of mappings) {
+      const { name, options: mappingOptions } = mapping;
+
+      // If this parameter has a value and a mapTo property, map it to the target parameter
+      if (mappingOptions.mapTo && result[name] !== undefined) {
+        // Set the target parameter value
+        result[mappingOptions.mapTo] = result[name];
+
+        // If the target parameter is different from the source, remove the source
+        if (mappingOptions.mapTo !== name) {
+          delete result[name];
+        }
+      }
+    }
+
     return result;
   }
 
@@ -516,12 +532,12 @@ export class CliCommandBridge {
           } else {
             log.cli("No sessions found.");
           }
-        } else if ((commandDef as any).id === "session.pr" && "prBranch" in result) {
+        } else if ((commandDef as any).id === "session.pr" && (result as any).status) {
           // Handle session pr results - format them nicely
           formatSessionPrDetails(result as any);
-        } else if ((commandDef as any).id === "session.approve" && ((result as any).result && "session" in (result as any).result)) {
+        } else if ((commandDef as any).id === "session.approve" && "session" in result) {
           // Handle session approve results - format them nicely
-          formatSessionApprovalDetails((result as any).result);
+          formatSessionApprovalDetails(result as any);
         } else if ((commandDef as any).id === "rules.list" && "rules" in result) {
           // Handle rules list results
           if (Array.isArray((result as any).rules)) {

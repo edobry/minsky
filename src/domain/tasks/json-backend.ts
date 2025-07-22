@@ -1,5 +1,5 @@
 /**
- * Workspace-Resolving JSON Task Backend
+ * Enhanced JSON Task Backend
  *
  * This backend handles its own workspace resolution internally,
  * eliminating the need for external TaskBackendRouter complexity.
@@ -10,7 +10,7 @@ import { existsSync } from "fs";
 import { JsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { createSpecialWorkspaceManager } from "../workspace/special-workspace-manager";
 import type { TaskBackend } from "./taskBackend";
-import type { WorkspaceResolvingJsonConfig, WorkspaceResolutionResult } from "./workspace-resolving-backend-config";
+import type { JsonConfig, WorkspaceResolutionResult } from "./backend-config";
 import type { JsonFileTaskBackendOptions } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 
@@ -101,7 +101,7 @@ export class WorkspaceResolvingJsonBackend extends JsonFileTaskBackend {
 }
 
 /**
- * Create a workspace-resolving JSON backend
+ * Create an enhanced JSON backend
  * This factory function handles async workspace resolution before backend creation
  */
 export async function createWorkspaceResolvingJsonBackend(config: WorkspaceResolvingJsonConfig): Promise<TaskBackend> {

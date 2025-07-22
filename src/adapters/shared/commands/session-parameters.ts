@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { type CommandParameterMap } from "../../shared/command-registry";
 
+
 /**
  * Parameters for the session list command
  */
@@ -29,6 +30,11 @@ export const sessionListCommandParams: CommandParameterMap = {
  * Parameters for the session get command
  */
 export const sessionGetCommandParams: CommandParameterMap = {
+  sessionName: {
+    schema: z.string().min(1),
+    description: "Session identifier (name or task ID)",
+    required: false,
+  },
   name: {
     schema: z.string().min(1),
     description: "Session name",
@@ -116,20 +122,10 @@ export const sessionStartCommandParams: CommandParameterMap = {
  * Parameters for the session dir command
  */
 export const sessionDirCommandParams: CommandParameterMap = {
-  name: {
+  sessionName: {
     schema: z.string().min(1),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
+    description: "Session identifier (name or task ID)",
+    required: false, // Not required to allow using name or task instead
   },
   json: {
     schema: z.boolean(),
@@ -143,30 +139,20 @@ export const sessionDirCommandParams: CommandParameterMap = {
  * Parameters for the session delete command
  */
 export const sessionDeleteCommandParams: CommandParameterMap = {
-  name: {
+  sessionName: {
     schema: z.string().min(1),
-    description: "Session name to delete",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
+    description: "Session identifier (name or task ID)",
+    required: false, // Changed to allow using name or task instead
   },
   force: {
     schema: z.boolean(),
     description: "Skip confirmation prompt",
+    required: false,
+    defaultValue: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output in JSON format",
     required: false,
     defaultValue: false,
   },
@@ -176,31 +162,15 @@ export const sessionDeleteCommandParams: CommandParameterMap = {
  * Parameters for the session update command
  */
 export const sessionUpdateCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string(),
-    description: "Session name to update",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
+  sessionName: {
+    schema: z.string().min(1),
+    description: "Session identifier (name or task ID)",
+    required: false, // Changed to allow using name or task instead
   },
   branch: {
     schema: z.string(),
     description: "Update branch name",
     required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
   },
   noStash: {
     schema: z.boolean(),
@@ -244,36 +214,32 @@ export const sessionUpdateCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-};
-
-/**
- * Parameters for the session approve command
- */
-export const sessionApproveCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string(),
-    description: "Session name to approve",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
   json: {
     schema: z.boolean(),
     description: "Output in JSON format",
     required: false,
     defaultValue: false,
   },
+};
+
+/**
+ * Parameters for the session approve command
+ */
+export const sessionApproveCommandParams: CommandParameterMap = {
+  sessionName: {
+    schema: z.string().min(1),
+    description: "Session identifier (name or task ID)",
+    required: false, // Changed to allow using name or task instead
+  },
   noStash: {
     schema: z.boolean(),
     description: "Skip automatic stashing of uncommitted changes",
+    required: false,
+    defaultValue: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output in JSON format",
     required: false,
     defaultValue: false,
   },
@@ -283,6 +249,11 @@ export const sessionApproveCommandParams: CommandParameterMap = {
  * Parameters for the session pr command
  */
 export const sessionPrCommandParams: CommandParameterMap = {
+  sessionName: {
+    schema: z.string().min(1),
+    description: "Session identifier (name or task ID)",
+    required: false, // Changed to allow using name or task instead
+  },
   title: {
     schema: z.string().min(1),
     description: "Title for the PR (optional for existing PRs)",
@@ -297,27 +268,6 @@ export const sessionPrCommandParams: CommandParameterMap = {
     schema: z.string(),
     description: "Path to file containing PR body text",
     required: false,
-  },
-  name: {
-    schema: z.string(),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
   },
   noStatusUpdate: {
     schema: z.boolean(),
@@ -367,7 +317,7 @@ export const sessionInspectCommandParams: CommandParameterMap = {
  * Parameters for the session commit command
  */
 export const sessionCommitCommandParams: CommandParameterMap = {
-  session: {
+  sessionName: {
     schema: z.string().min(1),
     description: "Session name",
     required: true,

@@ -11,7 +11,7 @@ import type { TaskBackendConfig } from "../../types/tasks/taskData";
 /**
  * Configuration for markdown backends with internal workspace resolution
  */
-export interface WorkspaceResolvingMarkdownConfig extends Omit<TaskBackendConfig, "workspacePath"> {
+export interface MarkdownConfig extends Omit<TaskBackendConfig, "workspacePath"> {
   name: string;
   
   /**
@@ -36,7 +36,7 @@ export interface WorkspaceResolvingMarkdownConfig extends Omit<TaskBackendConfig
 /**
  * Configuration for JSON file backends with internal workspace resolution
  */
-export interface WorkspaceResolvingJsonConfig extends Omit<TaskBackendConfig, "workspacePath"> {
+export interface JsonConfig extends Omit<TaskBackendConfig, "workspacePath"> {
   name: string;
   
   /**
@@ -70,7 +70,7 @@ export interface BackendManagedTaskServiceOptions {
    * Backend-specific configuration
    * Backend handles workspace resolution internally
    */
-  backendConfig?: WorkspaceResolvingMarkdownConfig | WorkspaceResolvingJsonConfig;
+  backendConfig?: MarkdownConfig | JsonConfig;
   
   /**
    * Custom backend instances (for testing or advanced use cases)

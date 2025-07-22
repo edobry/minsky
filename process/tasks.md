@@ -546,18 +546,10 @@
 
 - [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
 
-- [ ] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
+- [x] Fix meta-cognitive boundary protocol violations: remove workspace-resolving prefixes, use simple names like markdown-backend.ts [#309](process/tasks/309-fix-meta-cognitive-boundary-protocol-violations-remove-workspace-resolving-prefixes-use-simple-names-like-markdown-backend-ts.md)
 
-- [ ] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
-
-- [ ] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
-
-- [ ] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
-
-- [ ] Implement External Task Database for Metadata Storage [#315](process/tasks/315-implement-external-task-database-for-metadata-storage.md)
+- [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
 
 - [x] Enable max-lines ESLint rule with two-phase approach (400 warning, 1500 error) [#316](process/tasks/316-enable-max-lines-eslint-rule-with-two-phase-approach-400-warning-1500-error-.md)
 
 - [x] Investigate and fix task operations hanging issues [#317](process/tasks/317-investigate-and-fix-task-operations-hanging-issues.md)
-
-- [ ] Refactor CLI output formatters to use command-specific customizations instead of centralized bridge logic [#318](process/tasks/318-refactor-cli-output-formatters-to-use-command-specific-customizations-instead-of-centralized-bridge-logic.md)

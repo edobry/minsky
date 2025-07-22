@@ -1,7 +1,3 @@
-# Implement session-aware move_file and rename_file MCP tools
-
-## Context
-
 # Task: Implement session-aware move_file and rename_file MCP tools
 
 ## Problem Statement
@@ -29,7 +25,7 @@ mcp_minsky-server_session_write_file({
 
 // Delete file from old location
 mcp_minsky-server_session_delete_file({
-  session: "task309", 
+  session: "task309",
   path: "process/review/task-309-pr-review-senior-engineer.md"
 });
 ```
@@ -64,7 +60,7 @@ Convenience wrapper around move_file for renaming files in the same directory.
 
 **Parameters**:
 - `session`: Session identifier (name or task ID)
-- `path`: Current file path within the session workspace 
+- `path`: Current file path within the session workspace
 - `newName`: New filename (not full path)
 - `overwrite` (optional, default: false): Overwrite target if it exists
 
@@ -89,7 +85,7 @@ Convenience wrapper around move_file for renaming files in the same directory.
        // Implementation
      }
    });
-   
+
    // Session rename file tool
    commandMapper.addCommand({
      name: "session_rename_file",
@@ -137,9 +133,3 @@ Convenience wrapper around move_file for renaming files in the same directory.
 
 - Task #309: Semantic error handling for file operations
 - The existing session file operation tools in `src/adapters/mcp/session-files.ts`
-
-## Requirements
-
-## Solution
-
-## Notes
