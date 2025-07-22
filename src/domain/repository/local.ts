@@ -5,6 +5,7 @@ import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { 
+  execGitWithTimeout,
   gitCloneWithTimeout,
   type GitExecOptions 
 } from "../../utils/git-exec";
@@ -112,7 +113,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const workdir = this.getSessionWorkdir(session);
 
     // Create the branch in the specified session's repo
-    await execAsync(`git -C ${workdir} checkout -b ${branch}`);
+    await execGitWithTimeout("local-create-branch", `checkout -b ${branch}`, { workdir });
 
     return {
       workdir,
@@ -148,7 +149,7 @@ export class LocalGitBackend implements RepositoryBackend {
       // If no upstream branch is set, this will fail - that's okay
     }
 
-    const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
+    const { stdout: statusOutput } = await execGitWithTimeout("local-status-check", "status --porcelain", { workdir });
     const dirty = statusOutput.trim().length > 0;
     const modifiedFiles = statusOutput
       .trim()
@@ -158,7 +159,7 @@ export class LocalGitBackend implements RepositoryBackend {
       }));
 
     // Get remote information
-    const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote`);
+    const { stdout: remoteOutput } = await execGitWithTimeout("local-remote-list", "remote", { workdir });
     const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
     return {
