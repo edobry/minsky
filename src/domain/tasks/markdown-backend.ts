@@ -1,6 +1,6 @@
 /**
  * Workspace-Resolving Markdown Task Backend
- * 
+ *
  * This backend handles its own workspace resolution internally,
  * eliminating the need for external TaskBackendRouter complexity.
  */
@@ -10,14 +10,14 @@ import { existsSync } from "fs";
 import { MarkdownTaskBackend } from "./markdownTaskBackend";
 import { createSpecialWorkspaceManager } from "../workspace/special-workspace-manager";
 import type { TaskBackend } from "./taskBackend";
-import type { WorkspaceResolvingMarkdownConfig, WorkspaceResolutionResult } from "./workspace-resolving-backend-config";
+import type { MarkdownConfig, WorkspaceResolutionResult } from "./backend-config";
 import type { TaskBackendConfig } from "../../types/tasks/taskData";
 import { log } from "../../utils/logger";
 
 /**
  * Resolve workspace path using configuration
  */
-async function resolveWorkspacePath(config: WorkspaceResolvingMarkdownConfig): Promise<WorkspaceResolutionResult> {
+async function resolveWorkspacePath(config: MarkdownConfig): Promise<WorkspaceResolutionResult> {
   // 1. Explicit workspace path override
   if (config.workspacePath) {
     return {
@@ -27,27 +27,41 @@ async function resolveWorkspacePath(config: WorkspaceResolvingMarkdownConfig): P
     };
   }
 
-  // 2. Repository URL provided - use special workspace
+  // 2. Repository URL provided - use special workspace with timeout protection
   if (config.repoUrl) {
-    const specialWorkspaceManager = createSpecialWorkspaceManager({ 
-      repoUrl: config.repoUrl 
-    });
-    
-    // Initialize the workspace if it doesn't exist
-    await specialWorkspaceManager.initialize();
-    
-    return {
-      workspacePath: specialWorkspaceManager.getWorkspacePath(),
-      method: "special-workspace",
-      description: `Using special workspace for repository: ${config.repoUrl}`
-    };
+    try {
+      const specialWorkspaceManager = createSpecialWorkspaceManager({
+        repoUrl: config.repoUrl
+      });
+
+      // Add timeout protection for initialization
+      const initTimeout = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Special workspace initialization timeout")), 10000); // 10 second timeout
+      });
+
+      const initPromise = specialWorkspaceManager.initialize();
+
+      await Promise.race([initPromise, initTimeout]);
+
+      return {
+        workspacePath: specialWorkspaceManager.getWorkspacePath(),
+        method: "special-workspace",
+        description: `Using special workspace for repository: ${config.repoUrl}`
+      };
+    } catch (error) {
+      log.warn("Special workspace failed, falling back to current directory", {
+        error: error instanceof Error ? error.message : String(error),
+        repoUrl: config.repoUrl
+      });
+      // Fall through to current directory fallback
+    }
   }
 
   // 3. Check for local tasks.md file (if not forcing special workspace)
   if (!config.forceSpecialWorkspace) {
     const currentDir = (process as any).cwd();
     const localTasksPath = join(currentDir, "process", "tasks.md");
-    
+
     if (existsSync(localTasksPath)) {
       return {
         workspacePath: currentDir,
@@ -68,7 +82,7 @@ async function resolveWorkspacePath(config: WorkspaceResolvingMarkdownConfig): P
 /**
  * Markdown backend with workspace resolution metadata
  */
-export class WorkspaceResolvingMarkdownBackend extends MarkdownTaskBackend {
+export class ConfigurableMarkdownBackend extends MarkdownTaskBackend {
   constructor(
     config: TaskBackendConfig,
     private workspaceResolutionResult: WorkspaceResolutionResult
@@ -88,19 +102,19 @@ export class WorkspaceResolvingMarkdownBackend extends MarkdownTaskBackend {
    * Determine based on resolution method
    */
   isInTreeBackend(): boolean {
-    return this.workspaceResolutionResult.method === "special-workspace" || 
+    return this.workspaceResolutionResult.method === "special-workspace" ||
            this.workspaceResolutionResult.method === "local-tasks-md";
   }
 }
 
 /**
- * Create a workspace-resolving markdown backend
+ * Create a markdown backend
  * This factory function handles async workspace resolution before backend creation
  */
-export async function createWorkspaceResolvingMarkdownBackend(config: WorkspaceResolvingMarkdownConfig): Promise<TaskBackend> {
+export async function createMarkdownBackend(config: MarkdownConfig): Promise<TaskBackend> {
   // Resolve workspace path first
   const resolutionResult = await resolveWorkspacePath(config);
-  
+
   log.debug("Workspace resolution completed", {
     method: resolutionResult.method,
     path: resolutionResult.workspacePath,
@@ -113,7 +127,7 @@ export async function createWorkspaceResolvingMarkdownBackend(config: WorkspaceR
     workspacePath: resolutionResult.workspacePath
   };
 
-  return new WorkspaceResolvingMarkdownBackend(backendConfig, resolutionResult);
+  return new ConfigurableMarkdownBackend(backendConfig, resolutionResult);
 }
 
 /**
@@ -126,4 +140,4 @@ export async function createSelfContainedMarkdownBackend(config: {
   forceSpecialWorkspace?: boolean;
 }): Promise<TaskBackend> {
   return createWorkspaceResolvingMarkdownBackend(config);
-} 
+}

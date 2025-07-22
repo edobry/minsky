@@ -33,7 +33,7 @@ describe("Session Approve Workflow", () => {
   beforeEach(() => {
     // Create fresh spies for each test
     getSessionSpy = createMock();
-    getSessionSpy.mockImplementation((name) =>
+    getSessionSpy = mock((name) =>
       Promise.resolve({
         session: name, // Fixed: use 'session' instead of '_session'
         repoName: "test-repo",
@@ -42,17 +42,16 @@ describe("Session Approve Workflow", () => {
         remote: { authMethod: "ssh", depth: 1 },
         createdAt: new Date().toISOString(),
         taskId: "task025",
-      })
-    );
+      }));
 
     getSessionWorkdirSpy = createMock();
-    getSessionWorkdirSpy.mockImplementation(() => Promise.resolve("/test/repo/path/sessions/test-session"));
+    getSessionWorkdirSpy = mock(() => Promise.resolve("/test/repo/path/sessions/test-session"));
 
     getSessionByTaskIdSpy = createMock();
-    getSessionByTaskIdSpy.mockImplementation(() => Promise.resolve(null));
+    getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
     execInRepositorySpy = createMock();
-    execInRepositorySpy.mockImplementation((workdir, command) => {
+    execInRepositorySpy = mock((workdir, command) => {
       if (command.includes("rev-parse HEAD")) {
         return Promise.resolve("abc123");
       }
@@ -63,17 +62,16 @@ describe("Session Approve Workflow", () => {
     });
 
     getTaskSpy = createMock();
-    getTaskSpy.mockImplementation((id) =>
+    getTaskSpy = mock((id) =>
       Promise.resolve({
         id,
         title: "Test Task", // Fixed: use 'title' instead of '_title'
         description: "A test task",
         status: "in-progress", // Fixed: use 'status' instead of '_status'
-      })
-    );
+      }));
 
     setTaskStatusSpy = createMock();
-    setTaskStatusSpy.mockImplementation(() => Promise.resolve(true));
+    setTaskStatusSpy = mock(() => Promise.resolve(true));
 
     // Create mocks using centralized factories with spy integration
     mockSessionDB = createMockSessionProvider({
@@ -147,8 +145,8 @@ describe("Session Approve Workflow", () => {
 
   test("handles git command failures gracefully", async () => {
     // Override execInRepository to simulate failure
-    const failingExecSpy = createMock();
-    failingExecSpy.mockImplementation(() => Promise.reject(new Error("Git command failed")));
+    let failingExecSpy = createMock();
+    failingExecSpy = mock(() => Promise.reject(new Error("Git command failed")));
     
     const failingGitService = createMockGitService({
       execInRepository: failingExecSpy,

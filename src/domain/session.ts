@@ -40,6 +40,9 @@ import { createTaskFromDescription } from "./templates/session-templates";
 import { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
 import { approveSessionImpl } from "./session/session-approve-operations";
 import { sessionCommit } from "./session/session-commands";
+import {
+  execGitWithTimeout
+} from "../utils/git-exec";
 
 export interface SessionRecord {
   session: string;
@@ -1599,10 +1602,10 @@ Task ${taskIdToUse} exists but has no associated session to approve.
 
         // Delete the PR branch from remote only if it exists there
         try {
-          // Check if remote branch exists first using execAsync directly to avoid error logging
+          // Check if remote branch exists first using timeout wrapper to avoid hanging
           // This is expected to fail if the branch doesn't exist, which is normal
-          await execAsync(`git show-ref --verify --quiet refs/remotes/origin/${prBranch}`, {
-            cwd: workingDirectory
+          await execGitWithTimeout("check-remote-ref", `show-ref --verify --quiet refs/remotes/origin/${prBranch}`, {
+            workdir: workingDirectory
           });
           // If it exists, delete it
           await deps.gitService.execInRepository(

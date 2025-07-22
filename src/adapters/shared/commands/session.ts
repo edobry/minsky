@@ -142,34 +142,24 @@ Examples:
   minsky session start --description "Fix login issue" my-session`);
       }
 
-      try {
-        const session = await sessionStart({
-          name: params!.name,
-          task: params!.task,
-          description: params!.description,
-          branch: params!.branch,
-          repo: params!.repo,
-          session: params!.session,
-          json: params!.json,
-          quiet: params!.quiet,
-          noStatusUpdate: params!.noStatusUpdate,
-          skipInstall: params!.skipInstall,
-          packageManager: params!.packageManager,
-        });
+      const session = await sessionStart({
+        name: params!.name,
+        task: params!.task,
+        description: params!.description,
+        branch: params!.branch,
+        repo: params!.repo,
+        session: params!.session,
+        json: params!.json,
+        quiet: params!.quiet,
+        noStatusUpdate: params!.noStatusUpdate,
+        skipInstall: params!.skipInstall,
+        packageManager: params!.packageManager,
+      });
 
-        return {
-          success: true,
-          session,
-        };
-      } catch (error) {
-        log.error("Failed to start session", {
-          error: getErrorMessage(error as Error),
-          session: params!.name,
-          task: params!.task,
-        });
-        throw error;
-      }
-    },
+      return {
+        success: true,
+        session,
+      };    },
   });
 
   // Register session dir command
@@ -184,9 +174,7 @@ Examples:
 
       try {
         const directory = await sessionDir({
-          name: params!.name,
-          task: params!.task,
-          repo: params!.repo,
+          session: params!.session,
           json: params!.json,
         });
 
@@ -197,8 +185,7 @@ Examples:
       } catch (error) {
         log.debug("Failed to get session directory", {
           error: getErrorMessage(error as Error),
-          session: params!.name,
-          task: params!.task,
+          session: params!.session,
         });
         throw error;
       }
@@ -217,21 +204,19 @@ Examples:
 
       try {
         const deleted = await sessionDelete({
-          name: params!.name,
-          task: params!.task,
+          session: params!.session,
           force: params!.force,
-          repo: params!.repo,
           json: params!.json,
         });
 
         return {
           success: deleted,
-          session: params!.name || params!.task,
+          session: params!.session,
         };
       } catch (error) {
         log.error("Failed to delete session", {
           error: getErrorMessage(error as Error),
-          session: params!.name || params!.task,
+          session: params!.session,
         });
         throw error;
       }
@@ -250,28 +235,26 @@ Examples:
 
       try {
         await sessionUpdate({
-          name: params!.name,
-          task: params!.task,
-          repo: params!.repo,
+          session: params!.session,
           branch: params!.branch,
           noStash: params!.noStash,
           noPush: params!.noPush,
           force: params!.force,
-          json: params!.json,
           skipConflictCheck: params!.skipConflictCheck,
           autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
           dryRun: params!.dryRun,
           skipIfAlreadyMerged: params!.skipIfAlreadyMerged,
+          json: params!.json,
         });
 
         return {
           success: true,
-          session: params!.name || params!.task,
+          session: params!.session,
         };
       } catch (error) {
         log.error("Failed to update session", {
           error: getErrorMessage(error as Error),
-          session: params!.name || params!.task,
+          session: params!.session,
         });
         throw error;
       }
@@ -290,9 +273,8 @@ Examples:
 
       try {
         const result = (await sessionApprove({
-          session: params!.name,
-          task: params!.task,
-          repo: params!.repo,
+          session: params!.session,
+          noStash: params!.noStash,
           json: params!.json,
         })) as unknown;
 
@@ -303,8 +285,7 @@ Examples:
       } catch (error) {
         log.error("Failed to approve session", {
           error: getErrorMessage(error as Error),
-          session: params!.name,
-          task: params!.task,
+          session: params!.session,
         });
         throw error;
       }
@@ -321,22 +302,19 @@ Examples:
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
-      // Import gitService for validation
-      const { createGitService } = await import("../../../domain/git.js");
-
-      // Conditional validation: require body/bodyPath only for new PRs (not refreshing existing ones)
+      // Check if we need body/bodyPath for new PRs (keep existing PR branch logic)
       if (!params!.body && !params!.bodyPath) {
-        // Check if there's an existing PR branch to determine if we can refresh
-        const sessionName = params!.name || params!.session;
+        // Import gitService for validation
+        const { createGitService } = await import("../../../domain/git.js");
+        const { SessionPathResolver } = await import("../../mcp/session-files.js");
+        
+        const gitService = createGitService();
+        const pathResolver = new SessionPathResolver();
+        const prBranch = `pr/${params!.session}`;
 
-        if (sessionName) {
-          const gitService = createGitService();
-          const prBranch = `pr/${sessionName}`;
-
+        try {
           // Get session workspace path for git operations
-          const { SessionPathResolver } = await import("../../mcp/session-workspace.js");
-          const pathResolver = new SessionPathResolver();
-          const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(sessionName);
+          const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(params!.session);
 
           // Check if PR branch exists locally or remotely
           let prBranchExists = false;
@@ -364,19 +342,21 @@ Examples:
           }
 
           if (!prBranchExists) {
-            // No existing PR branch, so body/bodyPath is required
+            // No existing PR branch, so body/bodyPath is required for new PR
             throw new Error(`PR description is required for meaningful pull requests.
 Please provide one of:
   --body <text>       Direct PR body text
   --body-path <path>  Path to file containing PR body
 
 Example:
-  minsky session pr --title "feat: Add new feature" --body "This PR adds..."
-  minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
+  minsky session pr --session "${params!.session}" --title "feat: Add new feature" --body "This PR adds..."
+  minsky session pr --session "${params!.session}" --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
           }
           // If prBranchExists is true, we can proceed with refresh (no body/bodyPath needed)
+        } catch (error) {
+          // If we can't determine session workspace, let the domain function handle the error
+          log.debug("Could not validate PR branch existence", { error: getErrorMessage(error) });
         }
-        // If we can't determine sessionName, let sessionPrFromParams handle the error
       }
 
       try {
@@ -384,9 +364,7 @@ Example:
           title: params!.title,
           body: params!.body,
           bodyPath: params!.bodyPath,
-          session: params!.name,
-          task: params!.task,
-          repo: params!.repo,
+          session: params!.session,
           noStatusUpdate: params!.noStatusUpdate,
           debug: params!.debug,
           skipUpdate: params!.skipUpdate,

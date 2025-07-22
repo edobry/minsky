@@ -16,7 +16,7 @@ describe("GitService PR Functionality", () => {
     spyOn(GitService.prototype, "pr").mockImplementation(async () => {
       return {
         markdown:
-          "# Mock PR Description\n\nThis is a mock PR description generated for testing.\n\n## Changes\n\n- Mock change 1\n- Mock change 2\n\n## Testing\n\nTested with mock tests.",
+                            "# Mock PR Description\n\nThis is a mock PR description generated for testing.\n\n## Changes\n\n- Mock change 1\n- Mock change 2\n\n## Testing\n\nTested with mock tests.",
       };
     });
 
