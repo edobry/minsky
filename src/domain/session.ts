@@ -553,7 +553,10 @@ export async function getSessionDirFromParams(
 
   let sessionName: string;
 
-  if (params.task && !params.name) {
+  // Handle the sessionname parameter (from MCP)
+  if (params.sessionname) {
+    sessionName = params.sessionname;
+  } else if (params.task && !params.name) {
     // Find session by task ID
     const normalizedTaskId = taskIdSchema.parse(params.task);
     const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);

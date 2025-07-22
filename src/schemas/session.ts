@@ -119,8 +119,10 @@ export const sessionDirParamsSchema = z
   .object({
     name: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
+    sessionname: sessionNameSchema.optional().describe("Session name (used by MCP)"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => data.name !== undefined || data.task !== undefined, {
+  .merge(commonCommandOptionsSchema).refine((data) => 
+    data.name !== undefined || data.task !== undefined || data.sessionname !== undefined, {
     message: "Either session name or task ID must be provided",
   });
 
