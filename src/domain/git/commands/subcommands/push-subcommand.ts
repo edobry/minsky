@@ -4,7 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { pushFromParams } from "../push-command";
-import { log } from "../../../../../utils/logger";
+import { log } from "../../../../utils/logger";
 import {
   REPO_DESCRIPTION,
   SESSION_DESCRIPTION,

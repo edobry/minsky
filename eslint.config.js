@@ -123,6 +123,13 @@ export default [
         ],
       }],
 
+      // === FILE SIZE RULES ===
+      "max-lines": ["warn", {
+        "max": 400,
+        "skipBlankLines": true,
+        "skipComments": true
+      }],
+
       // === IMPORT RULES ===
       "no-restricted-imports": [
         "error",
@@ -176,7 +183,6 @@ export default [
 
       // === OTHER ===
       "prefer-const": "off",
-      "max-lines": "off",
       "no-restricted-globals": "off",
       "import/extensions": "off",
       "import/no-unresolved": ["off", { ignore: [".ts"] }],
@@ -210,4 +216,15 @@ export default [
       "no-magic-numbers": "off", // Allow magic numbers in debug scripts
     },
   },
+  // Add a second max-lines rule for error at 1500 lines
+  {
+    files: ["**/*.ts", "**/*.js"],
+    rules: {
+      "max-lines": ["error", {
+        "max": 1500,
+        "skipBlankLines": true,
+        "skipComments": true
+      }]
+    }
+  }
 ];
