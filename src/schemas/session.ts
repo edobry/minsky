@@ -102,10 +102,9 @@ export const sessionDeleteParamsSchema = z
     name: sessionNameSchema.optional().describe("Name of the session to delete"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     force: flagSchema("Skip confirmation prompt"),
-    sessionName: sessionNameSchema.optional().describe("Session name (used by MCP)"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => 
-    data.name !== undefined || data.task !== undefined || data.sessionName !== undefined, {
+  .merge(commonCommandOptionsSchema).refine((data) =>
+    data.name !== undefined || data.task !== undefined, {
     message: "Either session name or task ID must be provided",
   });
 
@@ -121,10 +120,9 @@ export const sessionDirParamsSchema = z
   .object({
     name: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
-    sessionName: sessionNameSchema.optional().describe("Session name (used by MCP)"),
   })
   .merge(commonCommandOptionsSchema).refine((data) =>
-    data.name !== undefined || data.task !== undefined || data.sessionName !== undefined, {
+    data.name !== undefined || data.task !== undefined, {
     message: "Either session name or task ID must be provided",
   });
 
