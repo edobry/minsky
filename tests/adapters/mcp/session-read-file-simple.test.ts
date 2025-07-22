@@ -59,7 +59,8 @@ function processFileContentWithLineRange(
   let summary: string | undefined;
   if (startLine > 1 || endLine < totalLines) {
     const before = startLine > 1 ? `Lines 1-${startLine - 1}: [Earlier content...]` : "";
-    const after = endLine < totalLines ? `Lines ${endLine + 1}-${totalLines}: [Later content...]` : "";
+    const after =
+      endLine < totalLines ? `Lines ${endLine + 1}-${totalLines}: [Later content...]` : "";
     const parts = [before, after].filter(Boolean);
     if (parts.length > 0) {
       summary = `Outline of the rest of the file:\n${parts.join("\n")}`;
@@ -80,7 +81,7 @@ describe("session_read_file line range processing", () => {
   describe("Basic line range functionality", () => {
     test("should read entire file when no range specified", () => {
       const result = processFileContentWithLineRange(testContent, {
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -93,7 +94,7 @@ describe("session_read_file line range processing", () => {
       const result = processFileContentWithLineRange(testContent, {
         startLine: 5,
         endLine: 10,
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -108,7 +109,7 @@ describe("session_read_file line range processing", () => {
       const result = processFileContentWithLineRange(testContent, {
         startLine: 10,
         endLine: 10,
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -123,7 +124,7 @@ describe("session_read_file line range processing", () => {
         startLine: 5,
         endLine: 10,
         shouldReadEntireFile: true,
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -137,7 +138,7 @@ describe("session_read_file line range processing", () => {
       const result = processFileContentWithLineRange(testContent, {
         startLine: 8,
         endLine: 12,
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -149,7 +150,7 @@ describe("session_read_file line range processing", () => {
       const result = processFileContentWithLineRange(testContent, {
         startLine: 1,
         endLine: 5,
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -161,7 +162,7 @@ describe("session_read_file line range processing", () => {
       const result = processFileContentWithLineRange(testContent, {
         startLine: 16,
         endLine: 20,
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -173,7 +174,7 @@ describe("session_read_file line range processing", () => {
   describe("Edge cases", () => {
     test("should handle empty file", () => {
       const result = processFileContentWithLineRange("", {
-        filePath: "empty.ts"
+        filePath: "empty.ts",
       });
 
       expect(result.totalLines).toBe(1); // Empty string has 1 line
@@ -183,7 +184,7 @@ describe("session_read_file line range processing", () => {
 
     test("should handle single line file", () => {
       const result = processFileContentWithLineRange("single line", {
-        filePath: "single.ts"
+        filePath: "single.ts",
       });
 
       expect(result.totalLines).toBe(1);
@@ -195,7 +196,7 @@ describe("session_read_file line range processing", () => {
       const result = processFileContentWithLineRange(testContent, {
         startLine: 25,
         endLine: 30,
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -208,7 +209,7 @@ describe("session_read_file line range processing", () => {
       const result = processFileContentWithLineRange(testContent, {
         startLine: 10,
         endLine: 5,
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -221,7 +222,7 @@ describe("session_read_file line range processing", () => {
       const result = processFileContentWithLineRange(testContent, {
         startLine: -5,
         endLine: 3,
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -235,11 +236,11 @@ describe("session_read_file line range processing", () => {
   describe("Context expansion", () => {
     test("should expand context for small ranges in large files", () => {
       const largeContent = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`).join("\n");
-      
+
       const result = processFileContentWithLineRange(largeContent, {
         startLine: 50,
         endLine: 50,
-        filePath: "large.ts"
+        filePath: "large.ts",
       });
 
       expect(result.totalLines).toBe(100);
@@ -253,7 +254,7 @@ describe("session_read_file line range processing", () => {
       const result = processFileContentWithLineRange(testContent, {
         startLine: 5,
         endLine: 15,
-        filePath: "test.ts"
+        filePath: "test.ts",
       });
 
       expect(result.totalLines).toBe(20);
@@ -267,11 +268,11 @@ describe("session_read_file line range processing", () => {
 
     test("should not expand context in small files", () => {
       const smallContent = "line 1\nline 2\nline 3\nline 4\nline 5";
-      
+
       const result = processFileContentWithLineRange(smallContent, {
         startLine: 3,
         endLine: 3,
-        filePath: "small.ts"
+        filePath: "small.ts",
       });
 
       expect(result.totalLines).toBe(5);
@@ -280,4 +281,4 @@ describe("session_read_file line range processing", () => {
       expect(result.content).toBe("line 3");
     });
   });
-}); 
+});

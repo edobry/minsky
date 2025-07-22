@@ -202,7 +202,7 @@ Need help? Run 'git status' to see what files have changed.
     session: sessionName,
     title: params.title,
     hasBody: !!bodyContent,
-    bodySource: params.bodyPath ? "file" : (params.body ? "parameter" : "none"),
+    bodySource: params.bodyPath ? "file" : params.body ? "parameter" : "none",
     baseBranch: params.baseBranch,
   });
 
@@ -221,7 +221,7 @@ Need help? Run 'git status' to see what files have changed.
   if (!titleToUse && prBranchExists) {
     // Case: Existing PR + no title → Auto-reuse existing title/body (refresh)
     const hasNewBodyContent = !!(params.body || params.bodyPath);
-    
+
     if (hasNewBodyContent) {
       log.cli("🔄 Refreshing existing PR (reusing title, using new body)...");
     } else {
@@ -262,7 +262,11 @@ Need help? Run 'git status' to see what files have changed.
     } else {
       log.cli("📝 Updating existing PR with new title (keeping existing body)...");
       // If no new body provided, try to keep existing body
-      const existingDescription = await extractPrDescription(sessionName, deps.gitService, currentDir);
+      const existingDescription = await extractPrDescription(
+        sessionName,
+        deps.gitService,
+        currentDir
+      );
       if (existingDescription && !bodyToUse) {
         bodyToUse = existingDescription.body;
         log.cli("📝 Preserving existing PR body");
