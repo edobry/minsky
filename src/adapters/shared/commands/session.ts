@@ -311,22 +311,19 @@ Examples:
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
-      // Import gitService for validation
-      const { createGitService } = await import("../../../domain/git.js");
-
-      // Conditional validation: require body/bodyPath only for new PRs (not refreshing existing ones)
+      // Check if we need body/bodyPath for new PRs (keep existing PR branch logic)
       if (!params!.body && !params!.bodyPath) {
-        // Check if there's an existing PR branch to determine if we can refresh
-        const sessionName = params!.name || params!.session;
+        // Import gitService for validation
+        const { createGitService } = await import("../../../domain/git.js");
+        const { SessionPathResolver } = await import("../../mcp/session-files.js");
+        
+        const gitService = createGitService();
+        const pathResolver = new SessionPathResolver();
+        const prBranch = `pr/${params!.session}`;
 
-        if (sessionName) {
-          const gitService = createGitService();
-          const prBranch = `pr/${sessionName}`;
-
+        try {
           // Get session workspace path for git operations
-          const { SessionPathResolver } = await import("../../mcp/session-workspace.js");
-          const pathResolver = new SessionPathResolver();
-          const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(sessionName);
+          const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(params!.session);
 
           // Check if PR branch exists locally or remotely
           let prBranchExists = false;
@@ -354,19 +351,21 @@ Examples:
           }
 
           if (!prBranchExists) {
-            // No existing PR branch, so body/bodyPath is required
+            // No existing PR branch, so body/bodyPath is required for new PR
             throw new Error(`PR description is required for meaningful pull requests.
 Please provide one of:
   --body <text>       Direct PR body text
   --body-path <path>  Path to file containing PR body
 
 Example:
-  minsky session pr --title "feat: Add new feature" --body "This PR adds..."
-  minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
+  minsky session pr --session "${params!.session}" --title "feat: Add new feature" --body "This PR adds..."
+  minsky session pr --session "${params!.session}" --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
           }
           // If prBranchExists is true, we can proceed with refresh (no body/bodyPath needed)
+        } catch (error) {
+          // If we can't determine session workspace, let the domain function handle the error
+          log.debug("Could not validate PR branch existence", { error: getErrorMessage(error) });
         }
-        // If we can't determine sessionName, let sessionPrFromParams handle the error
       }
 
       try {
@@ -374,9 +373,7 @@ Example:
           title: params!.title,
           body: params!.body,
           bodyPath: params!.bodyPath,
-          session: params!.name,
-          task: params!.task,
-          repo: params!.repo,
+          session: params!.session,
           noStatusUpdate: params!.noStatusUpdate,
           debug: params!.debug,
           skipUpdate: params!.skipUpdate,

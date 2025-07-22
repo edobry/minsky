@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { type CommandParameterMap } from "../../shared/command-registry";
 
+
 /**
  * Parameters for the session list command
  */
@@ -283,6 +284,11 @@ export const sessionApproveCommandParams: CommandParameterMap = {
  * Parameters for the session pr command
  */
 export const sessionPrCommandParams: CommandParameterMap = {
+  session: {
+    schema: z.string().min(1),
+    description: "Session identifier (name or task ID)",
+    required: true,
+  },
   title: {
     schema: z.string().min(1),
     description: "Title for the PR (optional for existing PRs)",
@@ -297,27 +303,6 @@ export const sessionPrCommandParams: CommandParameterMap = {
     schema: z.string(),
     description: "Path to file containing PR body text",
     required: false,
-  },
-  name: {
-    schema: z.string(),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
   },
   noStatusUpdate: {
     schema: z.boolean(),

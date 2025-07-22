@@ -9,6 +9,8 @@ import { createSessionProvider, type SessionProviderInterface } from "../../doma
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
+import { SemanticErrorClassifier, ErrorContext } from "../../utils/semantic-error-classifier";
+import { FileOperationResponse } from "../../types/semantic-errors";
 
 /**
  * Session path resolver class for enforcing workspace boundaries
@@ -99,7 +101,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
     }),
-    handler: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<FileOperationResponse> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -124,19 +126,19 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           ),
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorContext: ErrorContext = {
+          operation: "read_file",
+          path: args.path,
+          session: args.session
+        };
+
         log.error("Session file read failed", {
           session: args.session,
           path: args.path,
-          error: errorMessage,
+          error: getErrorMessage(error),
         });
 
-        return {
-          success: false,
-          error: errorMessage,
-          path: args.path,
-          session: args.session,
-        };
+        return await SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -155,7 +157,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    handler: async (args): Promise<Record<string, any>> => {
+    handler: async (args): Promise<FileOperationResponse> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
@@ -186,19 +188,20 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           bytesWritten: Buffer.from(args.content, "utf8").length,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorContext: ErrorContext = {
+          operation: "write_file",
+          path: args.path,
+          session: args.session,
+          createDirs: args.createDirs
+        };
+
         log.error("Session file write failed", {
           session: args.session,
           path: args.path,
-          error: errorMessage,
+          error: getErrorMessage(error),
         });
 
-        return {
-          success: false,
-          error: errorMessage,
-          path: args.path,
-          session: args.session,
-        };
+        return await SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -264,19 +267,19 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           totalEntries: files.length + directories.length,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorContext: ErrorContext = {
+          operation: "list_directory",
+          path: args.path,
+          session: args.session
+        };
+
         log.error("Session directory list failed", {
           session: args.session,
           path: args.path,
-          error: errorMessage,
+          error: getErrorMessage(error),
         });
 
-        return {
-          success: false,
-          error: errorMessage,
-          path: args.path,
-          session: args.session,
-        };
+        return await SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -332,19 +335,19 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           size,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorContext: ErrorContext = {
+          operation: "file_exists",
+          path: args.path,
+          session: args.session
+        };
+
         log.error("Session file exists check failed", {
           session: args.session,
           path: args.path,
-          error: errorMessage,
+          error: getErrorMessage(error),
         });
 
-        return {
-          success: false,
-          error: errorMessage,
-          path: args.path,
-          session: args.session,
-        };
+        return await SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -389,19 +392,19 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           deleted: true,
         };
       } catch (error) {
-        const errorMessage = getErrorMessage(error);
+        const errorContext: ErrorContext = {
+          operation: "delete_file",
+          path: args.path,
+          session: args.session
+        };
+
         log.error("Session file delete failed", {
           session: args.session,
           path: args.path,
-          error: errorMessage,
+          error: getErrorMessage(error),
         });
 
-        return {
-          success: false,
-          error: errorMessage,
-          path: args.path,
-          session: args.session,
-        };
+        return await SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -460,6 +463,8 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
       }
     },
   });
+
+
 
   log.debug("Session file operation tools registered successfully");
 }
