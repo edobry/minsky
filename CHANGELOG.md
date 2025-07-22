@@ -1,5 +1,10 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
 ### Added
@@ -1449,3 +1454,6 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Apply proven AST migration approach to main workspace (434 violations)
 - Fix session workspace syntax errors (176 issues) without losing Jest migration
   - Achieve true global completion: 0 violations in ALL workspaces with clean code
+
+- Added ESLint max-lines rule with two-phase approach (400 lines warning, 1500 lines error) to improve code maintainability
+- Improved session command backward compatibility with new sessionname parameter for MCP interaction
