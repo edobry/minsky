@@ -445,17 +445,19 @@ export class GitService implements GitServiceInterface {
     const workdir = repoPath || (process as any).cwd();
 
     // Get modified files
-    const { stdout: modifiedOutput } = await execAsync(`git -C ${workdir} diff --name-only`);
+    const { stdout: modifiedOutput } = await execGitWithTimeout("get-status-modified", "diff --name-only", { workdir });
     const modified = modifiedOutput.trim().split("\n").filter(Boolean);
 
     // Get untracked files
-    const { stdout: untrackedOutput } = await execAsync(
-      `git -C ${workdir} ls-files --others --exclude-standard`
+    const { stdout: untrackedOutput } = await execGitWithTimeout(
+      "get-status-untracked", 
+      "ls-files --others --exclude-standard",
+      { workdir }
     );
     const untracked = untrackedOutput.trim().split("\n").filter(Boolean);
 
     // Get deleted files
-    const { stdout: deletedOutput } = await execAsync(`git -C ${workdir} ls-files --deleted`);
+    const { stdout: deletedOutput } = await execGitWithTimeout("get-status-deleted", "ls-files --deleted", { workdir });
     const deleted = deletedOutput.trim().split("\n").filter(Boolean);
 
     return { modified, untracked, deleted };
@@ -463,18 +465,18 @@ export class GitService implements GitServiceInterface {
 
   async stageAll(repoPath?: string): Promise<void> {
     const workdir = repoPath || (process as any).cwd();
-    await execAsync(`git -C ${workdir} add -A`);
+    await execGitWithTimeout("stage-all", "add -A", { workdir });
   }
 
   async stageModified(repoPath?: string): Promise<void> {
     const workdir = repoPath || (process as any).cwd();
-    await execAsync(`git -C ${workdir} add .`);
+    await execGitWithTimeout("stage-modified", "add .", { workdir });
   }
 
   async commit(message: string, repoPath?: string, amend: boolean = false): Promise<string> {
     const workdir = repoPath || (process as any).cwd();
     const amendFlag = amend ? "--amend" : "";
-    const { stdout } = await execAsync(`git -C ${workdir} commit ${amendFlag} -m "${message}"`);
+    const { stdout } = await execGitWithTimeout("commit", `commit ${amendFlag} -m "${message}"`, { workdir });
 
     // Extract commit hash from git output
     const match = stdout.match(/\[.*\s+([a-f0-9]+)\]/);
@@ -488,14 +490,14 @@ export class GitService implements GitServiceInterface {
   async stashChanges(workdir: string): Promise<StashResult> {
     try {
       // Check if there are changes to stash
-      const { stdout: status } = await execAsync(`git -C ${workdir} status --porcelain`);
+      const { stdout: status } = await execGitWithTimeout("stash-check-status", "status --porcelain", { workdir });
       if (!status.trim()) {
         // No changes to stash
         return { workdir, stashed: false };
       }
 
       // Stash changes including untracked files
-      await execAsync(`git -C ${workdir} stash push -u -m "minsky session update"`);
+      await execGitWithTimeout("stash-push", "stash push -u -m \"minsky session update\"", { workdir });
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
@@ -505,14 +507,14 @@ export class GitService implements GitServiceInterface {
   async popStash(workdir: string): Promise<StashResult> {
     try {
       // Check if there's a stash to pop
-      const { stdout: stashList } = await execAsync(`git -C ${workdir} stash list`);
+      const { stdout: stashList } = await execGitWithTimeout("stash-list", "stash list", { workdir });
       if (!stashList.trim()) {
         // No stash to pop
         return { workdir, stashed: false };
       }
 
       // Pop the stash
-      await execAsync(`git -C ${workdir} stash pop`);
+      await execGitWithTimeout("stash-pop", "stash pop", { workdir });
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to pop stash: ${getErrorMessage(err as any)}`);
@@ -522,14 +524,14 @@ export class GitService implements GitServiceInterface {
   async pullLatest(workdir: string, remote: string = "origin"): Promise<PullResult> {
     try {
       // Get current commit hash before fetch
-      const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+      const { stdout: beforeHash } = await execGitWithTimeout("pull-before-hash", "rev-parse HEAD", { workdir });
 
       // Fetch latest changes from remote (don't pull current branch)
       // This gets all refs from remote without merging anything
       await gitFetchWithTimeout(remote, undefined, { workdir });
 
       // Get commit hash after fetch (should be the same since we only fetched)
-      const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+      const { stdout: afterHash } = await execGitWithTimeout("pull-after-hash", "rev-parse HEAD", { workdir });
 
       // Return whether local working directory changed (should be false for fetch-only)
       // The 'updated' flag indicates if remote refs were updated, but we can't easily detect that
@@ -907,7 +909,7 @@ export class GitService implements GitServiceInterface {
    * Get the current branch name
    */
   async getCurrentBranch(repoPath: string): Promise<string> {
-    const { stdout } = await execAsync(`git -C ${repoPath} rev-parse --abbrev-ref HEAD`);
+    const { stdout } = await execGitWithTimeout("get-current-branch", "rev-parse --abbrev-ref HEAD", { workdir: repoPath });
     return stdout.trim();
   }
 
@@ -915,7 +917,7 @@ export class GitService implements GitServiceInterface {
    * Check if repository has uncommitted changes
    */
   async hasUncommittedChanges(repoPath: string): Promise<boolean> {
-    const { stdout } = await execAsync(`git -C ${repoPath} status --porcelain`);
+    const { stdout } = await execGitWithTimeout("check-uncommitted-changes", "status --porcelain", { workdir: repoPath });
     return stdout.trim().length > 0;
   }
 
