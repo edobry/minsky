@@ -183,30 +183,12 @@ describe("Session CLI Commands", () => {
 
     test("TASK #168 FIX: should auto-detect session name from current directory when not provided", async () => {
       // Arrange: Setup session workspace path
-      const sessionName = "task#236"; // Use actual current session for auto-detection test
+      const taskId = "160";
+      const sessionName = `task#${taskId}`; // Use template literal to construct session name
       const sessionPath = join(tempDir, "local-minsky", "sessions", sessionName);
 
       // Mock getCurrentSession to return the session name
       const mockGetCurrentSession = async () => sessionName;
-
-      // Mock session record
-      const sessionRecord: SessionRecord = {
-        session: sessionName,
-        repoName: "local-minsky",
-        repoUrl: "/test/repo",
-        createdAt: new Date().toISOString(),
-        taskId: "#236",
-      };
-
-      mockSessionDB.getSession = async (name: string) =>
-        name === sessionName ? sessionRecord : null;
-
-      // Mock getSessionByTaskId to return the session for the task ID
-      mockSessionDB.getSessionByTaskId = async (taskId: string) =>
-        taskId === "#236" ? sessionRecord : null;
-
-      // Mock getSessionWorkdir to return a valid path
-      mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
 
       // Create the session directory
       await mkdir(sessionPath, { recursive: true });
@@ -215,7 +197,7 @@ describe("Session CLI Commands", () => {
       const result = await updateSessionFromParams(
         {
           name: undefined,
-          task: "#236", // Provide task ID for session lookup
+          task: taskId, // Use the task ID variable
           noStash: false,
           noPush: false,
           force: true, // Use force to bypass git conflict detection
