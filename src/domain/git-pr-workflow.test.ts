@@ -7,12 +7,13 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { approveSessionFromParams } from "./session";
 
 import { createMock, createPartialMock, setupTestMocks } from "../utils/test-utils/mocking";
-import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/dependencies";
-import type { WorkspaceUtilsInterface } from "./workspace";
 import {
-  expectToHaveBeenCalled,
-  expectToHaveBeenCalledWith,
-} from "../utils/test-utils/assertions";
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+} from "../utils/test-utils/dependencies";
+import type { WorkspaceUtilsInterface } from "./workspace";
+import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -42,7 +43,8 @@ describe("Session Approve Workflow", () => {
         remote: { authMethod: "ssh", depth: 1 },
         createdAt: new Date().toISOString(),
         taskId: "task025",
-      }));
+      })
+    );
 
     getSessionWorkdirSpy = createMock();
     getSessionWorkdirSpy = mock(() => Promise.resolve("/test/repo/path/sessions/test-session"));
@@ -68,7 +70,8 @@ describe("Session Approve Workflow", () => {
         title: "Test Task", // Fixed: use 'title' instead of '_title'
         description: "A test task",
         status: "in-progress", // Fixed: use 'status' instead of '_status'
-      }));
+      })
+    );
 
     setTaskStatusSpy = createMock();
     setTaskStatusSpy = mock(() => Promise.resolve(true));
@@ -147,7 +150,7 @@ describe("Session Approve Workflow", () => {
     // Override execInRepository to simulate failure
     let failingExecSpy = createMock();
     failingExecSpy = mock(() => Promise.reject(new Error("Git command failed")));
-    
+
     const failingGitService = createMockGitService({
       execInRepository: failingExecSpy,
     });

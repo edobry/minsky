@@ -378,18 +378,21 @@ This task implements **Chain-of-Thought monitoring for code review** - making AI
 ### Chain-of-Thought Integration Patterns
 
 **1. Real-Time Review Reasoning Observation**
+
 - **Reasoning Chain Visibility**: All AI analysis steps become observable (security analysis → performance review → style checking)
 - **Decision Point Monitoring**: Track when AI makes quality judgments and confidence assessments
 - **Pattern Recognition Alerts**: Detect when AI review reasoning follows problematic patterns
 - **Intervention Triggers**: Automatic alerts when AI reasoning appears to miss critical issues
 
 **2. Interactive Review Guidance**
+
 - **Mid-Review Intervention**: Human can redirect AI review focus before completion
 - **Reasoning Correction**: Ability to correct AI assumptions and restart analysis
 - **Collaborative Review**: AI reasoning chains become visible to human reviewers for verification
 - **Contextual Guidance**: Human can provide domain-specific context to improve AI reasoning
 
 **3. Review Quality Monitoring**
+
 - **Consistency Tracking**: Monitor consistency of AI reasoning across similar code patterns
 - **Blind Spot Detection**: Identify areas where AI reasoning consistently misses issues
 - **Confidence Calibration**: Track correlation between AI confidence and actual review quality
@@ -428,18 +431,21 @@ interface ReasoningStep {
 ### Advanced CoT Features for Code Review
 
 **1. Multi-Model Reasoning Consensus with CoT**
+
 - **Reasoning Chain Comparison**: Compare how different AI models reason about the same code
 - **Consensus Building**: Identify where models agree/disagree in their reasoning
 - **Reasoning Quality Assessment**: Evaluate which models provide better reasoning chains
 - **Ensemble Reasoning**: Combine the best reasoning patterns from multiple models
 
 **2. Domain-Specific CoT Monitoring**
+
 - **Security Reasoning Chains**: Specialized monitoring for security-focused review reasoning
 - **Performance Analysis CoT**: Track reasoning about performance implications and optimizations
 - **Architecture Decision CoT**: Monitor reasoning about architectural design and patterns
 - **Testing Strategy CoT**: Observe AI reasoning about test coverage and quality
 
 **3. Historical Reasoning Pattern Learning**
+
 - **Reasoning Pattern Database**: Store successful and problematic reasoning patterns
 - **Pattern Recognition**: Automatically detect when AI reasoning follows known good/bad patterns
 - **Reasoning Template Evolution**: Improve review prompts based on reasoning pattern analysis
@@ -448,6 +454,7 @@ interface ReasoningStep {
 ### Integration with Existing Minsky Workflow Orchestration
 
 **Connection to Session Approve Workflow:**
+
 - AI review results feed into the existing `minsky session approve` workflow
 - Chain-of-Thought review reasoning becomes part of the approval decision audit trail
 - Integration with task status updates includes reasoning quality metrics

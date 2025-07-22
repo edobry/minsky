@@ -1,6 +1,6 @@
 /**
  * Session Commands
- * 
+ *
  * Session operations that accept session parameters.
  */
 
@@ -36,14 +36,14 @@ export async function sessionPr(params: SessionPrParams): Promise<{
     throw new MinskyError("Session parameter is required", "VALIDATION_ERROR");
   }
 
-  log.debug("Explicit session PR command", { 
+  log.debug("Explicit session PR command", {
     session: params.session,
-    title: params.title 
+    title: params.title,
   });
 
   // Import domain services (not interface services)
   const { sessionPrFromParams } = await import("../session.js");
-  
+
   try {
     // Call existing domain logic with proper session parameter
     const result = await sessionPrFromParams({
@@ -61,12 +61,12 @@ export async function sessionPr(params: SessionPrParams): Promise<{
     return {
       success: true,
       pullRequestUrl: `PR created: ${result.prBranch}`,
-      message: `Pull request created successfully on branch ${result.prBranch}`
+      message: `Pull request created successfully on branch ${result.prBranch}`,
     };
   } catch (error) {
     log.error("Explicit session PR failed", {
       error: error instanceof Error ? error.message : String(error),
-      session: params.session
+      session: params.session,
     });
     throw error;
   }
@@ -76,7 +76,7 @@ export async function sessionPr(params: SessionPrParams): Promise<{
  * Session update interface with explicit parameters
  */
 export interface SessionUpdateParams {
-  session: string;  // ✅ ALWAYS required
+  session: string; // ✅ ALWAYS required
   branch?: string;
   force?: boolean;
   dryRun?: boolean;
@@ -101,7 +101,7 @@ export async function pureSessionUpdate(params: SessionUpdateParams): Promise<{
   log.debug("Pure session update command", { session: params.session });
 
   const { updateSessionFromParams } = await import("../session.js");
-  
+
   try {
     const result = await updateSessionFromParams({
       name: params.session,
@@ -117,12 +117,12 @@ export async function pureSessionUpdate(params: SessionUpdateParams): Promise<{
 
     return {
       success: true,
-      message: result.message || "Session updated successfully"
+      message: result.message || "Session updated successfully",
     };
   } catch (error) {
     log.error("Pure session update failed", {
       error: error instanceof Error ? error.message : String(error),
-      session: params.session
+      session: params.session,
     });
     throw error;
   }
@@ -132,7 +132,7 @@ export async function pureSessionUpdate(params: SessionUpdateParams): Promise<{
  * Pure domain interface for session approval
  */
 export interface SessionApproveParams {
-  session: string;  // ✅ ALWAYS required
+  session: string; // ✅ ALWAYS required
 }
 
 /**
@@ -149,20 +149,20 @@ export async function pureSessionApprove(params: SessionApproveParams): Promise<
   log.debug("Pure session approve command", { session: params.session });
 
   const { sessionApprove } = await import("./index.js");
-  
+
   try {
     const result = await sessionApprove({
-      name: params.session
+      name: params.session,
     });
 
     return {
       success: true,
-      message: result.message || "Session approved successfully"
+      message: result.message || "Session approved successfully",
     };
   } catch (error) {
     log.error("Pure session approve failed", {
       error: error instanceof Error ? error.message : String(error),
-      session: params.session
+      session: params.session,
     });
     throw error;
   }
@@ -170,7 +170,7 @@ export async function pureSessionApprove(params: SessionApproveParams): Promise<
 
 /**
  * Session commit command - commits and pushes changes within a specific session
- * 
+ *
  * Note: Always pushes after commit - in session context these operations should be atomic
  */
 export async function sessionCommit(params: {
@@ -189,13 +189,13 @@ export async function sessionCommit(params: {
     throw new MinskyError("Session parameter is required", "VALIDATION_ERROR");
   }
 
-  log.debug("Session commit command", { 
+  log.debug("Session commit command", {
     session: params.session,
-    message: params.message 
+    message: params.message,
   });
 
   const { commitChangesFromParams, pushFromParams } = await import("../git");
-  
+
   try {
     // Commit changes using session-scoped git command
     const commitResult = await commitChangesFromParams({
@@ -220,8 +220,8 @@ export async function sessionCommit(params: {
   } catch (error) {
     log.error("Session commit failed", {
       error: error instanceof Error ? error.message : String(error),
-      session: params.session
+      session: params.session,
     });
     throw error;
   }
-} 
+}

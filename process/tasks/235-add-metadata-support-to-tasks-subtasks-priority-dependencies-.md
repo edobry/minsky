@@ -61,6 +61,7 @@ Research and design the architectural foundation for task metadata systems inclu
 ### 2.7 CoT Monitoring Architecture Integration
 
 - [ ] **Monitoring Metadata Design**: Research metadata requirements for Chain-of-Thought monitoring:
+
   - **Execution Traces**: AI reasoning chains during task execution
   - **Intervention History**: Record of all interventions, their reasoning, and outcomes
   - **Pattern Detection Metadata**: Classification of task execution patterns and problems
@@ -68,6 +69,7 @@ Research and design the architectural foundation for task metadata systems inclu
   - **Safety Metadata**: Compliance tracking, rule violation history, safety assessments
 
 - [ ] **Real-time Monitoring Storage**: Analyze storage requirements for active monitoring:
+
   - **Stream Processing State**: Current monitoring context and execution state
   - **Intervention Points**: Metadata about potential and actual intervention locations
   - **Reasoning Preservation**: How to store and retrieve AI reasoning chains across interruptions
@@ -82,6 +84,7 @@ Research and design the architectural foundation for task metadata systems inclu
 ### 2.8 Monitoring Backend Integration Strategy
 
 - [ ] **CoT Metadata Storage Strategy**: Determine where monitoring metadata should be stored:
+
   - **Database-Only**: Complex monitoring data unsuitable for backend storage
   - **Backend Integration**: Simple monitoring status that can sync to issue labels/tags
   - **Hybrid Monitoring**: Monitoring summaries in backends, detailed data in database
@@ -96,6 +99,7 @@ Research and design the architectural foundation for task metadata systems inclu
 ### 2.9 CoT Safety and Control Metadata
 
 - [ ] **Intervention Metadata Schema**: Design metadata for tracking AI-to-AI interventions:
+
   - **Intervention Classification**: Type, severity, success rate of interventions
   - **Reasoning Transparency**: Full audit trail of intervention decision-making
   - **Human Override Tracking**: When and how humans intervene in automated monitoring

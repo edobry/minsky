@@ -65,7 +65,10 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
 
   // 2. Validate remote exists
   const { stdout: remotesOut } = await deps.execAsync(`git -C ${workdir} remote`);
-  const remotes = remotesOut.split("\n").map((r) => r.trim()).filter(Boolean);
+  const remotes = remotesOut
+    .split("\n")
+    .map((r) => r.trim())
+    .filter(Boolean);
   if (!remotes.includes(remote)) {
     throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
   }
@@ -94,4 +97,4 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
     }
     throw new Error((err as any).stderr || (err as any).message || String(err as any));
   }
-} 
+}

@@ -47,8 +47,6 @@ import {
   generateMissingTaskAssociationErrorMessage,
 } from "./session-error-handling";
 
-
-
 /**
  * Register the session commands in the shared command registry
  */
@@ -100,14 +98,16 @@ export function registerSessionCommands(): void {
         schema: z.string(),
         description: "Task ID associated with the session",
         required: false,
-      }
+      },
     },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.get command", { params, context });
 
       try {
         const session = await sessionGet({
-          session: params!.sessionName || params!.name || params!.task,
+          name: params!.sessionName || params!.name,
+          task: params!.task,
+          repo: params!.repo,
           json: params!.json,
         });
 
@@ -166,7 +166,8 @@ Examples:
       return {
         success: true,
         session,
-      };    },
+      };
+    },
   });
 
   // Register session dir command
@@ -224,7 +225,7 @@ Examples:
           if (originalMessage.includes("not found")) {
             error.message = formatSessionErrorMessage(
               originalMessage,
-              "Try \"minsky session list\" to see available sessions."
+              'Try "minsky session list" to see available sessions.'
             );
           }
         }
@@ -289,7 +290,7 @@ Examples:
           if (originalMessage.includes("not found")) {
             error.message = formatSessionErrorMessage(
               originalMessage,
-              "Try \"minsky session list\" to see available sessions."
+              'Try "minsky session list" to see available sessions.'
             );
           }
         }
@@ -327,7 +328,7 @@ Examples:
         schema: z.string(),
         description: "Repository path",
         required: false,
-      }
+      },
     },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.update command", { params, context });
@@ -392,7 +393,7 @@ Examples:
         schema: z.string(),
         description: "Repository path",
         required: false,
-      }
+      },
     },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.approve command", { params, context });
@@ -402,11 +403,11 @@ Examples:
         // - sessionName/name → session (direct session identifier)
         // - task → task (for lookup by task ID)
         const approvalResult = await sessionApprove({
-          session: params!.sessionName || params!.session || params!.name,  // Direct session identifier
-          task: params!.task,         // Task ID for lookup (not session identifier!)
+          session: params!.sessionName || params!.session || params!.name, // Direct session identifier
+          task: params!.task, // Task ID for lookup (not session identifier!)
           repo: params!.repo,
           json: params!.json,
-          noStash: params!.noStash,   // Add the missing parameter
+          noStash: params!.noStash, // Add the missing parameter
         });
 
         log.debug("Session approve result", { result: approvalResult });
@@ -414,7 +415,7 @@ Examples:
         // Return in the expected command response format
         return {
           success: true,
-          ...approvalResult,  // Spread the domain result fields
+          ...approvalResult, // Spread the domain result fields
         };
       } catch (error) {
         log.error("Failed to approve session", {
@@ -456,14 +457,18 @@ Examples:
         schema: z.string(),
         description: "Repository path",
         required: false,
-      }
+      },
     },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
 
       try {
         // Validate PR parameters before proceeding
-        validatePrParameters(params!.body, params!.bodyPath, params!.sessionName || params!.session || params!.name);
+        validatePrParameters(
+          params!.body,
+          params!.bodyPath,
+          params!.sessionName || params!.session || params!.name
+        );
 
         const result = await sessionPr({
           session: params!.sessionName || params!.session || params!.name,
@@ -481,7 +486,11 @@ Examples:
 
         return result;
       } catch (error) {
-        return handleSessionPrError(error as Error, params!.sessionName || params!.name, params!.task);
+        return handleSessionPrError(
+          error as Error,
+          params!.sessionName || params!.name,
+          params!.task
+        );
       }
     },
   });

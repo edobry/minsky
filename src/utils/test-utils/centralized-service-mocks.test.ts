@@ -1,6 +1,6 @@
 /**
  * Tests for centralized service mock factories
- * 
+ *
  * This file demonstrates the usage of the new centralized service mock factories
  * and verifies they provide comprehensive interface coverage.
  */
@@ -45,26 +45,28 @@ describe("Centralized Service Mock Factories", () => {
 
     test("should allow method overrides", async () => {
       const mockSessionProvider = createMockSessionProvider({
-        getSession: () => Promise.resolve({
-          session: "custom-session",
-          repoName: "custom-repo",
-          repoUrl: "https://custom.com/repo",
-          createdAt: "2023-01-01T00:00:00Z",
-          taskId: "#123",
-          branch: "custom-branch",
-          repoPath: "/custom/path",
-        }),
-        listSessions: () => Promise.resolve([
-          {
-            session: "session1",
-            repoName: "repo1",
-            repoUrl: "https://example.com/repo1",
+        getSession: () =>
+          Promise.resolve({
+            session: "custom-session",
+            repoName: "custom-repo",
+            repoUrl: "https://custom.com/repo",
             createdAt: "2023-01-01T00:00:00Z",
-            taskId: "#001",
-            branch: "main",
-            repoPath: "/path/to/repo1",
-          },
-        ]),
+            taskId: "#123",
+            branch: "custom-branch",
+            repoPath: "/custom/path",
+          }),
+        listSessions: () =>
+          Promise.resolve([
+            {
+              session: "session1",
+              repoName: "repo1",
+              repoUrl: "https://example.com/repo1",
+              createdAt: "2023-01-01T00:00:00Z",
+              taskId: "#001",
+              branch: "main",
+              repoPath: "/path/to/repo1",
+            },
+          ]),
       });
 
       const session = await mockSessionProvider.getSession("test");
@@ -105,7 +107,11 @@ describe("Centralized Service Mock Factories", () => {
       const mockGitService = createMockGitService();
 
       // Test default return values
-      const cloneResult = await mockGitService.clone({ repoUrl: "test", workdir: "/test/workdir", session: "test" });
+      const cloneResult = await mockGitService.clone({
+        repoUrl: "test",
+        workdir: "/test/workdir",
+        session: "test",
+      });
       expect(cloneResult.workdir).toBe("/mock/workdir");
       expect(cloneResult.session).toBe("test-session");
 
@@ -136,7 +142,11 @@ describe("Centralized Service Mock Factories", () => {
         getStatus: () => Promise.resolve({ modified: ["file1.ts"], untracked: [], deleted: [] }),
       });
 
-      const cloneResult = await mockGitService.clone({ repoUrl: "test", workdir: "/test/workdir", session: "test" });
+      const cloneResult = await mockGitService.clone({
+        repoUrl: "test",
+        workdir: "/test/workdir",
+        session: "test",
+      });
       expect(cloneResult.workdir).toBe("/custom/workdir");
       expect(cloneResult.session).toBe("custom-session");
 
@@ -185,7 +195,10 @@ describe("Centralized Service Mock Factories", () => {
       expect(createdTask.title).toBe("Test Task");
       expect(createdTask.status).toBe("TODO");
 
-      const createdTaskFromTitle = await mockTaskService.createTaskFromTitleAndDescription("Test Title", "Test Description");
+      const createdTaskFromTitle = await mockTaskService.createTaskFromTitleAndDescription(
+        "Test Title",
+        "Test Description"
+      );
       expect(createdTaskFromTitle.title).toBe("Test Task");
 
       const deleted = await mockTaskService.deleteTask("test");
@@ -197,22 +210,24 @@ describe("Centralized Service Mock Factories", () => {
 
     test("should allow method overrides", async () => {
       const mockTaskService = createMockTaskService({
-        listTasks: () => Promise.resolve([
-          {
+        listTasks: () =>
+          Promise.resolve([
+            {
+              id: "#001",
+              title: "Custom Task",
+              status: "IN-PROGRESS",
+              description: "Custom task description",
+              worklog: [],
+            },
+          ]),
+        getTask: () =>
+          Promise.resolve({
             id: "#001",
             title: "Custom Task",
             status: "IN-PROGRESS",
             description: "Custom task description",
             worklog: [],
-          },
-        ]),
-        getTask: () => Promise.resolve({
-          id: "#001",
-          title: "Custom Task",
-          status: "IN-PROGRESS",
-          description: "Custom task description",
-          worklog: [],
-        }),
+          }),
         getTaskStatus: () => Promise.resolve("IN-PROGRESS"),
         getWorkspacePath: () => "/custom/workspace/path",
       });
@@ -233,5 +248,4 @@ describe("Centralized Service Mock Factories", () => {
       expect(workspacePath).toBe("/custom/workspace/path");
     });
   });
-}); 
- 
+});

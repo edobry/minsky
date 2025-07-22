@@ -468,8 +468,15 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
       query: z.string().describe("Regex pattern to search for"),
-      case_sensitive: z.boolean().optional().default(false).describe("Whether the search should be case sensitive"),
-      include_pattern: z.string().optional().describe("Glob pattern for files to include (e.g. '*.ts' for TypeScript files)"),
+      case_sensitive: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("Whether the search should be case sensitive"),
+      include_pattern: z
+        .string()
+        .optional()
+        .describe("Glob pattern for files to include (e.g. '*.ts' for TypeScript files)"),
       exclude_pattern: z.string().optional().describe("Glob pattern for files to exclude"),
     }),
     handler: async (args): Promise<Record<string, any>> => {
@@ -480,8 +487,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         const rgArgs = [
           "--line-number",
           "--no-heading",
-          "--color", "never",
-          "--max-count", "50", // Limit to 50 matches as per Cursor behavior
+          "--color",
+          "never",
+          "--max-count",
+          "50", // Limit to 50 matches as per Cursor behavior
           args.case_sensitive ? "--case-sensitive" : "--ignore-case",
         ];
 
@@ -527,7 +536,9 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
               const [, filePath, lineNumber, content] = match;
 
               // Convert to absolute file:// URL format like Cursor
-              const absolutePath = filePath.startsWith("/") ? filePath : `${sessionWorkspacePath}/${filePath}`;
+              const absolutePath = filePath.startsWith("/")
+                ? filePath
+                : `${sessionWorkspacePath}/${filePath}`;
               const fileUrl = `file://${absolutePath}`;
 
               // Add file header if it's a new file
@@ -542,9 +553,11 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         }
 
         // Add "more results available" message if we hit the limit
-        const resultCount = results.filter(line => line.startsWith("Line ")).length;
+        const resultCount = results.filter((line) => line.startsWith("Line ")).length;
         if (resultCount >= 50) {
-          results.push("NOTE: More results are available, but aren't shown here. If you need to, please refine the search query or restrict the scope.");
+          results.push(
+            "NOTE: More results are available, but aren't shown here. If you need to, please refine the search query or restrict the scope."
+          );
         }
 
         log.debug("Session grep search successful", {

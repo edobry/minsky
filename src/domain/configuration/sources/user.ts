@@ -1,6 +1,6 @@
 /**
  * User Configuration Source
- * 
+ *
  * Loads configuration from user-level configuration files stored in the user's
  * home directory following XDG base directory specifications.
  */
@@ -15,7 +15,7 @@ import { parse } from "yaml";
  */
 export const userConfigFiles = [
   "config.yaml",
-  "config.yml", 
+  "config.yml",
   "config.json",
   "local.yaml",
   "local.yml",
@@ -30,7 +30,7 @@ export function getUserConfigDir(): string {
   if (xdgConfigHome) {
     return join(xdgConfigHome, "minsky");
   }
-  
+
   return join(homedir(), ".config", "minsky");
 }
 
@@ -39,11 +39,11 @@ export function getUserConfigDir(): string {
  */
 export function loadUserConfiguration(): any {
   const userConfigDir = getUserConfigDir();
-  
+
   // Try each configuration file in order
   for (const configFile of userConfigFiles) {
     const configPath = join(userConfigDir, configFile);
-    
+
     if (existsSync(configPath)) {
       try {
         const config = loadConfigFile(configPath);
@@ -56,7 +56,7 @@ export function loadUserConfiguration(): any {
       }
     }
   }
-  
+
   return {};
 }
 
@@ -67,18 +67,18 @@ function loadConfigFile(filePath: string): any {
   try {
     const content = readFileSync(filePath, "utf8") as string;
     const extension = filePath.split(".").pop()?.toLowerCase();
-    
+
     switch (extension) {
-    case "json":
-      return JSON.parse(content);
-      
-    case "yaml":
-    case "yml":
-      return parse(content);
-      
-    default:
-      console.warn(`Warning: Unsupported config file format: ${extension}`);
-      return null;
+      case "json":
+        return JSON.parse(content);
+
+      case "yaml":
+      case "yml":
+        return parse(content);
+
+      default:
+        console.warn(`Warning: Unsupported config file format: ${extension}`);
+        return null;
     }
   } catch (error) {
     console.warn(`Warning: Failed to parse config file ${filePath}:`, error);
@@ -96,17 +96,17 @@ export function getUserConfiguration(): {
     configFile: string | null;
     searchedPaths: string[];
   };
-  } {
+} {
   const configDir = getUserConfigDir();
   const searchedPaths: string[] = [];
   let configFile: string | null = null;
   let config: any = {};
-  
+
   // Try each configuration file and track searched paths
   for (const relativeConfigFile of userConfigFiles) {
     const configPath = join(configDir, relativeConfigFile);
     searchedPaths.push(configPath);
-    
+
     if (existsSync(configPath)) {
       try {
         const loadedConfig = loadConfigFile(configPath);
@@ -120,7 +120,7 @@ export function getUserConfiguration(): {
       }
     }
   }
-  
+
   return {
     config,
     metadata: {
@@ -149,33 +149,33 @@ export function validateUserConfigFile(filePath: string): {
   if (!existsSync(filePath)) {
     return { valid: false, error: "File does not exist" };
   }
-  
+
   try {
     const extension = filePath.split(".").pop()?.toLowerCase();
-    
+
     if (!["json", "yaml", "yml"].includes(extension || "")) {
       return { valid: false, error: `Unsupported file format: ${extension}` };
     }
-    
+
     const content = readFileSync(filePath, "utf8") as string;
-    
+
     switch (extension) {
-    case "json":
-      JSON.parse(content);
-      return { valid: true, format: "json" };
-      
-    case "yaml":
-    case "yml":
-      parse(content);
-      return { valid: true, format: "yaml" };
-      
-    default:
-      return { valid: false, error: `Unknown format: ${extension}` };
+      case "json":
+        JSON.parse(content);
+        return { valid: true, format: "json" };
+
+      case "yaml":
+      case "yml":
+        parse(content);
+        return { valid: true, format: "yaml" };
+
+      default:
+        return { valid: false, error: `Unknown format: ${extension}` };
     }
   } catch (error) {
-    return { 
-      valid: false, 
-      error: `Parse error: ${error instanceof Error ? error.message : String(error)}` 
+    return {
+      valid: false,
+      error: `Parse error: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }
@@ -185,30 +185,27 @@ export function validateUserConfigFile(filePath: string): {
  */
 export function ensureUserConfigDir(): string {
   const configDir = getUserConfigDir();
-  
+
   try {
     const fs = require("fs");
     fs.mkdirSync(configDir, { recursive: true });
   } catch (error) {
     console.warn(`Warning: Failed to create user config directory ${configDir}:`, error);
   }
-  
+
   return configDir;
 }
 
 /**
  * Create a user configuration file with default content
  */
-export function createUserConfigFile(
-  config: any,
-  format: "json" | "yaml" = "yaml"
-): string {
+export function createUserConfigFile(config: any, format: "json" | "yaml" = "yaml"): string {
   const configDir = ensureUserConfigDir();
   const fileName = format === "json" ? "config.json" : "config.yaml";
   const filePath = join(configDir, fileName);
-  
+
   let content: string;
-  
+
   if (format === "json") {
     content = JSON.stringify(config, null, 2);
   } else {
@@ -219,7 +216,7 @@ export function createUserConfigFile(
 
 ${objectToYaml(config)}`;
   }
-  
+
   return filePath;
 }
 
@@ -229,12 +226,12 @@ ${objectToYaml(config)}`;
 function objectToYaml(obj: any, indent: number = 0): string {
   const spaces = " ".repeat(indent);
   let result = "";
-  
+
   for (const [key, value] of Object.entries(obj)) {
     if (value === undefined || value === null) {
       continue;
     }
-    
+
     if (typeof value === "object" && !Array.isArray(value)) {
       result += `${spaces}${key}:\n`;
       result += objectToYaml(value, indent + 2);
@@ -252,7 +249,7 @@ function objectToYaml(obj: any, indent: number = 0): string {
       result += `${spaces}${key}: ${JSON.stringify(value)}\n`;
     }
   }
-  
+
   return result;
 }
 
@@ -264,4 +261,4 @@ export const userSourceMetadata = {
   description: "User-level configuration files",
   priority: 50, // Medium priority
   required: false,
-} as const; 
+} as const;

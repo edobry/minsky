@@ -226,7 +226,9 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const remotes = remoteOutput
         .trim()
         .split("\n")
-        .filter(Boolean).map((line: string) => line.split("\t")[0] || "").filter((name, index, self) => name && self.indexOf(name) === index);
+        .filter(Boolean)
+        .map((line: string) => line.split("\t")[0] || "")
+        .filter((name, index, self) => name && self.indexOf(name) === index);
 
       const dirty =
         gitStatus.modified.length > 0 ||

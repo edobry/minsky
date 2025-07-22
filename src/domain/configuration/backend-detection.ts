@@ -45,14 +45,14 @@ export class DefaultBackendDetectionService implements BackendDetectionService {
    */
   private async checkCondition(workingDir: string, condition: string): Promise<boolean> {
     switch (condition) {
-    case "tasks_md_exists":
-      return this.tasksMdExists(workingDir);
-    case "json_file_exists":
-      return this.jsonFileExists(workingDir);
-    case "always":
-      return true;
-    default:
-      return false;
+      case "tasks_md_exists":
+        return this.tasksMdExists(workingDir);
+      case "json_file_exists":
+        return this.jsonFileExists(workingDir);
+      case "always":
+        return true;
+      default:
+        return false;
     }
   }
 
@@ -83,4 +83,4 @@ export class DefaultBackendDetectionService implements BackendDetectionService {
 }
 
 // Export singleton instance
-export const _backendDetectionService = new DefaultBackendDetectionService(); 
+export const _backendDetectionService = new DefaultBackendDetectionService();

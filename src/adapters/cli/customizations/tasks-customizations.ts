@@ -9,7 +9,10 @@ import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
  * Get task command customizations configuration
  * @returns Task category customization options
  */
-export function getTasksCustomizations(): { category: CommandCategory; options: CategoryCommandOptions } {
+export function getTasksCustomizations(): {
+  category: CommandCategory;
+  options: CategoryCommandOptions;
+} {
   return {
     category: CommandCategory.TASKS,
     options: {
@@ -88,4 +91,4 @@ export function getTasksCustomizations(): { category: CommandCategory; options: 
       },
     },
   };
-} 
+}

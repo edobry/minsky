@@ -44,7 +44,7 @@ export class DefaultCredentialResolver implements CredentialResolver {
     try {
       const aiConfig = get("ai") as any;
       const providerConfig = aiConfig?.providers?.[provider];
-      
+
       if (!providerConfig?.credentials) {
         return undefined;
       }
@@ -59,21 +59,23 @@ export class DefaultCredentialResolver implements CredentialResolver {
   /**
    * Resolve credential from configuration object
    */
-  async resolveCredentialFromConfig(credentialConfig: CredentialConfig): Promise<string | undefined> {
+  async resolveCredentialFromConfig(
+    credentialConfig: CredentialConfig
+  ): Promise<string | undefined> {
     switch (credentialConfig.source) {
-    case "environment":
-      // New configuration system will have already resolved environment variables
-      return credentialConfig.token || credentialConfig.api_key;
-      
-    case "file":
-      return this.resolveFileCredential(credentialConfig);
-      
-    case "prompt":
-      // TODO: Implement interactive prompting
-      throw new Error("Interactive credential prompting not yet implemented");
-      
-    default:
-      return undefined;
+      case "environment":
+        // New configuration system will have already resolved environment variables
+        return credentialConfig.token || credentialConfig.api_key;
+
+      case "file":
+        return this.resolveFileCredential(credentialConfig);
+
+      case "prompt":
+        // TODO: Implement interactive prompting
+        throw new Error("Interactive credential prompting not yet implemented");
+
+      default:
+        return undefined;
     }
   }
 
@@ -97,7 +99,9 @@ export class DefaultCredentialResolver implements CredentialResolver {
   /**
    * Resolve credential from file
    */
-  private async resolveFileCredential(credentialConfig: CredentialConfig): Promise<string | undefined> {
+  private async resolveFileCredential(
+    credentialConfig: CredentialConfig
+  ): Promise<string | undefined> {
     // Check for direct token/api_key first
     if (credentialConfig.token) {
       return credentialConfig.token;
@@ -113,7 +117,7 @@ export class DefaultCredentialResolver implements CredentialResolver {
     }
 
     const resolvedPath = this.resolveFilePath(filePath);
-    
+
     if (!existsSync(resolvedPath)) {
       return undefined;
     }
@@ -138,4 +142,4 @@ export class DefaultCredentialResolver implements CredentialResolver {
 }
 
 // Export singleton instance
-export const _credentialResolver = new DefaultCredentialResolver(); 
+export const _credentialResolver = new DefaultCredentialResolver();

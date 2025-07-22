@@ -36,7 +36,9 @@ export function validatePrTitle(
 
   // Check length
   if (title.length > rules.maxLength) {
-    errors.push(`Title is too long (${title.length} characters, max ${rules.maxLength}). Use --body-path for detailed descriptions.`);
+    errors.push(
+      `Title is too long (${title.length} characters, max ${rules.maxLength}). Use --body-path for detailed descriptions.`
+    );
   }
 
   // Check for newlines
@@ -59,7 +61,9 @@ export function validatePrTitle(
 
     for (const pattern of markdownPatterns) {
       if (pattern.test(title)) {
-        errors.push("Title contains markdown formatting. Use plain text for titles and --body-path for formatted content.");
+        errors.push(
+          "Title contains markdown formatting. Use plain text for titles and --body-path for formatted content."
+        );
         break;
       }
     }
@@ -74,7 +78,9 @@ export function validatePrTitle(
 
     const sentenceEnders = cleanTitle.match(/[.!?]/g);
     if (sentenceEnders && sentenceEnders.length > 1) {
-      errors.push("Title appears to contain multiple sentences. Use --body-path for detailed PR descriptions.");
+      errors.push(
+        "Title appears to contain multiple sentences. Use --body-path for detailed PR descriptions."
+      );
     }
   }
 
@@ -94,7 +100,7 @@ export function assertValidPrTitle(
   const result = validatePrTitle(title, rules);
   if (!result.isValid) {
     throw new ValidationError(
-      `Invalid PR title:\n${result.errors.map(error => `  • ${error}`).join("\n")}`
+      `Invalid PR title:\n${result.errors.map((error) => `  • ${error}`).join("\n")}`
     );
   }
 }
@@ -119,7 +125,7 @@ export function titleAppearsToBeBodyContent(title: string): boolean {
   }
 
   // Check for implementation detail patterns
-  return bodyContentIndicators.some(pattern => pattern.test(title));
+  return bodyContentIndicators.some((pattern) => pattern.test(title));
 }
 
 /**
@@ -141,7 +147,9 @@ export function suggestTitleImprovements(title: string): string[] {
 
     if (titleAppearsToBeBodyContent(title)) {
       suggestions.push("Use a concise action-oriented title instead of implementation details");
-      suggestions.push("Example: 'feat(auth): Add JWT token validation' instead of detailed explanations");
+      suggestions.push(
+        "Example: 'feat(auth): Add JWT token validation' instead of detailed explanations"
+      );
     }
   }
 

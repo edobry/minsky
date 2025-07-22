@@ -7,4 +7,4 @@ export { updateSessionSubcommand } from "./update-subcommand";
 export { inspectSessionSubcommand } from "./inspect-subcommand";
 export { reviewSessionSubcommand } from "./review-subcommand";
 export { prSessionSubcommand } from "./pr-subcommand";
-export { approveSessionSubcommand } from "./approve-subcommand"; 
+export { approveSessionSubcommand } from "./approve-subcommand";

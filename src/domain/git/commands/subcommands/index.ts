@@ -6,4 +6,4 @@ export * from "./commit-subcommand";
 export * from "./merge-subcommand";
 export * from "./pr-subcommand";
 export * from "./push-subcommand";
-export * from "./rebase-subcommand"; 
+export * from "./rebase-subcommand";

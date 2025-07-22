@@ -5,6 +5,7 @@
 Users need the ability to migrate existing tasks from one backend to another (e.g., from markdown tasks to GitHub Issues). Currently, when switching from using the markdown tasks backend to github issues, there's no automated way to migrate existing tasks over.
 
 The TaskService already has the infrastructure needed:
+
 - Backend switching capabilities (`switchBackend()`)
 - Task listing and creation across backends
 - Task spec content reading
@@ -15,7 +16,7 @@ The TaskService already has the infrastructure needed:
 1. **Create BackendMigrationUtils class** that can migrate tasks between any two supported backends
 2. **Support full task migration** including:
    - Task content (title, description from spec files)
-   - Task status preservation  
+   - Task status preservation
    - Task metadata where supported
    - Proper ID mapping/handling
 3. **Provide dry-run capability** to preview migration before executing
@@ -29,6 +30,7 @@ The TaskService already has the infrastructure needed:
 ## Implementation Details
 
 ### Core Migration Function
+
 ```typescript
 async function migrateTasksBetweenBackends(
   sourceBackend: string,
@@ -39,10 +41,11 @@ async function migrateTasksBetweenBackends(
     statusMapping?: Record<string, string>;
     rollbackOnFailure?: boolean;
   }
-): Promise<MigrationResult>
+): Promise<MigrationResult>;
 ```
 
 ### CLI Integration
+
 ```bash
 # Migrate all tasks from markdown to GitHub Issues
 minsky tasks migrate --from markdown --to github-issues
@@ -55,6 +58,7 @@ minsky tasks migrate --from markdown --to github-issues --map-status TODO=minsky
 ```
 
 ### Error Handling
+
 - Partial migration recovery
 - Detailed logging of migration progress
 - Rollback capability for failed migrations
@@ -77,4 +81,4 @@ minsky tasks migrate --from markdown --to github-issues --map-status TODO=minsky
 
 ## Priority
 
-High - This is a critical UX feature for users wanting to switch between task backends without losing their existing work. 
+High - This is a critical UX feature for users wanting to switch between task backends without losing their existing work.

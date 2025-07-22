@@ -21,10 +21,12 @@ interface TaskIdNormalization {
 /**
  * Main normalization function
  */
-async function normalizeSessionTaskIds(options: {
-  dryRun?: boolean;
-  verbose?: boolean;
-} = {}): Promise<void> {
+async function normalizeSessionTaskIds(
+  options: {
+    dryRun?: boolean;
+    verbose?: boolean;
+  } = {}
+): Promise<void> {
   const { dryRun = true, verbose = false } = options;
 
   log.cli("🔍 Scanning for sessions with inconsistent task ID formats...");
@@ -52,7 +54,9 @@ async function normalizeSessionTaskIds(options: {
         });
 
         if (verbose) {
-          log.cli(`Found session needing normalization: ${session.session} (${session.taskId} -> ${normalizedTaskId})`);
+          log.cli(
+            `Found session needing normalization: ${session.session} (${session.taskId} -> ${normalizedTaskId})`
+          );
         }
       }
     }
@@ -67,7 +71,7 @@ async function normalizeSessionTaskIds(options: {
   log.cli("\n📊 TASK ID NORMALIZATION REPORT");
   log.cli("=".repeat(50));
   log.cli(`Total sessions: ${allSessions.length}`);
-  log.cli(`Sessions with task IDs: ${allSessions.filter(s => s.taskId).length}`);
+  log.cli(`Sessions with task IDs: ${allSessions.filter((s) => s.taskId).length}`);
   log.cli(`Sessions needing normalization: ${sessionsToNormalize.length}`);
 
   log.cli("\n🔧 SESSIONS TO NORMALIZE:");
@@ -94,7 +98,9 @@ async function normalizeSessionTaskIds(options: {
         });
 
         successCount++;
-        log.cli(`✅ Normalized ${session.sessionName}: ${session.oldTaskId} -> ${session.newTaskId}`);
+        log.cli(
+          `✅ Normalized ${session.sessionName}: ${session.oldTaskId} -> ${session.newTaskId}`
+        );
       } catch (error) {
         errorCount++;
         log.error(`❌ Failed to normalize ${session.sessionName}: ${error}`);
@@ -110,7 +116,7 @@ async function normalizeSessionTaskIds(options: {
     // Verify the changes
     log.cli("\n🔍 Verifying changes...");
     const updatedSessions = await sessionDB.listSessions();
-    const stillInconsistent = updatedSessions.filter(s => s.taskId && !s.taskId.startsWith("#"));
+    const stillInconsistent = updatedSessions.filter((s) => s.taskId && !s.taskId.startsWith("#"));
 
     if (stillInconsistent.length === 0) {
       log.cli("✅ All task IDs are now in consistent format!");

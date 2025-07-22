@@ -19,7 +19,7 @@ try {
 
   // Fix 1: Correct the import path for errors/index
   const importDeclarations = sourceFile.getImportDeclarations();
-  
+
   for (const importDecl of importDeclarations) {
     const moduleSpecifier = importDecl.getModuleSpecifierValue();
     if (moduleSpecifier === "../errors/index") {
@@ -31,18 +31,21 @@ try {
 
   // Fix 2: Handle unknown type assertions for args parameter
   const functionExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction);
-  
+
   for (const func of functionExpressions) {
     const parameters = func.getParameters();
-    
+
     for (const param of parameters) {
       if (param.getName() === "args" && param.getTypeNode()?.getText() === "unknown") {
         // Find usages of args.session where args is unknown
         const funcBody = func.getBody();
         if (funcBody) {
-          const argsUsages = funcBody.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)
-            .filter(expr => expr.getExpression().getText() === "args" && expr.getName() === "session");
-          
+          const argsUsages = funcBody
+            .getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)
+            .filter(
+              (expr) => expr.getExpression().getText() === "args" && expr.getName() === "session"
+            );
+
           for (const usage of argsUsages) {
             // Cast args to any for these specific usages
             const parent = usage.getParent();
@@ -60,11 +63,13 @@ try {
 
   // Fix 3: Handle property mismatch between schema (_session) and usage (session)
   // Find Zod schema definitions with _session and update corresponding usage
-  const propertyAccessExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression);
-  
+  const propertyAccessExpressions = sourceFile.getDescendantsOfKind(
+    SyntaxKind.PropertyAccessExpression
+  );
+
   for (const propAccess of propertyAccessExpressions) {
     const text = propAccess.getText();
-    
+
     // Fix args.session to args._session where schema defines _session
     if (text === "args.session") {
       // Check if this is in a context where _session is defined in schema
@@ -83,10 +88,10 @@ try {
 
   // Fix 4: Handle string literals referencing wrong variable names
   const stringLiterals = sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral);
-  
+
   for (const stringLiteral of stringLiterals) {
     const text = stringLiteral.getText();
-    
+
     // Fix "_session" references in error messages
     if (text.includes("_session")) {
       const newText = text.replace("_session", "session");
@@ -97,23 +102,27 @@ try {
   }
 
   // Fix 5: Fix the specific schema/usage mismatch for session vs _session
-  const objectLiteralExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression);
-  
+  const objectLiteralExpressions = sourceFile.getDescendantsOfKind(
+    SyntaxKind.ObjectLiteralExpression
+  );
+
   for (const objLiteral of objectLiteralExpressions) {
     const properties = objLiteral.getProperties();
-    
+
     for (const prop of properties) {
       if (prop.getKind() === SyntaxKind.PropertyAssignment) {
         const propAssignment = prop.asKindOrThrow(SyntaxKind.PropertyAssignment);
         const name = propAssignment.getName();
-        
+
         // Fix _session: args.session to _session: args._session
         if (name === "_session") {
           const initializer = propAssignment.getInitializer();
           if (initializer?.getText() === "args.session") {
             initializer.replaceWithText("args._session");
             changes++;
-            console.log(`✓ Fixed object property: _session: args.session → _session: args._session`);
+            console.log(
+              `✓ Fixed object property: _session: args.session → _session: args._session`
+            );
           }
         }
       }
@@ -128,10 +137,9 @@ try {
   } else {
     console.log(`ℹ️  No changes needed for ${filePath}`);
   }
-
 } catch (error) {
   console.error(`❌ Error processing ${filePath}:`, error);
   process.exit(1);
 }
 
-console.log("\n🎉 Session.ts fixes completed!"); 
+console.log("\n🎉 Session.ts fixes completed!");

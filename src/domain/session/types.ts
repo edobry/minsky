@@ -4,7 +4,7 @@ import type { WorkspaceUtilsInterface } from "../workspace";
 
 /**
  * Core session record interface
- * 
+ *
  * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
  * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
  */
@@ -30,7 +30,7 @@ export interface SessionRecord {
 
 /**
  * Session interface for external use
- * 
+ *
  * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
  * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
  */
@@ -186,4 +186,4 @@ export interface SessionPrResult {
   baseBranch: string;
   title?: string;
   body?: string;
-} 
+}

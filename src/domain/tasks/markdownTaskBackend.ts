@@ -47,7 +47,7 @@ import {
 import {
   normalizeTaskIdForStorage,
   formatTaskIdForDisplay,
-  getTaskIdNumber
+  getTaskIdNumber,
 } from "./task-id-utils";
 
 // Helper import to avoid promise conversion issues
@@ -105,7 +105,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     const tasks = this.parseTasks(result.content);
-    console.error("DEBUG stored task IDs:", tasks.map(t => t.id).slice(0, 5));
+    console.error("DEBUG stored task IDs:", tasks.map((t) => t.id).slice(0, 5));
 
     const taskIndex = tasks.findIndex((task) => task.id === id);
     console.error("DEBUG findIndex result:", { searchId: id, taskIndex, found: taskIndex !== -1 });
@@ -183,7 +183,9 @@ export class MarkdownTaskBackend implements TaskBackend {
         // Ignore cleanup errors
       }
     } catch (error) {
-      throw new Error(`Failed to move spec file from ${specPath} to ${properSpecPath}: ${getErrorMessage(error)}`);
+      throw new Error(
+        `Failed to move spec file from ${specPath} to ${properSpecPath}: ${getErrorMessage(error)}`
+      );
     }
 
     const newTaskData: TaskData = {
@@ -237,10 +239,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     const tempDir = os.tmpdir();
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(
-      tempDir,
-      `temp-task-${normalizedTitle}-${Date.now()}.md`
-    );
+    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
 
     try {
       // Write the spec content to the temporary file
@@ -300,10 +299,7 @@ ${description}
       // Parse tasks and find the one to delete
       const tasks = this.parseTasks(tasksResult.content);
       const taskToDelete = tasks.find(
-        (task) =>
-          task.id === id ||
-          task.id === `#${id}` ||
-          task.id.slice(1) === id
+        (task) => task.id === id || task.id === `#${id}` || task.id.slice(1) === id
       );
 
       if (!taskToDelete) {
@@ -359,9 +355,7 @@ ${description}
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = specPath.startsWith("/")
-      ? specPath
-      : join(this.workspacePath, specPath);
+    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
     return readTaskSpecFile(fullPath);
   }
 
@@ -419,9 +413,7 @@ ${description}
   }
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
-    const fullPath = specPath.startsWith("/")
-      ? specPath
-      : join(this.workspacePath, specPath);
+    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
     return writeTaskSpecFile(fullPath, content);
   }
 

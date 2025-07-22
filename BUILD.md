@@ -11,6 +11,7 @@ Minsky uses [Just](https://github.com/casey/just) for cross-platform binary buil
 ## Available Build Commands
 
 View all available build commands:
+
 ```bash
 just
 ```
@@ -18,6 +19,7 @@ just
 ### Basic Building
 
 Build for current platform:
+
 ```bash
 just build
 ```
@@ -25,6 +27,7 @@ just build
 ### Platform-Specific Builds
 
 Build for specific platforms:
+
 ```bash
 just build-linux        # Linux x64
 just build-linux-arm64  # Linux ARM64
@@ -36,6 +39,7 @@ just build-windows      # Windows x64
 ### Build All Platforms
 
 Build binaries for all supported platforms:
+
 ```bash
 just build-all
 ```
@@ -43,6 +47,7 @@ just build-all
 ### Testing
 
 Test the built binary:
+
 ```bash
 just test-binary
 ```
@@ -50,6 +55,7 @@ just test-binary
 ### Cleanup
 
 Remove all build artifacts:
+
 ```bash
 just clean
 ```
@@ -57,6 +63,7 @@ just clean
 ## Output Files
 
 Built binaries are created in the project root with the following names:
+
 - `minsky` - Current platform binary
 - `minsky-linux-x64` - Linux x64 binary
 - `minsky-linux-arm64` - Linux ARM64 binary
@@ -74,6 +81,7 @@ git push origin v1.0.0
 ```
 
 This triggers the release workflow which:
+
 1. Builds binaries for all platforms using the justfile
 2. Runs tests to ensure quality
 3. Creates a GitHub release with all platform binaries attached
@@ -84,11 +92,13 @@ This triggers the release workflow which:
 If you don't have Just installed:
 
 **macOS:**
+
 ```bash
 brew install just
 ```
 
 **Linux:**
+
 ```bash
 # Using cargo
 cargo install just
@@ -98,6 +108,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -
 ```
 
 **Windows:**
+
 ```bash
 # Using cargo
 cargo install just
@@ -106,4 +117,4 @@ cargo install just
 scoop install just
 ```
 
-For more installation options, see the [Just installation guide](https://github.com/casey/just#installation). 
+For more installation options, see the [Just installation guide](https://github.com/casey/just#installation).

@@ -28,23 +28,31 @@ export interface FixResult {
 export function fixMockingConsistencyInFile(sourceFile: SourceFile): FixResult {
   // Safety check: Only process test files
   const fileName = sourceFile.getBaseName();
-  if (!fileName.includes('.test.') && !fileName.includes('_test_') && 
-      !fileName.includes('.spec.') && !fileName.includes('_spec_')) {
-    return { changed: false, reason: 'Not a test file - skipped for safety', transformations: 0 };
+  if (
+    !fileName.includes(".test.") &&
+    !fileName.includes("_test_") &&
+    !fileName.includes(".spec.") &&
+    !fileName.includes("_spec_")
+  ) {
+    return { changed: false, reason: "Not a test file - skipped for safety", transformations: 0 };
   }
 
   // Check if file imports from "bun:test"
-  const bunTestImport = sourceFile.getImportDeclarations()
-    .find(imp => imp.getModuleSpecifierValue() === "bun:test");
-  
+  const bunTestImport = sourceFile
+    .getImportDeclarations()
+    .find((imp) => imp.getModuleSpecifierValue() === "bun:test");
+
   if (!bunTestImport) {
-    return { changed: false, reason: 'No bun:test import found - not a bun test file', transformations: 0 };
+    return {
+      changed: false,
+      reason: "No bun:test import found - not a bun test file",
+      transformations: 0,
+    };
   }
 
   // Check if mock is imported from bun:test
-  const mockImport = bunTestImport.getNamedImports()
-    .find(imp => imp.getName() === "mock");
-  
+  const mockImport = bunTestImport.getNamedImports().find((imp) => imp.getName() === "mock");
+
   if (!mockImport) {
     // Add mock to the import statement
     bunTestImport.addNamedImport("mock");
@@ -57,13 +65,13 @@ export function fixMockingConsistencyInFile(sourceFile: SourceFile): FixResult {
     if (node.getKind() === SyntaxKind.CallExpression) {
       const callExpr = node.asKindOrThrow(SyntaxKind.CallExpression);
       const expression = callExpr.getExpression();
-      
+
       // Check if this is vi.fn()
       if (expression.getKind() === SyntaxKind.PropertyAccessExpression) {
         const propAccess = expression.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
         const object = propAccess.getExpression();
         const property = propAccess.getName();
-        
+
         if (object.getText() === "vi" && property === "fn") {
           // Replace vi.fn() with mock()
           const args = callExpr.getArguments();
@@ -82,14 +90,14 @@ export function fixMockingConsistencyInFile(sourceFile: SourceFile): FixResult {
   });
 
   if (transformationCount > 0) {
-    return { 
-      changed: true, 
+    return {
+      changed: true,
       reason: `Converted ${transformationCount} vi.fn() calls to mock() for bun:test compatibility`,
-      transformations: transformationCount 
+      transformations: transformationCount,
     };
   }
 
-  return { changed: false, reason: 'No vi.fn() calls found to convert', transformations: 0 };
+  return { changed: false, reason: "No vi.fn() calls found to convert", transformations: 0 };
 }
 
 /**
@@ -103,18 +111,18 @@ export function fixMockingConsistency(filePaths: string[]): FixResult[] {
     try {
       const sourceFile = project.addSourceFileAtPath(filePath);
       const result = fixMockingConsistencyInFile(sourceFile);
-      
+
       if (result.changed) {
         sourceFile.saveSync();
       }
-      
+
       results.push(result);
     } catch (error) {
       console.error(`❌ Error processing ${filePath}:`, error);
-      results.push({ 
-        changed: false, 
+      results.push({
+        changed: false,
         reason: `Error: ${error instanceof Error ? error.message : String(error)}`,
-        transformations: 0 
+        transformations: 0,
       });
     }
   }
@@ -127,28 +135,31 @@ export function fixMockingConsistency(filePaths: string[]): FixResult[] {
  */
 export function findTestFiles(directory: string): string[] {
   const testFiles: string[] = [];
-  
+
   function traverseDirectory(dir: string) {
     const entries = readdirSync(dir);
-    
+
     for (const entry of entries) {
       const fullPath = join(dir, entry);
       const stat = statSync(fullPath);
-      
+
       if (stat.isDirectory()) {
         // Skip node_modules and other common directories
-        if (!entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist') {
+        if (!entry.startsWith(".") && entry !== "node_modules" && entry !== "dist") {
           traverseDirectory(fullPath);
         }
-      } else if (stat.isFile() && (
-        entry.includes('.test.') || entry.includes('_test_') ||
-        entry.includes('.spec.') || entry.includes('_spec_')
-      )) {
+      } else if (
+        stat.isFile() &&
+        (entry.includes(".test.") ||
+          entry.includes("_test_") ||
+          entry.includes(".spec.") ||
+          entry.includes("_spec_"))
+      ) {
         testFiles.push(fullPath);
       }
     }
   }
-  
+
   traverseDirectory(directory);
   return testFiles;
 }
@@ -158,23 +169,24 @@ export function findTestFiles(directory: string): string[] {
  */
 export function fixAllMockingConsistency(projectRoot: string = "."): FixResult[] {
   console.log("🔍 Finding test files with mocking consistency issues...");
-  
+
   const testFiles = findTestFiles(projectRoot);
   const project = new Project();
   const problematicFiles: string[] = [];
-  
+
   // First pass: identify files with vi.fn() that import from bun:test
   for (const filePath of testFiles) {
     try {
       const sourceFile = project.addSourceFileAtPath(filePath);
-      
+
       // Check if file imports from bun:test and has vi.fn()
-      const bunTestImport = sourceFile.getImportDeclarations()
-        .find(imp => imp.getModuleSpecifierValue() === "bun:test");
-      
+      const bunTestImport = sourceFile
+        .getImportDeclarations()
+        .find((imp) => imp.getModuleSpecifierValue() === "bun:test");
+
       if (bunTestImport) {
         const fileText = sourceFile.getFullText();
-        if (fileText.includes('vi.fn(')) {
+        if (fileText.includes("vi.fn(")) {
           problematicFiles.push(filePath);
         }
       }
@@ -182,28 +194,28 @@ export function fixAllMockingConsistency(projectRoot: string = "."): FixResult[]
       console.error(`Error analyzing ${filePath}:`, error);
     }
   }
-  
+
   console.log(`📁 Found ${problematicFiles.length} test files with mocking consistency issues`);
-  
+
   if (problematicFiles.length === 0) {
     console.log("✅ No mocking consistency issues found!");
     return [];
   }
-  
+
   // Second pass: fix the identified files
   console.log("🔧 Fixing mocking consistency issues...");
   const results = fixMockingConsistency(problematicFiles);
-  
-  const successCount = results.filter(r => r.changed).length;
+
+  const successCount = results.filter((r) => r.changed).length;
   const totalTransformations = results.reduce((sum, r) => sum + r.transformations, 0);
-  
+
   console.log(`✅ Fixed ${successCount} files with ${totalTransformations} total transformations`);
-  
+
   return results;
-} 
+}
 
 // Main execution for direct usage
 if (require.main === module) {
   const results = fixAllMockingConsistency(".");
-  process.exit(results.some(r => !r.changed && r.reason.includes('Error')) ? 1 : 0);
+  process.exit(results.some((r) => !r.changed && r.reason.includes("Error")) ? 1 : 0);
 }

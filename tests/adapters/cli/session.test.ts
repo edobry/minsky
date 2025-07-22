@@ -45,7 +45,9 @@ describe("Session CLI Commands", () => {
       const correctSession = mockSessions[1]; // task#160 session
       mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(correctSession));
       mockSessionDB.getSession = mock(() => Promise.resolve(correctSession));
-      mockSessionDB.getRepoPath = mock(() => Promise.resolve("/Users/edobry/.local/state/minsky/sessions/task#160"));
+      mockSessionDB.getRepoPath = mock(() =>
+        Promise.resolve("/Users/edobry/.local/state/minsky/sessions/task#160")
+      );
 
       // Act
       const result = await getSessionDirFromParams(
@@ -109,7 +111,7 @@ describe("Session CLI Commands", () => {
         if (!options?.taskId) {
           return testData.mockSessions;
         }
-                
+
         // Implement the same filtering logic as SQLite storage
         const normalizedTaskId = options.taskId.replace(/^#/, "");
         return testData.mockSessions.filter((s) => {

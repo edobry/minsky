@@ -8,7 +8,6 @@
 import { z } from "zod";
 import { type CommandParameterMap } from "../../shared/command-registry";
 
-
 /**
  * Parameters for the session list command
  */

@@ -22,10 +22,10 @@ class ConsolidatedUtilityTestRunner {
 
   async runAllTests(): Promise<void> {
     console.log("🧪 Running Consolidated Utility Test Suite");
-    console.log("=" .repeat(50));
+    console.log("=".repeat(50));
 
     const testFiles = this.findTestFiles();
-    
+
     for (const testFile of testFiles) {
       await this.runTestFile(testFile);
     }
@@ -37,8 +37,8 @@ class ConsolidatedUtilityTestRunner {
     try {
       const files = readdirSync(this.testDir);
       return files
-        .filter(file => file.endsWith(".test.ts"))
-        .map(file => join(this.testDir, file));
+        .filter((file) => file.endsWith(".test.ts"))
+        .map((file) => join(this.testDir, file));
     } catch (error) {
       console.error("❌ Error finding test files:", error);
       return [];
@@ -54,7 +54,7 @@ class ConsolidatedUtilityTestRunner {
     return new Promise((resolve) => {
       const testProcess = spawn("bun", ["test", testFile], {
         stdio: "pipe",
-        cwd: join(__dirname, "../..")
+        cwd: join(__dirname, "../.."),
       });
 
       let output = "";
@@ -77,7 +77,7 @@ class ConsolidatedUtilityTestRunner {
           passed,
           output: output.trim(),
           error: errorOutput.trim() || undefined,
-          duration
+          duration,
         });
 
         if (passed) {
@@ -99,7 +99,7 @@ class ConsolidatedUtilityTestRunner {
           passed: false,
           output: "",
           error: error.message,
-          duration
+          duration,
         });
 
         console.log(`❌ ${testName} - ERROR (${duration}ms)`);
@@ -110,12 +110,12 @@ class ConsolidatedUtilityTestRunner {
   }
 
   private printSummary(): void {
-    console.log(`\n${  "=" .repeat(50)}`);
+    console.log(`\n${"=".repeat(50)}`);
     console.log("📊 TEST SUMMARY");
-    console.log("=" .repeat(50));
+    console.log("=".repeat(50));
 
     const totalTests = this.results.length;
-    const passedTests = this.results.filter(r => r.passed).length;
+    const passedTests = this.results.filter((r) => r.passed).length;
     const failedTests = totalTests - passedTests;
     const totalDuration = this.results.reduce((sum, r) => sum + r.duration, 0);
 
@@ -128,8 +128,8 @@ class ConsolidatedUtilityTestRunner {
     if (failedTests > 0) {
       console.log("\n🔍 FAILED TESTS:");
       this.results
-        .filter(r => !r.passed)
-        .forEach(result => {
+        .filter((r) => !r.passed)
+        .forEach((result) => {
           console.log(`\n❌ ${result.name}:`);
           if (result.error) {
             console.log(`   Error: ${result.error}`);
@@ -141,13 +141,13 @@ class ConsolidatedUtilityTestRunner {
     }
 
     console.log("\n🎯 INDIVIDUAL TEST RESULTS:");
-    this.results.forEach(result => {
+    this.results.forEach((result) => {
       const status = result.passed ? "✅ PASS" : "❌ FAIL";
       console.log(`   ${status} ${result.name} (${result.duration}ms)`);
     });
 
-    console.log(`\n${  "=" .repeat(50)}`);
-    
+    console.log(`\n${"=".repeat(50)}`);
+
     if (passedTests === totalTests) {
       console.log("🎉 All tests passed! Consolidated utilities are working correctly.");
     } else {
@@ -162,4 +162,4 @@ if (import.meta.main) {
   runner.runAllTests().catch(console.error);
 }
 
-export { ConsolidatedUtilityTestRunner }; 
+export { ConsolidatedUtilityTestRunner };

@@ -1,9 +1,6 @@
 import type { SessionDeleteParams } from "../../schemas/session";
 import { createSessionProvider } from "../../session";
-import {
-  SessionProviderInterface,
-  SessionDependencies
-} from "../types";
+import { SessionProviderInterface, SessionDependencies } from "../types";
 
 /**
  * Deletes a session based on parameters

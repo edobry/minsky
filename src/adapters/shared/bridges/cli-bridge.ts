@@ -138,7 +138,7 @@ export class CliCommandBridge {
     log.debug(`generateCommand called with commandId: ${commandId}`);
 
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
+    if ((process.env as any).NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
         `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
       );
@@ -271,7 +271,7 @@ export class CliCommandBridge {
     }
 
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
+    if ((process.env as any).NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
         `[CLI Bridge] Direct usage detected for category '${category}'. Consider using CLI Command Factory for proper customization support.`
       );
@@ -364,7 +364,7 @@ export class CliCommandBridge {
    */
   generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean }): void {
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
+    if ((process.env as any).NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
         "[CLI Bridge] Direct usage of generateAllCategoryCommands detected. Consider using CLI Command Factory for proper customization support."
       );
@@ -511,7 +511,9 @@ export class CliCommandBridge {
           const status = String((resultObj as any).status || "unknown");
           const previousStatus = String((resultObj as any).previousStatus || "unknown");
           if (status === previousStatus) {
-            log.cli(`Task ${formatTaskIdForDisplay(taskId)} status is already ${status.toLowerCase()}`);
+            log.cli(
+              `Task ${formatTaskIdForDisplay(taskId)} status is already ${status.toLowerCase()}`
+            );
           } else {
             log.cli(
               `Task ${formatTaskIdForDisplay(taskId)} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
@@ -640,7 +642,7 @@ export class CliCommandBridge {
     log.cli("💡 Next steps:");
     log.cli("   • Your session workspace is ready for editing");
     log.cli("   • All changes will be tracked on your session branch");
-    log.cli("   • Run \"minsky session pr\" when ready to create a pull request");
+    log.cli('   • Run "minsky session pr" when ready to create a pull request');
   }
 
   // Session summary formatting moved to cli-result-formatters.ts
