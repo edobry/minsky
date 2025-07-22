@@ -1,9 +1,10 @@
+import { mock } from "bun:test";
 
 const mockLog = {
-  info: vi.fn(),
-  debug: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  cli: vi.fn()
+  info: mock(() => {}),
+  debug: mock(() => {}),
+  warn: mock(() => {}),
+  error: mock(() => {}),
+  cli: mock(() => {})
 };
       
