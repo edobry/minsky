@@ -563,3 +563,5 @@
 - [ ] Refactor CLI output formatters to use command-specific customizations instead of centralized bridge logic [#318](process/tasks/318-refactor-cli-output-formatters-to-use-command-specific-customizations-instead-of-centralized-bridge-logic.md)
 
 - [ ] Test workspace sync fix [#319](process/tasks/319-test-workspace-sync-fix.md)
+
+- [ ] Fix all linter errors in codebase [#320](process/tasks/320-fix-all-linter-errors-in-codebase.md)
