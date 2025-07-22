@@ -446,6 +446,22 @@ export class CliCommandBridge {
       }
     });
 
+    // Handle parameter mappings with mapTo property
+    for (const mapping of mappings) {
+      const { name, options: mappingOptions } = mapping;
+
+      // If this parameter has a value and a mapTo property, map it to the target parameter
+      if (mappingOptions.mapTo && result[name] !== undefined) {
+        // Set the target parameter value
+        result[mappingOptions.mapTo] = result[name];
+
+        // If the target parameter is different from the source, remove the source
+        if (mappingOptions.mapTo !== name) {
+          delete result[name];
+        }
+      }
+    }
+
     return result;
   }
 
