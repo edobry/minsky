@@ -547,3 +547,7 @@
 - [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
 
 - [x] Fix meta-cognitive boundary protocol violations: remove workspace-resolving prefixes, use simple names like markdown-backend.ts [#309](process/tasks/309-fix-meta-cognitive-boundary-protocol-violations-remove-workspace-resolving-prefixes-use-simple-names-like-markdown-backend-ts.md)
+
+- [ ] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
+
+- [ ] Enable max-lines ESLint rule with two-phase approach (400 warning, 1500 error) [#311](process/tasks/311-enable-max-lines-eslint-rule-with-two-phase-approach-400-warning-1500-error-.md)
