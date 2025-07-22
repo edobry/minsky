@@ -163,12 +163,8 @@ describe("Session Edit Tools", () => {
     test("should replace single occurrence successfully", async () => {
       const handler = registeredTools["session_search_replace"].handler;
 
-      // Mock file content
-      let mockReadFile = readFile as unknown;
+      // Configure the module-level mock to return content as a string, not wrapped in toString()
       mockReadFile = mock(() => Promise.resolve("This is oldText in the file"));
-
-      // Mock successful write
-      let mockWriteFile = writeFile as unknown;
       mockWriteFile = mock(() => Promise.resolve(undefined));
 
       // Mock path resolver - use module-level mocks
@@ -194,8 +190,7 @@ describe("Session Edit Tools", () => {
     test("should error when text not found", async () => {
       const handler = registeredTools["session_search_replace"].handler;
 
-      // Mock file content
-      let mockReadFile = readFile as unknown;
+      // Configure the module-level mock to return content without the target text
       mockReadFile = mock(() => Promise.resolve("This is some text in the file"));
 
       // Mock path resolver - use module-level mocks
@@ -216,9 +211,8 @@ describe("Session Edit Tools", () => {
     test("should error when multiple occurrences found", async () => {
       const handler = registeredTools["session_search_replace"].handler;
 
-      // Mock file content with multiple occurrences
-      let mockReadFile = readFile as unknown;
-      mockReadFile = mock(() => Promise.resolve("This is oldText and another oldText in the file"));
+      // Configure the module-level mock to return content with multiple occurrences
+      mockReadFile as any = mock(() => Promise.resolve("This is oldText and oldText again"));
 
       // Mock path resolver - use module-level mocks
       mockResolvePath = mock(() => Promise.resolve("/session/path/test.ts"));

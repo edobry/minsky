@@ -53,7 +53,8 @@ import {
 import {
   cloneImpl,
   type CloneOptions,
-  type CloneResult
+  type CloneResult,
+  type CloneDependencies
 } from "./git/clone-operations";
 
 const execAsync = promisify(exec);
@@ -297,6 +298,14 @@ export class GitService implements GitServiceInterface {
       rm: fs.rm,
       generateSessionId: this.generateSessionId.bind(this)
     });
+  }
+
+  /**
+   * Testable version of clone with dependency injection
+   */
+  async cloneWithDependencies(options: CloneOptions, deps: CloneDependencies): Promise<CloneResult> {
+    await this.ensureBaseDir();
+    return cloneImpl(options, deps);
   }
 
   async branch(options: BranchOptions): Promise<BranchResult> {

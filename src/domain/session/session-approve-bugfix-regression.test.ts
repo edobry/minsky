@@ -67,7 +67,21 @@ describe("Session Approve - Bug Regression Tests", () => {
 
       const mockTaskService = createMockTaskService({
         getTaskStatus: () => Promise.resolve("TODO"),
-        setTaskStatus: mock(() => Promise.resolve())
+        setTaskStatus: mock(() => Promise.resolve()),
+        mockGetTask: (taskId: unknown) => {
+          const id = taskId as string;
+          // Provide mock task data for the test task IDs
+          if (id === "123" || id === "#123") {
+            return Promise.resolve({
+              id: "#123",
+              title: "Test Task 123",
+              description: "Test task for session approve",
+              status: "TODO",
+              specPath: "process/tasks/123.md"
+            });
+          }
+          return Promise.resolve(null);
+        }
       });
 
       // Act: Run session approve with uncommitted changes
@@ -209,7 +223,21 @@ describe("Session Approve - Bug Regression Tests", () => {
 
       const mockTaskService = createMockTaskService({
         setTaskStatus: mock(() => Promise.resolve()),
-        getTaskStatus: () => Promise.resolve("TODO")
+        getTaskStatus: () => Promise.resolve("TODO"),
+        mockGetTask: (taskId: unknown) => {
+          const id = taskId as string;
+          // Provide mock task data for the test task IDs
+          if (id === "123" || id === "#123") {
+            return Promise.resolve({
+              id: "#123",
+              title: "Test Task 123",
+              description: "Test task for session approve",
+              status: "TODO",
+              specPath: "process/tasks/123.md"
+            });
+          }
+          return Promise.resolve(null);
+        }
       });
 
       // Act: Command should succeed for genuinely already merged PRs

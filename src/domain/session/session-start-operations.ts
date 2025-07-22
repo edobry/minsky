@@ -1,29 +1,33 @@
 import { existsSync, rmSync } from "fs";
-import { getMinskyStateDir, getSessionDir } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/paths";
+import { getMinskyStateDir, getSessionDir } from "../../utils/paths";
 import {
   MinskyError,
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/errors/index";
-import { taskIdSchema } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/common";
+} from "../../errors/index";
+import { taskIdSchema } from "../../schemas/common";
 import type {
   SessionStartParams,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/session";
-import { log } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/logger";
+} from "../../schemas/session";
+import { log } from "../../utils/logger";
 import { installDependencies } from "../../utils/package-manager";
-import { type GitServiceInterface } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/git";
-import { normalizeRepoName, resolveRepoPath } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/repo-utils";
-import { TASK_STATUS, type TaskServiceInterface } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/tasks";
+import { type GitServiceInterface } from "../git";
+import { normalizeRepoName, resolveRepoPath } from "../repo-utils";
+import { TASK_STATUS, type TaskServiceInterface } from "../tasks";
 import {
   type WorkspaceUtilsInterface,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/workspace";
-import { createTaskFromDescription } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/templates/session-templates";
-import type { SessionProviderInterface, SessionRecord, Session } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
+} from "../workspace";
+import { createTaskFromDescription } from "../templates/session-templates";
 import {
   normalizeTaskIdForStorage,
-  formatTaskIdForDisplay
+  formatTaskIdForDisplay,
 } from "../tasks/task-id-utils";
+import {
+  createSessionProvider,
+  type SessionProviderInterface,
+} from "./session-db-adapter";
+import type { SessionRecord, Session } from "./types";
 
 /**
  * Implementation of session start functionality

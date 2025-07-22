@@ -110,6 +110,20 @@ describe("Session Approve Task Status Commit", () => {
         // This simulates the task status update that modifies tasks.md
         return Promise.resolve();
       },
+      mockGetTask: (taskId: unknown) => {
+        const id = taskId as string;
+        // Provide mock task data for the test task IDs
+        if (id === "123" || id === "#123" || id === "124" || id === "#124" || id === "125" || id === "#125" || id === "266" || id === "#266") {
+          return Promise.resolve({
+            id: `#${id.replace("#", "")}`,
+            title: `Test Task ${id.replace("#", "")}`,
+            description: "Test task for session approve",
+            status: "TODO",
+            specPath: `process/tasks/${id.replace("#", "")}.md`
+          });
+        }
+        return Promise.resolve(null);
+      }
     });
 
     // Execute the session approval
@@ -213,6 +227,19 @@ describe("Session Approve Task Status Commit", () => {
         // This simulates no actual file changes
         return Promise.resolve();
       },
+      getTask: (taskId: string) => {
+        // Provide mock task data for the test task IDs
+        if (taskId === "124" || taskId === "#124") {
+          return Promise.resolve({
+            id: "#124",
+            title: "Test Task 124",
+            description: "Test task for session approve",
+            status: "TODO",
+            specPath: "process/tasks/124.md"
+          });
+        }
+        return Promise.resolve(null);
+      }
     };
 
     // Execute the session approval
@@ -306,6 +333,19 @@ describe("Session Approve Task Status Commit", () => {
         // This should not be called since task is already DONE
         return Promise.resolve();
       },
+      getTask: (taskId: string) => {
+        // Provide mock task data for the test task IDs
+        if (taskId === "125" || taskId === "#125") {
+          return Promise.resolve({
+            id: "#125",
+            title: "Test Task 125",
+            description: "Test task for session approve",
+            status: "DONE",
+            specPath: "process/tasks/125.md"
+          });
+        }
+        return Promise.resolve(null);
+      }
     };
 
     // Execute the session approval
@@ -396,6 +436,19 @@ describe("Session Approve Task Status Commit", () => {
         // This should NOT be called due to early exit
         throw new Error("setTaskStatus should not be called when task is already DONE and PR branch doesn't exist");
       },
+      getTask: (taskId: string) => {
+        // Provide mock task data for the test task IDs
+        if (taskId === "266" || taskId === "#266") {
+          return Promise.resolve({
+            id: "#266",
+            title: "Test Task 266",
+            description: "Test task for session approve",
+            status: "DONE",
+            specPath: "process/tasks/266.md"
+          });
+        }
+        return Promise.resolve(null);
+      }
     };
 
     // Execute the session approval

@@ -42,7 +42,7 @@ for (const filePath of FILES_TO_PROCESS) {
           }
           
           // Add mock to the imports
-          const newImports = imports.trim() + ", mock";
+          const newImports = `${imports.trim()  }, mock`;
           return `import {${newImports}} from "bun:test"`;
         }
       );
