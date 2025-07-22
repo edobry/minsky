@@ -506,7 +506,7 @@ export async function deleteSessionFromParams(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<boolean> {
-  const { name, task, repo, sessionname } = params;
+  const { name, task, repo, sessionName } = params;
 
   // Set up dependencies with defaults
   const deps = {
@@ -516,7 +516,7 @@ export async function deleteSessionFromParams(
   try {
     // Use unified session context resolver with auto-detection support
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: sessionname || name,
+      session: sessionName || name,
       task: task,
       repo: repo,
       sessionProvider: deps.sessionDB,
@@ -552,9 +552,9 @@ export async function getSessionDirFromParams(
 
   let sessionName: string;
 
-  // Handle the sessionname parameter (from MCP)
-  if (params.sessionname) {
-    sessionName = params.sessionname;
+  // Handle the sessionName parameter (from MCP)
+  if (params.sessionName) {
+    sessionName = params.sessionName;
   } else if (params.task && !params.name) {
     // Find session by task ID
     const normalizedTaskId = taskIdSchema.parse(params.task);
@@ -563,7 +563,7 @@ export async function getSessionDirFromParams(
     if (!session) {
       // Provide a more helpful error message showing possible sessions
       const allSessions = await deps.sessionDB.listSessions();
-      const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ""}`).join(", ");
+      const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ''}`).join(", ");
       
       throw new ResourceNotFoundError(
         `No session found for task ID "${normalizedTaskId}"\n\n` +
@@ -599,7 +599,7 @@ You must provide either a session name or task ID to get the session directory.
   if (!session) {
     // Provide a more helpful error message with available sessions
     const allSessions = await deps.sessionDB.listSessions();
-    const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ""}`).join(", ");
+    const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ''}`).join(", ");
     
     throw new ResourceNotFoundError(
       `Session "${sessionName}" not found\n\n` +
