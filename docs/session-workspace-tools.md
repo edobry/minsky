@@ -27,24 +27,73 @@ The `SessionPathResolver` class provides robust path validation:
 
 ### 1. session_read_file
 
-Reads the contents of a file within the session workspace.
+Reads the contents of a file within the session workspace with optional line range support, matching Cursor's built-in `read_file` functionality.
 
 **Parameters:**
 
 - `session` (string, required): Session identifier (e.g., "task#049")
 - `path` (string, required): File path relative to session workspace or absolute within session
+- `start_line_one_indexed` (number, optional): Starting line number (1-indexed, inclusive)
+- `end_line_one_indexed_inclusive` (number, optional): Ending line number (1-indexed, inclusive)
+- `should_read_entire_file` (boolean, optional): Whether to read the entire file (overrides line range)
+- `explanation` (string, optional): One sentence explanation of why this tool is being used
 
 **Response:**
 
 ```json
 {
   "success": true,
-  "content": "file contents...",
-  "path": "relative/path/to/file.ts",
+  "content": "Contents of src/component.tsx, lines 10-20 (total 50 lines):\nline 10 content\nline 11 content\n...",
+  "path": "src/component.tsx",
   "session": "task#049",
-  "encoding": "utf8",
-  "size": 1234
+  "resolvedPath": "src/component.tsx",
+  "totalLines": 50,
+  "linesRead": {
+    "start": 10,
+    "end": 20
+  },
+  "omittedContent": {
+    "summary": "Outline of the rest of the file:\nLines 1-9: [Earlier content...]\nLines 21-50: [Later content...]"
+  }
 }
+```
+
+**Line Range Features:**
+- **Memory Efficient**: Reads only requested lines for large files
+- **Context Expansion**: Small ranges automatically expand to provide better context
+- **Content Summarization**: Shows what content was omitted before/after the selected range
+- **Backward Compatible**: Works with existing usage when no line range is specified
+
+**Line Range Examples:**
+
+*Read specific lines:*
+```javascript
+const result = await session_read_file({
+  session: "task#049",
+  path: "src/utils/helper.ts",
+  start_line_one_indexed: 25,
+  end_line_one_indexed_inclusive: 35
+});
+```
+
+*Read single line with context:*
+```javascript
+const result = await session_read_file({
+  session: "task#049", 
+  path: "src/component.tsx",
+  start_line_one_indexed: 42,
+  end_line_one_indexed_inclusive: 42
+});
+// Automatically expands to show surrounding context
+```
+
+*Read entire file (explicit):*
+```javascript
+const result = await session_read_file({
+  session: "task#049",
+  path: "package.json",
+  should_read_entire_file: true
+});
 ```
 
 **Error Response:**
@@ -209,6 +258,41 @@ const result = await session_read_file({
 if (result.success) {
   const packageData = JSON.parse(result.content);
   console.log("Package name:", packageData.name);
+}
+```
+
+### Reading Specific File Sections
+```javascript
+// Read only the imports section of a TypeScript file
+const result = await session_read_file({
+  session: "task#049",
+  path: "src/components/Button.tsx",
+  start_line_one_indexed: 1,
+  end_line_one_indexed_inclusive: 15,
+  explanation: "Reading imports to understand dependencies"
+});
+
+if (result.success) {
+  console.log(`Read lines ${result.linesRead.start}-${result.linesRead.end} of ${result.totalLines} total lines`);
+  console.log(result.content);
+}
+```
+
+### Reading Around a Specific Function
+```javascript
+// Read a specific function with automatic context expansion
+const result = await session_read_file({
+  session: "task#049",
+  path: "src/utils/validation.ts",
+  start_line_one_indexed: 45,
+  end_line_one_indexed_inclusive: 45,
+  explanation: "Examining the validateEmail function"
+});
+
+// Single line requests automatically expand to show surrounding context
+if (result.success && result.omittedContent) {
+  console.log("Context provided for line 45:");
+  console.log(result.omittedContent.summary);
 }
 ```
 

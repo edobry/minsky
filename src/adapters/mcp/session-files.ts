@@ -13,6 +13,97 @@ import { SemanticErrorClassifier, ErrorContext } from "../../utils/semantic-erro
 import { FileOperationResponse } from "../../types/semantic-errors";
 
 /**
+ * Utility function to process file content with line range support
+ */
+function processFileContentWithLineRange(
+  content: string,
+  options: {
+    startLine?: number;
+    endLine?: number;
+    shouldReadEntireFile?: boolean;
+    filePath: string;
+  }
+): {
+  content: string;
+  totalLines: number;
+  linesShown: string;
+  summary?: string;
+} {
+  const lines = content.split("\n");
+  const totalLines = lines.length;
+
+  // If should read entire file, return everything
+  if (options.shouldReadEntireFile) {
+    return {
+      content,
+      totalLines,
+      linesShown: `1-${totalLines} (entire file)`,
+    };
+  }
+
+  // If no line range specified, use default behavior (first 250 lines max)
+  if (!options.startLine && !options.endLine) {
+    const maxLines = Math.min(250, totalLines);
+    const selectedLines = lines.slice(0, maxLines);
+    const resultContent = selectedLines.join("\n");
+    
+    let summary: string | undefined;
+    if (totalLines > maxLines) {
+      summary = `Outline of the rest of the file:\n[Lines ${maxLines + 1}-${totalLines} contain additional content...]`;
+    }
+
+    return {
+      content: resultContent,
+      totalLines,
+      linesShown: `1-${maxLines}`,
+      summary,
+    };
+  }
+
+  // Handle line range specification
+  const startLine = Math.max(1, options.startLine || 1);
+  const endLine = Math.min(totalLines, options.endLine || startLine + 249); // Default to 250 line window
+
+  // For all files, respect line ranges but may expand for better context
+  let actualStartLine = startLine;
+  let actualEndLine = endLine;
+
+  // For very small files (≤50 lines), show entire file if range is small
+  if (totalLines <= 50 && (endLine - startLine + 1) < totalLines) {
+    actualStartLine = 1;
+    actualEndLine = totalLines;
+  } else {
+    // Expand small ranges to at least 50 lines for better context (like Cursor does)
+    const requestedLines = endLine - startLine + 1;
+    if (requestedLines < 50 && totalLines > 50) {
+      const expansion = Math.floor((50 - requestedLines) / 2);
+      actualStartLine = Math.max(1, startLine - expansion);
+      actualEndLine = Math.min(totalLines, endLine + expansion);
+    }
+  }
+
+  const selectedLines = lines.slice(actualStartLine - 1, actualEndLine);
+  const resultContent = selectedLines.join("\n");
+
+  let summary: string | undefined;
+  if (actualStartLine > 1 || actualEndLine < totalLines) {
+    const before = actualStartLine > 1 ? `Lines 1-${actualStartLine - 1}: [Earlier content...]` : "";
+    const after = actualEndLine < totalLines ? `Lines ${actualEndLine + 1}-${totalLines}: [Later content...]` : "";
+    const parts = [before, after].filter(Boolean);
+    if (parts.length > 0) {
+      summary = `Outline of the rest of the file:\n${parts.join("\n")}`;
+    }
+  }
+
+  return {
+    content: resultContent,
+    totalLines,
+    linesShown: actualStartLine === actualEndLine ? `${actualStartLine}` : `${actualStartLine}-${actualEndLine}`,
+    summary,
+  };
+}
+
+/**
  * Session path resolver class for enforcing workspace boundaries
  */
 export class SessionPathResolver {
@@ -93,13 +184,17 @@ function createPathResolver(): SessionPathResolver {
 export function registerSessionFileTools(commandMapper: CommandMapper): void {
   const pathResolver = createPathResolver();
 
-  // Session read file tool
+  // Session read file tool with line range support
   commandMapper.addCommand({
     name: "session_read_file",
-    description: "Read a file within a session workspace",
+    description: "Read a file within a session workspace with optional line range support",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
+      start_line_one_indexed: z.number().min(1).optional().describe("The one-indexed line number to start reading from (inclusive)"),
+      end_line_one_indexed_inclusive: z.number().min(1).optional().describe("The one-indexed line number to end reading at (inclusive)"),
+      should_read_entire_file: z.boolean().optional().default(false).describe("Whether to read the entire file"),
+      explanation: z.string().optional().describe("One sentence explanation of why this tool is being used"),
     }),
     handler: async (args): Promise<FileOperationResponse> => {
       try {
@@ -108,23 +203,65 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
 
         const content = await readFile(resolvedPath, "utf8");
 
+        // Process content with line range support
+        const processed = processFileContentWithLineRange(content, {
+          startLine: args.start_line_one_indexed,
+          endLine: args.end_line_one_indexed_inclusive,
+          shouldReadEntireFile: args.should_read_entire_file,
+          filePath: args.path,
+        });
+
         log.debug("Session file read successful", {
           session: args.sessionName,
           path: args.path,
           resolvedPath,
-          contentLength: content.length,
+          totalLines: processed.totalLines,
+          linesShown: processed.linesShown,
+          contentLength: processed.content.length,
         });
 
-        return {
+        // Build response content with header like Cursor does
+        let responseContent = `Contents of ${args.path}, lines ${processed.linesShown}`;
+        if (processed.totalLines > 0) {
+          responseContent += ` (total ${processed.totalLines} lines)`;
+        }
+        responseContent += `:\n${processed.content}`;
+
+        // Add summary if content was truncated
+        if (processed.summary) {
+          responseContent += `\n\n${processed.summary}`;
+        }
+
+        // Enhanced response format matching the specification
+        const response: any = {
           success: true,
-          content,
+          content: responseContent,
           path: args.path,
           session: args.sessionName,
           resolvedPath: relative(
             await pathResolver.getSessionWorkspacePath(args.sessionName),
             resolvedPath
           ),
+          totalLines: processed.totalLines,
         };
+
+        // Add line range metadata if applicable
+        if (processed.linesShown !== "(entire file)" && !processed.linesShown.includes("entire file")) {
+          const [start, end] = processed.linesShown.split("-").map(Number);
+          response.linesRead = {
+            start: start || Number(processed.linesShown),
+            end: end || Number(processed.linesShown),
+          };
+        }
+
+        // Add omitted content information if content was truncated
+        if (processed.summary) {
+          response.omittedContent = {
+            summary: processed.summary,
+          };
+        }
+
+        return response;
       } catch (error) {
         const errorContext: ErrorContext = {
           operation: "read_file",

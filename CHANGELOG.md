@@ -1,14 +1,17 @@
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## [Unreleased]
 
-### Added
+### Enhanced
 
+<<<<<<< HEAD
+- **Task #312: Enhanced session_read_file tool with line range support**
+  - Added support for line range parameters matching Cursor's read_file interface
+  - Added `start_line_one_indexed`, `end_line_one_indexed_inclusive`, `should_read_entire_file`, and `explanation` parameters
+  - Implemented intelligent file size handling with context expansion for small ranges
+  - Added content summarization for truncated files showing omitted content
+  - Enhanced response format with line count metadata and range information
+  - Maintains backward compatibility with existing usage
+  - Provides feature parity with Cursor's built-in read_file tool for session workspaces
+=======
 - **ESLint and Prettier Integration Fix** - Fixed autofix functionality for formatting issues like indentation and quote style
 
   - **Issue Resolution**: ESLint autofix now properly handles "Expected indentation of 0 spaces but found 8" and "Strings must use doublequote" errors
@@ -73,13 +76,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced Implementation Verification Protocol with mandatory triggers to prevent premature completion declarations ([Task #305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md))
 - AST-based Jest-to-Bun migration codemod in `codemods/` directory following established framework patterns ([Task #305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md))
 - Automated const assignment detection and repair tools for systematic codemod error cleanup ([Task #305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md))
+>>>>>>> origin/main
 
 ### Fixed
 
-- **Session Start --description Flag Error (Task #300)**: Fixed missing `createTaskFromTitleAndDescription` method in `TaskBackend` interface and all backend implementations. Users can now successfully use `minsky session start --description "..."` without getting "is not a function" errors.
-- **Unfriendly JSON Error Messages (Task #300)**: Removed log.error call that was outputting raw JSON alongside clean error messages in session start command. Users now see only clean, formatted error messages instead of JSON dumps.
-- **Critical Bug**: Resolved task status set backend inconsistency through systematic task ID format migration and proper normalization. Completed the architectural separation where storage uses plain format (`"295"`) and display uses hash format (`"#295"`). Applied comprehensive migration to session database with backups. Implemented transition-period handling using `normalizeTaskIdForStorage()` utility to support both legacy hash and new plain formats. This fixes the issue where `minsky tasks status get 158` worked but `minsky tasks status set 158 IN-REVIEW` failed with "Task with ID 158 not found" despite the task existing.
+- Fixed `--body-path` and `--body` parameters not working for updating existing PRs
+- Resolved issue where PR body was always reused instead of using new content
+- Added comprehensive test coverage for session PR body content handling to prevent regression
 
+<<<<<<< HEAD
+// ... existing changelog content ...
+=======
 ### Added
 
 - **Task ID Migration**: Completed migration script execution with backup support for converting hash format to plain storage format
@@ -1513,3 +1520,4 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Added ESLint max-lines rule with two-phase approach (400 lines warning, 1500 lines error) to improve code maintainability
 - Improved session command backward compatibility with new sessionname parameter for MCP interaction
 - Enhanced error messages for session commands to provide more helpful guidance when sessions or task IDs are not found
+>>>>>>> origin/main
