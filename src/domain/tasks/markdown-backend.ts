@@ -10,14 +10,14 @@ import { existsSync } from "fs";
 import { MarkdownTaskBackend } from "./markdownTaskBackend";
 import { createSpecialWorkspaceManager } from "../workspace/special-workspace-manager";
 import type { TaskBackend } from "./taskBackend";
-import type { WorkspaceResolvingMarkdownConfig, WorkspaceResolutionResult } from "./workspace-resolving-backend-config";
+import type { MarkdownConfig, WorkspaceResolutionResult } from "./backend-config";
 import type { TaskBackendConfig } from "../../types/tasks/taskData";
 import { log } from "../../utils/logger";
 
 /**
  * Resolve workspace path using configuration
  */
-async function resolveWorkspacePath(config: WorkspaceResolvingMarkdownConfig): Promise<WorkspaceResolutionResult> {
+async function resolveWorkspacePath(config: MarkdownConfig): Promise<WorkspaceResolutionResult> {
   // 1. Explicit workspace path override
   if (config.workspacePath) {
     return {
@@ -82,7 +82,7 @@ async function resolveWorkspacePath(config: WorkspaceResolvingMarkdownConfig): P
 /**
  * Markdown backend with workspace resolution metadata
  */
-export class WorkspaceResolvingMarkdownBackend extends MarkdownTaskBackend {
+export class ConfigurableMarkdownBackend extends MarkdownTaskBackend {
   constructor(
     config: TaskBackendConfig,
     private workspaceResolutionResult: WorkspaceResolutionResult
@@ -108,10 +108,10 @@ export class WorkspaceResolvingMarkdownBackend extends MarkdownTaskBackend {
 }
 
 /**
- * Create a workspace-resolving markdown backend
+ * Create a markdown backend
  * This factory function handles async workspace resolution before backend creation
  */
-export async function createWorkspaceResolvingMarkdownBackend(config: WorkspaceResolvingMarkdownConfig): Promise<TaskBackend> {
+export async function createMarkdownBackend(config: MarkdownConfig): Promise<TaskBackend> {
   // Resolve workspace path first
   const resolutionResult = await resolveWorkspacePath(config);
 
@@ -127,7 +127,7 @@ export async function createWorkspaceResolvingMarkdownBackend(config: WorkspaceR
     workspacePath: resolutionResult.workspacePath
   };
 
-  return new WorkspaceResolvingMarkdownBackend(backendConfig, resolutionResult);
+  return new ConfigurableMarkdownBackend(backendConfig, resolutionResult);
 }
 
 /**

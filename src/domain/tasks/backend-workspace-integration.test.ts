@@ -172,7 +172,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
 });
 
 /**
- * Tests for improved architecture (using the new workspace-resolving backends)
+ * Tests for improved architecture (using the new enhanced backends)
  */
 describe("Target Backend Architecture - Self-Contained Workspace Resolution", () => {
   let tempDir: string;
@@ -186,11 +186,11 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  describe("Workspace-Resolving Markdown Backend", () => {
+  describe("Enhanced Markdown Backend", () => {
     test("should handle workspace resolution internally with explicit path", async () => {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("../workspace-resolving-markdown-backend");
+      const { createMarkdownBackend } = await import("../markdown-backend");
       
-      const backend = await createWorkspaceResolvingMarkdownBackend({
+      const backend = await createMarkdownBackend({
         name: "markdown",
         workspacePath: tempDir
       });
@@ -204,9 +204,9 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should handle current directory workspace resolution", async () => {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("../workspace-resolving-markdown-backend");
+      const { createMarkdownBackend } = await import("../markdown-backend");
       
-      const backend = await createWorkspaceResolvingMarkdownBackend({
+      const backend = await createMarkdownBackend({
         name: "markdown"
         // No explicit config - should use current directory
       });
@@ -220,9 +220,9 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should handle special workspace resolution with repo URL", async () => {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("../workspace-resolving-markdown-backend");
+      const { createMarkdownBackend } = await import("../markdown-backend");
       
-      const backend = await createWorkspaceResolvingMarkdownBackend({
+      const backend = await createMarkdownBackend({
         name: "markdown",
         repoUrl: "https://github.com/test/repo.git"
       });
@@ -236,9 +236,9 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should work with task operations", async () => {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("../workspace-resolving-markdown-backend");
+      const { createMarkdownBackend } = await import("../markdown-backend");
       
-      const backend = await createWorkspaceResolvingMarkdownBackend({
+      const backend = await createMarkdownBackend({
         name: "markdown",
         workspacePath: tempDir
       });
@@ -255,10 +255,10 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
   describe("Simplified Workflow", () => {
     test("should eliminate external workspace resolution for explicit paths", async () => {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("../workspace-resolving-markdown-backend");
+      const { createMarkdownBackend } = await import("../markdown-backend");
       
       // One-step creation - no resolveTaskWorkspacePath needed
-      const backend = await createWorkspaceResolvingMarkdownBackend({
+      const backend = await createMarkdownBackend({
         name: "markdown",
         workspacePath: tempDir
       });
@@ -275,10 +275,10 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     });
 
     test("should eliminate external workspace resolution for repo URLs", async () => {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("../workspace-resolving-markdown-backend");
+      const { createMarkdownBackend } = await import("../markdown-backend");
       
       // One-step creation with repo URL
-      const backend = await createWorkspaceResolvingMarkdownBackend({
+      const backend = await createMarkdownBackend({
         name: "markdown",
         repoUrl: "https://github.com/test/repo.git"
       });
@@ -292,7 +292,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       expect(resolutionInfo.method).toBe("special-workspace");
     });
 
-    test("should enable complete TaskService workflow with workspace-resolving backends", async () => {
+    test("should enable complete TaskService workflow with enhanced backends", async () => {
       const { TaskService } = await import("../taskService");
       
       // Complete workflow test - from configuration to task operations
@@ -342,7 +342,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       const { TaskService } = await import("../taskService");
       
       // Full configuration pattern
-      const taskService = await TaskService.createWithWorkspaceResolvingBackend({
+      const taskService = await TaskService.createWithEnhancedBackend({
         backend: "markdown",
         backendConfig: {
           name: "markdown",
