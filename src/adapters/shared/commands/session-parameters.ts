@@ -30,20 +30,10 @@ export const sessionListCommandParams: CommandParameterMap = {
  * Parameters for the session get command
  */
 export const sessionGetCommandParams: CommandParameterMap = {
-  name: {
+  session: {
     schema: z.string().min(1),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
+    description: "Session identifier (name or task ID)",
+    required: true,
   },
   json: {
     schema: z.boolean(),
@@ -117,20 +107,10 @@ export const sessionStartCommandParams: CommandParameterMap = {
  * Parameters for the session dir command
  */
 export const sessionDirCommandParams: CommandParameterMap = {
-  name: {
+  session: {
     schema: z.string().min(1),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
+    description: "Session identifier (name or task ID)",
+    required: true,
   },
   json: {
     schema: z.boolean(),
@@ -144,30 +124,20 @@ export const sessionDirCommandParams: CommandParameterMap = {
  * Parameters for the session delete command
  */
 export const sessionDeleteCommandParams: CommandParameterMap = {
-  name: {
+  session: {
     schema: z.string().min(1),
-    description: "Session name to delete",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
+    description: "Session identifier (name or task ID)",
+    required: true,
   },
   force: {
     schema: z.boolean(),
     description: "Skip confirmation prompt",
+    required: false,
+    defaultValue: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output in JSON format",
     required: false,
     defaultValue: false,
   },
@@ -177,31 +147,15 @@ export const sessionDeleteCommandParams: CommandParameterMap = {
  * Parameters for the session update command
  */
 export const sessionUpdateCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string(),
-    description: "Session name to update",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
+  session: {
+    schema: z.string().min(1),
+    description: "Session identifier (name or task ID)",
+    required: true,
   },
   branch: {
     schema: z.string(),
     description: "Update branch name",
     required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
   },
   noStash: {
     schema: z.boolean(),
@@ -245,36 +199,32 @@ export const sessionUpdateCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-};
-
-/**
- * Parameters for the session approve command
- */
-export const sessionApproveCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string(),
-    description: "Session name to approve",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
   json: {
     schema: z.boolean(),
     description: "Output in JSON format",
     required: false,
     defaultValue: false,
   },
+};
+
+/**
+ * Parameters for the session approve command
+ */
+export const sessionApproveCommandParams: CommandParameterMap = {
+  session: {
+    schema: z.string().min(1),
+    description: "Session identifier (name or task ID)",
+    required: true,
+  },
   noStash: {
     schema: z.boolean(),
     description: "Skip automatic stashing of uncommitted changes",
+    required: false,
+    defaultValue: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output in JSON format",
     required: false,
     defaultValue: false,
   },
