@@ -1,8 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { createMarkdownTaskBackend } from "../markdownTaskBackend";
-import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
-import { TaskService } from "../taskService";
-import { resolveTaskWorkspacePath } from "../../../utils/workspace-resolver";
+import { createMarkdownTaskBackend } from "./markdownTaskBackend";
+import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { TaskService } from "./taskService";
+import { resolveTaskWorkspacePath } from "../../utils/workspace-resolver";
 import { rmSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -10,13 +10,13 @@ import { tmpdir } from "os";
 /**
  * Integration tests for current backend workspace resolution behavior.
  * These tests capture the existing behavior before architectural refactoring.
- * 
+ *
  * Current Architecture Problems:
  * 1. External code determines workspace path
- * 2. TaskBackendRouter re-determines workspace requirements  
+ * 2. TaskBackendRouter re-determines workspace requirements
  * 3. Complex routing logic with prototype checking
  * 4. Separation between backend creation and workspace resolution
- * 
+ *
  * Target Architecture:
  * 1. Backends handle their own workspace resolution
  * 2. No external router needed
@@ -37,11 +37,11 @@ describe("Backend Workspace Integration - Current Behavior", () => {
   describe("Current Markdown Backend Behavior", () => {
     test.skip("markdown backend should use special workspace when no local tasks.md", async () => {
       // Current behavior: resolveTaskWorkspacePath determines workspace
-      const workspacePath = await resolveTaskWorkspacePath({ 
+      const workspacePath = await resolveTaskWorkspacePath({
         backend: "markdown",
         repoUrl: "https://github.com/test/repo.git"
       });
-      
+
       // Workspace should be special workspace path, not current dir
       expect(workspacePath).not.toBe((process as any).cwd());
       expect(workspacePath).toContain("task-operations");
@@ -74,17 +74,17 @@ describe("Backend Workspace Integration - Current Behavior", () => {
 
   describe("Current JSON Backend Behavior", () => {
     test("json backend should use current directory for external files", async () => {
-      const workspacePath = await resolveTaskWorkspacePath({ 
+      const workspacePath = await resolveTaskWorkspacePath({
         backend: "json-file"
       });
-      
+
       // JSON backend uses current directory
       expect(workspacePath).toBe((process as any).cwd());
     });
 
     test("json backend should work with resolved workspace", () => {
       const backend = createJsonFileTaskBackend({
-        name: "json-file", 
+        name: "json-file",
         workspacePath: tempDir,
         dbFilePath: join(tempDir, "tasks.json")
       });
@@ -98,7 +98,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
     test("should work with pre-resolved workspace for markdown", async () => {
       // Simulate current command pattern
       const workspacePath = tempDir;
-      
+
       const taskService = new TaskService({
         workspacePath,
         backend: "markdown"
@@ -112,7 +112,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
 
     test("should work with pre-resolved workspace for json", async () => {
       const workspacePath = tempDir;
-      
+
       const taskService = new TaskService({
         workspacePath,
         backend: "json-file"
@@ -152,7 +152,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
       // Note: Cannot test process.chdir in this environment
       // This test documents the current behavior where markdown backend
       // checks for local tasks.md file existence
-      
+
       const workspacePath = await resolveTaskWorkspacePath({
         backend: "markdown",
         repoUrl: "https://github.com/test/repo.git"
@@ -160,7 +160,7 @@ describe("Backend Workspace Integration - Current Behavior", () => {
 
       // Should still use special workspace for consistency
       expect(workspacePath).toContain("task-operations");
-      
+
       const taskService = new TaskService({
         workspacePath,
         backend: "markdown"
@@ -188,8 +188,8 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
   describe("Enhanced Markdown Backend", () => {
     test("should handle workspace resolution internally with explicit path", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
-      
+      const { createMarkdownBackend } = await import("./markdown-backend");
+
       const backend = await createMarkdownBackend({
         name: "markdown",
         workspacePath: tempDir
@@ -197,15 +197,15 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
       expect(backend.name).toBe("markdown");
       expect(backend.getWorkspacePath()).toBe(tempDir);
-      
+
       // Should provide resolution info
       const resolutionInfo = (backend as any).getWorkspaceResolutionInfo();
       expect(resolutionInfo.method).toBe("explicit");
     });
 
     test("should handle current directory workspace resolution", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
-      
+      const { createMarkdownBackend } = await import("./markdown-backend");
+
       const backend = await createMarkdownBackend({
         name: "markdown"
         // No explicit config - should use current directory
@@ -213,20 +213,14 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
       expect(backend.name).toBe("markdown");
       expect(backend.getWorkspacePath()).toBe((process as any).cwd());
-      
+
       const resolutionInfo = (backend as any).getWorkspaceResolutionInfo();
-      // In session workspace, it detects existing tasks.md file
-      expect(resolutionInfo.method).toBe("local-tasks-md");
+      expect(resolutionInfo.method).toBe("current-directory");
     });
 
-<<<<<<< HEAD:src/domain/tasks/__tests__/backend-workspace-integration.test.ts
     test.skip("should handle special workspace resolution with repo URL", async () => {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("../workspace-resolving-markdown-backend");
-=======
-    test("should handle special workspace resolution with repo URL", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
->>>>>>> origin/main:src/domain/tasks/backend-workspace-integration.test.ts
-      
+      const { createMarkdownBackend } = await import("./markdown-backend");
+
       const backend = await createMarkdownBackend({
         name: "markdown",
         repoUrl: "https://github.com/test/repo.git"
@@ -234,15 +228,15 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
       expect(backend.name).toBe("markdown");
       expect(backend.getWorkspacePath()).toContain("task-operations");
-      
+
       const resolutionInfo = (backend as any).getWorkspaceResolutionInfo();
       expect(resolutionInfo.method).toBe("special-workspace");
       expect(resolutionInfo.description).toContain("https://github.com/test/repo.git");
     });
 
     test("should work with task operations", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
-      
+      const { createMarkdownBackend } = await import("./markdown-backend");
+
       const backend = await createMarkdownBackend({
         name: "markdown",
         workspacePath: tempDir
@@ -251,7 +245,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       // Core functionality test - backend should be created successfully
       expect(backend.name).toBe("markdown");
       expect(backend.getWorkspacePath()).toBe(tempDir);
-      
+
       // Verify resolution info
       const resolutionInfo = (backend as any).getWorkspaceResolutionInfo();
       expect(resolutionInfo.method).toBe("explicit");
@@ -260,8 +254,8 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
   describe("Simplified Workflow", () => {
     test("should eliminate external workspace resolution for explicit paths", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
-      
+      const { createMarkdownBackend } = await import("./markdown-backend");
+
       // One-step creation - no resolveTaskWorkspacePath needed
       const backend = await createMarkdownBackend({
         name: "markdown",
@@ -272,21 +266,16 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       // Backend handles everything internally
       expect(backend.name).toBe("markdown");
       expect(backend.getWorkspacePath()).toBe(tempDir);
-      
+
       // Verify workspace resolution happened correctly
       const resolutionInfo = (backend as any).getWorkspaceResolutionInfo();
       expect(resolutionInfo.workspacePath).toBe(tempDir);
       expect(resolutionInfo.method).toBe("explicit");
     });
 
-<<<<<<< HEAD:src/domain/tasks/__tests__/backend-workspace-integration.test.ts
     test.skip("should eliminate external workspace resolution for repo URLs", async () => {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("../workspace-resolving-markdown-backend");
-=======
-    test("should eliminate external workspace resolution for repo URLs", async () => {
-      const { createMarkdownBackend } = await import("../markdown-backend");
->>>>>>> origin/main:src/domain/tasks/backend-workspace-integration.test.ts
-      
+      const { createMarkdownBackend } = await import("./markdown-backend");
+
       // One-step creation with repo URL
       const backend = await createMarkdownBackend({
         name: "markdown",
@@ -296,15 +285,15 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       // Backend resolved workspace internally
       expect(backend.getWorkspacePath()).toContain("task-operations");
       expect(backend.name).toBe("markdown");
-      
+
       // Verify it used special workspace
       const resolutionInfo = (backend as any).getWorkspaceResolutionInfo();
       expect(resolutionInfo.method).toBe("special-workspace");
     });
 
     test("should enable complete TaskService workflow with enhanced backends", async () => {
-      const { TaskService } = await import("../taskService");
-      
+      const { TaskService } = await import("./taskService");
+
       // Complete workflow test - from configuration to task operations
       const taskService = await TaskService.createMarkdownWithWorkspace({
         workspacePath: tempDir
@@ -314,14 +303,14 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       expect(taskService).toBeDefined();
       const tasks = await taskService.listTasks();
       expect(Array.isArray(tasks)).toBe(true);
-      
+
       // Should have proper workspace
       expect(taskService.getWorkspacePath()).toBe(tempDir);
     });
 
     test.skip("should support repository-based TaskService creation", async () => {
-      const { TaskService } = await import("../taskService");
-      
+      const { TaskService } = await import("./taskService");
+
       // Repository-based creation
       const taskService = await TaskService.createMarkdownWithRepo({
         repoUrl: "https://github.com/test/repo.git"
@@ -330,27 +319,27 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       // Should work with special workspace
       expect(taskService).toBeDefined();
       expect(taskService.getWorkspacePath()).toContain("task-operations");
-      
+
       const tasks = await taskService.listTasks();
       expect(Array.isArray(tasks)).toBe(true);
     });
 
     test("should support auto-detection TaskService creation", async () => {
-      const { TaskService } = await import("../taskService");
-      
+      const { TaskService } = await import("./taskService");
+
       // Auto-detection creation (uses current workspace)
       const taskService = await TaskService.createMarkdownWithAutoDetection();
 
       expect(taskService).toBeDefined();
       expect(taskService.getWorkspacePath()).toBe((process as any).cwd());
-      
+
       const tasks = await taskService.listTasks();
       expect(Array.isArray(tasks)).toBe(true);
     });
 
     test("should support full configuration pattern", async () => {
-      const { TaskService } = await import("../taskService");
-      
+      const { TaskService } = await import("./taskService");
+
       // Full configuration pattern
       const taskService = await TaskService.createWithEnhancedBackend({
         backend: "markdown",
@@ -363,9 +352,9 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
 
       expect(taskService).toBeDefined();
       expect(taskService.getWorkspacePath()).toBe(tempDir);
-      
+
       const tasks = await taskService.listTasks();
       expect(Array.isArray(tasks)).toBe(true);
     });
   });
-}); 
+});
