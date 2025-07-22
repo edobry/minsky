@@ -3,6 +3,7 @@ import { normalizeRepoName } from "../../repo-utils";
 import { createSessionProvider } from "../../session";
 import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";
+import { execGitWithTimeout } from "../../../utils/git-exec";
 import { promisify } from "node:util";
 import { exec } from "node:child_process";
 
@@ -86,8 +87,8 @@ export async function rebaseFromParams(params: {
   
   // Perform the rebase
   try {
-    const { stdout, stderr } = await execAsync(`git rebase ${params.baseBranch}`, {
-      cwd: repoPath,
+    const { stdout, stderr } = await execGitWithTimeout("rebase-command", `rebase ${params.baseBranch}`, {
+      workdir: repoPath,
       timeout: 60000,
     });
     
