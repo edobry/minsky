@@ -87,23 +87,34 @@ export function registerSessionCommands(): void {
     id: "session.get",
     category: CommandCategory.SESSION,
     name: "get",
-    description: "Get details of a specific session",
-    parameters: sessionGetCommandParams,
+    description: "Get a specific session by name or task ID",
+    parameters: {
+      ...sessionGetCommandParams,
+      // Add backward compatible parameters for CLI
+      name: {
+        schema: z.string(),
+        description: "Session name",
+        required: false,
+      },
+      task: {
+        schema: z.string(),
+        description: "Task ID associated with the session",
+        required: false,
+      }
+    },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.get command", { params, context });
 
+      // CLI compatibility: map name or task to session if not provided
+      if (!params!.session && (params!.name || params!.task)) {
+        params!.session = params!.name || params!.task;
+      }
+
       try {
         const session = await sessionGet({
-          name: params!.name,
-          task: params!.task,
-          repo: params!.repo,
+          session: params!.session,
           json: params!.json,
         });
-
-        if (!session) {
-          const identifier = params!.name || `task #${params!.task}`;
-          throw new Error(`Session '${identifier}' not found`);
-        }
 
         return {
           success: true,
@@ -112,8 +123,7 @@ export function registerSessionCommands(): void {
       } catch (error) {
         log.error("Failed to get session", {
           error: getErrorMessage(error as Error),
-          session: params!.name,
-          task: params!.task,
+          session: params!.session,
         });
         throw error;
       }
@@ -185,6 +195,12 @@ Examples:
         schema: z.string(),
         description: "Repository path",
         required: false,
+      },
+      // Remove the session parameter
+      sessionname: {
+        schema: z.string().min(1),
+        description: "Session name (for MCP)",
+        required: false
       }
     },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
@@ -194,12 +210,10 @@ Examples:
       if (!params!.sessionname && (params!.name || params!.task)) {
         params!.sessionname = params!.name || params!.task;
       }
-      
+
       try {
         const directory = await sessionDir({
           sessionname: params!.sessionname,
-          name: params!.name,
-          task: params!.task,
           json: params!.json,
         });
 
@@ -210,7 +224,7 @@ Examples:
       } catch (error) {
         log.debug("Failed to get session directory", {
           error: getErrorMessage(error as Error),
-          sessionname: params!.sessionname,
+          session: params!.sessionname,
         });
         throw error;
       }
@@ -223,9 +237,32 @@ Examples:
     category: CommandCategory.SESSION,
     name: "delete",
     description: "Delete a session",
-    parameters: sessionDeleteCommandParams,
+    parameters: {
+      ...sessionDeleteCommandParams,
+      // Add backward compatible parameters for CLI
+      name: {
+        schema: z.string().min(1),
+        description: "Session name",
+        required: false,
+      },
+      task: {
+        schema: z.string(),
+        description: "Task ID associated with the session",
+        required: false,
+      },
+      repo: {
+        schema: z.string(),
+        description: "Repository path",
+        required: false,
+      }
+    },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.delete command", { params, context });
+
+      // CLI compatibility: map name or task to session if not provided
+      if (!params!.session && (params!.name || params!.task)) {
+        params!.session = params!.name || params!.task;
+      }
 
       try {
         const deleted = await sessionDelete({
@@ -254,9 +291,32 @@ Examples:
     category: CommandCategory.SESSION,
     name: "update",
     description: "Update a session",
-    parameters: sessionUpdateCommandParams,
+    parameters: {
+      ...sessionUpdateCommandParams,
+      // Add backward compatible parameters for CLI
+      name: {
+        schema: z.string(),
+        description: "Session name",
+        required: false,
+      },
+      task: {
+        schema: z.string(),
+        description: "Task ID associated with the session",
+        required: false,
+      },
+      repo: {
+        schema: z.string(),
+        description: "Repository path",
+        required: false,
+      }
+    },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.update command", { params, context });
+
+      // CLI compatibility: map name or task to session if not provided
+      if (!params!.session && (params!.name || params!.task)) {
+        params!.session = params!.name || params!.task;
+      }
 
       try {
         await sessionUpdate({
@@ -292,9 +352,32 @@ Examples:
     category: CommandCategory.SESSION,
     name: "approve",
     description: "Approve a session pull request",
-    parameters: sessionApproveCommandParams,
+    parameters: {
+      ...sessionApproveCommandParams,
+      // Add backward compatible parameters for CLI
+      name: {
+        schema: z.string(),
+        description: "Session name",
+        required: false,
+      },
+      task: {
+        schema: z.string(),
+        description: "Task ID associated with the session",
+        required: false,
+      },
+      repo: {
+        schema: z.string(),
+        description: "Repository path",
+        required: false,
+      }
+    },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.approve command", { params, context });
+
+      // CLI compatibility: map name or task to session if not provided
+      if (!params!.session && (params!.name || params!.task)) {
+        params!.session = params!.name || params!.task;
+      }
 
       try {
         const result = (await sessionApprove({
@@ -303,10 +386,9 @@ Examples:
           json: params!.json,
         })) as unknown;
 
-        return {
-          success: true,
-          result,
-        };
+        log.debug("Session approve result", { result });
+
+        return result;
       } catch (error) {
         log.error("Failed to approve session", {
           error: getErrorMessage(error as Error),
@@ -323,16 +405,39 @@ Examples:
     category: CommandCategory.SESSION,
     name: "pr",
     description: "Create a pull request for a session",
-    parameters: sessionPrCommandParams,
+    parameters: {
+      ...sessionPrCommandParams,
+      // Add backward compatible parameters for CLI
+      name: {
+        schema: z.string(),
+        description: "Session name",
+        required: false,
+      },
+      task: {
+        schema: z.string(),
+        description: "Task ID associated with the session",
+        required: false,
+      },
+      repo: {
+        schema: z.string(),
+        description: "Repository path",
+        required: false,
+      }
+    },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.pr command", { params, context });
+
+      // CLI compatibility: map name or task to session if not provided
+      if (!params!.session && (params!.name || params!.task)) {
+        params!.session = params!.name || params!.task;
+      }
 
       // Check if we need body/bodyPath for new PRs (keep existing PR branch logic)
       if (!params!.body && !params!.bodyPath) {
         // Import gitService for validation
         const { createGitService } = await import("../../../domain/git.js");
         const { SessionPathResolver } = await import("../../mcp/session-files.js");
-        
+
         const gitService = createGitService();
         const pathResolver = new SessionPathResolver();
         const prBranch = `pr/${params!.session}`;
@@ -361,9 +466,16 @@ Examples:
               );
               prBranchExists = remoteBranchOutput.trim().length > 0;
             }
-          } catch (error) {
-            // If we can't check branch existence, assume it doesn't exist
-            prBranchExists = false;
+
+            log.debug(`PR branch check: ${prBranchExists ? "exists" : "does not exist"}`, {
+              prBranch,
+              sessionWorkspacePath
+            });
+          } catch (branchCheckError) {
+            log.debug("Failed to check PR branch existence", {
+              error: getErrorMessage(branchCheckError as Error),
+              prBranch
+            });
           }
 
           if (!prBranchExists) {
@@ -385,7 +497,7 @@ Example:
       }
 
       try {
-        const result = (await sessionPr({
+        const result = await sessionPr({
           title: params!.title,
           body: params!.body,
           bodyPath: params!.bodyPath,
@@ -393,92 +505,17 @@ Example:
           noStatusUpdate: params!.noStatusUpdate,
           debug: params!.debug,
           skipUpdate: params!.skipUpdate,
-          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
           skipConflictCheck: params!.skipConflictCheck,
-        })) as Record<string, any>;
+          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
+        });
 
-        return {
-          success: true,
-          ...result,
-        };
+        return result;
       } catch (error) {
-        // Instead of just logging and rethrowing, provide user-friendly error messages
-        const errorMessage = getErrorMessage(error as Error);
-
-        // Handle specific error types with friendly messages
-        if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
-          throw new MinskyError(
-            `🔥 Git merge conflict detected while creating PR branch.
-
-This usually happens when:
-• The PR branch already exists with different content
-• There are conflicting changes between your session and the base branch
-
-💡 Quick fixes:
-• Try with --skip-update to avoid session updates
-• Or manually resolve conflicts and retry
-
-Technical details: ${errorMessage}`
-          );
-        } else if (errorMessage.includes("Failed to create prepared merge commit")) {
-          throw new MinskyError(
-            `❌ Failed to create PR branch merge commit.
-
-This could be due to:
-• Merge conflicts between your session branch and base branch
-• Remote PR branch already exists with different content
-• Network issues with git operations
-
-💡 Try these solutions:
-• Run 'git status' to check for conflicts
-• Use --skip-update to bypass session updates
-• Check your git remote connection
-
-Technical details: ${errorMessage}`
-          );
-        } else if (
-          errorMessage.includes("Permission denied") ||
-          errorMessage.includes("authentication")
-        ) {
-          throw new MinskyError(
-            `🔐 Git authentication error.
-
-Please check:
-• Your SSH keys are properly configured
-• You have push access to the repository
-• Your git credentials are valid
-
-Technical details: ${errorMessage}`
-          );
-        } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
-          throw new MinskyError(
-            `🔍 Session not found.
-
-The session '${params!.name || params!.task}' could not be located.
-
-💡 Try:
-• Check available sessions: minsky session list
-• Verify you're in the correct directory
-• Use the correct session name or task ID
-
-Technical details: ${errorMessage}`
-          );
-        } else {
-          // For other errors, provide a general helpful message
-          throw new MinskyError(
-            `❌ Failed to create session PR.
-
-The operation failed with: ${errorMessage}
-
-💡 Troubleshooting:
-• Check that you're in a session workspace
-• Verify all files are committed
-• Try running with --debug for more details
-• Check 'minsky session list' to see available sessions
-
-Need help? Run the command with --debug for detailed error information.`
-          );
-        }
+        log.error("Failed to create PR for session", {
+          error: getErrorMessage(error as Error),
+          session: params!.session,
+        });
+        throw error;
       }
     },
   });

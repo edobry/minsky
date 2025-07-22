@@ -34,6 +34,8 @@ export interface ParameterMappingOptions {
   variadic?: boolean;
   /** Whether to treat this as a CLI argument instead of option */
   asArgument?: boolean;
+  /** Map this parameter to a different parameter in the command execution */
+  mapTo?: string;
 }
 
 /**
