@@ -548,6 +548,6 @@
 
 - [x] Fix meta-cognitive boundary protocol violations: remove workspace-resolving prefixes, use simple names like markdown-backend.ts [#309](process/tasks/309-fix-meta-cognitive-boundary-protocol-violations-remove-workspace-resolving-prefixes-use-simple-names-like-markdown-backend-ts.md)
 
-- [ ] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
+- [x] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
 
 - [ ] Enable max-lines ESLint rule with two-phase approach (400 warning, 1500 error) [#316](process/tasks/316-enable-max-lines-eslint-rule-with-two-phase-approach-400-warning-1500-error-.md)
