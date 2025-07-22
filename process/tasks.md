@@ -557,3 +557,5 @@
 - [ ] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
 
 - [ ] Implement External Task Database for Metadata Storage [#315](process/tasks/315-implement-external-task-database-for-metadata-storage.md)
+
+- [ ] Enable max-lines ESLint rule with two-phase approach (400 warning, 1500 error) [#316](process/tasks/316-enable-max-lines-eslint-rule-with-two-phase-approach-400-warning-1500-error-.md)
