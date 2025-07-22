@@ -126,7 +126,6 @@ The shared command registry architecture that currently supports MCP can be exte
 - Potential for API versioning and backwards compatibility
 - Considerations for rate limiting, caching, and scaling standard API endpoints
 
-
 ## Requirements
 
 [To be filled in]

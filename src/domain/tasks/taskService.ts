@@ -137,10 +137,12 @@ export class TaskService {
   async getTask(id: string): Promise<TaskData | null> {
     const tasks = await this.getAllTasks();
     const normalizedId = normalizeTaskId(id) || id;
-    return tasks.find((task) => {
-      const taskNormalizedId = normalizeTaskId(task.id) || task.id;
-      return taskNormalizedId === normalizedId || task.id === id;
-    }) || null;
+    return (
+      tasks.find((task) => {
+        const taskNormalizedId = normalizeTaskId(task.id) || task.id;
+        return taskNormalizedId === normalizedId || task.id === id;
+      }) || null
+    );
   }
 
   /**
@@ -160,8 +162,8 @@ export class TaskService {
     }
 
     // Try both storage format and legacy display format during transition
-    const taskIndex = tasks.findIndex((task) =>
-      task.id === storageId || task.id === `#${storageId}`
+    const taskIndex = tasks.findIndex(
+      (task) => task.id === storageId || task.id === `#${storageId}`
     );
 
     if (taskIndex === -1) {
@@ -225,8 +227,8 @@ export class TaskService {
     }
 
     // Try both storage format and legacy display format during transition
-    const taskIndex = tasks.findIndex((task) =>
-      task.id === storageId || task.id === `#${storageId}`
+    const taskIndex = tasks.findIndex(
+      (task) => task.id === storageId || task.id === `#${storageId}`
     );
 
     if (taskIndex === -1) {
@@ -285,7 +287,8 @@ export class TaskService {
    * @param specPath Task specification path
    * @returns Promise resolving to task specification data
    */
-  async getTaskSpecData(specPath: string): Promise<any> { // Assuming TaskSpecData is a type defined elsewhere or not needed here
+  async getTaskSpecData(specPath: string): Promise<any> {
+    // Assuming TaskSpecData is a type defined elsewhere or not needed here
     const specResult = await this.currentBackend.getTaskSpecData(specPath);
     if (!specResult.success) {
       throw new Error(`Failed to get task spec: ${specResult.error?.message}`);
@@ -331,7 +334,10 @@ export class TaskService {
 
     // Format and save updated tasks
     const formattedContent = this.currentBackend.formatTasks(tasks);
-    const saveResult = await this.currentBackend.saveTasksData(formattedContent, tasksResult.filePath);
+    const saveResult = await this.currentBackend.saveTasksData(
+      formattedContent,
+      tasksResult.filePath
+    );
 
     if (!saveResult.success) {
       throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
@@ -442,7 +448,11 @@ export class TaskService {
     options: CreateTaskOptions = {}
   ): Promise<TaskData> {
     // Delegate to the current backend
-    const task = await this.currentBackend.createTaskFromTitleAndDescription(title, description, options);
+    const task = await this.currentBackend.createTaskFromTitleAndDescription(
+      title,
+      description,
+      options
+    );
 
     // Convert the backend Task to TaskData format for consistency
     return {
@@ -515,7 +525,10 @@ export class TaskService {
   private async tryCreateGitHubBackend(workspacePath: string): Promise<TaskBackend | null> {
     try {
       // Dynamic import to avoid hard dependency on GitHub modules
-      const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([import("./githubBackendConfig"), import("./githubIssuesTaskBackend")]);
+      const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
+        import("./githubBackendConfig"),
+        import("./githubIssuesTaskBackend"),
+      ]);
 
       const config = getGitHubBackendConfig(workspacePath);
       if (!config) {
@@ -578,51 +591,51 @@ ${description}
     log.debug("Creating TaskService with enhanced backend", {
       backend,
       hasConfig: !!backendConfig,
-      hasCustomBackends: !!customBackends
+      hasCustomBackends: !!customBackends,
     });
 
     // If custom backends provided, use traditional pattern
     if (customBackends) {
       return new TaskService({
         customBackends,
-        backend
+        backend,
       });
     }
 
     // Create enhanced backend based on type
     let resolvedBackend: any;
-    
+
     switch (backend) {
-    case "markdown": {
-      if (!backendConfig) {
-        throw new Error("Backend configuration required for markdown backend");
+      case "markdown": {
+        if (!backendConfig) {
+          throw new Error("Backend configuration required for markdown backend");
+        }
+
+        const { createMarkdownBackend } = await import("./markdown-backend");
+        resolvedBackend = await createMarkdownBackend(backendConfig);
+        break;
       }
-        
-      const { createMarkdownBackend } = await import("./markdown-backend");
-      resolvedBackend = await createMarkdownBackend(backendConfig);
-      break;
-    }
-      
-    case "json-file": {
-      if (!backendConfig) {
-        throw new Error("Backend configuration required for json-file backend");
+
+      case "json-file": {
+        if (!backendConfig) {
+          throw new Error("Backend configuration required for json-file backend");
+        }
+
+        const { createJsonBackendWithConfig } = await import("./jsonFileTaskBackend");
+        resolvedBackend = await createJsonBackendWithConfig(backendConfig);
+        break;
       }
-        
-      const { createJsonBackendWithConfig } = await import("./jsonFileTaskBackend");
-      resolvedBackend = await createJsonBackendWithConfig(backendConfig);
-      break;
-    }
-      
-    default: {
-      throw new Error(`Enhanced backend not available for type: ${backend}`);
-    }
+
+      default: {
+        throw new Error(`Enhanced backend not available for type: ${backend}`);
+      }
     }
 
     // Create TaskService with the resolved backend
     return new TaskService({
       workspacePath: resolvedBackend.getWorkspacePath(),
       backend,
-      customBackends: [resolvedBackend]
+      customBackends: [resolvedBackend],
     });
   }
 
@@ -638,8 +651,8 @@ ${description}
       backendConfig: {
         name: "markdown",
         repoUrl: config.repoUrl,
-        forceSpecialWorkspace: config.forceSpecialWorkspace
-      }
+        forceSpecialWorkspace: config.forceSpecialWorkspace,
+      },
     });
   }
 
@@ -653,8 +666,8 @@ ${description}
       backend: "markdown",
       backendConfig: {
         name: "markdown",
-        workspacePath: config.workspacePath
-      }
+        workspacePath: config.workspacePath,
+      },
     });
   }
 
@@ -665,9 +678,9 @@ ${description}
     return TaskService.createWithEnhancedBackend({
       backend: "markdown",
       backendConfig: {
-        name: "markdown"
+        name: "markdown",
         // No explicit config - will auto-detect workspace
-      }
+      },
     });
   }
 
@@ -683,8 +696,8 @@ ${description}
       backendConfig: {
         name: "json-file",
         repoUrl: config.repoUrl,
-        dbFilePath: config.dbFilePath
-      }
+        dbFilePath: config.dbFilePath,
+      },
     });
   }
 
@@ -700,27 +713,24 @@ ${description}
       backendConfig: {
         name: "json-file",
         workspacePath: config.workspacePath,
-        dbFilePath: config.dbFilePath
-      }
+        dbFilePath: config.dbFilePath,
+      },
     });
   }
 
   /**
    * Convenience method for JSON backend with auto-detection
    */
-  static async createJsonWithAutoDetection(config?: {
-    dbFilePath?: string;
-  }): Promise<TaskService> {
+  static async createJsonWithAutoDetection(config?: { dbFilePath?: string }): Promise<TaskService> {
     return TaskService.createWithEnhancedBackend({
       backend: "json-file",
       backendConfig: {
         name: "json-file",
-        dbFilePath: config?.dbFilePath
+        dbFilePath: config?.dbFilePath,
         // No explicit workspace config - will auto-detect workspace
-      }
+      },
     });
   }
-
 }
 
 /**

@@ -13,12 +13,14 @@ MEDIUM
 ## Objectives
 
 1. **Improve MCP Error Handling**
+
    - Standardize error response format across all MCP tools
    - Enhance error messages with better context and actionability
    - Prevent stack trace leaks in production MCP responses
    - Add field-specific validation error messages
 
 2. **Document MCP Architecture**
+
    - Document shared command integration bridge mechanics
    - Explain parameter filtering and schema conversion process
    - Create guide for adding new commands with MCP support
@@ -34,6 +36,7 @@ MEDIUM
 ## Context
 
 Recent investigation into MCP tool registration issues revealed several areas needing improvement:
+
 - Error handling lacks standardization and context
 - Architecture documentation is incomplete
 - CLI/MCP consistency may have gaps despite Task #097
@@ -45,16 +48,19 @@ This follows up on the work completed in fixing MCP tool registration issues (re
 ### Phase 1: MCP Error Handling Improvements
 
 1. **Standardize Error Response Format**
+
    - Create consistent error response schema for all MCP tools
    - Include error codes, messages, and contextual information
    - Ensure errors are properly typed and serializable
 
 2. **Enhanced Error Messages**
+
    - Add specific context about what operation failed
    - Include suggestions for resolution where possible
    - Provide clear distinction between user errors vs system errors
 
 3. **Security Considerations**
+
    - Prevent stack traces from leaking in production
    - Sanitize error messages to avoid exposing internal paths
    - Log detailed errors server-side while showing safe messages to clients
@@ -67,11 +73,13 @@ This follows up on the work completed in fixing MCP tool registration issues (re
 ### Phase 2: MCP Architecture Documentation
 
 1. **Bridge Mechanics Documentation**
+
    - Document how shared commands work in MCP context
    - Explain parameter transformation and filtering
    - Detail schema conversion from command definitions to MCP tools
 
 2. **Developer Guide**
+
    - Step-by-step guide for adding new MCP-enabled commands
    - Best practices for parameter design
    - Testing strategies for MCP tools
@@ -84,16 +92,19 @@ This follows up on the work completed in fixing MCP tool registration issues (re
 ### Phase 3: CLI/MCP Consistency Audit
 
 1. **Task #097 Implementation Review**
+
    - Verify option-descriptions.ts is properly used
    - Check if shared command integration leverages centralized descriptions
    - Identify any gaps in the original implementation
 
 2. **Consistency Verification**
+
    - Compare CLI help output with MCP tool descriptions
    - Verify parameter names and types match between interfaces
    - Check that required/optional parameter handling is consistent
 
 3. **Remediation**
+
    - Fix any inconsistencies found during audit
    - Update shared command integration if needed
    - Ensure centralized descriptions are properly utilized
@@ -149,7 +160,6 @@ This follows up on the work completed in fixing MCP tool registration issues (re
 2. **Documentation**: Complete architectural understanding and developer guidance
 3. **Consistency**: Perfect alignment between CLI and MCP interfaces
 4. **Maintainability**: Clear processes for maintaining consistency going forward
-
 
 ## Requirements
 

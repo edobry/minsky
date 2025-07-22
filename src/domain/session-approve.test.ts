@@ -2,7 +2,11 @@ import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
-import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/dependencies";
+import {
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+} from "../utils/test-utils/dependencies";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
 // Mock logger
@@ -11,11 +15,11 @@ const mockLog = {
   info: mock(() => {}),
   warn: mock(() => {}),
   error: mock(() => {}),
-  cli: mock(() => {})
+  cli: mock(() => {}),
 };
 
 mock.module("../utils/logger", () => ({
-  log: mockLog
+  log: mockLog,
 }));
 
 const TEST_VALUE = 123;
@@ -26,12 +30,13 @@ describe("Session Approve", () => {
     let getSessionSpy = createMock();
     getSessionSpy = mock((name) =>
       Promise.resolve({
-        session: name, // Fixed: use 'session' instead of '_session' 
+        session: name, // Fixed: use 'session' instead of '_session'
         repoName: "test-repo",
         repoUrl: "/test/repo/path",
         taskId: "#TEST_VALUE",
         createdAt: new Date().toISOString(),
-      }));
+      })
+    );
 
     let getSessionByTaskIdSpy = createMock();
     getSessionByTaskIdSpy = mock((taskId) => {
@@ -49,7 +54,8 @@ describe("Session Approve", () => {
 
     let getSessionWorkdirSpy = createMock();
     getSessionWorkdirSpy = mock(() =>
-      Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+      Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+    );
 
     let execInRepositorySpy = createMock();
     execInRepositorySpy = mock((_workdir, command) => {
@@ -69,7 +75,8 @@ describe("Session Approve", () => {
     getBackendForTaskSpy = mock(() =>
       Promise.resolve({
         setTaskMetadata: createMock(() => Promise.resolve()),
-      }));
+      })
+    );
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
@@ -157,7 +164,8 @@ describe("Session Approve", () => {
 
     let getSessionWorkdirSpy = createMock();
     getSessionWorkdirSpy = mock((_sessionName) =>
-      Promise.resolve("/test/workdir/test-repo/sessions/current-session"));
+      Promise.resolve("/test/workdir/test-repo/sessions/current-session")
+    );
 
     let execInRepositorySpy = createMock();
     execInRepositorySpy = mock((_workdir, command) => {
@@ -177,7 +185,8 @@ describe("Session Approve", () => {
     getBackendForTaskSpy = mock(() =>
       Promise.resolve({
         setTaskMetadata: createMock(() => Promise.resolve()),
-      }));
+      })
+    );
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
@@ -264,7 +273,7 @@ describe("Session Approve", () => {
       expect(false).toBe(true);
     } catch (error) {
       expect(error instanceof ResourceNotFoundError).toBe(true);
-      expect((error as Error).message).toContain("Session \"non-existent-session\" not found");
+      expect((error as Error).message).toContain('Session "non-existent-session" not found');
     }
   });
 
@@ -388,14 +397,16 @@ describe("Session Approve", () => {
         repoUrl: "/test/repo/path",
         taskId: "#TEST_VALUE",
         createdAt: new Date().toISOString(),
-      }));
+      })
+    );
 
     let getSessionByTaskIdSpy = createMock();
     getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
     let getSessionWorkdirSpy = createMock();
     getSessionWorkdirSpy = mock(() =>
-      Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+      Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+    );
 
     const gitCommands: string[] = [];
     let execInRepositorySpy = createMock();
@@ -422,7 +433,8 @@ describe("Session Approve", () => {
     getBackendForTaskSpy = mock(() =>
       Promise.resolve({
         setTaskMetadata: createMock(() => Promise.resolve()),
-      }));
+      })
+    );
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
@@ -475,9 +487,7 @@ describe("Session Approve", () => {
     expect(gitCommands).toContain("git push origin main");
 
     // Should try to check for remote branch existence
-    expect(gitCommands).toContain(
-      "git show-ref --verify --quiet refs/heads/pr/test-session"
-    );
+    expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/test-session");
 
     // Should NOT try to delete remote branch since it doesn't exist
     expect(gitCommands).not.toContain("git push origin --delete pr/test-session");
@@ -497,14 +507,16 @@ describe("Session Approve", () => {
           repoUrl: "/test/repo/path",
           taskId: "#265",
           createdAt: new Date().toISOString(),
-        }));
+        })
+      );
 
       let getSessionByTaskIdSpy = createMock();
       getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
       let getSessionWorkdirSpy = createMock();
       getSessionWorkdirSpy = mock(() =>
-        Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      );
 
       const gitCommands: string[] = [];
       let execInRepositorySpy = createMock();
@@ -528,7 +540,8 @@ describe("Session Approve", () => {
       getBackendForTaskSpy = mock(() =>
         Promise.resolve({
           setTaskMetadata: createMock(() => Promise.resolve()),
-        }));
+        })
+      );
 
       // Create mocks using centralized factories with spy integration
       const mockSessionDB = createMockSessionProvider({
@@ -587,14 +600,16 @@ describe("Session Approve", () => {
           repoUrl: "/test/repo/path",
           taskId: "#265",
           createdAt: new Date().toISOString(),
-        }));
+        })
+      );
 
       let getSessionByTaskIdSpy = createMock();
       getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
       let getSessionWorkdirSpy = createMock();
       getSessionWorkdirSpy = mock(() =>
-        Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      );
 
       const gitCommands: string[] = [];
       let execInRepositorySpy = createMock();
@@ -621,7 +636,8 @@ describe("Session Approve", () => {
       getBackendForTaskSpy = mock(() =>
         Promise.resolve({
           setTaskMetadata: createMock(() => Promise.resolve()),
-        }));
+        })
+      );
 
       // Create mocks using centralized factories with spy integration
       const mockSessionDB = createMockSessionProvider({
@@ -677,14 +693,16 @@ describe("Session Approve", () => {
           repoUrl: "/test/repo/path",
           taskId: "#265",
           createdAt: new Date().toISOString(),
-        }));
+        })
+      );
 
       let getSessionByTaskIdSpy = createMock();
       getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
       let getSessionWorkdirSpy = createMock();
       getSessionWorkdirSpy = mock(() =>
-        Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      );
 
       const gitCommands: string[] = [];
       let execInRepositorySpy = createMock();
@@ -703,7 +721,7 @@ describe("Session Approve", () => {
         }
         // Simulate merge-base check shows branch is already merged
         if (command.includes("merge-base --is-ancestor")) {
-          return Promise.resolve("");  // Success means it's already merged
+          return Promise.resolve(""); // Success means it's already merged
         }
         return Promise.resolve("");
       });
@@ -715,7 +733,8 @@ describe("Session Approve", () => {
       getBackendForTaskSpy = mock(() =>
         Promise.resolve({
           setTaskMetadata: createMock(() => Promise.resolve()),
-        }));
+        })
+      );
 
       // Create mocks using centralized factories with spy integration
       const mockSessionDB = createMockSessionProvider({
@@ -770,14 +789,16 @@ describe("Session Approve", () => {
           repoUrl: "/test/repo/path",
           taskId: "#265",
           createdAt: new Date().toISOString(),
-        }));
+        })
+      );
 
       let getSessionByTaskIdSpy = createMock();
       getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
       let getSessionWorkdirSpy = createMock();
       getSessionWorkdirSpy = mock(() =>
-        Promise.resolve("/test/workdir/test-repo/sessions/test-session"));
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      );
 
       const gitCommands: string[] = [];
       let execInRepositorySpy = createMock();
@@ -804,7 +825,8 @@ describe("Session Approve", () => {
       getBackendForTaskSpy = mock(() =>
         Promise.resolve({
           setTaskMetadata: createMock(() => Promise.resolve()),
-        }));
+        })
+      );
 
       // Create mocks using centralized factories with spy integration
       const mockSessionDB = createMockSessionProvider({

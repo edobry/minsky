@@ -7,13 +7,17 @@ The Session Workspace Tools provide secure, session-scoped workspace operations 
 ## Core Concepts
 
 ### Session Workspace Isolation
+
 Every Minsky session operates within its own isolated workspace directory. The session workspace tools ensure that:
+
 - All workspace paths are resolved within the session workspace boundary
 - Operations cannot escape the session directory (no `../` traversal attacks)
 - Each session's workspace remains completely isolated from other sessions and the main workspace
 
 ### Path Resolution
+
 The `SessionPathResolver` class provides robust path validation:
+
 - Converts relative paths to absolute paths within the session workspace
 - Validates that all resolved paths remain within session boundaries
 - Handles edge cases like symlinks, special characters, and complex path structures
@@ -26,6 +30,7 @@ The `SessionPathResolver` class provides robust path validation:
 Reads the contents of a file within the session workspace with optional line range support, matching Cursor's built-in `read_file` functionality.
 
 **Parameters:**
+
 - `session` (string, required): Session identifier (e.g., "task#049")
 - `path` (string, required): File path relative to session workspace or absolute within session
 - `start_line_one_indexed` (number, optional): Starting line number (1-indexed, inclusive)
@@ -34,6 +39,7 @@ Reads the contents of a file within the session workspace with optional line ran
 - `explanation` (string, optional): One sentence explanation of why this tool is being used
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -91,6 +97,7 @@ const result = await session_read_file({
 ```
 
 **Error Response:**
+
 ```json
 {
   "success": false,
@@ -105,11 +112,13 @@ const result = await session_read_file({
 Writes content to a file within the session workspace, creating directories as needed.
 
 **Parameters:**
+
 - `session` (string, required): Session identifier
 - `path` (string, required): File path within session workspace
 - `content` (string, required): Content to write to the file
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -125,10 +134,12 @@ Writes content to a file within the session workspace, creating directories as n
 Lists the contents of a directory within the session workspace.
 
 **Parameters:**
+
 - `session` (string, required): Session identifier
 - `path` (string, optional): Directory path (defaults to session root)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -155,10 +166,12 @@ Lists the contents of a directory within the session workspace.
 Checks if a file or directory exists within the session workspace.
 
 **Parameters:**
+
 - `session` (string, required): Session identifier
 - `path` (string, required): Path to check
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -174,10 +187,12 @@ Checks if a file or directory exists within the session workspace.
 Deletes a file within the session workspace.
 
 **Parameters:**
+
 - `session` (string, required): Session identifier
 - `path` (string, required): File path to delete
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -192,10 +207,12 @@ Deletes a file within the session workspace.
 Creates a directory (and parent directories) within the session workspace.
 
 **Parameters:**
+
 - `session` (string, required): Session identifier
 - `path` (string, required): Directory path to create
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -209,17 +226,20 @@ Creates a directory (and parent directories) within the session workspace.
 ## Security Features
 
 ### Path Validation
+
 - **Boundary Enforcement**: All paths are validated to ensure they remain within the session workspace
 - **Traversal Prevention**: `../` sequences and other traversal attempts are blocked
 - **Absolute Path Handling**: Absolute paths are only allowed if they point within the session workspace
 - **Symlink Resolution**: Symlinks are resolved and validated to prevent escaping session boundaries
 
 ### Error Handling
+
 - **Clear Error Messages**: Detailed error descriptions help identify and resolve issues
 - **Security Violation Reporting**: Attempted boundary violations are clearly flagged
 - **Path Information**: Error messages include both the attempted path and the resolved path for debugging
 
 ### Session Validation
+
 - **Session Existence**: Verifies that the specified session exists before performing operations
 - **Workspace Path Resolution**: Automatically resolves session workspace paths from the session database
 - **Context Isolation**: Each operation is scoped to a specific session context
@@ -227,11 +247,12 @@ Creates a directory (and parent directories) within the session workspace.
 ## Usage Examples
 
 ### Reading a Configuration File
+
 ```javascript
 // Read package.json from session workspace
 const result = await session_read_file({
   session: "task#049",
-  path: "package.json"
+  path: "package.json",
 });
 
 if (result.success) {
@@ -276,6 +297,7 @@ if (result.success && result.omittedContent) {
 ```
 
 ### Creating a New Component
+
 ```javascript
 // Create a new React component
 const componentCode = `
@@ -289,38 +311,40 @@ export const NewFeature: React.FC = () => {
 await session_write_file({
   session: "task#049",
   path: "src/components/NewFeature.tsx",
-  content: componentCode
+  content: componentCode,
 });
 ```
 
 ### Listing Project Files
+
 ```javascript
 // List all TypeScript files in src/
 const result = await session_list_directory({
   session: "task#049",
-  path: "src"
+  path: "src",
 });
 
 if (result.success) {
   const tsFiles = result.items
-    .filter(item => item.type === "file" && item.name.endsWith(".ts"))
-    .map(item => item.name);
+    .filter((item) => item.type === "file" && item.name.endsWith(".ts"))
+    .map((item) => item.name);
   console.log("TypeScript files:", tsFiles);
 }
 ```
 
 ### Safe File Operations
+
 ```javascript
 // Check if file exists before reading
 const exists = await session_file_exists({
   session: "task#049",
-  path: "src/config/settings.json"
+  path: "src/config/settings.json",
 });
 
 if (exists.success && exists.exists) {
   const config = await session_read_file({
     session: "task#049",
-    path: "src/config/settings.json"
+    path: "src/config/settings.json",
   });
   // Process config...
 }
@@ -366,14 +390,14 @@ Replace built-in workspace operations with session-aware equivalents:
 // ❌ DON'T: Use built-in tools in sessions
 await edit_file({
   target_file: "src/component.tsx",
-  code_edit: "// changes"
+  code_edit: "// changes",
 });
 
 // ✅ DO: Use session tools
 await session_write_file({
   session: "task#049",
-  path: "src/component.tsx", 
-  content: updatedContent
+  path: "src/component.tsx",
+  content: updatedContent,
 });
 ```
 
@@ -382,6 +406,7 @@ await session_write_file({
 ### Common Error Types
 
 1. **Session Not Found**
+
    ```json
    {
      "success": false,
@@ -391,6 +416,7 @@ await session_write_file({
    ```
 
 2. **Path Outside Session**
+
    ```json
    {
      "success": false,
@@ -401,6 +427,7 @@ await session_write_file({
    ```
 
 3. **File Not Found**
+
    ```json
    {
      "success": false,
@@ -448,16 +475,19 @@ await session_write_file({
 ### Common Issues
 
 1. **"Session not found" errors**
+
    - Verify session name/ID is correct
    - Check that session exists: `minsky session list`
    - Ensure session is properly initialized
 
 2. **"Path outside workspace" errors**
+
    - Avoid `../` in paths
    - Use relative paths from session root
    - Check for symlinks that might escape session boundary
 
 3. **Permission errors**
+
    - Verify session workspace permissions
    - Check file/directory ownership
    - Ensure session has write access to target locations
@@ -475,4 +505,4 @@ Enable debug logging for detailed path resolution information:
 MINSKY_LOG_LEVEL=debug minsky mcp start
 ```
 
-This will show detailed path resolution steps and security validation checks. 
+This will show detailed path resolution steps and security validation checks.

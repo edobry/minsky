@@ -4,11 +4,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
-import { 
-  gitPushWithTimeout, 
-  gitPullWithTimeout,
-  type GitExecOptions 
-} from "../../utils/git-exec";
+import { gitPushWithTimeout, gitPullWithTimeout, type GitExecOptions } from "../../utils/git-exec";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -323,7 +319,9 @@ Repository: ${this.repoUrl}
           if ((normalizedError?.message as any).includes("Authentication failed")) {
             return {
               success: false,
-              error: new Error("Authentication failed during push operation. Please check your credentials."),
+              error: new Error(
+                "Authentication failed during push operation. Please check your credentials."
+              ),
             };
           }
           throw normalizedError;

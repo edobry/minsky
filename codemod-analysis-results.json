@@ -16,11 +16,7 @@
             "Bulk/generic fixer pattern"
           ],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
-            "BULK_FIXER"
-          ]
+          "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH", "BULK_FIXER"]
         },
         {
           "name": "enhanced-safe-fixer",
@@ -28,15 +24,9 @@
           "size": 7662,
           "approach": "AST",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 4"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 4"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "ast-type-cast-fixer",
@@ -44,15 +34,9 @@
           "size": 26403,
           "approach": "AST",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Heuristic pattern matching detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Heuristic pattern matching detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH"
-          ]
+          "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH"]
         },
         {
           "name": "explicit-any-types-fixer-consolidated",
@@ -60,15 +44,9 @@
           "size": 14707,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 25"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 25"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "enhanced-pattern-fixer",
@@ -76,15 +54,9 @@
           "size": 7502,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 16"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 16"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "risk-aware-type-cast-fixer",
@@ -92,15 +64,9 @@
           "size": 17584,
           "approach": "AST",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 33"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 33"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "syntax-parsing-errors-fixer-consolidated",
@@ -108,15 +74,9 @@
           "size": 20193,
           "approach": "AST",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 28"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 28"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "pattern-based-fixer",
@@ -124,15 +84,9 @@
           "size": 4741,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 8"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 8"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "comprehensive-as-unknown-fixer",
@@ -146,11 +100,7 @@
             "Bulk/generic fixer pattern"
           ],
           "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "BULK_FIXER"
-          ]
+          "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS", "BULK_FIXER"]
         },
         {
           "name": "variable-naming-fixer-consolidated",
@@ -164,11 +114,7 @@
             "Variable/unused parameter fixer"
           ],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
-            "VARIABLE_FIXER"
-          ],
+          "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH", "VARIABLE_FIXER"],
           "consolidationGroup": "variable-naming"
         },
         {
@@ -183,11 +129,7 @@
             "Bulk/generic fixer pattern"
           ],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX", "BULK_FIXER"]
         },
         {
           "name": "comprehensive-fixer",
@@ -201,11 +143,7 @@
             "Bulk/generic fixer pattern"
           ],
           "hasTest": false,
-          "flags": [
-            "HEURISTIC_APPROACH",
-            "COMPLEX_REGEX",
-            "BULK_FIXER"
-          ]
+          "flags": ["HEURISTIC_APPROACH", "COMPLEX_REGEX", "BULK_FIXER"]
         },
         {
           "name": "fix-explicit-any",
@@ -219,11 +157,7 @@
             "Complex regex patterns: 18"
           ],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS", "COMPLEX_REGEX"]
         }
       ],
       "MEDIUM": [
@@ -233,13 +167,9 @@
           "size": 4784,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "mocking-fixer-consolidated",
@@ -247,13 +177,9 @@
           "size": 13641,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "source-files-fixer",
@@ -261,13 +187,9 @@
           "size": 4962,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-missing-required-properties",
@@ -275,13 +197,9 @@
           "size": 7675,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-targeted-parsing-errors",
@@ -289,13 +207,9 @@
           "size": 6371,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 5"
-          ],
+          "riskFactors": ["Complex regex patterns: 5"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "bun-compatibility-fixer-consolidated",
@@ -303,13 +217,9 @@
           "size": 15821,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-postgres-storage-types",
@@ -317,13 +227,9 @@
           "size": 6511,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-current-globals",
@@ -331,13 +237,9 @@
           "size": 2414,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 4"
-          ],
+          "riskFactors": ["Complex regex patterns: 4"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "fix-undefined-issues",
@@ -345,13 +247,9 @@
           "size": 6241,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-type-assertions",
@@ -359,15 +257,9 @@
           "size": 6504,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS"]
         },
         {
           "name": "fix-explicit-any-types-proven",
@@ -375,13 +267,9 @@
           "size": 6411,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 12"
-          ],
+          "riskFactors": ["Complex regex patterns: 12"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "fix-command-registration-overloads",
@@ -389,13 +277,9 @@
           "size": 5241,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-session-ts-issues",
@@ -403,13 +287,9 @@
           "size": 5033,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-import-extensions",
@@ -417,13 +297,9 @@
           "size": 13715,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-bun-process-types",
@@ -431,13 +307,9 @@
           "size": 2298,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-rules-type-assertions",
@@ -445,13 +317,9 @@
           "size": 3657,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-syntax-errors",
@@ -459,13 +327,9 @@
           "size": 3052,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 7"
-          ],
+          "riskFactors": ["Complex regex patterns: 7"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "fix-final-syntax-errors",
@@ -473,13 +337,9 @@
           "size": 3582,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 13"
-          ],
+          "riskFactors": ["Complex regex patterns: 13"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "fix-dependencies-mocks",
@@ -487,13 +347,9 @@
           "size": 2700,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-quotes-to-double",
@@ -501,15 +357,9 @@
           "size": 3759,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS"]
         },
         {
           "name": "fix-bun-compatibility-ast",
@@ -517,13 +367,9 @@
           "size": 4181,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "magic-numbers-fixer-consolidated",
@@ -531,13 +377,9 @@
           "size": 12706,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-explicit-any-simple",
@@ -545,13 +387,9 @@
           "size": 4346,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 4"
-          ],
+          "riskFactors": ["Complex regex patterns: 4"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "fix-buffer-string-issues",
@@ -559,13 +397,9 @@
           "size": 2965,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "safe-ast-fixer",
@@ -573,13 +407,9 @@
           "size": 6789,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "main-source-fixer",
@@ -587,13 +417,9 @@
           "size": 5832,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         }
       ],
       "LOW": [
@@ -638,13 +464,9 @@
           "size": 4784,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "mocking-fixer-consolidated",
@@ -652,13 +474,9 @@
           "size": 13641,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "source-files-fixer",
@@ -666,13 +484,9 @@
           "size": 4962,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "enhanced-safe-fixer",
@@ -680,15 +494,9 @@
           "size": 7662,
           "approach": "AST",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 4"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 4"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "fix-missing-required-properties",
@@ -696,13 +504,9 @@
           "size": 7675,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "ast-type-cast-fixer",
@@ -710,15 +514,9 @@
           "size": 26403,
           "approach": "AST",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Heuristic pattern matching detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Heuristic pattern matching detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH"
-          ]
+          "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH"]
         },
         {
           "name": "bun-compatibility-fixer-consolidated",
@@ -726,13 +524,9 @@
           "size": 15821,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-postgres-storage-types",
@@ -740,13 +534,9 @@
           "size": 6511,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-undefined-issues",
@@ -754,13 +544,9 @@
           "size": 6241,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-type-assertions",
@@ -768,15 +554,9 @@
           "size": 6504,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS"]
         },
         {
           "name": "risk-aware-type-cast-fixer",
@@ -784,15 +564,9 @@
           "size": 17584,
           "approach": "AST",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 33"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 33"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "syntax-parsing-errors-fixer-consolidated",
@@ -800,15 +574,9 @@
           "size": 20193,
           "approach": "AST",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 28"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 28"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "fix-command-registration-overloads",
@@ -816,13 +584,9 @@
           "size": 5241,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-session-ts-issues",
@@ -830,13 +594,9 @@
           "size": 5033,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-import-extensions",
@@ -844,13 +604,9 @@
           "size": 13715,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-bun-process-types",
@@ -858,13 +614,9 @@
           "size": 2298,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-rules-type-assertions",
@@ -872,13 +624,9 @@
           "size": 3657,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "comprehensive-as-unknown-fixer",
@@ -892,11 +640,7 @@
             "Bulk/generic fixer pattern"
           ],
           "hasTest": true,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "BULK_FIXER"
-          ]
+          "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS", "BULK_FIXER"]
         },
         {
           "name": "fix-syntax-errors",
@@ -904,13 +648,9 @@
           "size": 3052,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 7"
-          ],
+          "riskFactors": ["Complex regex patterns: 7"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "variable-naming-fixer-consolidated",
@@ -924,11 +664,7 @@
             "Variable/unused parameter fixer"
           ],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
-            "VARIABLE_FIXER"
-          ],
+          "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH", "VARIABLE_FIXER"],
           "consolidationGroup": "variable-naming"
         },
         {
@@ -937,13 +673,9 @@
           "size": 2700,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "comprehensive-fixer",
@@ -957,11 +689,7 @@
             "Bulk/generic fixer pattern"
           ],
           "hasTest": false,
-          "flags": [
-            "HEURISTIC_APPROACH",
-            "COMPLEX_REGEX",
-            "BULK_FIXER"
-          ]
+          "flags": ["HEURISTIC_APPROACH", "COMPLEX_REGEX", "BULK_FIXER"]
         },
         {
           "name": "fix-bun-compatibility-ast",
@@ -969,13 +697,9 @@
           "size": 4181,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "magic-numbers-fixer-consolidated",
@@ -983,13 +707,9 @@
           "size": 12706,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "fix-bun-types-simple-ast",
@@ -1007,13 +727,9 @@
           "size": 2965,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "safe-ast-fixer",
@@ -1021,13 +737,9 @@
           "size": 6789,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         },
         {
           "name": "main-source-fixer",
@@ -1035,13 +747,9 @@
           "size": 5832,
           "approach": "AST",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS"]
         }
       ],
       "REGEX": [
@@ -1057,11 +765,7 @@
             "Bulk/generic fixer pattern"
           ],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
-            "BULK_FIXER"
-          ]
+          "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH", "BULK_FIXER"]
         },
         {
           "name": "fix-targeted-parsing-errors",
@@ -1069,13 +773,9 @@
           "size": 6371,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 5"
-          ],
+          "riskFactors": ["Complex regex patterns: 5"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "fix-current-globals",
@@ -1083,13 +783,9 @@
           "size": 2414,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 4"
-          ],
+          "riskFactors": ["Complex regex patterns: 4"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "fix-final-syntax-errors",
@@ -1097,13 +793,9 @@
           "size": 3582,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 13"
-          ],
+          "riskFactors": ["Complex regex patterns: 13"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "fix-all-parsing-errors",
@@ -1117,11 +809,7 @@
             "Bulk/generic fixer pattern"
           ],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX",
-            "BULK_FIXER"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX", "BULK_FIXER"]
         },
         {
           "name": "fix-quotes-to-double",
@@ -1129,15 +817,9 @@
           "size": 3759,
           "approach": "REGEX",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Hardcoded file paths detected"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Hardcoded file paths detected"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS"
-          ]
+          "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS"]
         }
       ],
       "HYBRID": [
@@ -1147,15 +829,9 @@
           "size": 14707,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 25"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 25"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "enhanced-pattern-fixer",
@@ -1163,15 +839,9 @@
           "size": 7502,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 16"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 16"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "pattern-based-fixer",
@@ -1179,15 +849,9 @@
           "size": 4741,
           "approach": "HYBRID",
           "riskLevel": "HIGH",
-          "riskFactors": [
-            "Hardcoded file paths detected",
-            "Complex regex patterns: 8"
-          ],
+          "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 8"],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "fix-explicit-any-types-proven",
@@ -1195,13 +859,9 @@
           "size": 6411,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 12"
-          ],
+          "riskFactors": ["Complex regex patterns: 12"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         },
         {
           "name": "fix-indentation",
@@ -1226,11 +886,7 @@
             "Complex regex patterns: 18"
           ],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HARDCODED_PATHS",
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS", "COMPLEX_REGEX"]
         },
         {
           "name": "fix-explicit-any-simple",
@@ -1238,13 +894,9 @@
           "size": 4346,
           "approach": "HYBRID",
           "riskLevel": "MEDIUM",
-          "riskFactors": [
-            "Complex regex patterns: 4"
-          ],
+          "riskFactors": ["Complex regex patterns: 4"],
           "hasTest": false,
-          "flags": [
-            "COMPLEX_REGEX"
-          ]
+          "flags": ["COMPLEX_REGEX"]
         }
       ],
       "UNKNOWN": [
@@ -1287,11 +939,7 @@
             "Variable/unused parameter fixer"
           ],
           "hasTest": false,
-          "flags": [
-            "HARDCODED_PATHS",
-            "HEURISTIC_APPROACH",
-            "VARIABLE_FIXER"
-          ],
+          "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH", "VARIABLE_FIXER"],
           "consolidationGroup": "variable-naming"
         }
       ]
@@ -1309,11 +957,7 @@
           "Bulk/generic fixer pattern"
         ],
         "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "HEURISTIC_APPROACH",
-          "BULK_FIXER"
-        ]
+        "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH", "BULK_FIXER"]
       },
       {
         "name": "ast-type-cast-fixer",
@@ -1321,15 +965,9 @@
         "size": 26403,
         "approach": "AST",
         "riskLevel": "HIGH",
-        "riskFactors": [
-          "Hardcoded file paths detected",
-          "Heuristic pattern matching detected"
-        ],
+        "riskFactors": ["Hardcoded file paths detected", "Heuristic pattern matching detected"],
         "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "HEURISTIC_APPROACH"
-        ]
+        "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH"]
       },
       {
         "name": "variable-naming-fixer-consolidated",
@@ -1343,11 +981,7 @@
           "Variable/unused parameter fixer"
         ],
         "hasTest": false,
-        "flags": [
-          "HARDCODED_PATHS",
-          "HEURISTIC_APPROACH",
-          "VARIABLE_FIXER"
-        ],
+        "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH", "VARIABLE_FIXER"],
         "consolidationGroup": "variable-naming"
       }
     ],
@@ -1360,13 +994,9 @@
       "size": 4784,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "mocking-fixer-consolidated",
@@ -1374,13 +1004,9 @@
       "size": 13641,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "systematic-refactor-all",
@@ -1394,11 +1020,7 @@
         "Bulk/generic fixer pattern"
       ],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HEURISTIC_APPROACH",
-        "BULK_FIXER"
-      ]
+      "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH", "BULK_FIXER"]
     },
     {
       "name": "source-files-fixer",
@@ -1406,13 +1028,9 @@
       "size": 4962,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "enhanced-safe-fixer",
@@ -1420,15 +1038,9 @@
       "size": 7662,
       "approach": "AST",
       "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 4"
-      ],
+      "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 4"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
     },
     {
       "name": "fix-missing-required-properties",
@@ -1436,13 +1048,9 @@
       "size": 7675,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-targeted-parsing-errors",
@@ -1450,13 +1058,9 @@
       "size": 6371,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Complex regex patterns: 5"
-      ],
+      "riskFactors": ["Complex regex patterns: 5"],
       "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["COMPLEX_REGEX"]
     },
     {
       "name": "ast-type-cast-fixer",
@@ -1464,15 +1068,9 @@
       "size": 26403,
       "approach": "AST",
       "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Heuristic pattern matching detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected", "Heuristic pattern matching detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HEURISTIC_APPROACH"
-      ]
+      "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH"]
     },
     {
       "name": "bun-compatibility-fixer-consolidated",
@@ -1480,13 +1078,9 @@
       "size": 15821,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-postgres-storage-types",
@@ -1494,13 +1088,9 @@
       "size": 6511,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-current-globals",
@@ -1508,13 +1098,9 @@
       "size": 2414,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Complex regex patterns: 4"
-      ],
+      "riskFactors": ["Complex regex patterns: 4"],
       "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["COMPLEX_REGEX"]
     },
     {
       "name": "fix-undefined-issues",
@@ -1522,13 +1108,9 @@
       "size": 6241,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-type-assertions",
@@ -1536,15 +1118,9 @@
       "size": 6504,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected", "Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS"]
     },
     {
       "name": "explicit-any-types-fixer-consolidated",
@@ -1552,15 +1128,9 @@
       "size": 14707,
       "approach": "HYBRID",
       "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 25"
-      ],
+      "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 25"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
     },
     {
       "name": "enhanced-pattern-fixer",
@@ -1568,15 +1138,9 @@
       "size": 7502,
       "approach": "HYBRID",
       "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 16"
-      ],
+      "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 16"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
     },
     {
       "name": "risk-aware-type-cast-fixer",
@@ -1584,15 +1148,9 @@
       "size": 17584,
       "approach": "AST",
       "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 33"
-      ],
+      "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 33"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
     },
     {
       "name": "syntax-parsing-errors-fixer-consolidated",
@@ -1600,15 +1158,9 @@
       "size": 20193,
       "approach": "AST",
       "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 28"
-      ],
+      "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 28"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
     },
     {
       "name": "pattern-based-fixer",
@@ -1616,15 +1168,9 @@
       "size": 4741,
       "approach": "HYBRID",
       "riskLevel": "HIGH",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Complex regex patterns: 8"
-      ],
+      "riskFactors": ["Hardcoded file paths detected", "Complex regex patterns: 8"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX"]
     },
     {
       "name": "fix-explicit-any-types-proven",
@@ -1632,13 +1178,9 @@
       "size": 6411,
       "approach": "HYBRID",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Complex regex patterns: 12"
-      ],
+      "riskFactors": ["Complex regex patterns: 12"],
       "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["COMPLEX_REGEX"]
     },
     {
       "name": "fix-command-registration-overloads",
@@ -1646,13 +1188,9 @@
       "size": 5241,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-session-ts-issues",
@@ -1660,13 +1198,9 @@
       "size": 5033,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-import-extensions",
@@ -1674,13 +1208,9 @@
       "size": 13715,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": true,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-indentation",
@@ -1699,13 +1229,9 @@
       "size": 2298,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-rules-type-assertions",
@@ -1713,13 +1239,9 @@
       "size": 3657,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "comprehensive-as-unknown-fixer",
@@ -1733,11 +1255,7 @@
         "Bulk/generic fixer pattern"
       ],
       "hasTest": true,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "BULK_FIXER"
-      ]
+      "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS", "BULK_FIXER"]
     },
     {
       "name": "fix-syntax-errors",
@@ -1745,13 +1263,9 @@
       "size": 3052,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Complex regex patterns: 7"
-      ],
+      "riskFactors": ["Complex regex patterns: 7"],
       "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["COMPLEX_REGEX"]
     },
     {
       "name": "variable-naming-fixer-consolidated",
@@ -1765,11 +1279,7 @@
         "Variable/unused parameter fixer"
       ],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HEURISTIC_APPROACH",
-        "VARIABLE_FIXER"
-      ],
+      "flags": ["HARDCODED_PATHS", "HEURISTIC_APPROACH", "VARIABLE_FIXER"],
       "consolidationGroup": "variable-naming"
     },
     {
@@ -1778,13 +1288,9 @@
       "size": 3582,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Complex regex patterns: 13"
-      ],
+      "riskFactors": ["Complex regex patterns: 13"],
       "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["COMPLEX_REGEX"]
     },
     {
       "name": "fix-all-parsing-errors",
@@ -1798,11 +1304,7 @@
         "Bulk/generic fixer pattern"
       ],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX",
-        "BULK_FIXER"
-      ]
+      "flags": ["HARDCODED_PATHS", "COMPLEX_REGEX", "BULK_FIXER"]
     },
     {
       "name": "fix-dependencies-mocks",
@@ -1810,13 +1312,9 @@
       "size": 2700,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-quotes-to-double",
@@ -1824,15 +1322,9 @@
       "size": 3759,
       "approach": "REGEX",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected",
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected", "Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS"]
     },
     {
       "name": "comprehensive-fixer",
@@ -1846,11 +1338,7 @@
         "Bulk/generic fixer pattern"
       ],
       "hasTest": false,
-      "flags": [
-        "HEURISTIC_APPROACH",
-        "COMPLEX_REGEX",
-        "BULK_FIXER"
-      ]
+      "flags": ["HEURISTIC_APPROACH", "COMPLEX_REGEX", "BULK_FIXER"]
     },
     {
       "name": "fix-bun-compatibility-ast",
@@ -1858,13 +1346,9 @@
       "size": 4181,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "magic-numbers-fixer-consolidated",
@@ -1872,13 +1356,9 @@
       "size": 12706,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-bun-types-simple-ast",
@@ -1902,11 +1382,7 @@
         "Complex regex patterns: 18"
       ],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS",
-        "HARDCODED_PATHS",
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["HARDCODED_PATHS", "HARDCODED_PATHS", "COMPLEX_REGEX"]
     },
     {
       "name": "fix-explicit-any-simple",
@@ -1914,13 +1390,9 @@
       "size": 4346,
       "approach": "HYBRID",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Complex regex patterns: 4"
-      ],
+      "riskFactors": ["Complex regex patterns: 4"],
       "hasTest": false,
-      "flags": [
-        "COMPLEX_REGEX"
-      ]
+      "flags": ["COMPLEX_REGEX"]
     },
     {
       "name": "fix-buffer-string-issues",
@@ -1928,13 +1400,9 @@
       "size": 2965,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "fix-common-type-issues",
@@ -1952,13 +1420,9 @@
       "size": 6789,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     },
     {
       "name": "main-source-fixer",
@@ -1966,13 +1430,9 @@
       "size": 5832,
       "approach": "AST",
       "riskLevel": "MEDIUM",
-      "riskFactors": [
-        "Hardcoded file paths detected"
-      ],
+      "riskFactors": ["Hardcoded file paths detected"],
       "hasTest": false,
-      "flags": [
-        "HARDCODED_PATHS"
-      ]
+      "flags": ["HARDCODED_PATHS"]
     }
   ]
 }

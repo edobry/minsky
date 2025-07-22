@@ -7,6 +7,7 @@ This PR completes the comprehensive standardization and cleanup of the Minsky co
 ### Phase 1: Storage and Session Configuration Fixes
 
 **Files Updated:**
+
 - `src/domain/session/session-adapter.ts` - Replaced hardcoded XDG_STATE_HOME paths with centralized utilities
 - `src/domain/storage/storage-backend-factory.ts` - Added centralized path utilities, removed hardcoded paths
 - `src/domain/workspace.ts` - Replaced 3 instances of hardcoded paths with `getSessionsDir()`
@@ -14,6 +15,7 @@ This PR completes the comprehensive standardization and cleanup of the Minsky co
 - `src/domain/git.ts` - Replaced hardcoded baseDir paths with `getMinskyStateDir()`
 
 **Key Improvements:**
+
 - Eliminated all hardcoded `.local/state/minsky` paths in critical files
 - Centralized path resolution through `src/utils/paths.ts` utilities
 - Consistent XDG_STATE_HOME handling across the codebase
@@ -21,6 +23,7 @@ This PR completes the comprehensive standardization and cleanup of the Minsky co
 ### Phase 2: Environment Variable Cleanup
 
 **Files Updated:**
+
 - `src/domain/storage/enhanced-storage-backend-factory.ts` - Removed 3 hardcoded XDG_STATE_HOME instances
 - Standardized environment variable handling through configuration system
 - Maintained proper separation between runtime and application configuration
@@ -28,30 +31,35 @@ This PR completes the comprehensive standardization and cleanup of the Minsky co
 ### Phase 3: Configuration Validation System
 
 **Files Updated:**
+
 - `src/domain/configuration/configuration-service.ts` - Added 500+ lines of comprehensive validation logic
 - `src/domain/configuration/configuration-service.test.ts` - Complete test suite with 18 test cases
 
 **Validation Features Implemented:**
 
 1. **SessionDB Configuration Validation:**
+
    - Backend type validation (json, sqlite, postgres)
    - SQLite path validation with existence and permission checking
    - PostgreSQL connection string format validation
    - Base directory validation with write permissions
 
 2. **AI Configuration Validation:**
+
    - Provider validation (openai, anthropic, google, cohere, mistral)
    - Credential source validation (environment, file, prompt)
    - Model parameter validation (max_tokens > 0, temperature 0-2)
    - File-based credential completeness checking
 
 3. **Enhanced Path Validation:**
+
    - File path existence and permission checking
    - Directory validation with read/write permissions
    - Environment variable expansion validation
    - Cross-platform compatibility warnings
 
 4. **Connection String Validation:**
+
    - PostgreSQL connection string format validation using regex
    - Security warnings for plain-text credentials
    - Comprehensive error messages with expected format examples
@@ -90,6 +98,7 @@ This PR completes the comprehensive standardization and cleanup of the Minsky co
 ## Testing
 
 **Test Coverage:**
+
 - ✅ Configuration validation tests: All 18 tests passing
 - ✅ Repository config validation: 12 test scenarios covered
 - ✅ Global user config validation: 6 test scenarios covered
@@ -97,6 +106,7 @@ This PR completes the comprehensive standardization and cleanup of the Minsky co
 - ✅ Error code verification: All error codes tested and verified
 
 **Test Results:**
+
 ```
 18 pass
 0 fail
@@ -109,6 +119,7 @@ Ran 18 tests across 1 files. [79.00ms]
 **Created comprehensive configuration guide:** `docs/configuration-guide.md`
 
 **Guide Contents:**
+
 - Configuration precedence order (CLI > env > user > repo > defaults)
 - Complete error codes reference with 15+ validation error types
 - Migration guide from hardcoded paths to configuration-driven approach
@@ -129,6 +140,7 @@ Ran 18 tests across 1 files. [79.00ms]
 **Breaking Changes:** None - all changes are backward compatible
 
 **Recommended Actions:**
+
 - Review configuration files for new validation features
 - Consider migrating to environment variable-based credentials
 - Update any custom configuration to use new validation features
@@ -156,4 +168,4 @@ Ran 18 tests across 1 files. [79.00ms]
 - [x] Security best practices implemented
 - [x] Migration guide provided for existing deployments
 - [x] Error handling is comprehensive with specific error codes
-- [x] Configuration precedence is documented and tested 
+- [x] Configuration precedence is documented and tested

@@ -402,9 +402,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       return true;
     } catch (error) {
-      log.error(
-        `Error initializing storage: ${getErrorMessage(error as any)}`
-      );
+      log.error(`Error initializing storage: ${getErrorMessage(error as any)}`);
       return false;
     }
   }

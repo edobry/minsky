@@ -22,20 +22,20 @@ async function testWorkspaceResolver(): Promise<void> {
   const tests: Array<{ name: string; options: any }> = [
     {
       name: "Emergency Mode (should be instant)",
-      options: { emergencyMode: true }
+      options: { emergencyMode: true },
     },
     {
       name: "Disabled Special Workspace (should be fast)",
-      options: { disableSpecialWorkspace: true }
+      options: { disableSpecialWorkspace: true },
     },
     {
       name: "Normal Mode with 1s timeout",
-      options: { maxResolutionTime: 1000 }
+      options: { maxResolutionTime: 1000 },
     },
     {
       name: "Normal Mode with 2s timeout (default)",
-      options: {}
-    }
+      options: {},
+    },
   ];
 
   const results: TestResult[] = [];
@@ -64,15 +64,15 @@ async function testWorkspaceResolver(): Promise<void> {
       duration,
       success,
       workspacePath,
-      error
+      error,
     });
   }
 
   // Generate report
   console.log("📊 Performance Report:");
-  console.log("=" .repeat(60));
-  
-  results.forEach(result => {
+  console.log("=".repeat(60));
+
+  results.forEach((result) => {
     const status = result.success ? "✅" : "❌";
     console.log(`${status} ${result.mode}`);
     console.log(`   Duration: ${result.duration.toFixed(2)}ms`);
@@ -83,8 +83,8 @@ async function testWorkspaceResolver(): Promise<void> {
   });
 
   // Performance analysis
-  const fastModes = results.filter(r => r.duration < 100);
-  const slowModes = results.filter(r => r.duration > 1000);
+  const fastModes = results.filter((r) => r.duration < 100);
+  const slowModes = results.filter((r) => r.duration > 1000);
 
   console.log("🎯 Analysis:");
   if (fastModes.length > 0) {
@@ -96,10 +96,12 @@ async function testWorkspaceResolver(): Promise<void> {
     console.log("✅ All modes completed in < 1 second");
   }
 
-  const allSuccessful = results.every(r => r.success);
-  console.log(`${allSuccessful ? "✅" : "❌"} Overall success rate: ${results.filter(r => r.success).length}/${results.length}`);
+  const allSuccessful = results.every((r) => r.success);
+  console.log(
+    `${allSuccessful ? "✅" : "❌"} Overall success rate: ${results.filter((r) => r.success).length}/${results.length}`
+  );
 }
 
 if (import.meta.main) {
   testWorkspaceResolver().catch(console.error);
-} 
+}

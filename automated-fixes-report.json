@@ -78,17 +78,13 @@
       "Fixed return null statement (5 occurrences)",
       "Fixed return undefined statement (1 occurrences)"
     ],
-    "warnings": [
-      "1 dangerous null as unknown patterns still remain"
-    ]
+    "warnings": ["1 dangerous null as unknown patterns still remain"]
   },
   {
     "file": "src/domain/repository-uri.ts",
     "originalCount": 38,
     "newCount": 36,
-    "fixesApplied": [
-      "Fixed return null statement (2 occurrences)"
-    ],
+    "fixesApplied": ["Fixed return null statement (2 occurrences)"],
     "warnings": []
   },
   {
@@ -143,17 +139,13 @@
       "Fixed string trim access (4 occurrences)",
       "Fixed return null statement (9 occurrences)"
     ],
-    "warnings": [
-      "3 dangerous null as unknown patterns still remain"
-    ]
+    "warnings": ["3 dangerous null as unknown patterns still remain"]
   },
   {
     "file": "src/domain/validationUtils.ts",
     "originalCount": 4,
     "newCount": 3,
-    "fixesApplied": [
-      "Fixed return undefined statement (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed return undefined statement (1 occurrences)"],
     "warnings": []
   },
   {
@@ -178,9 +170,7 @@
     "file": "src/domain/repo-utils.ts",
     "originalCount": 10,
     "newCount": 9,
-    "fixesApplied": [
-      "Fixed string trim access (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed string trim access (1 occurrences)"],
     "warnings": []
   },
   {
@@ -222,9 +212,7 @@
     "file": "src/schemas/common.ts",
     "originalCount": 10,
     "newCount": 9,
-    "fixesApplied": [
-      "Fixed string trim access (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed string trim access (1 occurrences)"],
     "warnings": []
   },
   {
@@ -245,9 +233,7 @@
     "file": "src/mcp/command-mapper.ts",
     "originalCount": 31,
     "newCount": 29,
-    "fixesApplied": [
-      "Fixed string replace access (2 occurrences)"
-    ],
+    "fixesApplied": ["Fixed string replace access (2 occurrences)"],
     "warnings": []
   },
   {
@@ -299,35 +285,27 @@
       "Fixed environment variable access (3 occurrences)",
       "Fixed return null statement (1 occurrences)"
     ],
-    "warnings": [
-      "1 dangerous null as unknown patterns still remain"
-    ]
+    "warnings": ["1 dangerous null as unknown patterns still remain"]
   },
   {
     "file": "src/utils/filter-messages.ts",
     "originalCount": 4,
     "newCount": 2,
-    "fixesApplied": [
-      "Fixed array push access (2 occurrences)"
-    ],
+    "fixesApplied": ["Fixed array push access (2 occurrences)"],
     "warnings": []
   },
   {
     "file": "src/utils/package-manager.ts",
     "originalCount": 7,
     "newCount": 5,
-    "fixesApplied": [
-      "Fixed return undefined statement (2 occurrences)"
-    ],
+    "fixesApplied": ["Fixed return undefined statement (2 occurrences)"],
     "warnings": []
   },
   {
     "file": "src/utils/paths.ts",
     "originalCount": 7,
     "newCount": 2,
-    "fixesApplied": [
-      "Fixed environment variable access (5 occurrences)"
-    ],
+    "fixesApplied": ["Fixed environment variable access (5 occurrences)"],
     "warnings": []
   },
   {
@@ -404,18 +382,14 @@
     "file": "src/commands/mcp/index.ts",
     "originalCount": 35,
     "newCount": 33,
-    "fixesApplied": [
-      "Fixed undefined type annotation (2 occurrences)"
-    ],
+    "fixesApplied": ["Fixed undefined type annotation (2 occurrences)"],
     "warnings": []
   },
   {
     "file": "src/commands/config/show.ts",
     "originalCount": 23,
     "newCount": 22,
-    "fixesApplied": [
-      "Fixed undefined type annotation (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed undefined type annotation (1 occurrences)"],
     "warnings": []
   },
   {
@@ -515,9 +489,7 @@
     "originalCount": 1,
     "newCount": 1,
     "fixesApplied": [],
-    "warnings": [
-      "1 dangerous null as unknown patterns still remain"
-    ]
+    "warnings": ["1 dangerous null as unknown patterns still remain"]
   },
   {
     "file": "src/domain/storage/json-file-storage.ts",
@@ -544,9 +516,7 @@
     "file": "src/domain/repository/index.ts",
     "originalCount": 35,
     "newCount": 34,
-    "fixesApplied": [
-      "Fixed string trim access (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed string trim access (1 occurrences)"],
     "warnings": []
   },
   {
@@ -650,9 +620,7 @@
     "file": "src/domain/tasks/githubBackendFactory.ts",
     "originalCount": 10,
     "newCount": 8,
-    "fixesApplied": [
-      "Fixed return null statement (2 occurrences)"
-    ],
+    "fixesApplied": ["Fixed return null statement (2 occurrences)"],
     "warnings": []
   },
   {
@@ -697,9 +665,7 @@
     "file": "src/domain/tasks/markdownTaskBackend.ts",
     "originalCount": 21,
     "newCount": 20,
-    "fixesApplied": [
-      "Fixed array filter access (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed array filter access (1 occurrences)"],
     "warnings": []
   },
   {
@@ -712,9 +678,7 @@
       "Fixed string replace access (2 occurrences)",
       "Fixed return null statement (6 occurrences)"
     ],
-    "warnings": [
-      "1 dangerous null as unknown patterns still remain"
-    ]
+    "warnings": ["1 dangerous null as unknown patterns still remain"]
   },
   {
     "file": "src/domain/tasks/utils.ts",
@@ -777,9 +741,7 @@
     "file": "src/adapters/shared/response-formatters.ts",
     "originalCount": 24,
     "newCount": 19,
-    "fixesApplied": [
-      "Fixed array length access (5 occurrences)"
-    ],
+    "fixesApplied": ["Fixed array length access (5 occurrences)"],
     "warnings": []
   },
   {
@@ -793,9 +755,7 @@
     "file": "src/adapters/shared/error-handling.ts",
     "originalCount": 31,
     "newCount": 28,
-    "fixesApplied": [
-      "Fixed environment variable access (3 occurrences)"
-    ],
+    "fixesApplied": ["Fixed environment variable access (3 occurrences)"],
     "warnings": []
   },
   {
@@ -826,18 +786,14 @@
     "file": "src/mcp/tools/tasks.ts",
     "originalCount": 29,
     "newCount": 28,
-    "fixesApplied": [
-      "Fixed string split access (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed string split access (1 occurrences)"],
     "warnings": []
   },
   {
     "file": "src/mcp/tools/session.ts",
     "originalCount": 30,
     "newCount": 27,
-    "fixesApplied": [
-      "Fixed string trim access (3 occurrences)"
-    ],
+    "fixesApplied": ["Fixed string trim access (3 occurrences)"],
     "warnings": []
   },
   {
@@ -851,9 +807,7 @@
     "file": "src/utils/test-utils/assertions.ts",
     "originalCount": 4,
     "newCount": 3,
-    "fixesApplied": [
-      "Fixed array length access (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed array length access (1 occurrences)"],
     "warnings": []
   },
   {
@@ -893,17 +847,13 @@
       "Fixed array filter access (3 occurrences)",
       "Fixed return null statement (3 occurrences)"
     ],
-    "warnings": [
-      "1 dangerous null as unknown patterns still remain"
-    ]
+    "warnings": ["1 dangerous null as unknown patterns still remain"]
   },
   {
     "file": "src/domain/storage/backends/error-handling.ts",
     "originalCount": 76,
     "newCount": 75,
-    "fixesApplied": [
-      "Fixed this.name assignment (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed this.name assignment (1 occurrences)"],
     "warnings": []
   },
   {
@@ -917,9 +867,7 @@
       "Fixed array map access (1 occurrences)",
       "Fixed return null statement (2 occurrences)"
     ],
-    "warnings": [
-      "1 dangerous null as unknown patterns still remain"
-    ]
+    "warnings": ["1 dangerous null as unknown patterns still remain"]
   },
   {
     "file": "src/domain/storage/backends/sqlite-storage.ts",
@@ -947,18 +895,14 @@
     "file": "src/adapters/cli/utils/shared-options.ts",
     "originalCount": 15,
     "newCount": 14,
-    "fixesApplied": [
-      "Fixed undefined type annotation (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed undefined type annotation (1 occurrences)"],
     "warnings": []
   },
   {
     "file": "src/adapters/cli/utils/error-handler.ts",
     "originalCount": 23,
     "newCount": 20,
-    "fixesApplied": [
-      "Fixed environment variable access (3 occurrences)"
-    ],
+    "fixesApplied": ["Fixed environment variable access (3 occurrences)"],
     "warnings": []
   },
   {
@@ -986,9 +930,7 @@
     "file": "src/adapters/shared/commands/config.ts",
     "originalCount": 24,
     "newCount": 23,
-    "fixesApplied": [
-      "Fixed array map access (1 occurrences)"
-    ],
+    "fixesApplied": ["Fixed array map access (1 occurrences)"],
     "warnings": []
   },
   {
@@ -1027,9 +969,7 @@
     "originalCount": 12,
     "newCount": 12,
     "fixesApplied": [],
-    "warnings": [
-      "1 dangerous undefined as unknown patterns still remain"
-    ]
+    "warnings": ["1 dangerous undefined as unknown patterns still remain"]
   },
   {
     "file": "src/utils/test-utils/compatibility/matchers.ts",

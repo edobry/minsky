@@ -25,17 +25,19 @@ export interface WorkspaceResolverOptions {
 
 /**
  * Workspace resolution with hanging prevention
- * 
- * Uses aggressive timeouts to prevent the 10+ second hangs that were occurring 
+ *
+ * Uses aggressive timeouts to prevent the 10+ second hangs that were occurring
  * in task operations due to special workspace initialization delays.
  */
-export async function resolveTaskWorkspacePath(options: WorkspaceResolverOptions = {}): Promise<string> {
-  const { 
-    backend = "markdown", 
+export async function resolveTaskWorkspacePath(
+  options: WorkspaceResolverOptions = {}
+): Promise<string> {
+  const {
+    backend = "markdown",
     repoUrl,
     maxResolutionTime = 2000, // 2 second default timeout
     emergencyMode = false,
-    disableSpecialWorkspace = false
+    disableSpecialWorkspace = false,
   } = options;
 
   const startTime = performance.now();
@@ -69,58 +71,62 @@ export async function resolveTaskWorkspacePath(options: WorkspaceResolverOptions
       const taskService = await Promise.race([taskServicePromise, timeout]);
 
       const workspacePath = taskService.getWorkspacePath();
-      
+
       log.debug("Workspace resolution completed", {
         method: "repo-based",
         duration: `${(performance.now() - startTime).toFixed(2)}ms`,
-        workspacePath
+        workspacePath,
       });
-      
+
       return workspacePath;
     } catch (error) {
       log.warn("Repo-based workspace resolution failed, using fallback", {
         error: error instanceof Error ? error.message : String(error),
         repoUrl,
-        timeElapsed: `${(performance.now() - startTime).toFixed(2)}ms`
+        timeElapsed: `${(performance.now() - startTime).toFixed(2)}ms`,
       });
     }
   }
 
   // Fallback: Try auto-detection with remaining time budget
   const remainingTime = maxResolutionTime - (performance.now() - startTime);
-  if (remainingTime > 200) { // Only try if we have at least 200ms left
+  if (remainingTime > 200) {
+    // Only try if we have at least 200ms left
     try {
       const timeout = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("Auto-detection timeout")), Math.min(remainingTime, 1000));
+        setTimeout(
+          () => reject(new Error("Auto-detection timeout")),
+          Math.min(remainingTime, 1000)
+        );
       });
 
       const taskServicePromise = TaskService.createMarkdownWithAutoDetection();
       const taskService = await Promise.race([taskServicePromise, timeout]);
 
       const workspacePath = taskService.getWorkspacePath();
-      
+
       log.debug("Workspace resolution completed", {
         method: "auto-detection",
         duration: `${(performance.now() - startTime).toFixed(2)}ms`,
-        workspacePath
+        workspacePath,
       });
-      
+
       return workspacePath;
     } catch (error) {
       log.warn("Auto-detection workspace resolution failed, using current directory", {
         error: error instanceof Error ? error.message : String(error),
-        timeElapsed: `${(performance.now() - startTime).toFixed(2)}ms`
+        timeElapsed: `${(performance.now() - startTime).toFixed(2)}ms`,
       });
     }
   }
 
   // Ultimate fallback: current directory
   const result = process.cwd();
-  
+
   log.debug("Workspace resolution completed", {
     method: "current-directory-fallback",
     duration: `${(performance.now() - startTime).toFixed(2)}ms`,
-    workspacePath: result
+    workspacePath: result,
   });
 
   // Warn if resolution took longer than expected
@@ -128,7 +134,7 @@ export async function resolveTaskWorkspacePath(options: WorkspaceResolverOptions
   if (totalTime > 1000) {
     log.warn("Slow workspace resolution detected", {
       duration: `${totalTime.toFixed(2)}ms`,
-      suggestion: "Consider using emergencyMode: true for faster operations"
+      suggestion: "Consider using emergencyMode: true for faster operations",
     });
   }
 

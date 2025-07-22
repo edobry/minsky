@@ -1,6 +1,6 @@
 /**
  * Unified Session Context Resolver
- * 
+ *
  * This module provides a single, unified interface for session auto-detection
  * across all session commands, replacing the inconsistent implementations
  * currently scattered throughout the codebase.
@@ -53,7 +53,7 @@ export interface ResolvedSessionContext {
 
 /**
  * Unified session context resolver
- * 
+ *
  * This function consolidates all session auto-detection logic into a single,
  * consistent interface. It handles:
  * - Explicit session names
@@ -80,15 +80,11 @@ export async function resolveSessionContext(
   // Option 1: Explicit session name provided
   if (session) {
     log.debug("Using explicit session name", { session });
-    
+
     // Validate session exists
     const sessionRecord = await sessionProvider!.getSession(session);
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(
-        `Session '${session}' not found`,
-        "session",
-        session
-      );
+      throw new ResourceNotFoundError(`Session '${session}' not found`, "session", session);
     }
 
     return {
@@ -102,20 +98,20 @@ export async function resolveSessionContext(
   // Option 2: Task ID provided - resolve to session
   if (task) {
     log.debug("Resolving session from task ID", { task });
-    
+
     const normalizedTaskId = taskIdSchema!.parse(task);
     const sessionRecord = await sessionProvider!.getSessionByTaskId(normalizedTaskId);
-    
+
     if (!sessionRecord) {
       // Provide a more helpful error message with available sessions
       const allSessions = await sessionProvider!.listSessions();
-      const sessionNames = allSessions.map(s => 
-        `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ""}`
-      ).join(", ");
-      
+      const sessionNames = allSessions
+        .map((s) => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ""}`)
+        .join(", ");
+
       throw new ResourceNotFoundError(
         `No session found for task ID "${normalizedTaskId}"\n\n` +
-        `💡 Available sessions: ${sessionNames}`,
+          `💡 Available sessions: ${sessionNames}`,
         "task",
         normalizedTaskId
       );
@@ -132,21 +128,21 @@ export async function resolveSessionContext(
   // Option 3: Auto-detection from working directory
   if (allowAutoDetection) {
     log.debug("Attempting session auto-detection", { workingDirectory });
-    
+
     try {
       // Try to get full session context (session + task)
       const sessionContext = await getCurrentSessionContextFn(workingDirectory, {
         sessionDbOverride: sessionProvider,
       });
-      
+
       if (sessionContext!?.sessionId) {
         const autoDetectionMessage = `Auto-detected session: ${sessionContext!.sessionId}`;
-        log.debug("Session auto-detection successful", { 
+        log.debug("Session auto-detection successful", {
           sessionId: sessionContext!.sessionId,
           taskId: sessionContext!.taskId,
-          workingDirectory 
+          workingDirectory,
         });
-        
+
         return {
           sessionName: sessionContext!.sessionId,
           taskId: sessionContext!.taskId,
@@ -155,19 +151,19 @@ export async function resolveSessionContext(
           autoDetectionMessage,
         };
       }
-      
+
       // Fallback to basic session detection
       const sessionName = await getCurrentSessionFn(workingDirectory);
       if (sessionName) {
         const autoDetectionMessage = `Auto-detected session: ${sessionName}`;
-        log.debug("Basic session auto-detection successful", { 
+        log.debug("Basic session auto-detection successful", {
           sessionName,
-          workingDirectory 
+          workingDirectory,
         });
-        
+
         // Get task ID from session record
         const sessionRecord = await sessionProvider!.getSession(sessionName);
-        
+
         return {
           sessionName,
           taskId: sessionRecord!?.taskId,
@@ -177,9 +173,9 @@ export async function resolveSessionContext(
         };
       }
     } catch (error) {
-      log.debug("Session auto-detection failed", { 
+      log.debug("Session auto-detection failed", {
         error: getErrorMessage(error as Error),
-        workingDirectory 
+        workingDirectory,
       });
     }
   }
@@ -193,16 +189,14 @@ export async function resolveSessionContext(
 /**
  * Simplified session resolution for commands that only need the session name
  */
-export async function resolveSessionName(
-  options: SessionContextOptions = {}
-): Promise<string> {
+export async function resolveSessionName(options: SessionContextOptions = {}): Promise<string> {
   const context = await resolveSessionContext(options);
   return context!.sessionName;
 }
 
 /**
  * Session resolution with user feedback
- * 
+ *
  * This function resolves the session context and provides user feedback
  * when auto-detection is used.
  */
@@ -210,7 +204,7 @@ export async function resolveSessionContextWithFeedback(
   options: SessionContextOptions = {}
 ): Promise<ResolvedSessionContext> {
   const context = await resolveSessionContext(options);
-  
+
   // Provide user feedback for auto-detection
   if (context?.autoDetectionMessage) {
     // Only call log.cli if it exists (may not be available in test environments)
@@ -220,13 +214,13 @@ export async function resolveSessionContextWithFeedback(
       log.debug(context.autoDetectionMessage);
     }
   }
-  
+
   return context;
 }
 
 /**
  * Validate that a session context can be resolved
- * 
+ *
  * This function checks if session resolution would succeed without
  * actually performing the resolution. Useful for command validation.
  */
@@ -239,4 +233,4 @@ export async function validateSessionContext(
   } catch (error) {
     return false;
   }
-} 
+}

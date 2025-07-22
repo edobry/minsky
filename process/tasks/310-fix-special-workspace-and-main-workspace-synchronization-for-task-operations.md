@@ -60,7 +60,7 @@ export async function commitTaskChanges(options: {
   if (repoUrl) {
     const specialWorkspaceManager = createSpecialWorkspaceManager({ repoUrl });
     const specialWorkspacePath = specialWorkspaceManager.getWorkspacePath();
-    
+
     if (workspacePath === specialWorkspacePath) {
       // Use special workspace atomic operations
       await specialWorkspaceManager.ensureUpToDate();
@@ -68,7 +68,7 @@ export async function commitTaskChanges(options: {
       return true;
     }
   }
-  
+
   // Fallback to regular auto-commit
   return await autoCommitTaskChanges(workspacePath, message);
 }
@@ -79,7 +79,7 @@ export async function commitTaskChanges(options: {
 Updated all task command functions in `src/domain/tasks/taskCommands.ts` to use the new utility:
 
 - `setTaskStatusFromParams()`: Auto-commit status changes
-- `createTaskFromParams()`: Auto-commit new tasks  
+- `createTaskFromParams()`: Auto-commit new tasks
 - `createTaskFromTitleAndDescription()`: Auto-commit task creation
 - `deleteTaskFromParams()`: Auto-commit task deletions
 
@@ -93,7 +93,7 @@ Each function now passes the complete context including `repoUrl` and `backend` 
 ✅ **Task Lookup**: Task visible from both session workspace and main workspace  
 ✅ **Status Updates**: Successfully updated task #310 status to IN-PROGRESS  
 ✅ **Synchronization**: Status change visible from both workspaces immediately  
-✅ **Auto-commit**: Changes properly committed and synchronized via special workspace  
+✅ **Auto-commit**: Changes properly committed and synchronized via special workspace
 
 ### Test Cases Covered
 
@@ -107,7 +107,7 @@ Each function now passes the complete context including `repoUrl` and `backend` 
 ✅ **Consistent Task Visibility**: Task commands can find tasks regardless of creation location  
 ✅ **Proper Synchronization**: Changes in special workspace sync to main workspace  
 ✅ **Auto-commit Integration**: Automatic git operations work correctly for both workspace types  
-✅ **Backward Compatibility**: Existing functionality preserved for regular workspace operations  
+✅ **Backward Compatibility**: Existing functionality preserved for regular workspace operations
 
 ## Solution Benefits
 

@@ -188,21 +188,24 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
     if (!this.configResult) {
       return {
         valid: false,
-        errors: [{
-          path: "root",
-          message: "Configuration not loaded",
-          severity: "error",
-        }],
+        errors: [
+          {
+            path: "root",
+            message: "Configuration not loaded",
+            severity: "error",
+          },
+        ],
       };
     }
 
     return {
       valid: this.configResult.validationResult.success,
-      errors: this.configResult.validationResult.issues?.map((issue: any) => ({
-        path: issue.path?.join?.(".") || "unknown",
-        message: issue.message,
-        severity: "error" as const,
-      })) || [],
+      errors:
+        this.configResult.validationResult.issues?.map((issue: any) => ({
+          path: issue.path?.join?.(".") || "unknown",
+          message: issue.message,
+          severity: "error" as const,
+        })) || [],
     };
   }
 
@@ -230,7 +233,7 @@ export class CustomConfigFactory implements ConfigurationFactory {
       // Apply overrides by adding them as a high-priority source
       ...(options?.overrides && {
         sourcesToLoad: ["defaults", "project", "user", "environment", "overrides"],
-        overrideSource: options.overrides
+        overrideSource: options.overrides,
       }),
     });
 

@@ -31,39 +31,39 @@ export async function rebaseFromParams(params: {
   };
 }> {
   const gitService = createGitService();
-  
+
   let repoPath = params.repo;
-  
+
   if (params.session && !repoPath) {
     const sessionProvider = createSessionProvider();
     const session = await sessionProvider.getSession(params.session);
-    
+
     if (!session) {
       throw new Error(`Session not found: ${params.session}`);
     }
-    
+
     repoPath = session.workdir;
   }
-  
+
   // Default to current directory if no repo specified
   if (!repoPath) {
     repoPath = process.cwd();
   }
-  
+
   // Get current branch if feature branch not specified
   let featureBranch = params.featureBranch;
   if (!featureBranch) {
     featureBranch = await gitService.getCurrentBranch(repoPath);
   }
-  
+
   // Check if there are uncommitted changes
   const hasUncommittedChanges = await gitService.hasUncommittedChanges(repoPath);
-  
+
   if (hasUncommittedChanges && !params.preview) {
     // Stash changes first
     await gitService.stashChanges(repoPath);
   }
-  
+
   // Predict conflicts if requested
   let prediction;
   if (params.preview) {
@@ -73,7 +73,7 @@ export async function rebaseFromParams(params: {
         featureBranch,
         params.baseBranch
       );
-      
+
       prediction = {
         canAutoResolve: conflictPrediction.canAutoResolve,
         recommendations: conflictPrediction.recommendations,
@@ -83,22 +83,22 @@ export async function rebaseFromParams(params: {
       log("Could not predict conflicts", { error });
     }
   }
-  
+
   // Perform the rebase
   try {
     const { stdout, stderr } = await execAsync(`git rebase ${params.baseBranch}`, {
       cwd: repoPath,
       timeout: 60000,
     });
-    
-    log("Rebase completed successfully", { 
+
+    log("Rebase completed successfully", {
       baseBranch: params.baseBranch,
       featureBranch,
       repoPath,
       stdout,
-      stderr 
+      stderr,
     });
-    
+
     return {
       workdir: repoPath,
       rebased: true,
@@ -108,10 +108,11 @@ export async function rebaseFromParams(params: {
   } catch (error: any) {
     // Handle rebase conflicts
     const errorMessage = error.message || "";
-    const isConflict = errorMessage.includes("conflict") || 
-                      errorMessage.includes("CONFLICT") ||
-                      errorMessage.includes("could not apply");
-    
+    const isConflict =
+      errorMessage.includes("conflict") ||
+      errorMessage.includes("CONFLICT") ||
+      errorMessage.includes("could not apply");
+
     if (isConflict) {
       return {
         workdir: repoPath,
@@ -121,7 +122,7 @@ export async function rebaseFromParams(params: {
         prediction,
       };
     }
-    
+
     throw error;
   }
-} 
+}

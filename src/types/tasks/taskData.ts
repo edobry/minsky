@@ -12,7 +12,7 @@ export { TaskStatus as TaskStatusType } from "../../domain/tasks/taskConstants";
 /**
  * TaskData represents the pure data representation of a task
  * It contains only the essential data without methods or side effects
- * 
+ *
  * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
  * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
  */

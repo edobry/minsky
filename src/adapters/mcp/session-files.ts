@@ -266,7 +266,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         const errorContext: ErrorContext = {
           operation: "read_file",
           path: args.path,
-          session: args.sessionName
+          session: args.sessionName,
         };
 
         log.error("Session file read failed", {
@@ -329,7 +329,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           operation: "write_file",
           path: args.path,
           session: args.sessionName,
-          createDirs: args.createDirs
+          createDirs: args.createDirs,
         };
 
         log.error("Session file write failed", {
@@ -408,7 +408,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         const errorContext: ErrorContext = {
           operation: "list_directory",
           path: args.path,
-          session: args.sessionName
+          session: args.sessionName,
         };
 
         log.error("Session directory list failed", {
@@ -477,7 +477,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         const errorContext: ErrorContext = {
           operation: "file_exists",
           path: args.path,
-          session: args.sessionName
+          session: args.sessionName,
         };
 
         log.error("Session file exists check failed", {
@@ -535,7 +535,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         const errorContext: ErrorContext = {
           operation: "delete_file",
           path: args.path,
-          session: args.sessionName
+          session: args.sessionName,
         };
 
         log.error("Session file delete failed", {
@@ -591,7 +591,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         const errorContext: ErrorContext = {
           operation: "create_directory",
           path: args.path,
-          session: args.sessionName
+          session: args.sessionName,
         };
 
         log.error("Session directory create failed", {
@@ -604,8 +604,6 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
       }
     },
   });
-
-
 
   log.debug("Session file operation tools registered successfully");
 }
