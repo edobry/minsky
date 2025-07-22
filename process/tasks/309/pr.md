@@ -1,5 +1,3 @@
-# feat(#309): Implement semantic error handling for file operations
-
 ## Summary
 
 Implements comprehensive semantic error handling for file operations to improve AI agent UX by replacing cryptic filesystem errors with actionable guidance. This includes error classification, auto-directory creation, and structured error responses.
