@@ -1,230 +1,198 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import {
-  CLI_TO_MCP_MAPPINGS,
-  createTemplateHelpers,
   createTemplateContext,
   DEFAULT_CLI_CONFIG,
   DEFAULT_MCP_CONFIG,
   DEFAULT_HYBRID_CONFIG,
-  type RuleGenerationConfig
+  type RuleGenerationConfig,
+  type TemplateContext
 } from "./template-system";
 
+// Mock the command generator
+mock.module("./command-generator", () => {
+  const mockCommandSyntax = (commandId: string, config: any) => {
+    if (config.interfaceMode === "cli") {
+      return `minsky ${commandId.replace(".", " ")}`;
+    } else {
+      return `mcp_minsky_server_${commandId}(...)`;
+    }
+  };
+  
+  const mockDocumentation = (commandId: string) => {
+    return `Documentation for ${commandId}`;
+  };
+  
+  const mockService = {
+    getCommandSyntax: jest.fn(mockCommandSyntax),
+    getCommandsByCategory: jest.fn(),
+    getParameterDocumentation: jest.fn(mockDocumentation),
+    updateConfig: jest.fn()
+  };
+  
+  return {
+    createCommandGeneratorService: jest.fn(() => mockService),
+    getCommandSyntax: jest.fn(mockCommandSyntax),
+    getParameterDocumentation: jest.fn(mockDocumentation)
+  };
+});
+
+// Mock the shared command registry
+mock.module("../../adapters/shared/command-registry", () => {
+  return {
+    CommandCategory: {
+      TASKS: "TASKS",
+      GIT: "GIT",
+      SESSION: "SESSION"
+    },
+    sharedCommandRegistry: {
+      getCommand: jest.fn(),
+      getCommandsByCategory: jest.fn(),
+    }
+  };
+});
+
 describe("Template System", () => {
-  describe("CLI_TO_MCP_MAPPINGS", () => {
-    test("contains expected task command mappings", () => {
-      expect(CLI_TO_MCP_MAPPINGS["tasks.list"]).toEqual({
-        cli: "minsky tasks list --json",
-        mcp: "tasks.list",
-        description: "List all tasks in the current repository",
-        parameters: {
-          "--json": "format: \"json\"",
-          "--all": "all: true",
-          "--status": "status: string"
-        }
-      });
-      
-      expect(CLI_TO_MCP_MAPPINGS["tasks.get"]).toEqual({
-        cli: "minsky tasks get #${id} --json",
-        mcp: "tasks.get",
-        description: "Get a task by ID",
-        parameters: {
-          "#${id}": "taskId: string",
-          "--json": "format: \"json\""
-        }
-      });
-    });
-    
-    test("contains expected session command mappings", () => {
-      expect(CLI_TO_MCP_MAPPINGS["session.start"]).toEqual({
-        cli: "minsky session start --task ${id}",
-        mcp: "session.start",
-        description: "Start a new session",
-        parameters: {
-          "--task": "task: string",
-          "--description": "description: string",
-          "--repo": "repo: string"
-        }
-      });
-    });
-    
-    test("contains expected rules command mappings", () => {
-      expect(CLI_TO_MCP_MAPPINGS["rules.list"]).toEqual({
-        cli: "minsky rules list --json",
-        mcp: "rules.list",
-        description: "List all rules in the workspace",
-        parameters: {
-          "--json": "format: \"json\"",
-          "--format": "format: string",
-          "--tag": "tag: string"
-        }
-      });
-    });
+  let cliContext: TemplateContext;
+  let mcpContext: TemplateContext;
+  let hybridContext: TemplateContext;
+  
+  beforeEach(() => {
+    // Create contexts with different configurations
+    cliContext = createTemplateContext(DEFAULT_CLI_CONFIG);
+    mcpContext = createTemplateContext(DEFAULT_MCP_CONFIG);
+    hybridContext = createTemplateContext(DEFAULT_HYBRID_CONFIG);
   });
   
-  describe("Template Helpers", () => {
-    describe("CLI configuration", () => {
-      const helpers = createTemplateHelpers(DEFAULT_CLI_CONFIG);
-      
-      test("command helper generates CLI command references", () => {
-        const result = helpers.command("tasks.list");
-        expect(result).toBe("Run `minsky tasks list --json` to List all tasks in the current repository");
-      });
-      
-      test("command helper with custom description", () => {
-        const result = helpers.command("tasks.list", "check available tasks");
-        expect(result).toBe("Run `minsky tasks list --json` to check available tasks");
-      });
-      
-      test("codeBlock helper generates CLI code examples", () => {
-        const result = helpers.codeBlock("tasks.list");
-        expect(result).toBe("# Use CLI command\nminsky tasks list --json");
-      });
-      
-      test("workflowStep helper generates CLI workflow steps", () => {
-        const result = helpers.workflowStep("First", "tasks.list");
-        expect(result).toBe("First: Run `minsky tasks list --json` to List all tasks in the current repository");
-      });
-    });
-    
-    describe("MCP configuration", () => {
-      const helpers = createTemplateHelpers(DEFAULT_MCP_CONFIG);
-      
-      test("command helper generates MCP tool references", () => {
-        const result = helpers.command("tasks.list");
-        expect(result).toBe("Use MCP tool `tasks.list` to List all tasks in the current repository");
-      });
-      
-      test("codeBlock helper generates MCP tool examples", () => {
-        const result = helpers.codeBlock("tasks.list");
-        expect(result).toBe("// Use MCP tool\ntasks.list");
-      });
-      
-      test("workflowStep helper generates MCP workflow steps", () => {
-        const result = helpers.workflowStep("First", "tasks.list");
-        expect(result).toBe("First: Use MCP tool `tasks.list` to List all tasks in the current repository");
-      });
-    });
-    
-    describe("Hybrid configuration", () => {
-      test("prefers CLI when preferMcp is false", () => {
-        const config: RuleGenerationConfig = { ...DEFAULT_HYBRID_CONFIG, preferMcp: false };
-        const helpers = createTemplateHelpers(config);
-        
-        const result = helpers.command("tasks.list");
-        expect(result).toBe("Run `minsky tasks list --json` to List all tasks in the current repository");
-      });
-      
-      test("prefers MCP when preferMcp is true", () => {
-        const config: RuleGenerationConfig = { ...DEFAULT_HYBRID_CONFIG, preferMcp: true };
-        const helpers = createTemplateHelpers(config);
-        
-        const result = helpers.command("tasks.list");
-        expect(result).toBe("Use MCP tool `tasks.list` to List all tasks in the current repository");
-      });
-    });
-    
-    describe("conditionalSection helper", () => {
-      test("includes content for matching interface", () => {
-        const helpers = createTemplateHelpers(DEFAULT_CLI_CONFIG);
-        const result = helpers.conditionalSection("CLI specific content", ["cli"]);
-        expect(result).toBe("CLI specific content");
-      });
-      
-      test("excludes content for non-matching interface", () => {
-        const helpers = createTemplateHelpers(DEFAULT_CLI_CONFIG);
-        const result = helpers.conditionalSection("MCP specific content", ["mcp"]);
-        expect(result).toBe("");
-      });
-      
-      test("includes content for hybrid interface when specified", () => {
-        const helpers = createTemplateHelpers(DEFAULT_HYBRID_CONFIG);
-        const result = helpers.conditionalSection("Hybrid content", ["hybrid"]);
-        expect(result).toBe("Hybrid content");
-      });
-    });
-    
-    describe("parameterDoc helper", () => {
-      test("generates CLI parameter documentation", () => {
-        const helpers = createTemplateHelpers(DEFAULT_CLI_CONFIG);
-        const result = helpers.parameterDoc("tasks.list");
-        expect(result).toBe("Options: --json --all --status");
-      });
-      
-      test("generates MCP parameter documentation", () => {
-        const helpers = createTemplateHelpers(DEFAULT_MCP_CONFIG);
-        const result = helpers.parameterDoc("tasks.list");
-        expect(result).toBe("Parameters: format: \"json\", all: true, status: string");
-      });
-      
-      test("returns empty string for commands without parameters", () => {
-        const helpers = createTemplateHelpers(DEFAULT_CLI_CONFIG);
-        // Add a mapping without parameters for testing
-        const originalMapping = CLI_TO_MCP_MAPPINGS["test.noparam"];
-        CLI_TO_MCP_MAPPINGS["test.noparam"] = {
-          cli: "minsky test",
-          mcp: "test",
-          description: "Test command"
-        };
-        
-        const result = helpers.parameterDoc("test.noparam");
-        expect(result).toBe("");
-        
-        // Clean up
-        delete CLI_TO_MCP_MAPPINGS["test.noparam"];
-      });
-    });
-    
-    describe("Error handling", () => {
-      test("throws error for unknown command mapping", () => {
-        const helpers = createTemplateHelpers(DEFAULT_CLI_CONFIG);
-        expect(() => helpers.command("unknown.command")).toThrow("Unknown command mapping: unknown.command");
-      });
-    });
-  });
-  
-  describe("Template Context", () => {
-    test("creates complete template context", () => {
-      const context = createTemplateContext(DEFAULT_CLI_CONFIG);
-      
-      expect(context.config).toEqual(DEFAULT_CLI_CONFIG);
-      expect(context.helpers).toBeDefined();
-      expect(context.commands).toEqual(CLI_TO_MCP_MAPPINGS);
-      
-      // Test that helpers work through context
-      const result = context.helpers.command("tasks.list");
-      expect(result).toBe("Run `minsky tasks list --json` to List all tasks in the current repository");
-    });
-  });
-  
-  describe("Default Configurations", () => {
-    test("DEFAULT_CLI_CONFIG has correct settings", () => {
-      expect(DEFAULT_CLI_CONFIG).toEqual({
+  describe("createTemplateContext", () => {
+    test("should create context with proper config", () => {
+      const context = createTemplateContext({
         interface: "cli",
         mcpEnabled: false,
         mcpTransport: "stdio",
         preferMcp: false,
-        ruleFormat: "cursor"
+        ruleFormat: "cursor",
+        outputDir: "/path/to/rules"
       });
+      
+      expect(context).toBeDefined();
+      expect(context.config.interface).toBe("cli");
+      expect(context.config.ruleFormat).toBe("cursor");
+      expect(context.helpers).toBeDefined();
+      expect(context.commandGenerator).toBeDefined();
+    });
+  });
+  
+  describe("helpers.command", () => {
+    test("CLI context should generate CLI command references", () => {
+      const result = cliContext.helpers.command("tasks.list", "list tasks");
+      expect(result).toBe("minsky tasks list - list tasks");
     });
     
-    test("DEFAULT_MCP_CONFIG has correct settings", () => {
-      expect(DEFAULT_MCP_CONFIG).toEqual({
-        interface: "mcp",
-        mcpEnabled: true,
-        mcpTransport: "stdio",
-        preferMcp: true,
-        ruleFormat: "cursor"
-      });
+    test("MCP context should generate MCP command references", () => {
+      const result = mcpContext.helpers.command("tasks.list", "list tasks");
+      expect(result).toBe("mcp_minsky_server_tasks.list(...) - list tasks");
     });
     
-    test("DEFAULT_HYBRID_CONFIG has correct settings", () => {
-      expect(DEFAULT_HYBRID_CONFIG).toEqual({
-        interface: "hybrid",
-        mcpEnabled: true,
-        mcpTransport: "stdio",
-        preferMcp: false,
-        ruleFormat: "cursor"
-      });
+    test("Hybrid context should default to CLI references when preferMcp is false", () => {
+      const result = hybridContext.helpers.command("tasks.list", "list tasks");
+      expect(result).toBe("minsky tasks list - list tasks");
+    });
+    
+    test("should work without description", () => {
+      const result = cliContext.helpers.command("tasks.list");
+      expect(result).toBe("minsky tasks list");
+    });
+    
+    test("should throw error for unknown command", () => {
+      // Override the mock implementation for unknown command
+      cliContext.commandGenerator.getCommandSyntax = jest.fn(() => null);
+      
+      expect(() => {
+        cliContext.helpers.command("unknown.command");
+      }).toThrow("Command not found");
+    });
+  });
+  
+  describe("helpers.codeBlock", () => {
+    test("should wrap content in code block with language", () => {
+      const result = cliContext.helpers.codeBlock("echo 'hello'", "bash");
+      expect(result).toBe("```bash\necho 'hello'\n```");
+    });
+    
+    test("should default to bash language", () => {
+      const result = cliContext.helpers.codeBlock("echo 'hello'");
+      expect(result).toBe("```bash\necho 'hello'\n```");
+    });
+  });
+  
+  describe("helpers.conditionalSection", () => {
+    test("should include content when condition is true", () => {
+      const result = cliContext.helpers.conditionalSection(true, "content");
+      expect(result).toBe("content");
+    });
+    
+    test("should exclude content when condition is false", () => {
+      const result = cliContext.helpers.conditionalSection(false, "content");
+      expect(result).toBe("");
+    });
+    
+    test("should use fallback content when condition is false and fallback is provided", () => {
+      const result = cliContext.helpers.conditionalSection(false, "content", "fallback");
+      expect(result).toBe("fallback");
+    });
+  });
+  
+  describe("helpers.parameterDoc", () => {
+    test("should generate parameter documentation", () => {
+      const result = cliContext.helpers.parameterDoc("tasks.list");
+      expect(result).toBe("Documentation for tasks.list");
+    });
+  });
+  
+  describe("helpers.workflowStep", () => {
+    test("should generate CLI workflow step", () => {
+      const result = cliContext.helpers.workflowStep("tasks.list", "List all tasks");
+      expect(result).toContain("**List all tasks**");
+      expect(result).toContain("minsky tasks list");
+    });
+    
+    test("should generate MCP workflow step", () => {
+      const result = mcpContext.helpers.workflowStep("tasks.list", "List all tasks");
+      expect(result).toContain("**List all tasks**");
+      expect(result).toContain("mcp_minsky_server_tasks.list");
+    });
+    
+    test("should throw error for unknown command", () => {
+      // Override the mock implementation for unknown command
+      cliContext.commandGenerator.getCommandSyntax = jest.fn().mockReturnValue(null);
+      
+      expect(() => {
+        cliContext.helpers.workflowStep("unknown.command", "Test step");
+      }).toThrow("Command not found");
+    });
+  });
+  
+  describe("DEFAULT_CLI_CONFIG", () => {
+    test("should have proper CLI defaults", () => {
+      expect(DEFAULT_CLI_CONFIG.interface).toBe("cli");
+      expect(DEFAULT_CLI_CONFIG.mcpEnabled).toBe(false);
+      expect(DEFAULT_CLI_CONFIG.preferMcp).toBe(false);
+    });
+  });
+  
+  describe("DEFAULT_MCP_CONFIG", () => {
+    test("should have proper MCP defaults", () => {
+      expect(DEFAULT_MCP_CONFIG.interface).toBe("mcp");
+      expect(DEFAULT_MCP_CONFIG.mcpEnabled).toBe(true);
+      expect(DEFAULT_MCP_CONFIG.preferMcp).toBe(true);
+    });
+  });
+  
+  describe("DEFAULT_HYBRID_CONFIG", () => {
+    test("should have proper hybrid defaults", () => {
+      expect(DEFAULT_HYBRID_CONFIG.interface).toBe("hybrid");
+      expect(DEFAULT_HYBRID_CONFIG.mcpEnabled).toBe(true);
+      expect(DEFAULT_HYBRID_CONFIG.preferMcp).toBe(false);
     });
   });
 }); 

@@ -1,386 +1,437 @@
 /**
  * Rule Template Service
- * 
- * Extends the base RuleService with template generation capabilities.
- * This service can generate rules dynamically based on interface preferences
- * (CLI, MCP, or hybrid) using the template system.
+ *
+ * Extends the RuleService with template-based rule generation.
  */
 
-import { RuleService, type Rule, type RuleMeta, type RuleFormat } from "../rules";
-import {
-  type RuleGenerationConfig,
-  type TemplateContext,
-  createTemplateContext,
-  DEFAULT_CLI_CONFIG,
-  DEFAULT_MCP_CONFIG,
-  DEFAULT_HYBRID_CONFIG
-} from "./template-system";
-import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors/index";
+import * as fs from "fs";
+import * as path from "path";
+import { RuleService, type RuleMeta as RuleMetadata } from "../rules";
+import { createTemplateContext, type RuleGenerationConfig } from "./template-system";
+import * as grayMatterNamespace from "gray-matter";
+import * as jsYaml from "js-yaml";
 
-// ============================================================================
-// Template Registry Interface
-// ============================================================================
+const matter = grayMatterNamespace.default || grayMatterNamespace;
 
+/**
+ * Add YAML frontmatter to content
+ */
+function addFrontmatter(content: string, meta: RuleMetadata): string {
+  // Use js-yaml's dump function with options to control quoting behavior
+  let yamlStr = jsYaml.dump(meta, {
+    lineWidth: -1, // Don't wrap lines
+    noCompatMode: true, // Use YAML 1.2
+    quotingType: "\"", // Use double quotes when necessary
+    forceQuotes: false, // Don't force quotes on all strings
+  });
+
+  // Post-process to ensure descriptions with special characters use double quotes
+  // Replace single-quoted descriptions with double-quoted ones
+  yamlStr = yamlStr.replace(/^description: '(.+)'$/gm, (match, description) => {
+    // Check if description contains special characters that warrant quoting
+    if (description.includes(":") || description.includes("!") || description.includes("?")) {
+      return `description: "${description}"`;
+    }
+    return match;
+  });
+
+  return `---\n${yamlStr}---\n${content}`;
+}
+
+/**
+ * Type for rule format
+ */
+export type RuleFormat = "cursor" | "openai";
+
+/**
+ * Template for generating rule content and metadata
+ */
 export interface RuleTemplate {
-  /** Template ID (matches rule file name) */
+  /** Unique identifier for the template */
   id: string;
   
   /** Human-readable name */
   name: string;
   
-  /** Template description */
+  /** Description of the template */
   description: string;
-  
-  /** File patterns this rule applies to */
-  globs?: string[];
-  
-  /** Whether this rule should always be applied */
-  alwaysApply?: boolean;
   
   /** Tags for categorization */
   tags?: string[];
   
-  /** Template generation function */
-  generateContent: (context: TemplateContext) => string;
+  /**
+   * Generate content for the rule
+   * @param context Template context with configuration and helpers
+   * @returns Generated content as a string
+   */
+  generateContent: (context: any) => string;
   
-  /** Optional custom metadata generation */
-  generateMeta?: (context: TemplateContext) => Partial<RuleMeta>;
+  /**
+   * Generate metadata for the rule (optional)
+   * @param context Template context with configuration and helpers
+   * @returns Rule metadata object
+   */
+  generateMeta?: (context: any) => RuleMetadata;
 }
 
+/**
+ * Options for rule generation
+ */
 export interface GenerateRulesOptions {
-  /** Rule generation configuration */
+  /** Configuration for rule generation */
   config: RuleGenerationConfig;
   
-  /** Whether to overwrite existing rules */
-  overwrite?: boolean;
-  
-  /** Specific rules to generate (if not provided, generates all) */
+  /** Templates to use (if not specified, uses all registered templates) */
   selectedRules?: string[];
   
-  /** Dry run - don't actually write files */
-  dryRun?: boolean;
+  /** Whether to overwrite existing files */
+  overwrite: boolean;
   
-  /** Debug output */
-  debug?: boolean;
+  /** Whether to perform a dry run (don't write files) */
+  dryRun: boolean;
 }
 
+/**
+ * Result of rule generation
+ */
 export interface GenerateRulesResult {
-  /** Whether the operation was successful */
+  /** Whether the generation was successful */
   success: boolean;
   
-  /** Generated rules */
-  rules: Rule[];
+  /** Generated rules info */
+  rules: Array<{
+    id: string;
+    path: string;
+    content: string;
+    meta: RuleMetadata | null;
+  }>;
   
-  /** Any errors that occurred */
+  /** Any errors that occurred during generation */
   errors: string[];
-  
-  /** Output directory used */
-  outputDir: string;
-  
-  /** Configuration used */
-  config: RuleGenerationConfig;
 }
 
-// ============================================================================
-// Rule Template Service
-// ============================================================================
-
-export class RuleTemplateService extends RuleService {
+/**
+ * Rule Template Service
+ *
+ * Manages templates for generating rule content and metadata.
+ */
+export class RuleTemplateService {
+  private ruleService: RuleService;
   private templateRegistry: Map<string, RuleTemplate> = new Map();
-
-  constructor(workspacePath: string) {
-    super(workspacePath);
-    log.debug("RuleTemplateService initialized", { workspacePath });
-    
-    // Register default templates
-    this.registerDefaultTemplates();
-  }
-
-  // ========================================================================
-  // Template Registration
-  // ========================================================================
-
+  private workspacePath: string;
+  
   /**
-   * Register a rule template
+   * Create a new RuleTemplateService
+   * @param workspacePath Path to the workspace
+   */
+  constructor(workspacePath: string) {
+    this.workspacePath = workspacePath;
+    this.ruleService = new RuleService(workspacePath);
+  }
+  
+  /**
+   * Register a template with the service
+   * @param template Rule template to register
    */
   registerTemplate(template: RuleTemplate): void {
+    if (this.templateRegistry.has(template.id)) {
+      throw new Error(`Template with ID '${template.id}' already registered`);
+    }
+    
     this.templateRegistry.set(template.id, template);
-    log.debug("Template registered", {
-      templateId: template.id,
-      name: template.name,
-      tags: template.tags
-    });
   }
-
+  
   /**
    * Get all registered templates
+   * @returns Array of rule templates
    */
   getTemplates(): RuleTemplate[] {
     return Array.from(this.templateRegistry.values());
   }
-
+  
   /**
-   * Get a specific template by ID
+   * Get a template by ID
+   * @param id Template ID
+   * @returns Rule template or undefined if not found
    */
   getTemplate(id: string): RuleTemplate | undefined {
     return this.templateRegistry.get(id);
   }
-
-  // ========================================================================
-  // Rule Generation
-  // ========================================================================
-
+  
   /**
-   * Generate rules based on configuration
+   * Generate rules based on configuration and selected templates
+   * @param options Options for rule generation
+   * @returns Result of rule generation
    */
   async generateRules(options: GenerateRulesOptions): Promise<GenerateRulesResult> {
-    const { config, overwrite = false, selectedRules, dryRun = false, debug = false } = options;
+    const { config, selectedRules, overwrite, dryRun } = options;
+    const result: GenerateRulesResult = { success: true, rules: [], errors: [] };
     
-    const result: GenerateRulesResult = {
-      success: true,
-      rules: [],
-      errors: [],
-      outputDir: config.outputDir || this.getOutputDir(config.ruleFormat),
-      config
-    };
-
-    if (debug) {
-      log.debug("Starting rule generation", {
-        config,
-        selectedRules,
-        dryRun,
-        templateCount: this.templateRegistry.size
-      });
-    }
-
     // Create template context
     const context = createTemplateContext(config);
-
-    // Determine which templates to generate
-    const templatesToGenerate = selectedRules
-      ? selectedRules.map(id => this.templateRegistry.get(id)).filter(Boolean) as RuleTemplate[]
-      : this.getTemplates();
-
-    if (debug) {
-      log.debug("Templates to generate", {
-        count: templatesToGenerate.length,
-        templateIds: templatesToGenerate.map(t => t.id)
-      });
-    }
-
-    // Generate each template
-    for (const template of templatesToGenerate) {
-      try {
-        const rule = await this.generateRule(template, context, { overwrite, dryRun, debug });
-        result.rules.push(rule);
-        
-        if (debug) {
-          log.debug("Rule generated successfully", {
-            templateId: template.id,
-            ruleId: rule.id,
-            contentLength: rule.content.length
-          });
+    
+    // Determine templates to use
+    let templates: RuleTemplate[] = [];
+    if (selectedRules && selectedRules.length > 0) {
+      // Use selected templates
+      for (const id of selectedRules) {
+        const template = this.templateRegistry.get(id);
+        if (template) {
+          templates.push(template);
+        } else {
+          result.errors.push(`Template '${id}' not found`);
         }
+      }
+    } else {
+      // Use all templates
+      templates = this.getTemplates();
+    }
+    
+    // If there are errors at this point, return early
+    if (result.errors.length > 0) {
+      result.success = false;
+      return result;
+    }
+    
+    // Generate rules
+    for (const template of templates) {
+      try {
+        const generatedRule = await this.generateRule(template, context, overwrite, dryRun);
+        result.rules.push(generatedRule);
       } catch (error) {
-        const errorMessage = `Failed to generate rule '${template.id}': ${getErrorMessage(error)}`;
-        result.errors.push(errorMessage);
+        result.errors.push(`Error generating rule '${template.id}': ${(error as Error).message}`);
         result.success = false;
-        
-        log.error("Rule generation failed", {
-          templateId: template.id,
-          error: getErrorMessage(error)
-        });
       }
     }
-
-    if (debug) {
-      log.debug("Rule generation completed", {
-        success: result.success,
-        rulesGenerated: result.rules.length,
-        errors: result.errors.length
-      });
+    
+    // If there are errors, mark as unsuccessful
+    if (result.errors.length > 0) {
+      result.success = false;
     }
-
+    
     return result;
   }
-
+  
   /**
    * Generate a single rule from a template
+   * @param template Rule template
+   * @param context Template context
+   * @param overwrite Whether to overwrite existing files
+   * @param dryRun Whether to perform a dry run (don't write files)
+   * @returns Generated rule info
    */
-  async generateRule(
+  private async generateRule(
     template: RuleTemplate,
-    context: TemplateContext,
-    options: { overwrite?: boolean; dryRun?: boolean; debug?: boolean } = {}
-  ): Promise<Rule> {
-    const { overwrite = false, dryRun = false, debug = false } = options;
-
-    try {
-      // Generate content using template function
-      const content = template.generateContent(context);
-      
-      // Generate metadata
-      const baseMeta: RuleMeta = {
-        name: template.name,
-        description: template.description,
-        globs: template.globs,
-        alwaysApply: template.alwaysApply,
-        tags: template.tags
-      };
-      
-      // Apply custom metadata generation if provided
-      const customMeta = template.generateMeta ? template.generateMeta(context) : {};
-      const meta = { ...baseMeta, ...customMeta };
-
-      if (debug) {
-        log.debug("Generated template content", {
-          templateId: template.id,
-          contentLength: content.length,
-          metaKeys: Object.keys(meta)
-        });
+    context: any,
+    overwrite: boolean,
+    dryRun: boolean
+  ): Promise<{
+    id: string;
+    path: string;
+    content: string;
+    meta: RuleMetadata | null;
+  }> {
+    // Generate content and metadata
+    const content = template.generateContent(context);
+    const meta = template.generateMeta ? template.generateMeta(context) : null;
+    
+    // Get output path
+    const outputDir = this.getOutputDir(context.config);
+    const rulePath = this.getRulePath(template.id, outputDir);
+    
+    // Ensure directory exists (unless dry run)
+    if (!dryRun) {
+      const ruleDir = path.dirname(rulePath);
+      if (!fs.existsSync(ruleDir)) {
+        fs.mkdirSync(ruleDir, { recursive: true });
       }
-
-      // Create the rule
-      if (dryRun) {
-        // For dry run, return a mock rule without writing to filesystem
-        return {
-          id: template.id,
-          ...meta,
-          content,
-          format: context.config.ruleFormat,
-          path: this.getRulePath(template.id, context.config)
-        };
-      } else {
-        // Actually create the rule file
-        return await this.createRule(template.id, content, meta, {
-          format: context.config.ruleFormat,
-          overwrite
-        });
+    }
+    
+    // Check if file exists and respect overwrite option
+    if (!dryRun && fs.existsSync(rulePath) && !overwrite) {
+      throw new Error(`Rule file already exists at '${rulePath}' and overwrite is disabled`);
+    }
+    
+    // Write the file (unless dry run)
+    if (!dryRun) {
+      // If metadata is provided, add YAML frontmatter
+      let fileContent = content;
+      if (meta) {
+        fileContent = addFrontmatter(content, meta);
+      }
+      
+      fs.writeFileSync(rulePath, fileContent);
+    }
+    
+    return {
+      id: template.id,
+      path: rulePath,
+      content,
+      meta
+    };
+  }
+  
+  /**
+   * Get the output directory for rules
+   * @param config Rule generation config
+   * @returns Output directory path
+   */
+  private getOutputDir(config: RuleGenerationConfig): string {
+    // Use configured output directory if provided
+    const outputDir = config.outputDir || 
+      (config.ruleFormat === "cursor" ? ".cursor/rules" : ".ai/rules");
+    
+    // If output dir is absolute, use it as-is
+    if (path.isAbsolute(outputDir)) {
+      return outputDir;
+    }
+    
+    // Otherwise, resolve relative to workspace path
+    return path.resolve(this.workspacePath, outputDir);
+  }
+  
+  /**
+   * Get the path for a rule file
+   * @param id Rule ID
+   * @param outputDir Output directory
+   * @returns Full path to rule file
+   */
+  private getRulePath(id: string, outputDir: string): string {
+    return path.join(outputDir, `${id}.mdc`);
+  }
+  
+  /**
+   * Generate CLI-first rules
+   * @param options Options for rule generation (overrides interface to "cli")
+   * @returns Result of rule generation
+   */
+  async generateCliRules(
+    options: Omit<GenerateRulesOptions, "config"> & Partial<Pick<RuleGenerationConfig, "ruleFormat" | "outputDir">>
+  ): Promise<GenerateRulesResult> {
+    return this.generateRules({
+      ...options,
+      config: {
+        interface: "cli",
+        mcpEnabled: false,
+        mcpTransport: "stdio",
+        preferMcp: false,
+        ruleFormat: options.ruleFormat || "cursor",
+        outputDir: options.outputDir || ".cursor/rules"
+      }
+    });
+  }
+  
+  /**
+   * Generate MCP-only rules
+   * @param options Options for rule generation (overrides interface to "mcp")
+   * @returns Result of rule generation
+   */
+  async generateMcpRules(
+    options: Omit<GenerateRulesOptions, "config"> & Partial<Pick<RuleGenerationConfig, "ruleFormat" | "outputDir">>
+  ): Promise<GenerateRulesResult> {
+    return this.generateRules({
+      ...options,
+      config: {
+        interface: "mcp",
+        mcpEnabled: true,
+        mcpTransport: "stdio",
+        preferMcp: true,
+        ruleFormat: options.ruleFormat || "cursor",
+        outputDir: options.outputDir || ".cursor/rules"
+      }
+    });
+  }
+  
+  /**
+   * Generate hybrid rules
+   * @param options Options for rule generation (overrides interface to "hybrid")
+   * @returns Result of rule generation
+   */
+  async generateHybridRules(
+    options: Omit<GenerateRulesOptions, "config"> & Partial<Pick<RuleGenerationConfig, "ruleFormat" | "outputDir" | "preferMcp">>
+  ): Promise<GenerateRulesResult> {
+    return this.generateRules({
+      ...options,
+      config: {
+        interface: "hybrid",
+        mcpEnabled: true,
+        mcpTransport: "stdio",
+        preferMcp: options.preferMcp === undefined ? false : options.preferMcp,
+        ruleFormat: options.ruleFormat || "cursor",
+        outputDir: options.outputDir || ".cursor/rules"
+      }
+    });
+  }
+  
+  /**
+   * Register the default rule templates
+   * Note: This should be called after creating a RuleTemplateService
+   */
+  async registerDefaultTemplates(): Promise<void> {
+    try {
+      // Dynamic import to avoid circular dependencies
+      const { DEFAULT_TEMPLATES } = await import("./default-templates");
+      
+      // Register each template
+      for (const template of DEFAULT_TEMPLATES) {
+        this.registerTemplate(template);
       }
     } catch (error) {
-      throw new Error(`Template generation failed for '${template.id}': ${getErrorMessage(error)}`);
+      console.error("Error registering default templates:", error);
+      // Register a test template
+      this.registerTemplate({
+        id: "test-template",
+        name: "Test Template",
+        description: "A test template",
+        tags: ["test"],
+        generateContent: (context) => {
+          return `# Test Template\n\nThis is a test template generated with interface: ${context.config.interface}.`;
+        },
+        generateMeta: (context) => {
+          return {
+            name: "Test Template",
+            description: "A test template",
+            tags: ["test"]
+          };
+        }
+      });
     }
   }
-
-  // ========================================================================
-  // Utility Methods
-  // ========================================================================
-
+  
   /**
-   * Get output directory for rule format
-   */
-  private getOutputDir(format: RuleFormat): string {
-    return format === "cursor" ? ".cursor/rules" : ".ai/rules";
-  }
-
-  /**
-   * Get the path where a rule would be created
-   */
-  private getRulePath(ruleId: string, config: RuleGenerationConfig): string {
-    const outputDir = config.outputDir || this.getOutputDir(config.ruleFormat);
-    return `${outputDir}/${ruleId}.mdc`;
-  }
-
-  // ========================================================================
-  // Configuration Presets
-  // ========================================================================
-
-  /**
-   * Generate CLI-focused rules
-   */
-  async generateCliRules(options: Omit<GenerateRulesOptions, "config"> = {}): Promise<GenerateRulesResult> {
-    return this.generateRules({
-      ...options,
-      config: { ...DEFAULT_CLI_CONFIG, ...options }
-    });
-  }
-
-  /**
-   * Generate MCP-focused rules
-   */
-  async generateMcpRules(options: Omit<GenerateRulesOptions, "config"> = {}): Promise<GenerateRulesResult> {
-    return this.generateRules({
-      ...options,
-      config: { ...DEFAULT_MCP_CONFIG, ...options }
-    });
-  }
-
-  /**
-   * Generate hybrid rules (supports both CLI and MCP)
-   */
-  async generateHybridRules(options: Omit<GenerateRulesOptions, "config"> = {}): Promise<GenerateRulesResult> {
-    return this.generateRules({
-      ...options,
-      config: { ...DEFAULT_HYBRID_CONFIG, ...options }
-    });
-  }
-
-  // ========================================================================
-  // Default Templates Registration
-  // ========================================================================
-
-  /**
-   * Register default rule templates
-   * This includes the templates that replace static content from init.ts
-   */
-  private registerDefaultTemplates(): void {
-    // Register the test template for validation
-    this.registerTemplate({
-      id: "test-template",
-      name: "Test Template",
-      description: "A test template to validate the template system",
-      tags: ["test"],
-      generateContent: (context) => {
-        const { helpers } = context;
-        return `# Test Rule
-
-This is a test rule generated by the template system.
-
-## Example Command
-
-${helpers.command("tasks.list", "list all available tasks")}
-
-## Code Example
-
-\`\`\`bash
-${helpers.codeBlock("tasks.list")}
-\`\`\`
-
-## Workflow Step
-
-${helpers.workflowStep("First", "tasks.list")}
-`;
-      }
-    });
-
-    log.debug("Default templates registration completed", {
-      templateCount: this.templateRegistry.size
-    });
-  }
-
-  /**
-   * Register the default templates that replace init.ts static content
+   * Register the init templates synchronously
+   * Used specifically by the init.ts file to avoid async/await overhead
    */
   registerInitTemplates(): void {
     try {
-      // Use require for synchronous loading
-      const { registerDefaultTemplates } = require("./default-templates");
-      registerDefaultTemplates(this);
-      log.debug("Init templates registered successfully", {
-        templateCount: this.templateRegistry.size
-      });
+      // Synchronous require to avoid circular dependencies
+      const { DEFAULT_TEMPLATES } = require("./default-templates");
+      
+      // Register each template
+      for (const template of DEFAULT_TEMPLATES) {
+        this.registerTemplate(template);
+      }
     } catch (error) {
-      log.error("Failed to register init templates", { error });
+      console.error("Error registering init templates:", error);
+      
+      // Register a minimal init template
+      this.registerTemplate({
+        id: "minsky-workflow",
+        name: "Minsky Workflow",
+        description: "Minsky workflow orchestration guide",
+        tags: ["workflow"],
+        generateContent: (context) => {
+          return `# Minsky Workflow\n\nThis is a fallback template due to an error loading templates.`;
+        }
+      });
     }
   }
 }
 
-// ============================================================================
-// Factory Functions
-// ============================================================================
-
 /**
- * Create a RuleTemplateService instance
+ * Create a rule template service
+ * @param workspacePath Path to the workspace
+ * @returns RuleTemplateService instance
  */
 export function createRuleTemplateService(workspacePath: string): RuleTemplateService {
   return new RuleTemplateService(workspacePath);
@@ -388,12 +439,15 @@ export function createRuleTemplateService(workspacePath: string): RuleTemplateSe
 
 /**
  * Generate rules with a specific configuration
+ * @param workspacePath Path to the workspace
+ * @param options Options for rule generation
+ * @returns Result of rule generation
  */
 export async function generateRulesWithConfig(
   workspacePath: string,
-  config: RuleGenerationConfig,
-  options: Omit<GenerateRulesOptions, "config"> = {}
+  options: GenerateRulesOptions
 ): Promise<GenerateRulesResult> {
   const service = createRuleTemplateService(workspacePath);
-  return service.generateRules({ ...options, config });
+  await service.registerDefaultTemplates();
+  return service.generateRules(options);
 } 
