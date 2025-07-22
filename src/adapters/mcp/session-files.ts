@@ -468,5 +468,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     },
   });
 
+
+
   log.debug("Session file operation tools registered successfully");
 }
