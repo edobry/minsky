@@ -11,7 +11,7 @@ import type {
   SessionStartParams,
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/session";
 import { log } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/logger";
-import { installDependencies } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/package-manager";
+import { installDependencies } from "../../utils/package-manager";
 import { type GitServiceInterface } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/git";
 import { normalizeRepoName, resolveRepoPath } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/repo-utils";
 import { TASK_STATUS, type TaskServiceInterface } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/tasks";

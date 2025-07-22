@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 /**
  * AST Codemod: Bun Test Mocking Consistency Fixer
  *
@@ -13,79 +12,16 @@
  */
 
 import { Project, SourceFile, SyntaxKind } from "ts-morph";
-import { glob } from "glob";
-
-interface FixResult {
-=======
-import { Project, SourceFile, SyntaxKind } from "ts-morph";
 import { readdirSync, statSync } from "fs";
 import { join } from "path";
 
 export interface FixResult {
->>>>>>> task#276
   changed: boolean;
   reason: string;
   transformations: number;
 }
 
 /**
-<<<<<<< HEAD
- * Fix bun:test mocking inconsistencies in a single file
- */
-export function fixBunTestMockingInFile(sourceFile: SourceFile): FixResult {
-  const filePath = sourceFile.getFilePath();
-
-  // Only process test files for safety
-  if (!filePath.includes('.test.ts')) {
-    return { changed: false, reason: 'Not a test file', transformations: 0 };
-  }
-
-  // Check if file imports from "bun:test"
-  const bunTestImports = sourceFile.getImportDeclarations()
-    .filter(imp => imp.getModuleSpecifierValue() === "bun:test");
-
-  if (bunTestImports.length === 0) {
-    return { changed: false, reason: 'File does not import from bun:test', transformations: 0 };
-  }
-
-  // Check if file already imports 'mock' from bun:test
-  const mockImported = bunTestImports.some(imp =>
-    imp.getNamedImports().some(namedImport =>
-      namedImport.getName() === "mock"
-    )
-  );
-
-  let transformationCount = 0;
-  let needsMockImport = false;
-
-  // Find and replace vi.fn() calls with mock()
-  sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression).forEach(callExpr => {
-    const expression = callExpr.getExpression();
-
-    // Check for vi.fn() pattern
-    if (expression.getKind() === SyntaxKind.PropertyAccessExpression) {
-      const propAccess = expression.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
-      const object = propAccess.getExpression();
-      const property = propAccess.getName();
-
-      if (object.getKind() === SyntaxKind.Identifier &&
-          object.asKindOrThrow(SyntaxKind.Identifier).getText() === "vi" &&
-          property === "fn") {
-
-        // Transform vi.fn() → mock()
-        const args = callExpr.getArguments();
-        if (args.length === 0) {
-          // vi.fn() → mock(() => {})
-          callExpr.replaceWithText("mock(() => {})");
-        } else {
-          // vi.fn(callback) → mock(callback)
-          const argsText = args.map(arg => arg.getText()).join(", ");
-          callExpr.replaceWithText(`mock(${argsText})`);
-        }
-
-        transformationCount++;
-        needsMockImport = true;
-=======
  * Fixes bun:test vs vitest mocking consistency by converting vi.fn() to mock()
  * in test files that import from "bun:test"
  */
@@ -141,45 +77,10 @@ export function fixMockingConsistencyInFile(sourceFile: SourceFile): FixResult {
           }
           transformationCount++;
         }
->>>>>>> task#276
       }
     }
   });
 
-<<<<<<< HEAD
-    // Add mock import if needed and not already present
-  if (needsMockImport && !mockImported && bunTestImports.length > 0) {
-    const firstBunTestImport = bunTestImports[0];
-    const namedImports = firstBunTestImport.getNamedImports();
-
-    // Add 'mock' to existing named imports
-    const importNames = namedImports.map(ni => ni.getName());
-    importNames.push("mock");
-    importNames.sort(); // Keep imports sorted
-
-    // Replace the import declaration with updated named imports
-    const importText = `import { ${importNames.join(", ")} } from "bun:test";`;
-    firstBunTestImport.replaceWithText(importText);
-  }
-
-  if (transformationCount > 0) {
-    return {
-      changed: true,
-      reason: `Fixed ${transformationCount} vi.fn() → mock() transformations in bun:test file`,
-      transformations: transformationCount
-    };
-  }
-
-  return { changed: false, reason: 'No vi.fn() calls found to transform', transformations: 0 };
-}
-
-/**
- * Apply bun:test mocking consistency fixes to multiple files
- */
-export function fixBunTestMockingInFiles(filePaths: string[]): { filePath: string; result: FixResult }[] {
-  const project = new Project();
-  const results: { filePath: string; result: FixResult }[] = [];
-=======
   if (transformationCount > 0) {
     return { 
       changed: true, 
@@ -197,29 +98,10 @@ export function fixBunTestMockingInFiles(filePaths: string[]): { filePath: strin
 export function fixMockingConsistency(filePaths: string[]): FixResult[] {
   const project = new Project();
   const results: FixResult[] = [];
->>>>>>> task#276
 
   for (const filePath of filePaths) {
     try {
       const sourceFile = project.addSourceFileAtPath(filePath);
-<<<<<<< HEAD
-      const result = fixBunTestMockingInFile(sourceFile);
-
-      if (result.changed) {
-        sourceFile.saveSync();
-      }
-
-      results.push({ filePath, result });
-    } catch (error) {
-      console.error(`❌ Error processing ${filePath}:`, error);
-      results.push({
-        filePath,
-        result: {
-          changed: false,
-          reason: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          transformations: 0
-        }
-=======
       const result = fixMockingConsistencyInFile(sourceFile);
       
       if (result.changed) {
@@ -233,7 +115,6 @@ export function fixMockingConsistency(filePaths: string[]): FixResult[] {
         changed: false, 
         reason: `Error: ${error instanceof Error ? error.message : String(error)}`,
         transformations: 0 
->>>>>>> task#276
       });
     }
   }
@@ -242,41 +123,6 @@ export function fixMockingConsistency(filePaths: string[]): FixResult[] {
 }
 
 /**
-<<<<<<< HEAD
- * Fix all bun:test mocking inconsistencies in the project
- */
-export async function fixAllBunTestMocking(pattern: string = "src/**/*.test.ts"): Promise<void> {
-  console.log("🔧 Starting systematic bun:test mocking consistency fixes...");
-
-  const testFiles = await glob(pattern);
-  console.log(`📁 Found ${testFiles.length} test files to analyze`);
-
-  const results = fixBunTestMockingInFiles(testFiles);
-
-  let totalTransformations = 0;
-  let filesChanged = 0;
-
-  results.forEach(({ filePath, result }) => {
-    if (result.changed) {
-      console.log(`✅ ${filePath}: ${result.reason}`);
-      totalTransformations += result.transformations;
-      filesChanged++;
-    } else if (result.reason.includes('Error')) {
-      console.log(`❌ ${filePath}: ${result.reason}`);
-    }
-  });
-
-  console.log(`\n🎉 Systematic bun:test mocking fixes completed!`);
-  console.log(`📊 Files changed: ${filesChanged}`);
-  console.log(`🔧 Total transformations: ${totalTransformations}`);
-  console.log(`📈 Systematic category target: vi.fn() → mock() consistency`);
-}
-
-// Main execution for direct usage
-if (require.main === module) {
-  fixAllBunTestMocking().catch(console.error);
-}
-=======
  * Find all test files in a directory recursively
  */
 export function findTestFiles(directory: string): string[] {
@@ -355,4 +201,9 @@ export function fixAllMockingConsistency(projectRoot: string = "."): FixResult[]
   
   return results;
 } 
->>>>>>> task#276
+
+// Main execution for direct usage
+if (require.main === module) {
+  const results = fixAllMockingConsistency(".");
+  process.exit(results.some(r => !r.changed && r.reason.includes('Error')) ? 1 : 0);
+}

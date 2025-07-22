@@ -125,11 +125,11 @@ export default [
 
       // === FILE SIZE RULES ===
       "max-lines": ["warn", {
-        "max": 400, 
-        "skipBlankLines": true, 
+        "max": 400,
+        "skipBlankLines": true,
         "skipComments": true
       }],
-      
+
       // === IMPORT RULES ===
       "no-restricted-imports": [
         "error",
@@ -221,8 +221,8 @@ export default [
     files: ["**/*.ts", "**/*.js"],
     rules: {
       "max-lines": ["error", {
-        "max": 1500, 
-        "skipBlankLines": true, 
+        "max": 1500,
+        "skipBlankLines": true,
         "skipComments": true
       }]
     }
