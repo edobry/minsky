@@ -27,7 +27,7 @@ import {
   sessionCommit,
 } from "../../../domain/session";
 import { log } from "../../../utils/logger";
-import { MinskyError } from "../../../errors/index";
+import { MinskyError, ResourceNotFoundError } from "../../../errors/index";
 import {
   sessionListCommandParams,
   sessionGetCommandParams,
@@ -197,15 +197,10 @@ Examples:
         required: false,
       },
       // Remove the session parameter
-      sessionname: {
-        schema: z.string().min(1),
-        description: "Session name (for MCP)",
-        required: false
-      }
     },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.dir command", { params, context });
-
+      
       // CLI compatibility: map name or task to sessionname if not provided
       if (!params!.sessionname && (params!.name || params!.task)) {
         params!.sessionname = params!.name || params!.task;
@@ -214,6 +209,8 @@ Examples:
       try {
         const directory = await sessionDir({
           sessionname: params!.sessionname,
+          name: params!.name,
+          task: params!.task,
           json: params!.json,
         });
 
@@ -224,8 +221,29 @@ Examples:
       } catch (error) {
         log.debug("Failed to get session directory", {
           error: getErrorMessage(error as Error),
-          session: params!.sessionname,
+          sessionname: params!.sessionname,
         });
+        
+        // Improve error message for better user experience
+        if (error instanceof ResourceNotFoundError) {
+          const originalMessage = error.message;
+          
+          // Add better guidance if task ID or session name wasn't found
+          if (originalMessage.includes("not found")) {
+            if (params!.task) {
+              error.message = formatSessionErrorMessage(
+                originalMessage,
+                `Try using the full session name (e.g., task-${params!.task}) or use "minsky session list" to see available sessions.`
+              );
+            } else {
+              error.message = formatSessionErrorMessage(
+                originalMessage,
+                "Try \"minsky session list\" to see available sessions."
+              );
+            }
+          }
+        }
+        
         throw error;
       }
     },
@@ -254,32 +272,60 @@ Examples:
         schema: z.string(),
         description: "Repository path",
         required: false,
-      }
+      },
+      // Add the sessionname parameter for MCP
+      sessionname: {
+        schema: z.string().min(1),
+        description: "Session identifier (name or task ID)",
+        required: false,
+      },
     },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.delete command", { params, context });
 
-      // CLI compatibility: map name or task to session if not provided
-      if (!params!.session && (params!.name || params!.task)) {
-        params!.session = params!.name || params!.task;
+      // CLI compatibility: map name or task to sessionname if not provided
+      if (!params!.sessionname && (params!.name || params!.task)) {
+        params!.sessionname = params!.name || params!.task;
       }
 
       try {
         const deleted = await sessionDelete({
-          session: params!.session,
+          sessionname: params!.sessionname,
+          name: params!.name,
+          task: params!.task,
+          repo: params!.repo,
           force: params!.force,
-          json: params!.json,
         });
 
         return {
           success: deleted,
-          session: params!.session,
         };
       } catch (error) {
-        log.error("Failed to delete session", {
+        log.debug("Failed to delete session", {
           error: getErrorMessage(error as Error),
-          session: params!.session,
+          sessionname: params!.sessionname,
         });
+        
+        // Improve error message for better user experience
+        if (error instanceof ResourceNotFoundError) {
+          const originalMessage = error.message;
+          
+          // Add better guidance if task ID or session name wasn't found
+          if (originalMessage.includes("not found")) {
+            if (params!.task) {
+              error.message = formatSessionErrorMessage(
+                originalMessage,
+                `Try using the full session name (e.g., task-${params!.task}) or use "minsky session list" to see available sessions.`
+              );
+            } else {
+              error.message = formatSessionErrorMessage(
+                originalMessage,
+                "Try \"minsky session list\" to see available sessions."
+              );
+            }
+          }
+        }
+        
         throw error;
       }
     },
@@ -589,4 +635,12 @@ Example:
       }
     },
   });
+}
+
+/**
+ * Format a session error message with improved user guidance
+ */
+function formatSessionErrorMessage(originalMessage: string, additionalGuidance: string): string {
+  // First line is the original error
+  return `${originalMessage}\n\n💡 ${additionalGuidance}`;
 }

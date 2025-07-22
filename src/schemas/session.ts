@@ -102,8 +102,10 @@ export const sessionDeleteParamsSchema = z
     name: sessionNameSchema.optional().describe("Name of the session to delete"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     force: flagSchema("Skip confirmation prompt"),
+    sessionname: sessionNameSchema.optional().describe("Session name (used by MCP)"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => data.name !== undefined || data.task !== undefined, {
+  .merge(commonCommandOptionsSchema).refine((data) => 
+    data.name !== undefined || data.task !== undefined || data.sessionname !== undefined, {
     message: "Either session name or task ID must be provided",
   });
 
