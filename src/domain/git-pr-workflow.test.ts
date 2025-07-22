@@ -3,7 +3,7 @@
  * @migrated Updated to use centralized factories and proper Bun patterns
  * @refactored Eliminated interface mismatches and local mock objects
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 
 import { createMock, createPartialMock, setupTestMocks } from "../utils/test-utils/mocking";
@@ -32,7 +32,7 @@ describe("Session Approve Workflow", () => {
 
   beforeEach(() => {
     // Create fresh spies for each test
-    getSessionSpy = createMock();
+    getSessionSpy = mock(() => {});
     getSessionSpy = mock((name) =>
       Promise.resolve({
         session: name, // Fixed: use 'session' instead of '_session'
@@ -44,13 +44,13 @@ describe("Session Approve Workflow", () => {
         taskId: "task025",
       }));
 
-    getSessionWorkdirSpy = createMock();
+    getSessionWorkdirSpy = mock(() => {});
     getSessionWorkdirSpy = mock(() => Promise.resolve("/test/repo/path/sessions/test-session"));
 
-    getSessionByTaskIdSpy = createMock();
+    getSessionByTaskIdSpy = mock(() => {});
     getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
 
-    execInRepositorySpy = createMock();
+    execInRepositorySpy = mock(() => {});
     execInRepositorySpy = mock((workdir, command) => {
       if (command.includes("rev-parse HEAD")) {
         return Promise.resolve("abc123");
@@ -61,7 +61,7 @@ describe("Session Approve Workflow", () => {
       return Promise.resolve("Successfully merged PR");
     });
 
-    getTaskSpy = createMock();
+    getTaskSpy = mock(() => {});
     getTaskSpy = mock((id) =>
       Promise.resolve({
         id,
@@ -70,7 +70,7 @@ describe("Session Approve Workflow", () => {
         status: "in-progress", // Fixed: use 'status' instead of '_status'
       }));
 
-    setTaskStatusSpy = createMock();
+    setTaskStatusSpy = mock(() => {});
     setTaskStatusSpy = mock(() => Promise.resolve(true));
 
     // Create mocks using centralized factories with spy integration
@@ -145,7 +145,7 @@ describe("Session Approve Workflow", () => {
 
   test("handles git command failures gracefully", async () => {
     // Override execInRepository to simulate failure
-    let failingExecSpy = createMock();
+    let failingExecSpy = mock(() => {});
     failingExecSpy = mock(() => Promise.reject(new Error("Git command failed")));
     
     const failingGitService = createMockGitService({

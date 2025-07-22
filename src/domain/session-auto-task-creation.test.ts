@@ -4,7 +4,7 @@
  * Tests the new auto-creation functionality for tasks when starting sessions
  * with the --description parameter.
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { startSessionFromParams, type SessionProviderInterface } from "./session";
 import type { TaskServiceInterface } from "./tasks";
 import type { GitServiceInterface } from "./git";
@@ -22,7 +22,7 @@ describe("Session Auto-Task Creation", () => {
 
   beforeEach(() => {
     // Create spy for the method we want to track using createMock for proper Bun test tracking
-    createTaskFromTitleAndDescriptionSpy = createMock();
+    createTaskFromTitleAndDescriptionSpy = mock(() => {});
     createTaskFromTitleAndDescriptionSpy = mock((title: string, description: string) => Promise.resolve({
       id: "#001",
       title,
