@@ -138,7 +138,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -201,7 +201,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -267,6 +267,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           totalEntries: files.length + directories.length,
         };
       } catch (error) {
+        const errorMessage = getErrorMessage(error);
         const errorContext: ErrorContext = {
           operation: "list_directory",
           path: args.path,
@@ -279,7 +280,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -335,6 +336,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           size,
         };
       } catch (error) {
+        const errorMessage = getErrorMessage(error);
         const errorContext: ErrorContext = {
           operation: "file_exists",
           path: args.path,
@@ -347,7 +349,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -392,6 +394,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           deleted: true,
         };
       } catch (error) {
+        const errorMessage = getErrorMessage(error);
         const errorContext: ErrorContext = {
           operation: "delete_file",
           path: args.path,
@@ -404,7 +407,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -448,18 +451,19 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         };
       } catch (error) {
         const errorMessage = getErrorMessage(error);
+        const errorContext: ErrorContext = {
+          operation: "create_directory",
+          path: args.path,
+          session: args.session
+        };
+
         log.error("Session directory create failed", {
           session: args.session,
           path: args.path,
-          error: errorMessage,
+          error: getErrorMessage(error),
         });
 
-        return {
-          success: false,
-          error: errorMessage,
-          path: args.path,
-          session: args.session,
-        };
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
