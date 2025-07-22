@@ -110,7 +110,7 @@ export async function resolveSessionContext(
       // Provide a more helpful error message with available sessions
       const allSessions = await sessionProvider!.listSessions();
       const sessionNames = allSessions.map(s => 
-        `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ''}`
+        `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ""}`
       ).join(", ");
       
       throw new ResourceNotFoundError(

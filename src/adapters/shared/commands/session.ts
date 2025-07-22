@@ -238,7 +238,7 @@ Examples:
             } else {
               error.message = formatSessionErrorMessage(
                 originalMessage,
-                `Try "minsky session list" to see available sessions.`
+                "Try \"minsky session list\" to see available sessions."
               );
             }
           }
@@ -320,7 +320,7 @@ Examples:
             } else {
               error.message = formatSessionErrorMessage(
                 originalMessage,
-                `Try "minsky session list" to see available sessions.`
+                "Try \"minsky session list\" to see available sessions."
               );
             }
           }

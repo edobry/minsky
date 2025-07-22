@@ -563,7 +563,7 @@ export async function getSessionDirFromParams(
     if (!session) {
       // Provide a more helpful error message showing possible sessions
       const allSessions = await deps.sessionDB.listSessions();
-      const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ''}`).join(", ");
+      const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ""}`).join(", ");
       
       throw new ResourceNotFoundError(
         `No session found for task ID "${normalizedTaskId}"\n\n` +
@@ -599,7 +599,7 @@ You must provide either a session name or task ID to get the session directory.
   if (!session) {
     // Provide a more helpful error message with available sessions
     const allSessions = await deps.sessionDB.listSessions();
-    const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ''}`).join(", ");
+    const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ""}`).join(", ");
     
     throw new ResourceNotFoundError(
       `Session "${sessionName}" not found\n\n` +
