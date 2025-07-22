@@ -14,7 +14,7 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
-      backend: "markdown"
+      backend: "markdown",
     });
 
     // Both methods should exist
@@ -31,7 +31,7 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
-      backend: "markdown"
+      backend: "markdown",
     });
 
     // getTaskStatus should exist
@@ -45,13 +45,13 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
-      backend: "markdown"
+      backend: "markdown",
     });
 
     // Should reject invalid status
-    await expect(
-      (taskService as any).setTaskStatus("test", "INVALID_STATUS")
-    ).rejects.toThrow(/Status must be one of/);
+    await expect((taskService as any).setTaskStatus("test", "INVALID_STATUS")).rejects.toThrow(
+      /Status must be one of/
+    );
 
     // Should accept valid status (even though it may fail on missing file, that's expected)
     const validCall = (taskService as any).setTaskStatus("test", TASK_STATUS.TODO);
@@ -67,7 +67,7 @@ describe("TaskService Interface Compatibility", () => {
 
     const taskService = await createConfiguredTaskService({
       workspacePath: "/test/workspace",
-      backend: "markdown"
+      backend: "markdown",
     });
 
     // Interface methods that CLI and other code expects to exist
@@ -77,7 +77,7 @@ describe("TaskService Interface Compatibility", () => {
       "getTaskStatus",
       "setTaskStatus",
       "updateTaskStatus",
-      "getWorkspacePath"
+      "getWorkspacePath",
     ];
 
     for (const methodName of requiredMethods) {

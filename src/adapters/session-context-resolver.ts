@@ -21,7 +21,6 @@ export interface SessionContext {
  * Handles auto-detection from working directory
  */
 export class CLISessionContextResolver {
-
   /**
    * Resolve session context for CLI interface
    * Auto-detects session from working directory when possible
@@ -31,7 +30,7 @@ export class CLISessionContextResolver {
     if (params.name) {
       return {
         ...params,
-        session: params.name
+        session: params.name,
       };
     }
 
@@ -39,7 +38,7 @@ export class CLISessionContextResolver {
     // Don't override session parameter - let domain layer handle task ID resolution
     if (params.task) {
       return {
-        ...params
+        ...params,
         // Keep task as task parameter for proper task ID lookup
       };
     }
@@ -56,12 +55,12 @@ export class CLISessionContextResolver {
 
         log.debug("CLI auto-detected session from working directory", {
           workingDir: currentDir,
-          detectedSession
+          detectedSession,
         });
 
         return {
           ...params,
-          session: detectedSession
+          session: detectedSession,
         };
       }
     }
@@ -76,7 +75,6 @@ export class CLISessionContextResolver {
  * Requires explicit session parameter - no auto-detection
  */
 export class MCPSessionContextResolver {
-
   /**
    * Resolve session context for MCP interface
    * Always requires explicit session parameter
@@ -86,7 +84,7 @@ export class MCPSessionContextResolver {
     if (params.session || params.name) {
       return {
         ...params,
-        session: params.session || params.name
+        session: params.session || params.name,
       };
     }
 
@@ -94,7 +92,7 @@ export class MCPSessionContextResolver {
     // Don't override session parameter - let domain layer handle task ID resolution
     if (params.task) {
       return {
-        ...params
+        ...params,
         // Keep task as task parameter for proper task ID lookup
       };
     }
@@ -123,27 +121,24 @@ Examples:
  * Returns the appropriate resolver based on interface type
  */
 export class SessionContextResolverFactory {
-
-  static getResolver(interfaceType: string): typeof CLISessionContextResolver | typeof MCPSessionContextResolver {
+  static getResolver(
+    interfaceType: string
+  ): typeof CLISessionContextResolver | typeof MCPSessionContextResolver {
     switch (interfaceType.toLowerCase()) {
-    case "cli":
-      return CLISessionContextResolver;
-    case "mcp":
-      return MCPSessionContextResolver;
-    default:
-      // Default to MCP behavior (require explicit session)
-      return MCPSessionContextResolver;
+      case "cli":
+        return CLISessionContextResolver;
+      case "mcp":
+        return MCPSessionContextResolver;
+      default:
+        // Default to MCP behavior (require explicit session)
+        return MCPSessionContextResolver;
     }
   }
 
   /**
    * Resolve session context based on interface type
    */
-  static resolveSessionContext(
-    params: any,
-    interfaceType: string,
-    workingDir?: string
-  ): any {
+  static resolveSessionContext(params: any, interfaceType: string, workingDir?: string): any {
     const resolver = this.getResolver(interfaceType);
     return resolver.resolveSessionContext(params, workingDir);
   }
@@ -173,9 +168,11 @@ Interface: ${interfaceType}
 Parameters: ${JSON.stringify(params, null, 2)}
 Working Directory: ${workingDir || process.cwd()}
 
-${interfaceType === "cli"
+${
+  interfaceType === "cli"
     ? "Try running this command from a session workspace, or provide --name <session>"
-    : "Provide session parameter: { session: \"task#158\" }"}`
+    : 'Provide session parameter: { session: "task#158" }'
+}`
       );
     }
 
@@ -185,7 +182,7 @@ ${interfaceType === "cli"
       interfaceType,
       params,
       workingDir,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
     throw error;
   }

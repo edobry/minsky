@@ -18,6 +18,7 @@ This document provides comprehensive guidelines for preventing excessive use of 
 ### 🚫 NEVER Use 'as unknown' For:
 
 #### 1. Return Statements
+
 ```typescript
 // ❌ WRONG - Masks return type errors
 function getUser(): User {
@@ -31,6 +32,7 @@ function getUser(): User | null {
 ```
 
 #### 2. Null/Undefined Assignments
+
 ```typescript
 // ❌ WRONG - Unnecessary casting
 const value = null as unknown;
@@ -40,12 +42,13 @@ const value = null;
 ```
 
 #### 3. Property Access
+
 ```typescript
 // ❌ WRONG - Masks type errors
 const sessions = (state as unknown).sessions;
 
 // ✅ CORRECT - Use type guards
-if (hasProperty(state, 'sessions')) {
+if (hasProperty(state, "sessions")) {
   const sessions = state.sessions;
 }
 ```
@@ -53,6 +56,7 @@ if (hasProperty(state, 'sessions')) {
 ### ⚠️ AVOID Using 'as unknown' For:
 
 #### 1. Array Operations
+
 ```typescript
 // ❌ WRONG - Masks array type errors
 const length = (arr as unknown).length;
@@ -64,21 +68,23 @@ if (isArray(arr)) {
 ```
 
 #### 2. Service Method Calls
+
 ```typescript
 // ❌ WRONG - Masks service interface errors
 const result = (service as unknown).getData();
 
 // ✅ CORRECT - Use safe service calls
-const result = safeServiceCall(service, 'getData');
+const result = safeServiceCall(service, "getData");
 ```
 
 #### 3. Object Method Calls
+
 ```typescript
 // ❌ WRONG - Masks method call errors
 const formatted = (formatter as unknown).format();
 
 // ✅ CORRECT - Use type guards
-if (hasProperty(formatter, 'format') && isCallable(formatter.format)) {
+if (hasProperty(formatter, "format") && isCallable(formatter.format)) {
   const formatted = formatter.format();
 }
 ```
@@ -86,15 +92,17 @@ if (hasProperty(formatter, 'format') && isCallable(formatter.format)) {
 ### 📋 SOMETIMES ACCEPTABLE (Use with Caution):
 
 #### 1. Environment Variables
+
 ```typescript
 // ❌ AVOID - Better alternatives exist
 const port = process.env.PORT as unknown as number;
 
 // ✅ PREFERRED - Use utilities
-const port = safeEnvWithDefault('PORT', '3000');
+const port = safeEnvWithDefault("PORT", "3000");
 ```
 
 #### 2. JSON Parsing
+
 ```typescript
 // ❌ AVOID - Masks parsing errors
 const data = JSON.parse(str) as unknown;
@@ -104,23 +112,25 @@ const data = safeJsonParse(str);
 ```
 
 #### 3. Test Mocking (Only in Tests)
+
 ```typescript
 // ⚠️ ACCEPTABLE - But only in test files
 const mockService = {
-  getData: jest.fn()
+  getData: jest.fn(),
 } as unknown as MyService;
 ```
 
 ## Safe Alternatives
 
 ### 1. Type Guards
+
 Use type guards from `src/utils/type-guards.ts`:
 
 ```typescript
-import { hasProperty, isArray, isString } from '@/utils/type-guards';
+import { hasProperty, isArray, isString } from "@/utils/type-guards";
 
 // Instead of: (obj as unknown).property
-if (hasProperty(obj, 'property')) {
+if (hasProperty(obj, "property")) {
   const value = obj.property;
 }
 
@@ -131,26 +141,28 @@ if (isArray(arr)) {
 ```
 
 ### 2. Safe Utilities
+
 Use safe utility functions:
 
 ```typescript
-import { safeGet, safeJsonParse, safeEnv } from '@/utils/type-guards';
+import { safeGet, safeJsonParse, safeEnv } from "@/utils/type-guards";
 
 // Instead of: (obj as unknown).key
-const value = safeGet(obj, 'key');
+const value = safeGet(obj, "key");
 
 // Instead of: JSON.parse(str) as unknown
 const data = safeJsonParse(str);
 
 // Instead of: process.env.VAR as unknown
-const envVar = safeEnv('VAR');
+const envVar = safeEnv("VAR");
 ```
 
 ### 3. Domain Type Guards
+
 Use domain-specific type guards:
 
 ```typescript
-import { DomainTypeGuards } from '@/utils/type-guards';
+import { DomainTypeGuards } from "@/utils/type-guards";
 
 // Instead of: (obj as unknown).id
 if (DomainTypeGuards.isSessionLike(obj)) {
@@ -165,9 +177,10 @@ The custom ESLint rule `custom/no-excessive-as-unknown` helps prevent these patt
 import { hasProperty } from '../utils/type-guards';
 
 if (hasProperty(someValue, 'property')) {
-  const property = someValue.property; // ✅ Type-safe
+const property = someValue.property; // ✅ Type-safe
 }
-```
+
+````
 
 ### ✅ Use Utility Functions
 
@@ -177,7 +190,7 @@ if (hasProperty(someValue, 'property')) {
 import { safeGet } from '../utils/type-guards';
 
 const property = safeGet(someObject, 'property'); // ✅ Safe
-```
+````
 
 ### ✅ Use Proper Type Definitions
 
@@ -203,8 +216,8 @@ function processOptions(options: Options) {
 const port = process.env.PORT as unknown as number;
 
 // ✅ Good
-import { EnvUtils } from '../utils/type-guards';
-const port = EnvUtils.getNumber('PORT', 3000);
+import { EnvUtils } from "../utils/type-guards";
+const port = EnvUtils.getNumber("PORT", 3000);
 ```
 
 ### JSON Parsing
@@ -214,7 +227,7 @@ const port = EnvUtils.getNumber('PORT', 3000);
 const data = JSON.parse(jsonString) as unknown as MyType;
 
 // ✅ Good
-import { JsonUtils } from '../utils/type-guards';
+import { JsonUtils } from "../utils/type-guards";
 const data = JsonUtils.safeParse(jsonString, isMyType);
 ```
 
@@ -225,8 +238,8 @@ const data = JsonUtils.safeParse(jsonString, isMyType);
 const result = (someService as unknown).process(data);
 
 // ✅ Good
-import { ServiceUtils } from '../utils/type-guards';
-const result = ServiceUtils.safeCall(someService, 'process', data);
+import { ServiceUtils } from "../utils/type-guards";
+const result = ServiceUtils.safeCall(someService, "process", data);
 ```
 
 ### Configuration Objects
@@ -236,8 +249,8 @@ const result = ServiceUtils.safeCall(someService, 'process', data);
 const setting = (config as unknown).setting;
 
 // ✅ Good
-import { ConfigUtils } from '../utils/type-guards';
-const setting = ConfigUtils.get(config, 'setting', defaultValue);
+import { ConfigUtils } from "../utils/type-guards";
+const setting = ConfigUtils.get(config, "setting", defaultValue);
 ```
 
 ### Array Operations
@@ -247,7 +260,7 @@ const setting = ConfigUtils.get(config, 'setting', defaultValue);
 const items = (someArray as unknown).map(fn);
 
 // ✅ Good
-import { ArrayUtils } from '../utils/type-guards';
+import { ArrayUtils } from "../utils/type-guards";
 const items = ArrayUtils.safeMap(someArray, fn);
 ```
 
@@ -258,14 +271,14 @@ The project includes a custom ESLint rule `custom/no-excessive-as-unknown` that 
 ```json
 {
   "rules": {
-    "custom/no-excessive-as-unknown": ["error", {
-      "allowInTests": false,
-      "allowPatterns": [
-        "process\\.env\\[.*\\] as unknown",
-        "import\\(.*\\) as unknown"
-      ],
-      "maxAssertionsPerFile": 5
-    }]
+    "custom/no-excessive-as-unknown": [
+      "error",
+      {
+        "allowInTests": false,
+        "allowPatterns": ["process\\.env\\[.*\\] as unknown", "import\\(.*\\) as unknown"],
+        "maxAssertionsPerFile": 5
+      }
+    ]
   }
 }
 ```
@@ -279,6 +292,7 @@ The project includes a custom ESLint rule `custom/no-excessive-as-unknown` that 
 ## Common Patterns and Solutions
 
 ### 1. State Management
+
 ```typescript
 // ❌ WRONG
 const sessions = (state as unknown).sessions;
@@ -293,6 +307,7 @@ const sessions = (state as AppState).sessions;
 ```
 
 ### 2. API Responses
+
 ```typescript
 // ❌ WRONG
 const user = response.data as unknown;
@@ -306,6 +321,7 @@ const user = (response as ApiResponse<User>).data;
 ```
 
 ### 3. Configuration Objects
+
 ```typescript
 // ❌ WRONG
 const dbPort = (config as unknown).database.port;
@@ -321,6 +337,7 @@ const dbPort = (config as Config).database.port;
 ```
 
 ### 4. Error Handling
+
 ```typescript
 // ❌ WRONG
 const message = (error as unknown).message;
@@ -342,22 +359,25 @@ if (DomainTypeGuards.isErrorLike(error)) {
 ### Legitimate Use Cases (Rare)
 
 1. **Type bridging with proper validation**:
+
 ```typescript
 function bridgeTypes<T>(value: unknown, validator: (v: unknown) => v is T): T {
   if (validator(value)) {
     return value;
   }
-  throw new Error('Invalid type');
+  throw new Error("Invalid type");
 }
 ```
 
 2. **Low-level library integration**:
+
 ```typescript
 // When interfacing with untyped libraries
 const result = (externalLibrary as unknown as LibraryInterface).method();
 ```
 
 3. **Test utilities and mocking**:
+
 ```typescript
 // In test files only
 const mockService = { method: jest.fn() } as unknown as ServiceInterface;

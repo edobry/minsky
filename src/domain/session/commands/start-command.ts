@@ -6,15 +6,8 @@ import { normalizeRepoName, resolveRepoPath } from "../../repo-utils";
 import { createTaskFromDescription } from "../../templates/session-templates";
 import { detectPackageManager, installDependencies } from "../../../utils/package-manager";
 import { log } from "../../utils/logger";
-import { 
-  Session, 
-  SessionRecord,
-  SessionCreateDependencies 
-} from "../types";
-import { 
-  MinskyError, 
-  ValidationError,
-} from "../../errors/index";
+import { Session, SessionRecord, SessionCreateDependencies } from "../types";
+import { MinskyError, ValidationError } from "../../errors/index";
 import * as WorkspaceUtils from "../../workspace";
 
 /**
@@ -26,8 +19,18 @@ export async function sessionStart(
   depsInput?: SessionCreateDependencies
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, description, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
-    params;
+  const {
+    name,
+    repo,
+    task,
+    description,
+    branch,
+    noStatusUpdate,
+    quiet,
+    json,
+    skipInstall,
+    packageManager,
+  } = params;
 
   // Set up dependencies with defaults
   const deps = {
@@ -64,12 +67,12 @@ export async function sessionStart(
       if (!quiet) {
         log.info("Creating task from description...");
       }
-      
+
       taskId = await createTaskFromDescription(description, {
         taskService: deps.taskService,
         noStatusUpdate,
       });
-      
+
       if (!quiet) {
         log.info(`Created task: ${taskId}`);
       }
@@ -87,7 +90,7 @@ export async function sessionStart(
 
     // Clone repository and create session workspace
     const workdir = deps.workspaceUtils.getSessionWorkdir(name);
-    
+
     const cloneResult = await deps.gitService.clone({
       repoUrl: repoPath,
       workdir,
@@ -100,7 +103,7 @@ export async function sessionStart(
       if (!quiet) {
         log.info("Installing dependencies...");
       }
-      
+
       await installDependencies(workdir, {
         packageManager,
         skipIfExists: true,
@@ -128,4 +131,4 @@ export async function sessionStart(
     }
     throw error;
   }
-} 
+}

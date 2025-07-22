@@ -7,7 +7,7 @@ import {
   SessionReviewParams,
   SessionReviewResult,
   SessionProviderInterface,
-  SessionDependencies
+  SessionDependencies,
 } from "../types";
 import {
   MinskyError,
@@ -125,7 +125,9 @@ export async function sessionReview(
       diff = diffText;
 
       // Parse diff stats
-      const statsMatch = diffResult.match(/(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/);
+      const statsMatch = diffResult.match(
+        /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/
+      );
       if (statsMatch) {
         diffStats = {
           filesChanged: parseInt(statsMatch[1], 10),
@@ -170,10 +172,7 @@ export async function sessionReview(
  * Formats the review output for text display
  */
 function formatReviewOutput(result: SessionReviewResult): string {
-  const lines = [
-    `# Session Review: ${result.session}`,
-    "",
-  ];
+  const lines = [`# Session Review: ${result.session}`, ""];
 
   if (result.taskId) {
     // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix

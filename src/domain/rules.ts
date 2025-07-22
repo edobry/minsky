@@ -4,7 +4,8 @@ import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
 import { log } from "../utils/logger";
-import { getErrorMessage } from "../errors/index";const COMMIT_HASH_SHORT_LENGTH = 7;
+import { getErrorMessage } from "../errors/index";
+const COMMIT_HASH_SHORT_LENGTH = 7;
 
 // Added logger import
 import * as jsYaml from "js-yaml";
@@ -17,7 +18,7 @@ function customMatterStringify(content: string, data: any): string {
   let yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
-    quotingType: "\"", // Use double quotes when necessary
+    quotingType: '"', // Use double quotes when necessary
     forceQuotes: false, // Don't force quotes on all strings
   });
 
@@ -130,7 +131,7 @@ export class RuleService {
             log.error("Error processing rule file", {
               file,
               originalError: getErrorMessage(error as any),
-              stack: error instanceof Error ? (error as any).stack as any : undefined as any,
+              stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
             });
           }
         }
@@ -140,7 +141,7 @@ export class RuleService {
           log.error("Error reading rules directory", {
             format,
             originalError: getErrorMessage(error as any),
-            stack: error instanceof Error ? (error as any).stack as any : undefined as any,
+            stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
           });
         }
       }
@@ -212,7 +213,7 @@ export class RuleService {
             log.error("Error parsing frontmatter", {
               filePath,
               error: getErrorMessage(error as any),
-              content: (((content) as any).toString() as any).substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
+              content: ((content as any).toString() as any).substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
 
@@ -221,7 +222,11 @@ export class RuleService {
           let extractedContent = content;
           const frontmatterEndIndex = content.toString().indexOf("---", 3);
           if (content.startsWith("---") && frontmatterEndIndex > 0) {
-            extractedContent = (content).toString().substring(frontmatterEndIndex + 3).toString().trim();
+            extractedContent = content
+              .toString()
+              .substring(frontmatterEndIndex + 3)
+              .toString()
+              .trim();
           }
 
           // Return a basic rule object with just the content, missing the metadata from frontmatter
@@ -321,7 +326,7 @@ export class RuleService {
             log.error("Error parsing frontmatter in alternative format", {
               filePath,
               error: getErrorMessage(error as any),
-              content: (((content) as any).toString() as any).substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
+              content: ((content as any).toString() as any).substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
 
@@ -329,7 +334,11 @@ export class RuleService {
           let extractedContent = content;
           const frontmatterEndIndex = content.toString().indexOf("---", 3);
           if (content.startsWith("---") && frontmatterEndIndex > 0) {
-            extractedContent = (content).toString().substring(frontmatterEndIndex + 3).toString().trim();
+            extractedContent = content
+              .toString()
+              .substring(frontmatterEndIndex + 3)
+              .toString()
+              .trim();
           }
 
           return {
@@ -368,7 +377,8 @@ export class RuleService {
   /**
    * Create a new rule
    */
-  async createRule(id: string,
+  async createRule(
+    id: string,
     content: string,
     meta: RuleMeta,
     options: CreateRuleOptions = {}
@@ -419,7 +429,8 @@ export class RuleService {
   /**
    * Update an existing rule
    */
-  async updateRule(id: string,
+  async updateRule(
+    id: string,
     options: UpdateRuleOptions,
     ruleOptions: RuleOptions = {}
   ): Promise<Rule> {

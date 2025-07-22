@@ -4,10 +4,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
-import { 
-  gitCloneWithTimeout,
-  type GitExecOptions 
-} from "../../utils/git-exec";
+import { gitCloneWithTimeout, type GitExecOptions } from "../../utils/git-exec";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -152,7 +149,9 @@ export class LocalGitBackend implements RepositoryBackend {
     const dirty = statusOutput.trim().length > 0;
     const modifiedFiles = statusOutput
       .trim()
-      .split("\n").filter(Boolean).map((line: string) => ({
+      .split("\n")
+      .filter(Boolean)
+      .map((line: string) => ({
         status: line.substring(0, 2).trim(),
         file: line.substring(3),
       }));

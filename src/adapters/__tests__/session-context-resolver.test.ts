@@ -8,12 +8,11 @@ import {
   CLISessionContextResolver,
   MCPSessionContextResolver,
   SessionContextResolverFactory,
-  resolveSessionForInterface
+  resolveSessionForInterface,
 } from "../session-context-resolver";
 import { ValidationError } from "../../errors/index";
 
 describe("Interface-Layer Session Context Resolution", () => {
-
   describe("CLI Session Context Resolver", () => {
     it("should use explicit name when provided", () => {
       const params = { name: "explicit-session", title: "test" };
@@ -58,7 +57,7 @@ describe("Interface-Layer Session Context Resolution", () => {
       const result = CLISessionContextResolver.resolveSessionContext(params);
 
       expect(result.session).toBeUndefined(); // Session should not be set from task
-      expect(result.task).toBe("158");        // Task should remain as task
+      expect(result.task).toBe("158"); // Task should remain as task
       expect(result.title).toBe("test");
     });
 
@@ -68,7 +67,7 @@ describe("Interface-Layer Session Context Resolution", () => {
 
       expect(result.session).toBe("task#158"); // Session set from name
       expect(result.name).toBe("task#158");
-      expect(result.task).toBe("158");         // Task remains as task
+      expect(result.task).toBe("158"); // Task remains as task
       expect(result.title).toBe("test");
     });
   });
@@ -108,7 +107,7 @@ describe("Interface-Layer Session Context Resolution", () => {
       const result = MCPSessionContextResolver.resolveSessionContext(params);
 
       expect(result.session).toBeUndefined(); // Session should not be set from task
-      expect(result.task).toBe("158");        // Task should remain as task
+      expect(result.task).toBe("158"); // Task should remain as task
       expect(result.title).toBe("test");
     });
 
@@ -118,7 +117,7 @@ describe("Interface-Layer Session Context Resolution", () => {
 
       expect(result.session).toBe("task#158"); // Session set from name
       expect(result.name).toBe("task#158");
-      expect(result.task).toBe("158");         // Task remains as task
+      expect(result.task).toBe("158"); // Task remains as task
       expect(result.title).toBe("test");
     });
   });
@@ -172,10 +171,7 @@ describe("Interface-Layer Session Context Resolution", () => {
     });
 
     it("should resolve MCP session context with explicit session", () => {
-      const result = resolveSessionForInterface(
-        { session: "task#158", title: "test" },
-        "mcp"
-      );
+      const result = resolveSessionForInterface({ session: "task#158", title: "test" }, "mcp");
 
       expect(result.session).toBe("task#158");
       expect(result.title).toBe("test");
@@ -183,20 +179,13 @@ describe("Interface-Layer Session Context Resolution", () => {
 
     it("should throw ValidationError when MCP has no session", () => {
       expect(() => {
-        resolveSessionForInterface(
-          { title: "test" },
-          "mcp"
-        );
+        resolveSessionForInterface({ title: "test" }, "mcp");
       }).toThrow(ValidationError);
     });
 
     it("should throw ValidationError when CLI can't detect session", () => {
       expect(() => {
-        resolveSessionForInterface(
-          { title: "test" },
-          "cli",
-          "/Users/edobry/Projects/minsky"
-        );
+        resolveSessionForInterface({ title: "test" }, "cli", "/Users/edobry/Projects/minsky");
       }).toThrow(ValidationError);
     });
   });

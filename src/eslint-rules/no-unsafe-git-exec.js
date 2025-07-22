@@ -40,8 +40,10 @@ export default {
       },
     ],
     messages: {
-      networkGitOperation: "Critical: Git {{operation}} can hang indefinitely. Use {{suggestion}} instead.",
-      remoteGitOperation: "Warning: Git {{operation}} may hang on network issues. Use {{suggestion}} instead.",
+      networkGitOperation:
+        "Critical: Git {{operation}} can hang indefinitely. Use {{suggestion}} instead.",
+      remoteGitOperation:
+        "Warning: Git {{operation}} may hang on network issues. Use {{suggestion}} instead.",
       unsafeGitExec: "Git command should use timeout-aware utilities. Consider {{suggestion}}.",
     },
   },
@@ -49,11 +51,18 @@ export default {
   create(context) {
     const options = context.options[0] || {};
     const allowInTests = options.allowInTests || false;
-    const allowedLocalOperations = options.allowedLocalOperations || ["status", "branch", "log", "diff", "show"];
+    const allowedLocalOperations = options.allowedLocalOperations || [
+      "status",
+      "branch",
+      "log",
+      "diff",
+      "show",
+    ];
 
     // Check if we're in a test file
     const filename = context.getFilename();
-    const isTestFile = filename.includes(".test.") || filename.includes(".spec.") || filename.includes("/test/");
+    const isTestFile =
+      filename.includes(".test.") || filename.includes(".spec.") || filename.includes("/test/");
 
     if (allowInTests && isTestFile) {
       return {};
@@ -73,12 +82,12 @@ export default {
 
     function getSuggestion(operation) {
       const suggestions = {
-        "push": "gitPushWithTimeout() or execGitWithTimeout('push', ...)",
-        "pull": "gitPullWithTimeout() or execGitWithTimeout('pull', ...)",
-        "fetch": "gitFetchWithTimeout() or execGitWithTimeout('fetch', ...)",
-        "clone": "gitCloneWithTimeout() or execGitWithTimeout('clone', ...)",
+        push: "gitPushWithTimeout() or execGitWithTimeout('push', ...)",
+        pull: "gitPullWithTimeout() or execGitWithTimeout('pull', ...)",
+        fetch: "gitFetchWithTimeout() or execGitWithTimeout('fetch', ...)",
+        clone: "gitCloneWithTimeout() or execGitWithTimeout('clone', ...)",
         "ls-remote": "execGitWithTimeout('ls-remote', ...)",
-        "remote": "execGitWithTimeout('remote', ...)",
+        remote: "execGitWithTimeout('remote', ...)",
       };
       return suggestions[operation] || "execGitWithTimeout() with appropriate timeout";
     }
@@ -127,8 +136,7 @@ export default {
         // Check for execAsync calls
         if (
           node.callee.name === "execAsync" ||
-          (node.callee.type === "MemberExpression" &&
-           node.callee.property.name === "execAsync")
+          (node.callee.type === "MemberExpression" && node.callee.property.name === "execAsync")
         ) {
           const firstArg = node.arguments[0];
           if (firstArg && firstArg.type === "Literal" && typeof firstArg.value === "string") {
@@ -138,7 +146,7 @@ export default {
             }
           } else if (firstArg && firstArg.type === "TemplateLiteral") {
             // Check template literals for git commands
-            const hasGit = firstArg.quasis.some(quasi => quasi.value.raw.includes("git"));
+            const hasGit = firstArg.quasis.some((quasi) => quasi.value.raw.includes("git"));
             if (hasGit) {
               checkGitCommand(node, "git <dynamic>");
             }

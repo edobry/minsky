@@ -299,7 +299,8 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           },
           task: {
             alias: "t",
-            description: "Task ID to associate with the session (required if --description not provided)",
+            description:
+              "Task ID to associate with the session (required if --description not provided)",
           },
           description: {
             alias: "d",
@@ -351,7 +352,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
             log.cli("💡 Next steps:");
             log.cli("   • Your session workspace is ready for editing");
             log.cli("   • All changes will be tracked on your session branch");
-            log.cli("   • Run \"minsky session pr\" when ready to create a pull request");
+            log.cli('   • Run "minsky session pr" when ready to create a pull request');
           } else {
             // Fallback to JSON output if result structure is unexpected
             log.cli(JSON.stringify(result as any, null, 2));
@@ -625,40 +626,40 @@ function formatResolvedConfiguration(resolved: any): string {
 
 function getBackendDisplayName(backend: string): string {
   switch (backend) {
-  case "markdown":
-    return "Markdown files (process/tasks.md)";
-  case "json-file":
-    return "JSON files";
-  case "github-issues":
-    return "GitHub Issues";
-  default:
-    return backend;
+    case "markdown":
+      return "Markdown files (process/tasks.md)";
+    case "json-file":
+      return "JSON files";
+    case "github-issues":
+      return "GitHub Issues";
+    default:
+      return backend;
   }
 }
 
 function getSessionBackendDisplayName(backend: string): string {
   switch (backend) {
-  case "json":
-    return "JSON files";
-  case "sqlite":
-    return "SQLite database";
-  case "postgres":
-    return "PostgreSQL database";
-  default:
-    return backend;
+    case "json":
+      return "JSON files";
+    case "sqlite":
+      return "SQLite database";
+    case "postgres":
+      return "PostgreSQL database";
+    default:
+      return backend;
   }
 }
 
 function formatDetectionCondition(condition: string): string {
   switch (condition) {
-  case "tasks_md_exists":
-    return "If process/tasks.md exists";
-  case "json_file_exists":
-    return "If JSON task files exist";
-  case "always":
-    return "As default fallback";
-  default:
-    return condition;
+    case "tasks_md_exists":
+      return "If process/tasks.md exists";
+    case "json_file_exists":
+      return "If JSON task files exist";
+    case "always":
+      return "As default fallback";
+    default:
+      return condition;
   }
 }
 

@@ -1,6 +1,6 @@
 /**
  * Session Update Command Tests
- * 
+ *
  * Tests for session update command functionality
  */
 
@@ -19,7 +19,7 @@ describe("session update command", () => {
 
   beforeEach(() => {
     testData = createSessionTestData();
-    
+
     mockGitService = {
       getSessionWorkdir: (repoName: string, sessionName: string) =>
         join(testData.tempDir, repoName, "sessions", sessionName),
@@ -323,4 +323,4 @@ describe("session update command", () => {
     // Assert: Force flag should allow update to succeed
     expect(result.session).toBe(sessionName);
   });
-}); 
+});

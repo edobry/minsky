@@ -15,6 +15,7 @@ Investigate replacing the current patch-style diff approach in the session-aware
 ## Background & Motivation
 
 The current session-aware edit file tool uses a patch-style diff format similar to Cursor's built-in tool:
+
 - Agent submits content with `// ... existing code ...` comments
 - New code is interspersed between existing code markers
 - Sent to a "fast apply model" for automated application
@@ -25,30 +26,35 @@ A codemod-based approach could potentially provide more precision by having the 
 ## Research Objectives
 
 ### 1. Current Tool Analysis
+
 - Deep dive into how the existing session-aware edit tool works
 - Understand the "fast apply model" mechanism and its limitations
 - Document current failure modes and ambiguity issues
 - Analyze performance characteristics and resource usage
 
 ### 2. Codemod Approach Modeling
+
 - Design how a codemod-based approach would work in practice
 - Define agent interface for generating targeted codemods
 - Model integration with existing MCP tool architecture
 - Consider different codemod targeting strategies (AST vs string-based)
 
 ### 3. Precision & Reliability Analysis
+
 - Compare accuracy of current patch-style vs proposed codemod approach
 - Identify cases where current approach fails or is ambiguous
 - Model how codemod targeting could eliminate positioning issues
 - Analyze handling of edge cases (similar code patterns, dynamic content)
 
 ### 4. Technical Feasibility Assessment
+
 - Evaluate implementation complexity requirements
 - Assess compatibility with current MCP tool interface
 - Consider performance implications and execution speed
 - Design fallback mechanisms for complex edits
 
 ### 5. Integration Architecture
+
 - Model how this would integrate with existing session file operations
 - Consider backward compatibility requirements
 - Design error handling and debugging capabilities
@@ -57,24 +63,28 @@ A codemod-based approach could potentially provide more precision by having the 
 ## Specific Research Areas
 
 ### Codemod Design Patterns
+
 - AST-based targeting vs string-based replacement strategies
 - Context-aware replacement handling approaches
 - Formatting and whitespace preservation techniques
 - Multi-edit coordination within single files
 
 ### Precision Analysis Examples
+
 - Document specific cases where patch-style approach has failed
 - Model exact positioning capabilities of codemod targeting
 - Analyze disambiguation of similar code patterns
 - Edge case handling for generated or dynamic code
 
 ### Implementation Architecture Options
+
 - Agent codemod generation interface design
 - MCP tool integration patterns
 - Session workspace file operation compatibility
 - Error recovery and rollback mechanisms
 
 ### Performance & Usability Considerations
+
 - Execution speed: patch application vs codemod running
 - Resource usage comparison and scalability
 - Agent cognitive load: writing codemods vs patches

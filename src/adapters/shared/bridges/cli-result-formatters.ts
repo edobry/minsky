@@ -3,7 +3,7 @@
  *
  * Formatting utilities for CLI command results.
  * Extracted from CliCommandBridge to improve modularity.
- * 
+ *
  * TASK 283: Updated to use formatTaskIdForDisplay() for consistent # prefix display.
  */
 import { log } from "../../../utils/logger";
@@ -125,7 +125,9 @@ export function formatSessionApprovalDetails(result: Record<string, any>): void 
   log.cli("📝 Session Details:");
   log.cli(`   Session: ${sessionName}`);
   if (taskId) {
-    const taskStatusMessage = isNewlyApproved ? "(status updated to DONE)" : "(already marked as DONE)";
+    const taskStatusMessage = isNewlyApproved
+      ? "(status updated to DONE)"
+      : "(already marked as DONE)";
     log.cli(`   Task: ${formatTaskIdForDisplay(taskId)} ${taskStatusMessage}`);
   }
   log.cli(`   Merged by: ${mergedBy}`);

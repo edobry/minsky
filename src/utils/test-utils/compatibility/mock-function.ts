@@ -302,7 +302,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
 
   // Add mockReturnValue method
   mockFn.mockReturnValue = function (value) {
-    return mockFn = mock(() => value);
+    return (mockFn = mock(() => value));
   };
 
   // Add mockReturnValueOnce method
@@ -313,29 +313,25 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   // Add mockResolvedValue method
   mockFn.mockResolvedValue = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
-    return mockFn = mock(() => Promise.resolve(value) as ReturnType<T>);
+    return (mockFn = mock(() => Promise.resolve(value) as ReturnType<T>));
   };
 
   // Add mockResolvedValueOnce method
   mockFn.mockResolvedValueOnce = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
-    return mockFn.mockImplementationOnce(
-      () => Promise.resolve(value) as ReturnType<T>
-    );
+    return mockFn.mockImplementationOnce(() => Promise.resolve(value) as ReturnType<T>);
   };
 
   // Add mockRejectedValue method
   mockFn.mockRejectedValue = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
-    return mockFn = mock(() => Promise.reject(value) as ReturnType<T>);
+    return (mockFn = mock(() => Promise.reject(value) as ReturnType<T>));
   };
 
   // Add mockRejectedValueOnce method
   mockFn.mockRejectedValueOnce = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
-    return mockFn.mockImplementationOnce(
-      () => Promise.reject(value) as ReturnType<T>
-    );
+    return mockFn.mockImplementationOnce(() => Promise.reject(value) as ReturnType<T>);
   };
 
   // If there"s an initial implementation, set it

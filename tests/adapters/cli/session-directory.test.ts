@@ -1,6 +1,6 @@
 /**
  * Session Directory Command Tests
- * 
+ *
  * Tests for session directory command functionality
  */
 
@@ -26,12 +26,14 @@ describe("session dir command", () => {
     const correctSession = testData.mockSessions[1]; // task#160 session
     testData.mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(correctSession));
     testData.mockSessionDB.getSession = mock(() => Promise.resolve(correctSession));
-    
+
     // Add the missing getRepoPath method to the mock
     if (!testData.mockSessionDB.getRepoPath) {
       testData.mockSessionDB.getRepoPath = createMock();
     }
-    testData.mockSessionDB.getRepoPath = mock(() => Promise.resolve("/Users/edobry/.local/state/minsky/sessions/task#160"));
+    testData.mockSessionDB.getRepoPath = mock(() =>
+      Promise.resolve("/Users/edobry/.local/state/minsky/sessions/task#160")
+    );
 
     // Act
     const result = await getSessionDirFromParams(
@@ -95,7 +97,7 @@ describe("session dir command", () => {
       if (!options?.taskId) {
         return testData.mockSessions;
       }
-            
+
       // Implement the same filtering logic as SQLite storage
       const normalizedTaskId = options.taskId.replace(/^#/, "");
       return testData.mockSessions.filter((s) => {
@@ -138,4 +140,4 @@ describe("session dir command", () => {
     expect(correctSessions).toHaveLength(3);
     expect(correctSessions.map((s) => s.session)).toEqual(["task160", "task#160", "task-160-v2"]);
   });
-}); 
+});

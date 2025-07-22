@@ -54,8 +54,15 @@ function getLoggerConfig(): LoggerConfig {
     const configAgentLogs = has("logger.enableAgentLogs") ? get("logger.enableAgentLogs") : null;
 
     loggerConfig = {
-      mode: (typeof configMode === "string" ? configMode : envMode || "auto") as "HUMAN" | "STRUCTURED" | "auto",
-      level: (typeof configLevel === "string" ? configLevel : envLevel || "info") as "debug" | "info" | "warn" | "error",
+      mode: (typeof configMode === "string" ? configMode : envMode || "auto") as
+        | "HUMAN"
+        | "STRUCTURED"
+        | "auto",
+      level: (typeof configLevel === "string" ? configLevel : envLevel || "info") as
+        | "debug"
+        | "info"
+        | "warn"
+        | "error",
       enableAgentLogs: typeof configAgentLogs === "boolean" ? configAgentLogs : envAgentLogs,
     };
   } catch (error) {
@@ -122,9 +129,7 @@ export function createLogger(configOverride?: LoggerConfig) {
       const logInfo = info as { message?: any; stack?: string; [key: string]: any };
       // Ensure message is a string
       const message =
-        typeof logInfo.message === "string"
-          ? logInfo.message
-          : JSON.stringify(logInfo.message);
+        typeof logInfo.message === "string" ? logInfo.message : JSON.stringify(logInfo.message);
       // For user-facing CLI output, just show the message without timestamp and log level
       let log = message;
       if (logInfo.stack) {
@@ -255,9 +260,7 @@ export function createLogger(configOverride?: LoggerConfig) {
           context !== null &&
           (context.originalError || context.stack)
         ) {
-          programLogger.error(
-            `${message}: ${context.originalError || JSON.stringify(context)}`
-          );
+          programLogger.error(`${message}: ${context.originalError || JSON.stringify(context)}`);
           if (context.stack) {
             programLogger.error(context.stack);
           }
@@ -331,7 +334,7 @@ function getDefaultLogger() {
 export const log = new Proxy({} as any, {
   get(target, prop) {
     return getDefaultLogger()[prop];
-  }
+  },
 });
 
 export const isStructuredMode = () => getDefaultLogger().isStructuredMode();

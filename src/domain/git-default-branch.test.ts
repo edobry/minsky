@@ -24,7 +24,9 @@ describe("GitService Default Branch Detection", () => {
 
   test("should detect default branch from origin HEAD ref", async () => {
     // Mock to return a specific branch name
-    let execMock = spyOn(GitService.prototype, "execInRepository").mockImplementation(() => Promise.resolve("origin/develop\n"));
+    let execMock = spyOn(GitService.prototype, "execInRepository").mockImplementation(() =>
+      Promise.resolve("origin/develop\n")
+    );
 
     const gitService = new GitService();
     const defaultBranch = await gitService.fetchDefaultBranch("/test/repo");

@@ -11,7 +11,11 @@ import { type GitServiceInterface, preparePrFromParams } from "../git";
 import { TASK_STATUS, TaskService } from "../tasks";
 import type { SessionProviderInterface } from "../session";
 import { updateSessionFromParams } from "../session";
-import { checkPrBranchExistsOptimized, updatePrStateOnCreation, extractPrDescription } from "./session-update-operations";
+import {
+  checkPrBranchExistsOptimized,
+  updatePrStateOnCreation,
+  extractPrDescription,
+} from "./session-update-operations";
 
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
@@ -151,9 +155,7 @@ Need help? Run 'git status' to see what files have changed.
       } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
         throw new ValidationError(`Permission denied reading body file: ${params.bodyPath}`);
       } else {
-        throw new ValidationError(
-          `Failed to read body file: ${params.bodyPath}. ${errorMessage}`
-        );
+        throw new ValidationError(`Failed to read body file: ${params.bodyPath}. ${errorMessage}`);
       }
     }
   }
@@ -205,7 +207,12 @@ Need help? Run 'git status' to see what files have changed.
 
   // STEP 4.5: PR Branch Detection and Title/Body Handling
   // This implements the new refresh functionality
-  const prBranchExists = await checkPrBranchExistsOptimized(sessionName, deps.gitService, currentDir, deps.sessionDB);
+  const prBranchExists = await checkPrBranchExistsOptimized(
+    sessionName,
+    deps.gitService,
+    currentDir,
+    deps.sessionDB
+  );
 
   let titleToUse = params.title;
   let bodyToUse = bodyContent;
@@ -214,7 +221,11 @@ Need help? Run 'git status' to see what files have changed.
     // Case: Existing PR + no title → Auto-reuse existing title/body (refresh)
     log.cli("🔄 Refreshing existing PR (reusing title and body)...");
 
-    const existingDescription = await extractPrDescription(sessionName, deps.gitService, currentDir);
+    const existingDescription = await extractPrDescription(
+      sessionName,
+      deps.gitService,
+      currentDir
+    );
     if (existingDescription) {
       titleToUse = existingDescription.title;
       bodyToUse = existingDescription.body;
@@ -282,7 +293,9 @@ Example:
 
       // Enhanced error handling for common conflict scenarios
       if (errorMessage.includes("already in base") || errorMessage.includes("already merged")) {
-        log.cli("💡 Your session changes are already in the base branch. Proceeding with PR creation...");
+        log.cli(
+          "💡 Your session changes are already in the base branch. Proceeding with PR creation..."
+        );
       } else if (errorMessage.includes("conflicts")) {
         log.cli("⚠️  Merge conflicts detected. Consider using conflict resolution options:");
         log.cli("   • --auto-resolve-delete-conflicts: Auto-resolve delete/modify conflicts");
@@ -320,12 +333,10 @@ Example:
         await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
         log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
       } catch (error) {
-        log.warn(
-          `Failed to update task status: ${getErrorMessage(error)}`
-        );
+        log.warn(`Failed to update task status: ${getErrorMessage(error)}`);
       }
     }
   }
 
   return result;
-} 
+}

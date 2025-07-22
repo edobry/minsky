@@ -11,6 +11,7 @@ This directory contains automated code transformation tools for the Minsky proje
 ## Effectiveness Evidence
 
 **Task #166 Proof**: AST-based approaches are **6x more effective** than regex approaches:
+
 - **AST-based fix-variable-naming-ast.ts**: 231 fixes, 100% success rate, zero syntax errors
 - **Regex-based approaches**: High syntax error rates, complex pattern matching, frequent failures
 
@@ -34,35 +35,43 @@ codemods/
 ## Codemod Categories (By Effectiveness)
 
 ### HIGH EFFECTIVENESS: AST-Based Transformations ⭐
+
 **Recommended for all new development**
 
 **Characteristics**:
+
 - Uses `ts-morph` or TypeScript Compiler API
 - Syntax-aware transformations
 - Built-in validation and error handling
 - 95%+ success rates with zero syntax errors
 
 **Examples**:
+
 - `fix-variable-naming-ast.ts` - **Gold Standard** (231 fixes, 100% success)
 - `comprehensive-underscore-fix.ts` - AST-based underscore removal
 - `eliminate-ts2322-completely.ts` - Type-aware error fixing
 
 ### MEDIUM EFFECTIVENESS: ESLint Output Parsing
+
 **Acceptable for specific use cases**
 
 **Characteristics**:
+
 - Parses ESLint output for targeted fixes
 - More reliable than pure regex
 - Limited to ESLint-detectable patterns
 
 **Examples**:
+
 - `simple-underscore-fix.ts` - ESLint-guided underscore fixes
 - Various ESLint-based error fixers
 
 ### LOW EFFECTIVENESS: Simple Regex (Migration Priority)
+
 **Should be migrated to AST approaches**
 
 **Characteristics**:
+
 - Simple string replacements
 - Basic pattern matching
 - Higher error rates than AST approaches
@@ -70,9 +79,11 @@ codemods/
 **Migration Target**: Convert to AST-based equivalents using migration guide.
 
 ### DEPRECATED: Complex Pattern-Specific Regex (Anti-Patterns)
+
 **Should be replaced immediately**
 
 **Characteristics**:
+
 - Complex regex patterns with high failure rates
 - Multi-step text manipulations
 - Syntax-unaware transformations
@@ -119,17 +130,29 @@ interface CodemodIssue {
 class CodemodName {
   private project: Project;
   private issues: CodemodIssue[] = [];
-  private metrics: CodemodMetrics = { /* ... */ };
+  private metrics: CodemodMetrics = {
+    /* ... */
+  };
 
   constructor() {
     this.project = new Project();
   }
 
-  addSourceFiles(patterns: string[]): void { /* ... */ }
-  findIssues(): CodemodIssue[] { /* ... */ }
-  fixIssues(): void { /* ... */ }
-  generateReport(): void { /* ... */ }
-  execute(patterns: string[]): Promise<void> { /* ... */ }
+  addSourceFiles(patterns: string[]): void {
+    /* ... */
+  }
+  findIssues(): CodemodIssue[] {
+    /* ... */
+  }
+  fixIssues(): void {
+    /* ... */
+  }
+  generateReport(): void {
+    /* ... */
+  }
+  execute(patterns: string[]): Promise<void> {
+    /* ... */
+  }
 }
 ```
 
@@ -138,6 +161,7 @@ class CodemodName {
 ### Identification Phase
 
 Look for codemods using:
+
 - `String.prototype.replace()`
 - Complex regular expressions
 - Multi-step text manipulation
@@ -146,6 +170,7 @@ Look for codemods using:
 ### Assessment Phase
 
 **Questions to Ask**:
+
 - What syntactic structure is being changed?
 - Are type relationships involved?
 - Does the change affect code semantics?
@@ -169,6 +194,7 @@ Look for codemods using:
 ## Performance Targets
 
 **Based on Task #166 Evidence**:
+
 - **Target**: 95%+ success rate (match AST gold standard)
 - **Requirement**: Zero syntax errors introduced
 - **Benchmark**: Process 200+ files in under 5 seconds
@@ -179,6 +205,7 @@ Look for codemods using:
 ### Pre-Merge Checklist
 
 **MANDATORY VERIFICATION**:
+
 - [ ] Uses AST-based approach (or justified exception documented)
 - [ ] Includes comprehensive error handling
 - [ ] Has complete test coverage (unit, integration, edge cases)
@@ -189,6 +216,7 @@ Look for codemods using:
 ### Exception Policy
 
 **REGEX EXCEPTIONS** require explicit justification:
+
 - Document why AST approach is not suitable
 - Provide evidence of safety and effectiveness
 - Include comprehensive test coverage
@@ -197,11 +225,12 @@ Look for codemods using:
 ## Common Patterns (Evidence-Based)
 
 ### 1. Variable Naming Fix (Gold Standard)
+
 **FROM fix-variable-naming-ast.ts** (231 fixes, 100% success):
 
 ```typescript
 const parameters = func.getParameters();
-parameters.forEach(param => {
+parameters.forEach((param) => {
   const paramName = param.getName();
   if (paramName.startsWith("_")) {
     const newName = paramName.substring(1);
@@ -213,12 +242,10 @@ parameters.forEach(param => {
 ### 2. Import Statement Transformation
 
 ```typescript
-sourceFile.getImportDeclarations().forEach(importDecl => {
+sourceFile.getImportDeclarations().forEach((importDecl) => {
   const moduleSpecifier = importDecl.getModuleSpecifierValue();
   if (moduleSpecifier.startsWith("./old-path")) {
-    importDecl.setModuleSpecifier(
-      moduleSpecifier.replace("./old-path", "./new-path")
-    );
+    importDecl.setModuleSpecifier(moduleSpecifier.replace("./old-path", "./new-path"));
   }
 });
 ```
@@ -227,9 +254,9 @@ sourceFile.getImportDeclarations().forEach(importDecl => {
 
 ```typescript
 const functions = sourceFile.getFunctions();
-functions.forEach(func => {
+functions.forEach((func) => {
   const params = func.getParameters();
-  params.forEach(param => {
+  params.forEach((param) => {
     if (param.getTypeNode()) {
       // Safe AST transformation with type awareness
     }
@@ -242,6 +269,7 @@ functions.forEach(func => {
 ### Required Test Coverage
 
 All codemods must include:
+
 - **Unit tests**: Individual transformation functions
 - **Integration tests**: Full codemod execution
 - **Edge case tests**: Boundary conditions and error scenarios
@@ -306,4 +334,4 @@ codemods/
 
 This directory represents a systematic approach to code transformation based on concrete evidence from Task #166. By following AST-first development principles, we ensure codemods are reliable, maintainable, and effective at scale.
 
-The 6x effectiveness improvement demonstrated by AST approaches makes adherence to these standards essential for the project's long-term success. 
+The 6x effectiveness improvement demonstrated by AST approaches makes adherence to these standards essential for the project's long-term success.

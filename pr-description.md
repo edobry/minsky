@@ -13,12 +13,14 @@ This PR resolves synchronization issues between the special workspace and main w
 ## Solution Implemented
 
 ### New Utility: `src/utils/task-workspace-commit.ts`
+
 - **Smart workspace detection** - automatically identifies special vs. regular workspace
 - **Proper special workspace handling** - uses SpecialWorkspaceManager for atomic operations
 - **Upstream synchronization** - ensures changes sync from special to main workspace before commits
 - **Fallback support** - maintains backward compatibility with regular workspace operations
 
 ### Updated Task Commands Integration
+
 - Modified all task command functions (`createTask`, `setTaskStatus`, `deleteTask`) to use new synchronization mechanism
 - Replaced direct `autoCommitTaskChanges` calls with intelligent `commitTaskChanges` wrapper
 - Added proper error handling and workspace-aware commit logic

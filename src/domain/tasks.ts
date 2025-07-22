@@ -83,7 +83,11 @@ export interface TaskServiceInterface {
   /**
    * Create a task from title and description
    */
-  createTaskFromTitleAndDescription(title: string, description: string, options?: CreateTaskOptions): Promise<Task>;
+  createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options?: CreateTaskOptions
+  ): Promise<Task>;
 
   /**
    * Delete a task
@@ -120,7 +124,11 @@ export interface TaskBackend {
   setTaskStatus(id: string, status: string): Promise<void>;
   getWorkspacePath(): string;
   createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
-  createTaskFromTitleAndDescription(title: string, description: string, options?: CreateTaskOptions): Promise<Task>;
+  createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options?: CreateTaskOptions
+  ): Promise<Task>;
   setTaskMetadata?(id: string, metadata: any): Promise<void>;
   deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
 }
@@ -236,7 +244,11 @@ export class MarkdownTaskBackend implements TaskBackend {
         const files = await fs.readdir(taskDir);
         const matchingFile = files.find((f) => f.startsWith(`${taskIdNum}-`));
         if (matchingFile) {
-          return getTaskSpecRelativePath(taskId, matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""), this.workspacePath);
+          return getTaskSpecRelativePath(
+            taskId,
+            matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""),
+            this.workspacePath
+          );
         }
       } catch (_err) {
         // Directory doesn't exist or can't be read
@@ -382,12 +394,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Skip if this looks like an old task format to avoid false positives
       if (title.startsWith("Task ")) {
         throw new Error(
-          "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
+          'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
         );
       }
     } else {
       throw new Error(
-        "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
+        'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
       );
     }
 
@@ -471,9 +483,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         }
       }
     } catch (error: any) {
-      throw new Error(
-        `Failed to rename or update spec file: ${getErrorMessage(error as any)}`
-      );
+      throw new Error(`Failed to rename or update spec file: ${getErrorMessage(error as any)}`);
     }
 
     // Create the task entry
@@ -516,10 +526,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     const tempDir = os.tmpdir();
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(
-      tempDir,
-      `temp-task-${normalizedTitle}-${Date.now()}.md`
-    );
+    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
 
     try {
       // Write the spec content to the temporary file
@@ -615,9 +622,7 @@ ${description}
         id,
         specFilePath,
       });
-      throw new Error(
-        `Failed to update task metadata: ${getErrorMessage(error as any)}`
-      );
+      throw new Error(`Failed to update task metadata: ${getErrorMessage(error as any)}`);
     }
   }
 
@@ -660,7 +665,10 @@ ${description}
       await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
 
       // Delete the task specification file if it exists
-      const specPath = join(this.workspacePath, getTaskSpecRelativePath(task.id, task.title, this.workspacePath));
+      const specPath = join(
+        this.workspacePath,
+        getTaskSpecRelativePath(task.id, task.title, this.workspacePath)
+      );
 
       try {
         await fs.unlink(specPath);
@@ -788,7 +796,11 @@ export class TaskService {
     return this.currentBackend.createTask(specPath, options);
   }
 
-  async createTaskFromTitleAndDescription(title: string, description: string, options: CreateTaskOptions = {}): Promise<Task> {
+  async createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options: CreateTaskOptions = {}
+  ): Promise<Task> {
     return this.currentBackend.createTaskFromTitleAndDescription(title, description, options);
   }
 

@@ -17,6 +17,7 @@ MEDIUM
 Currently, Minsky rules are static `.mdc` files with hardcoded CLI command references. The `init` command generates rules using static content functions in `src/domain/init.ts`, and there's no way to conditionally reference CLI commands vs MCP tool calls based on project configuration. This limits the flexibility of rules and prevents optimal integration with different interface types (CLI vs MCP).
 
 As the MCP ecosystem grows and rules become more sophisticated, we need a templating system that can:
+
 1. Generate rules dynamically based on project configuration
 2. Conditionally reference CLI commands or MCP tool calls
 3. Support template variables and dynamic content generation
@@ -50,26 +51,33 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
 Convert existing static rules to templates with patterns like:
 
 #### CLI Command References
+
 ```typescript
 // Before (static)
-content: "Run `minsky tasks list --json` to see all tasks"
+content: "Run `minsky tasks list --json` to see all tasks";
 
 // After (templated)
-content: `Run \`${interfaceConfig.cli ? 'minsky tasks list --json' : 'Use the tasks.list MCP tool'}\` to see all tasks`
+content: `Run \`${interfaceConfig.cli ? "minsky tasks list --json" : "Use the tasks.list MCP tool"}\` to see all tasks`;
 ```
 
 #### Configuration-Driven Content
+
 ```typescript
 // MCP-specific sections
-content: `${interfaceConfig.mcpEnabled ? `
+content: `${
+  interfaceConfig.mcpEnabled
+    ? `
 ## MCP Integration
 Use MCP tools for programmatic access:
 - \`tasks.list\` - List all tasks
 - \`tasks.get\` - Get task details
-` : ''}`
+`
+    : ""
+}`;
 ```
 
 #### Complex Interface Mappings
+
 ```typescript
 const commandRef = (cliCmd: string, mcpTool: string, description: string) =>
   interfaceConfig.preferMcp
@@ -109,11 +117,11 @@ Create configuration system to drive rule generation:
 
 ```typescript
 interface RuleGenerationConfig {
-  interface: 'cli' | 'mcp' | 'hybrid';
+  interface: "cli" | "mcp" | "hybrid";
   mcpEnabled: boolean;
-  mcpTransport: 'stdio' | 'http';
+  mcpTransport: "stdio" | "http";
   preferMcp: boolean;
-  ruleFormat: 'cursor' | 'generic';
+  ruleFormat: "cursor" | "generic";
   outputDir?: string;
   selectedRules?: string[];
 }
@@ -122,17 +130,20 @@ interface RuleGenerationConfig {
 ### 7. Template Categories and Examples
 
 #### Core Workflow Rules
+
 - **minsky-workflow-orchestrator**: Template task and session management workflows
 - **minsky-cli-usage**: Conditional CLI vs MCP command references
 - **task-implementation-workflow**: Template task status and implementation commands
 - **session-first-workflow**: Template session creation and navigation commands
 
 #### Command Reference Rules
+
 - **minsky-session-management**: Template session commands
 - **task-status-protocol**: Template task status commands
 - **pr-preparation-workflow**: Template PR and git commands
 
 #### Integration Rules
+
 - **mcp-usage**: Dynamically generated based on MCP configuration
 - **rules-management**: Template rule management workflows
 
@@ -146,9 +157,9 @@ await createFileIfNotExists(ruleFilePath, getMinskyRuleContent(), overwrite, fil
 
 // With templated rule generation
 const ruleConfig: RuleGenerationConfig = {
-  interface: mcp?.enabled ? 'hybrid' : 'cli',
+  interface: mcp?.enabled ? "hybrid" : "cli",
   mcpEnabled: mcp?.enabled ?? false,
-  mcpTransport: mcp?.transport ?? 'stdio',
+  mcpTransport: mcp?.transport ?? "stdio",
   preferMcp: false, // Default to CLI for familiarity
   ruleFormat,
 };
@@ -161,6 +172,7 @@ await ruleService.generateAndInstallRules(ruleConfig, { overwrite });
 ### Phase 1: Investigation and Architecture (Priority: High)
 
 1. **Current State Analysis**
+
    - [ ] Analyze all current rules for CLI command patterns
    - [ ] Create mapping of CLI commands to MCP tool equivalents
    - [ ] Document rule generation logic currently in init domain
@@ -175,6 +187,7 @@ await ruleService.generateAndInstallRules(ruleConfig, { overwrite });
 ### Phase 2: Rules Domain Enhancement (Priority: High)
 
 1. **Extract Init Logic**
+
    - [ ] Move `getMinskyRuleContent()`, `getRulesIndexContent()`, `getMCPRuleContent()` to rules domain
    - [ ] Create `RuleTemplateService` class in rules domain
    - [ ] Implement template registry and management
@@ -189,6 +202,7 @@ await ruleService.generateAndInstallRules(ruleConfig, { overwrite });
 ### Phase 3: Template Conversion (Priority: Medium)
 
 1. **Core Rule Templates**
+
    - [ ] Convert minsky-workflow-orchestrator to template
    - [ ] Convert minsky-cli-usage to template with CLI/MCP conditionals
    - [ ] Convert session management rules to templates
@@ -203,6 +217,7 @@ await ruleService.generateAndInstallRules(ruleConfig, { overwrite });
 ### Phase 4: Rules Generation Command (Priority: Medium)
 
 1. **Core Command Implementation**
+
    - [ ] Implement `minsky rules generate` command
    - [ ] Add configuration options for interface preference
    - [ ] Support rule selection and filtering
@@ -217,6 +232,7 @@ await ruleService.generateAndInstallRules(ruleConfig, { overwrite });
 ### Phase 5: Init Command Integration (Priority: Low)
 
 1. **Update Init Command**
+
    - [ ] Replace static rule generation with template system
    - [ ] Configure rule generation based on init parameters
    - [ ] Maintain backward compatibility with existing functionality
@@ -233,22 +249,21 @@ await ruleService.generateAndInstallRules(ruleConfig, { overwrite });
 ### Template System Design
 
 1. **Template Literals with Function Helpers**
+
    ```typescript
    const templateHelpers = {
      command: (cli: string, mcp: string, desc: string) =>
        config.preferMcp ? `MCP tool \`${mcp}\`` : `CLI command \`${cli}\``,
 
      codeBlock: (cli: string, mcp: string) =>
-       config.preferMcp ?
-         `// Use MCP tool\n${mcp}` :
-         `# Use CLI command\n${cli}`,
+       config.preferMcp ? `// Use MCP tool\n${mcp}` : `# Use CLI command\n${cli}`,
    };
    ```
 
 2. **Configuration Injection**
    ```typescript
    const generateRule = (template: string, config: RuleGenerationConfig) => {
-     return new Function('config', 'helpers', `return \`${template}\`;`)(config, templateHelpers);
+     return new Function("config", "helpers", `return \`${template}\`;`)(config, templateHelpers);
    };
    ```
 
@@ -258,11 +273,11 @@ Create comprehensive mapping of command patterns:
 
 ```typescript
 const commandMappings = {
-  'minsky tasks list --json': 'tasks.list',
-  'minsky tasks get #${id} --json': 'tasks.get with taskId parameter',
-  'minsky tasks status get #${id}': 'tasks.status.get with taskId parameter',
-  'minsky session start --task ${id}': 'session.start with task parameter',
-  'minsky session list --json': 'session.list',
+  "minsky tasks list --json": "tasks.list",
+  "minsky tasks get #${id} --json": "tasks.get with taskId parameter",
+  "minsky tasks status get #${id}": "tasks.status.get with taskId parameter",
+  "minsky session start --task ${id}": "session.start with task parameter",
+  "minsky session list --json": "session.list",
 } as const;
 ```
 
@@ -318,7 +333,6 @@ const commandMappings = {
 - Task #260: Implement Prompt Templates for AI Interaction (related templating concepts)
 
 This task represents a significant evolution of the rules system, moving from static files to a dynamic, configuration-driven template system that can adapt to different interface preferences and project configurations.
-
 
 ## Requirements
 

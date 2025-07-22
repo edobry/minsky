@@ -16,17 +16,20 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionFromParams } from "../session";
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
-import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../../utils/test-utils/index";
+import {
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+} from "../../utils/test-utils/index";
 
 describe("Session Approve Task Status Commit", () => {
-
   // Mock log functions used by session approve operations
   const log = {
     cli: mock(() => {}),
     info: mock(() => {}),
     debug: mock(() => {}),
     error: mock(() => {}),
-    warn: mock(() => {})
+    warn: mock(() => {}),
   };
 
   beforeEach(() => {
@@ -73,7 +76,7 @@ describe("Session Approve Task Status Commit", () => {
         if (command.includes("git add process/tasks.md")) {
           return Promise.resolve("");
         }
-        if (command.includes("git commit -m \"chore(123): update task status to DONE\"")) {
+        if (command.includes('git commit -m "chore(123): update task status to DONE"')) {
           return Promise.resolve("");
         }
         if (command.includes("git push")) {
@@ -85,20 +88,22 @@ describe("Session Approve Task Status Commit", () => {
     });
 
     const mockSessionDB = createMockSessionProvider({
-      getSessionByTaskId: (taskId: string) => Promise.resolve({
-        session: `task#${taskId}`,
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: new Date().toISOString(),
-        taskId,
-      }),
-      getSession: (sessionName: string) => Promise.resolve({
-        session: sessionName,
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: new Date().toISOString(),
-        taskId: "123",
-      }),
+      getSessionByTaskId: (taskId: string) =>
+        Promise.resolve({
+          session: `task#${taskId}`,
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: new Date().toISOString(),
+          taskId,
+        }),
+      getSession: (sessionName: string) =>
+        Promise.resolve({
+          session: sessionName,
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: new Date().toISOString(),
+          taskId: "123",
+        }),
     });
 
     const mockTaskService = createMockTaskService({
@@ -139,7 +144,7 @@ describe("Session Approve Task Status Commit", () => {
     expect(gitCommands).toContain("git add process/tasks.md");
 
     // Should commit the task status update
-    expect(gitCommands).toContain("git commit -m \"chore(123): update task status to DONE\"");
+    expect(gitCommands).toContain('git commit -m "chore(123): update task status to DONE"');
 
     // Should push the commit
     expect(gitCommands).toContain("git push");
@@ -188,20 +193,22 @@ describe("Session Approve Task Status Commit", () => {
     };
 
     const mockSessionDB: Partial<SessionProviderInterface> = {
-      getSessionByTaskId: (taskId: string) => Promise.resolve({
-        session: `task#${taskId}`,
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: new Date().toISOString(),
-        taskId,
-      }),
-      getSession: (sessionName: string) => Promise.resolve({
-        session: sessionName,
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: new Date().toISOString(),
-        taskId: "124",
-      }),
+      getSessionByTaskId: (taskId: string) =>
+        Promise.resolve({
+          session: `task#${taskId}`,
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: new Date().toISOString(),
+          taskId,
+        }),
+      getSession: (sessionName: string) =>
+        Promise.resolve({
+          session: sessionName,
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: new Date().toISOString(),
+          taskId: "124",
+        }),
     };
 
     const mockTaskService = {
@@ -236,7 +243,7 @@ describe("Session Approve Task Status Commit", () => {
 
     // Should NOT try to commit when there are no changes
     expect(gitCommands).not.toContain("git add process/tasks.md");
-    expect(gitCommands).not.toContain("git commit -m \"chore(#124): update task status to DONE\"");
+    expect(gitCommands).not.toContain('git commit -m "chore(#124): update task status to DONE"');
   });
 
   test("should skip task status update when task is already DONE", async () => {
@@ -281,20 +288,22 @@ describe("Session Approve Task Status Commit", () => {
     };
 
     const mockSessionDB: Partial<SessionProviderInterface> = {
-      getSessionByTaskId: (taskId: string) => Promise.resolve({
-        session: `task${taskId}`,  // taskId is already "#125", so this becomes "task#125"
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: new Date().toISOString(),
-        taskId,
-      }),
-      getSession: (sessionName: string) => Promise.resolve({
-        session: sessionName,
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: new Date().toISOString(),
-        taskId: "125",
-      }),
+      getSessionByTaskId: (taskId: string) =>
+        Promise.resolve({
+          session: `task${taskId}`, // taskId is already "#125", so this becomes "task#125"
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: new Date().toISOString(),
+          taskId,
+        }),
+      getSession: (sessionName: string) =>
+        Promise.resolve({
+          session: sessionName,
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: new Date().toISOString(),
+          taskId: "125",
+        }),
     };
 
     const mockTaskService = {
@@ -339,7 +348,7 @@ describe("Session Approve Task Status Commit", () => {
     // Should NOT attempt any task status commit operations
     expect(gitCommands).not.toContain("git status --porcelain");
     expect(gitCommands).not.toContain("git add process/tasks.md");
-    expect(gitCommands).not.toContain("git commit -m \"chore(#125): update task status to DONE\"");
+    expect(gitCommands).not.toContain('git commit -m "chore(#125): update task status to DONE"');
     expect(gitCommands).not.toContain("git push");
   });
 
@@ -371,20 +380,22 @@ describe("Session Approve Task Status Commit", () => {
     };
 
     const mockSessionDB: Partial<SessionProviderInterface> = {
-      getSessionByTaskId: (taskId: string) => Promise.resolve({
-        session: `task${taskId}`,  // taskId is already "#266", so this becomes "task#266"
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: new Date().toISOString(),
-        taskId,
-      }),
-      getSession: (sessionName: string) => Promise.resolve({
-        session: sessionName,
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        createdAt: new Date().toISOString(),
-        taskId: "266",
-      }),
+      getSessionByTaskId: (taskId: string) =>
+        Promise.resolve({
+          session: `task${taskId}`, // taskId is already "#266", so this becomes "task#266"
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: new Date().toISOString(),
+          taskId,
+        }),
+      getSession: (sessionName: string) =>
+        Promise.resolve({
+          session: sessionName,
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          createdAt: new Date().toISOString(),
+          taskId: "266",
+        }),
     };
 
     const mockTaskService = {
@@ -394,7 +405,9 @@ describe("Session Approve Task Status Commit", () => {
       },
       setTaskStatus: (taskId: string, status: string) => {
         // This should NOT be called due to early exit
-        throw new Error("setTaskStatus should not be called when task is already DONE and PR branch doesn't exist");
+        throw new Error(
+          "setTaskStatus should not be called when task is already DONE and PR branch doesn't exist"
+        );
       },
     };
 
@@ -429,6 +442,6 @@ describe("Session Approve Task Status Commit", () => {
     // Should NOT attempt any task status commit operations
     expect(gitCommands).not.toContain("git status --porcelain");
     expect(gitCommands).not.toContain("git add process/tasks.md");
-    expect(gitCommands).not.toContain("git commit -m \"chore(#266): update task status to DONE\"");
+    expect(gitCommands).not.toContain('git commit -m "chore(#266): update task status to DONE"');
   });
 });
