@@ -2,7 +2,7 @@
 
 /**
  * Safe AST Codemod for Task #280 - Conservative High-Priority Fixes
- * 
+ *
  * Focuses on the safest transformation patterns identified in the analysis:
  * - Simple property access without complex surrounding expressions
  * - Configuration object property access patterns
@@ -34,13 +34,13 @@ class SafeAsUnknownFixer {
 
   async execute(): Promise<void> {
     console.log("🚀 Starting safe 'as unknown' fixes...");
-    
+
     // Add source files
     this.project.addSourceFilesAtPaths([
       "src/**/*.ts",
       "!src/**/*.test.ts",
       "!src/**/*.spec.ts",
-      "!**/*.d.ts"
+      "!**/*.d.ts",
     ]);
 
     const sourceFiles = this.project.getSourceFiles();
@@ -60,7 +60,7 @@ class SafeAsUnknownFixer {
 
   private processFile(sourceFile: any): void {
     const filePath = sourceFile.getFilePath();
-    
+
     sourceFile.forEachDescendant((node: Node) => {
       if (node.getKind() === SyntaxKind.AsExpression) {
         const asExpression = node as AsExpression;
@@ -71,7 +71,7 @@ class SafeAsUnknownFixer {
 
   private tryFixAsExpression(asExpression: AsExpression, filePath: string): void {
     const fullText = asExpression.getText();
-    
+
     // Only handle 'as unknown' patterns
     if (!fullText.includes("as unknown")) {
       return;
@@ -99,7 +99,6 @@ class SafeAsUnknownFixer {
         this.applyVariableAssignmentFix(asExpression, filePath, expressionText);
         return;
       }
-
     } catch (error) {
       console.log(`⚠️  Skipped unsafe transformation in ${filePath}: ${error}`);
     }
@@ -108,70 +107,90 @@ class SafeAsUnknownFixer {
   private isSimpleConfigPropertyAccess(asExpression: AsExpression, fullText: string): boolean {
     // Look for patterns like (config as unknown)!.property or (data as unknown).property
     const parent = asExpression.getParent();
-    
+
     // Check if the parent is a parenthesized expression followed by property access
     if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
       const grandParent = parent.getParent();
       if (grandParent && grandParent.getKind() === SyntaxKind.PropertyAccessExpression) {
         // Safe config patterns
-        return fullText.includes("config as unknown") ||
-               fullText.includes("options as unknown") ||
-               fullText.includes("data as unknown") ||
-               fullText.includes("result as unknown");
+        return (
+          fullText.includes("config as unknown") ||
+          fullText.includes("options as unknown") ||
+          fullText.includes("data as unknown") ||
+          fullText.includes("result as unknown")
+        );
       }
     }
-    
+
     return false;
   }
 
   private isSimpleVariableAssignment(asExpression: AsExpression): boolean {
     const parent = asExpression.getParent();
-    
+
     // Check if this is a simple variable assignment or return statement
-    return parent && (
-      parent.getKind() === SyntaxKind.VariableDeclaration ||
-      parent.getKind() === SyntaxKind.ReturnStatement ||
-      parent.getKind() === SyntaxKind.BinaryExpression
+    return (
+      parent &&
+      (parent.getKind() === SyntaxKind.VariableDeclaration ||
+        parent.getKind() === SyntaxKind.ReturnStatement ||
+        parent.getKind() === SyntaxKind.BinaryExpression)
     );
   }
 
-  private applySimplePropertyAccessFix(asExpression: AsExpression, filePath: string, expressionText: string): void {
+  private applySimplePropertyAccessFix(
+    asExpression: AsExpression,
+    filePath: string,
+    expressionText: string
+  ): void {
     const before = asExpression.getText();
-    
+
     // For simple property access, we can safely remove the cast
     // This transforms (config as unknown)!.title to config.title
     asExpression.replaceWithText(expressionText);
-    
+
     this.recordTransformation(filePath, before, expressionText, "Simple Property Access");
   }
 
-  private applyReturnValueFix(asExpression: AsExpression, filePath: string, expressionText: string): void {
+  private applyReturnValueFix(
+    asExpression: AsExpression,
+    filePath: string,
+    expressionText: string
+  ): void {
     const before = asExpression.getText();
-    
+
     // For return null/undefined, just remove the cast
     asExpression.replaceWithText(expressionText);
-    
+
     this.recordTransformation(filePath, before, expressionText, "Return Value");
   }
 
-  private applyVariableAssignmentFix(asExpression: AsExpression, filePath: string, expressionText: string): void {
+  private applyVariableAssignmentFix(
+    asExpression: AsExpression,
+    filePath: string,
+    expressionText: string
+  ): void {
     const before = asExpression.getText();
-    
+
     // For simple assignments, remove the cast
     asExpression.replaceWithText(expressionText);
-    
+
     this.recordTransformation(filePath, before, expressionText, "Variable Assignment");
   }
 
-  private recordTransformation(filePath: string, before: string, after: string, pattern: string): void {
+  private recordTransformation(
+    filePath: string,
+    before: string,
+    after: string,
+    pattern: string
+  ): void {
     this.transformations.push({
       file: filePath.replace(process.cwd() + "/", ""),
       line: 0, // We could get line numbers but for now this is fine
       before,
       after,
-      pattern
+      pattern,
     });
-    
+
     console.log(`✅ Fixed: ${before} → ${after} (${pattern})`);
   }
 
@@ -179,12 +198,15 @@ class SafeAsUnknownFixer {
     console.log(`\n📊 Safe AST Transformation Report`);
     console.log(`==================================`);
     console.log(`Total transformations: ${this.transformations.length}`);
-    
-    const byPattern = this.transformations.reduce((acc, t) => {
-      acc[t.pattern] = (acc[t.pattern] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
+
+    const byPattern = this.transformations.reduce(
+      (acc, t) => {
+        acc[t.pattern] = (acc[t.pattern] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+
     console.log(`\n🔧 By pattern:`);
     Object.entries(byPattern).forEach(([pattern, count]) => {
       console.log(`  ${pattern}: ${count}`);
@@ -205,4 +227,4 @@ async function main() {
 
 if (import.meta.main) {
   main().catch(console.error);
-} 
+}

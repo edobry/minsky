@@ -36,7 +36,10 @@ export interface CloneDependencies {
 /**
  * Clone a repository and set up a session workspace
  */
-export async function cloneImpl(options: CloneOptions, deps: CloneDependencies): Promise<CloneResult> {
+export async function cloneImpl(
+  options: CloneOptions,
+  deps: CloneDependencies
+): Promise<CloneResult> {
   const session = options.session || deps.generateSessionId();
   const workdir = options.workdir;
 
@@ -128,4 +131,4 @@ export async function cloneImpl(options: CloneOptions, deps: CloneDependencies):
     });
     throw new Error(`Failed to clone git repository: ${getErrorMessage(error as any)}`);
   }
-} 
+}

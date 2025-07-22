@@ -2,7 +2,7 @@
 
 /**
  * Enhanced Safe AST Codemod for Task #280 - Additional High-Priority Patterns
- * 
+ *
  * Targets additional safe transformation patterns:
  * - toString() method calls on data/buffer objects
  * - Object.keys(), Object.values(), Object.entries() patterns
@@ -34,14 +34,14 @@ class EnhancedSafeAsUnknownFixer {
 
   async execute(): Promise<void> {
     console.log("🚀 Starting enhanced safe 'as unknown' fixes...");
-    
+
     // Add source files (excluding tests and generated files)
     this.project.addSourceFilesAtPaths([
       "src/**/*.ts",
       "!src/**/*.test.ts",
       "!src/**/*.spec.ts",
       "!**/*.d.ts",
-      "!**/node_modules/**"
+      "!**/node_modules/**",
     ]);
 
     const sourceFiles = this.project.getSourceFiles();
@@ -61,7 +61,7 @@ class EnhancedSafeAsUnknownFixer {
 
   private processFile(sourceFile: any): void {
     const filePath = sourceFile.getFilePath();
-    
+
     sourceFile.forEachDescendant((node: Node) => {
       if (node.getKind() === SyntaxKind.AsExpression) {
         const asExpression = node as AsExpression;
@@ -72,7 +72,7 @@ class EnhancedSafeAsUnknownFixer {
 
   private tryFixAsExpression(asExpression: AsExpression, filePath: string): void {
     const fullText = asExpression.getText();
-    
+
     // Only handle 'as unknown' patterns
     if (!fullText.includes("as unknown")) {
       return;
@@ -112,7 +112,6 @@ class EnhancedSafeAsUnknownFixer {
         this.applySimpleFix(asExpression, filePath, expressionText, "Known Object Property");
         return;
       }
-
     } catch (error) {
       console.log(`⚠️  Skipped unsafe transformation in ${filePath}: ${error}`);
     }
@@ -139,17 +138,22 @@ class EnhancedSafeAsUnknownFixer {
 
   private isBufferDataOperation(expressionText: string): boolean {
     // Match buffer/data related operations
-    return expressionText.includes("data") || 
-           expressionText.includes("buffer") || 
-           expressionText.includes("Buffer") ||
-           expressionText.includes("stdout") ||
-           expressionText.includes("stderr");
+    return (
+      expressionText.includes("data") ||
+      expressionText.includes("buffer") ||
+      expressionText.includes("Buffer") ||
+      expressionText.includes("stdout") ||
+      expressionText.includes("stderr")
+    );
   }
 
   private isArrayStringOperation(expressionText: string): boolean {
     // Match safe array/string operations
-    return /\.(length|join|split|slice|substring|indexOf|includes|trim|toLowerCase|toUpperCase)$/.test(expressionText) ||
-           /\.(map|filter|find|reduce|forEach|some|every)\(/.test(expressionText);
+    return (
+      /\.(length|join|split|slice|substring|indexOf|includes|trim|toLowerCase|toUpperCase)$/.test(
+        expressionText
+      ) || /\.(map|filter|find|reduce|forEach|some|every)\(/.test(expressionText)
+    );
   }
 
   private isKnownObjectPropertyAccess(asExpression: AsExpression, expressionText: string): boolean {
@@ -159,34 +163,46 @@ class EnhancedSafeAsUnknownFixer {
       const grandParent = parent.getParent();
       if (grandParent && grandParent.getKind() === SyntaxKind.PropertyAccessExpression) {
         // Only process if the expression is a simple identifier or property access
-        return /^[a-zA-Z_$][a-zA-Z0-9_$]*(\.[a-zA-Z_$][a-zA-Z0-9_$]*)*$/.test(expressionText) &&
-               !expressionText.includes("(") && // No function calls
-               !expressionText.includes("[") && // No array access
-               !expressionText.includes("await") && // No async operations
-               !expressionText.includes("import"); // No dynamic imports
+        return (
+          /^[a-zA-Z_$][a-zA-Z0-9_$]*(\.[a-zA-Z_$][a-zA-Z0-9_$]*)*$/.test(expressionText) &&
+          !expressionText.includes("(") && // No function calls
+          !expressionText.includes("[") && // No array access
+          !expressionText.includes("await") && // No async operations
+          !expressionText.includes("import")
+        ); // No dynamic imports
       }
     }
     return false;
   }
 
-  private applySimpleFix(asExpression: AsExpression, filePath: string, expressionText: string, pattern: string): void {
+  private applySimpleFix(
+    asExpression: AsExpression,
+    filePath: string,
+    expressionText: string,
+    pattern: string
+  ): void {
     const before = asExpression.getText();
-    
+
     // Simple replacement - remove the 'as unknown' cast
     asExpression.replaceWithText(expressionText);
-    
+
     this.recordTransformation(filePath, before, expressionText, pattern);
   }
 
-  private recordTransformation(filePath: string, before: string, after: string, pattern: string): void {
+  private recordTransformation(
+    filePath: string,
+    before: string,
+    after: string,
+    pattern: string
+  ): void {
     this.transformations.push({
       file: filePath.replace(process.cwd() + "/", ""),
       line: 0,
       before,
       after,
-      pattern
+      pattern,
     });
-    
+
     console.log(`✅ Fixed: ${before} → ${after} (${pattern})`);
   }
 
@@ -194,12 +210,15 @@ class EnhancedSafeAsUnknownFixer {
     console.log(`\n📊 Enhanced Safe AST Transformation Report`);
     console.log(`==========================================`);
     console.log(`Total transformations: ${this.transformations.length}`);
-    
-    const byPattern = this.transformations.reduce((acc, t) => {
-      acc[t.pattern] = (acc[t.pattern] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
+
+    const byPattern = this.transformations.reduce(
+      (acc, t) => {
+        acc[t.pattern] = (acc[t.pattern] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+
     console.log(`\n🔧 By pattern:`);
     Object.entries(byPattern).forEach(([pattern, count]) => {
       console.log(`  ${pattern}: ${count}`);
@@ -220,4 +239,4 @@ async function main() {
 
 if (import.meta.main) {
   main().catch(console.error);
-} 
+}

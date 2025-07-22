@@ -9,27 +9,15 @@ import { Octokit } from "@octokit/rest";
 import { join } from "path";
 import { execSync } from "child_process";
 import { getErrorMessage } from "../../errors/index";
-import type {
-  TaskData,
-  TaskSpecData,
-  TaskBackendConfig,
-} from "../../types/tasks/taskData";
-import type {
-  TaskReadOperationResult,
-  TaskWriteOperationResult,
-} from "../../types/tasks/taskData";
+import type { TaskData, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData";
+import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
 import { log } from "../../utils/logger";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { validateGitHubIssues, validateGitHubIssue, type GitHubIssue } from "../../schemas/storage";
 
 // Import additional types needed for interface implementation
-import type {
-  Task,
-  TaskListOptions,
-  CreateTaskOptions,
-  DeleteTaskOptions
-} from "../tasks";
+import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "../tasks";
 import { getTaskSpecRelativePath } from "./taskIO";
 
 /**
@@ -492,12 +480,12 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
       }
 
       const taskDataList = this.parseTasks(result.content);
-      return taskDataList.map(taskData => ({
+      return taskDataList.map((taskData) => ({
         id: taskData.id,
         title: taskData.title,
         status: taskData.status,
         specPath: taskData.specPath,
-        description: taskData.description
+        description: taskData.description,
       }));
     } catch (error) {
       log.error("Failed to list tasks", {
@@ -510,7 +498,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   async getTask(id: string): Promise<Task | null> {
     try {
       const tasks = await this.listTasks();
-      return tasks.find(task => task.id === id) || null;
+      return tasks.find((task) => task.id === id) || null;
     } catch (error) {
       log.error("Failed to get task", {
         id,
@@ -631,10 +619,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
 
     const tempDir = os.tmpdir();
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(
-      tempDir,
-      `temp-task-${normalizedTitle}-${Date.now()}.md`
-    );
+    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
 
     try {
       // Write the spec content to the temporary file

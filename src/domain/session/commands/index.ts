@@ -8,4 +8,4 @@ export * from "./list-command";
 export * from "./pr-command";
 export * from "./review-command";
 export * from "./start-command";
-export * from "./update-command"; 
+export * from "./update-command";

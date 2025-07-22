@@ -1,12 +1,12 @@
 /**
  * Enhanced test cleanup utilities for improved test isolation and reliability.
- * 
+ *
  * This module provides comprehensive cleanup capabilities including:
  * - Robust temporary file and directory cleanup
  * - Timeout-based cleanup for hanging operations
  * - Cleanup verification and validation
  * - Centralized cleanup management across test suites
- * 
+ *
  * @module cleanup
  */
 
@@ -56,11 +56,11 @@ export class TestCleanupManager {
    */
   setupAutoCleanup(): void {
     if (this.isSetup) return;
-    
+
     afterEach(async () => {
       await this.performCleanup();
     });
-    
+
     this.isSetup = true;
   }
 
@@ -72,7 +72,7 @@ export class TestCleanupManager {
       path: itemPath,
       type,
       created: Date.now(),
-      description
+      description,
     });
   }
 
@@ -87,12 +87,7 @@ export class TestCleanupManager {
    * Perform comprehensive cleanup with timeout and verification
    */
   async performCleanup(options: CleanupOptions = {}): Promise<void> {
-    const {
-      timeout = 5000,
-      verify = true,
-      continueOnError = true,
-      maxRetries = 3
-    } = options;
+    const { timeout = 5000, verify = true, continueOnError = true, maxRetries = 3 } = options;
 
     const startTime = Date.now();
     const errors: string[] = [];
@@ -102,9 +97,9 @@ export class TestCleanupManager {
       try {
         await Promise.race([
           Promise.resolve(cleanupFn()),
-          new Promise((_, reject) => 
+          new Promise((_, reject) =>
             setTimeout(() => reject(new Error("Cleanup function timeout")), timeout)
-          )
+          ),
         ]);
       } catch (error) {
         const errorMsg = `Custom cleanup function failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -127,13 +122,13 @@ export class TestCleanupManager {
           retries++;
           const errorMsg = `Failed to cleanup ${item.path} (attempt ${retries}/${maxRetries}): ${error instanceof Error ? error.message : String(error)}`;
           log.warn(errorMsg);
-          
+
           if (retries >= maxRetries) {
             errors.push(errorMsg);
             if (!continueOnError) break;
           } else {
             // Wait before retry
-            await new Promise(resolve => setTimeout(resolve, 100 * retries));
+            await new Promise((resolve) => setTimeout(resolve, 100 * retries));
           }
         }
       }
@@ -165,9 +160,9 @@ export class TestCleanupManager {
   private async cleanupItem(item: CleanupItem, options: { timeout: number }): Promise<void> {
     return Promise.race([
       this.performItemCleanup(item),
-      new Promise<never>((_, reject) => 
+      new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error(`Cleanup timeout for ${item.path}`)), options.timeout)
-      )
+      ),
     ]);
   }
 
@@ -188,8 +183,8 @@ export class TestCleanupManager {
       }
     } catch (error) {
       // Some systems may need additional time for file handles to close
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
       // Retry once more
       try {
         if (item.type === "directory") {
@@ -198,7 +193,9 @@ export class TestCleanupManager {
           fs.unlinkSync(item.path);
         }
       } catch (retryError) {
-        throw new Error(`Failed to cleanup ${item.path}: ${retryError instanceof Error ? retryError.message : String(retryError)}`);
+        throw new Error(
+          `Failed to cleanup ${item.path}: ${retryError instanceof Error ? retryError.message : String(retryError)}`
+        );
       }
     }
   }
@@ -208,7 +205,7 @@ export class TestCleanupManager {
    */
   private async verifyCleanup(): Promise<string[]> {
     const errors: string[] = [];
-    
+
     for (const item of this.cleanupItems) {
       if (fs.existsSync(item.path)) {
         errors.push(`Cleanup verification failed: ${item.path} still exists`);
@@ -221,16 +218,17 @@ export class TestCleanupManager {
   /**
    * Get statistics about current cleanup items
    */
-  getCleanupStats(): { itemCount: number, functionCount: number, oldestItem?: number } {
+  getCleanupStats(): { itemCount: number; functionCount: number; oldestItem?: number } {
     const now = Date.now();
-    const oldestItem = this.cleanupItems.length > 0 
-      ? Math.min(...this.cleanupItems.map(item => item.created))
-      : undefined;
+    const oldestItem =
+      this.cleanupItems.length > 0
+        ? Math.min(...this.cleanupItems.map((item) => item.created))
+        : undefined;
 
     return {
       itemCount: this.cleanupItems.length,
       functionCount: this.cleanupFunctions.length,
-      oldestItem: oldestItem ? now - oldestItem : undefined
+      oldestItem: oldestItem ? now - oldestItem : undefined,
     };
   }
 
@@ -242,7 +240,7 @@ export class TestCleanupManager {
       timeout: 1000,
       verify: false,
       continueOnError: true,
-      maxRetries: 1
+      maxRetries: 1,
     });
   }
 }
@@ -252,27 +250,35 @@ export class TestCleanupManager {
  */
 export function createCleanTempDir(prefix = "test-", description?: string): string {
   const tempDir = fs.mkdtempSync(path.join(require("os").tmpdir(), prefix));
-  
+
   // Register for automatic cleanup
   const manager = TestCleanupManager.getInstance();
   manager.registerForCleanup(tempDir, "directory", description);
-  
+
   return tempDir;
 }
 
 /**
  * Enhanced temporary file creation with automatic cleanup registration
  */
-export function createCleanTempFile(prefix = "test-", suffix = ".tmp", content = "", description?: string): string {
+export function createCleanTempFile(
+  prefix = "test-",
+  suffix = ".tmp",
+  content = "",
+  description?: string
+): string {
   const tempDir = require("os").tmpdir();
-  const tempFile = path.join(tempDir, prefix + Date.now() + Math.random().toString(36).substring(7) + suffix);
-  
+  const tempFile = path.join(
+    tempDir,
+    prefix + Date.now() + Math.random().toString(36).substring(7) + suffix
+  );
+
   fs.writeFileSync(tempFile, content);
-  
+
   // Register for automatic cleanup
   const manager = TestCleanupManager.getInstance();
   manager.registerForCleanup(tempFile, "file", description);
-  
+
   return tempFile;
 }
 
@@ -289,24 +295,20 @@ export function setupTestCleanup(): TestCleanupManager {
  * Utility function to clean up leftover test files from previous runs
  */
 export async function cleanupLeftoverTestFiles(basePaths: string[] = []): Promise<void> {
-  const defaultPaths = [
-    path.join(process.cwd(), "test-tmp"),
-    "/tmp",
-    require("os").tmpdir()
-  ];
-  
+  const defaultPaths = [path.join(process.cwd(), "test-tmp"), "/tmp", require("os").tmpdir()];
+
   const pathsToClean = [...defaultPaths, ...basePaths];
-  
+
   for (const basePath of pathsToClean) {
     if (!fs.existsSync(basePath)) continue;
-    
+
     try {
       const items = fs.readdirSync(basePath);
       for (const item of items) {
         if (item.includes("test-") || item.includes("minsky-test-")) {
           const fullPath = path.join(basePath, item);
           const stats = fs.statSync(fullPath);
-          
+
           // Clean up items older than 1 hour
           if (Date.now() - stats.mtime.getTime() > 60 * 60 * 1000) {
             try {
@@ -319,16 +321,20 @@ export async function cleanupLeftoverTestFiles(basePaths: string[] = []): Promis
                 log.debug(`Cleaned up leftover test item: ${fullPath}`);
               }
             } catch (error) {
-              log.warn(`Failed to cleanup leftover test item ${fullPath}: ${error instanceof Error ? error.message : String(error)}`);
+              log.warn(
+                `Failed to cleanup leftover test item ${fullPath}: ${error instanceof Error ? error.message : String(error)}`
+              );
             }
           }
         }
       }
     } catch (error) {
-      log.warn(`Failed to scan directory ${basePath} for leftover test files: ${error instanceof Error ? error.message : String(error)}`);
+      log.warn(
+        `Failed to scan directory ${basePath} for leftover test files: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 }
 
 // Global instance for easy access
-export const cleanupManager = TestCleanupManager.getInstance(); 
+export const cleanupManager = TestCleanupManager.getInstance();

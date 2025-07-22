@@ -21,7 +21,9 @@ export interface SessionDbFileOptions {
 /**
  * Read sessions from the database file
  */
-export function readSessionDbFile(options: SessionDbFileOptions | undefined | null = {}): SessionDbState {
+export function readSessionDbFile(
+  options: SessionDbFileOptions | undefined | null = {}
+): SessionDbState {
   const safeOptions = options || {};
   const stateDir = getMinskyStateDir();
   const dbPath = safeOptions.dbPath || getDefaultJsonDbPath();
@@ -31,7 +33,7 @@ export function readSessionDbFile(options: SessionDbFileOptions | undefined | nu
     if (!existsSync(dbPath)) {
       return {
         sessions: [],
-        baseDir: baseDir
+        baseDir: baseDir,
       };
     }
 
@@ -40,13 +42,13 @@ export function readSessionDbFile(options: SessionDbFileOptions | undefined | nu
 
     return {
       sessions: sessions,
-      baseDir: baseDir
+      baseDir: baseDir,
     };
   } catch (error) {
     log.error(`Error reading session database: ${getErrorMessage(error as any)}`);
     return {
       sessions: [],
-      baseDir: baseDir
+      baseDir: baseDir,
     };
   }
 }

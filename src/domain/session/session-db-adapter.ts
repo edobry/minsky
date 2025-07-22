@@ -10,13 +10,17 @@ import type { SessionProviderInterface, SessionRecord } from "../session";
 
 // Re-export the interface for use in extracted modules
 export type { SessionProviderInterface };
-import { createStorageBackendWithIntegrity, type StorageConfig, type StorageResult } from "../storage/storage-backend-factory";
+import {
+  createStorageBackendWithIntegrity,
+  type StorageConfig,
+  type StorageResult,
+} from "../storage/storage-backend-factory";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
-import { 
-  normalizeTaskIdForStorage, 
+import {
+  normalizeTaskIdForStorage,
   formatTaskIdForDisplay,
-  isValidTaskIdInput 
+  isValidTaskIdInput,
 } from "../tasks/task-id-utils";
 import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
@@ -38,7 +42,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     if (!this.storage) {
       // Use node-config to get sessiondb configuration, with fallback to defaults
       let sessionDbConfig: any;
-      
+
       try {
         // Get configuration using the custom configuration system
         const config = getConfiguration();
@@ -80,7 +84,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
         };
       } else if (storageConfig.backend === "json") {
         storageConfig.json = {
-          filePath: sessionDbConfig.filePath ? this.expandPath(sessionDbConfig.filePath) : undefined,
+          filePath: sessionDbConfig.filePath
+            ? this.expandPath(sessionDbConfig.filePath)
+            : undefined,
         };
       }
 
@@ -118,7 +124,6 @@ export class SessionDbAdapter implements SessionProviderInterface {
         if (result.autoMigrationPerformed) {
           log.info("Database auto-migration was performed during initialization");
         }
-
       } catch (error) {
         log.error("Failed to create storage backend with integrity checking", {
           error: getErrorMessage(error as any),
@@ -156,7 +161,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     // Log sessions and task IDs for debugging
     log.debug("Searching for session by task ID", {
       taskId,
-      availableSessions: sessions.map(s => ({ session: s.session, taskId: s.taskId }))
+      availableSessions: sessions.map((s) => ({ session: s.session, taskId: s.taskId })),
     });
 
     // TASK 283: Normalize input task ID to storage format for comparison
@@ -169,29 +174,30 @@ export class SessionDbAdapter implements SessionProviderInterface {
     log.debug("Normalized task ID for lookup", { original: taskId, normalized: normalizedTaskId });
 
     // Find session where stored task ID matches normalized input
-    const matchingSession = sessions.find((s) => {
-      if (!s.taskId) return false;
-      // Normalize the stored task ID for comparison
-      const storedNormalized = normalizeTaskIdForStorage(s.taskId);
-      log.debug("Comparing task IDs", {
-        session: s.session,
-        sessionTaskId: s.taskId,
-        storedNormalized,
-        lookingFor: normalizedTaskId,
-        matches: storedNormalized === normalizedTaskId
-      });
-      return storedNormalized === normalizedTaskId;
-    }) || null;
+    const matchingSession =
+      sessions.find((s) => {
+        if (!s.taskId) return false;
+        // Normalize the stored task ID for comparison
+        const storedNormalized = normalizeTaskIdForStorage(s.taskId);
+        log.debug("Comparing task IDs", {
+          session: s.session,
+          sessionTaskId: s.taskId,
+          storedNormalized,
+          lookingFor: normalizedTaskId,
+          matches: storedNormalized === normalizedTaskId,
+        });
+        return storedNormalized === normalizedTaskId;
+      }) || null;
 
     if (matchingSession) {
-      log.debug("Found matching session", { 
-        session: matchingSession.session, 
-        taskId: matchingSession.taskId 
+      log.debug("Found matching session", {
+        session: matchingSession.session,
+        taskId: matchingSession.taskId,
       });
     } else {
-      log.debug("No matching session found", { 
-        taskId, 
-        normalizedTaskId 
+      log.debug("No matching session found", {
+        taskId,
+        normalizedTaskId,
       });
     }
 
@@ -240,15 +246,15 @@ export class SessionDbAdapter implements SessionProviderInterface {
     return initializeSessionDbState();
   }
 
-  async getStorageInfo(): Promise<{ 
-    backend: string; 
-    location: string; 
+  async getStorageInfo(): Promise<{
+    backend: string;
+    location: string;
     integrityEnabled: boolean;
     warnings: string[];
   }> {
     const storage = await this.getStorage();
     const location = storage.getStorageLocation();
-    
+
     return {
       backend: storage.constructor.name,
       location: location,

@@ -3,12 +3,14 @@
 ## Problem Statement
 
 Currently, Minsky has no way to persist information about repositories it interacts with. Each operation that requires repository information must:
+
 - Parse the full repository URL
 - Fetch configurations directly from remotes
 - Lacks a simple naming mechanism for referencing known repositories
 - Cannot work offline without direct access to the repository
 
 This creates several limitations:
+
 1. Users working with multiple repositories must specify full URLs each time
 2. Operations fail when offline or when connectivity to remotes is limited
 3. No persistent caching of repository configurations
@@ -17,6 +19,7 @@ This creates several limitations:
 ## Proposed Solution
 
 Implement a "Repository Registry" system that:
+
 1. Maintains a local database of repositories Minsky has interacted with
 2. Caches repository configurations, project settings, and metadata locally
 3. Allows referencing repositories by simple names/aliases
@@ -28,6 +31,7 @@ Implement a "Repository Registry" system that:
 ### Data Model
 
 The repository registry should track:
+
 - Repository URL (origin)
 - Repository name/alias (user-defined friendly name)
 - Local cached configuration
@@ -39,17 +43,20 @@ The repository registry should track:
 ### Core Functionality
 
 1. **Registration Commands**:
+
    - `minsky repo register <url> [--name <name>]` - Register a new repository
    - `minsky repo list` - List all registered repositories
    - `minsky repo info <name|url>` - Show details about a registered repository
    - `minsky repo forget <name|url>` - Remove a repository from registry
 
 2. **Naming System**:
+
    - Allow custom naming/aliasing of repositories
    - Support referencing by name in all commands that accept repositories
    - Auto-generate names based on repo URLs when not specified
 
 3. **Configuration Caching**:
+
    - Cache project configuration locally
    - Implement version tracking for cached configs
    - Support manually refreshing cached data
@@ -63,6 +70,7 @@ The repository registry should track:
 ### Storage Design
 
 1. **Storage Options**:
+
    - Leverage existing SessionDB backends (JSON, SQLite, PostgreSQL)
    - Implement proper schema for repository data
    - Add migration path for existing data
@@ -74,14 +82,17 @@ The repository registry should track:
 ## Technical Challenges
 
 1. **Cache Invalidation**:
+
    - Determine when cached data needs refreshing
    - Balance between freshness and performance
 
 2. **Offline Support**:
+
    - Clearly communicate when working with potentially stale data
    - Handle conflicts when reconnecting to network
 
 3. **Authentication**:
+
    - Securely store and retrieve auth credentials
    - Support different auth methods (SSH keys, tokens, etc.)
 
@@ -91,10 +102,12 @@ The repository registry should track:
 ## Integration Points
 
 1. **Session Management**:
+
    - Update session creation to leverage registry data
    - Allow sessions to specify repos by name
 
 2. **Task System**:
+
    - Enable tasks to reference repos by name
    - Cache task-specific configuration
 

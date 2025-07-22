@@ -120,11 +120,7 @@ export function expectToHaveProperty(object: unknown, propertyPath: string, valu
  * @param expected The expected value
  * @param precision The number of decimal places to check (default: 2)
  */
-export function expectToBeCloseTo(
-  received: number,
-  expected: number,
-  precision: number = 2
-): void {
+export function expectToBeCloseTo(received: number, expected: number, precision: number = 2): void {
   const factor = Math.pow(10, precision);
   const receivedRounded = Math.round(received * factor);
   const expectedRounded = Math.round(expected * factor);

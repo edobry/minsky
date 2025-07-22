@@ -115,7 +115,10 @@ export function safeCast<T>(value: unknown, guard: (value: unknown) => value is 
  * Instead of: (someValue as unknown)!
  * Use: assertDefined(someValue)
  */
-export function assertDefined<T>(value: T | null | undefined, message?: string): asserts value is T {
+export function assertDefined<T>(
+  value: T | null | undefined,
+  message?: string
+): asserts value is T {
   if (value === null || value === undefined) {
     throw new Error(message || "Value is null or undefined");
   }
@@ -177,7 +180,7 @@ export const _EnvUtils = {
       throw new Error(`Required environment variable ${key} is not set`);
     }
     return value;
-  }
+  },
 };
 
 /**
@@ -208,7 +211,7 @@ export const _JsonUtils = {
     } catch {
       return defaultValue;
     }
-  }
+  },
 };
 
 /**
@@ -243,9 +246,13 @@ export const _ServiceUtils = {
    * Check if a service has a method
    */
   hasMethod<T, K extends keyof T>(service: T, method: K): boolean {
-    return service && typeof service === "object" && method in service &&
-           typeof service[method] === "function";
-  }
+    return (
+      service &&
+      typeof service === "object" &&
+      method in service &&
+      typeof service[method] === "function"
+    );
+  },
 };
 
 /**
@@ -261,7 +268,7 @@ export const _ConfigUtils = {
   get<T>(config: unknown, key: string, defaultValue?: T): T | undefined {
     if (isObject(config) && key in config) {
       const value = config[key];
-      return value !== undefined ? value as T : defaultValue;
+      return value !== undefined ? (value as T) : defaultValue;
     }
     return defaultValue;
   },
@@ -277,7 +284,7 @@ export const _ConfigUtils = {
       }
     }
     return result;
-  }
+  },
 };
 
 /**
@@ -312,5 +319,5 @@ export const _ArrayUtils = {
    */
   safeLength(value: unknown): number {
     return isArray(value) ? value.length : 0;
-  }
+  },
 };

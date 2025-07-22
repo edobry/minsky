@@ -50,4 +50,4 @@ This checks if `result` is truthy before calling `.toString()` on it.
 
 - All package manager tests pass (17/17)
 - Manual testing with `minsky session start --description "test" --quiet` works without error
-- Session creation completes successfully without the dependency installation error 
+- Session creation completes successfully without the dependency installation error

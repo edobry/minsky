@@ -37,14 +37,14 @@ class TargetedAsUnknownFixer {
         description: "Remove 'as unknown' from return null statements",
         pattern: /return null as unknown;/g,
         replacement: "return null;",
-        riskLevel: "low"
+        riskLevel: "low",
       },
       {
         name: "Return undefined as unknown",
         description: "Remove 'as unknown' from return undefined statements",
         pattern: /return undefined as unknown;/g,
         replacement: "return undefined;",
-        riskLevel: "low"
+        riskLevel: "low",
       },
 
       // CRITICAL: Simple variable assignments
@@ -53,14 +53,14 @@ class TargetedAsUnknownFixer {
         description: "Remove 'as unknown' from null variable assignments",
         pattern: /= null as unknown;/g,
         replacement: "= null;",
-        riskLevel: "low"
+        riskLevel: "low",
       },
       {
         name: "Undefined assignment",
         description: "Remove 'as unknown' from undefined variable assignments",
         pattern: /= undefined as unknown;/g,
         replacement: "= undefined;",
-        riskLevel: "low"
+        riskLevel: "low",
       },
 
       // LOW: Object.keys/values/entries (very safe)
@@ -69,22 +69,22 @@ class TargetedAsUnknownFixer {
         description: "Remove 'as unknown' from Object.keys calls",
         pattern: /Object\.keys\(([^)]+) as unknown\)/g,
         replacement: "Object.keys($1)",
-        riskLevel: "low"
+        riskLevel: "low",
       },
       {
         name: "Object.values",
         description: "Remove 'as unknown' from Object.values calls",
         pattern: /Object\.values\(([^)]+) as unknown\)/g,
         replacement: "Object.values($1)",
-        riskLevel: "low"
+        riskLevel: "low",
       },
       {
         name: "Object.entries",
         description: "Remove 'as unknown' from Object.entries calls",
         pattern: /Object\.entries\(([^)]+) as unknown\)/g,
         replacement: "Object.entries($1)",
-        riskLevel: "low"
-      }
+        riskLevel: "low",
+      },
     ];
   }
 
@@ -93,7 +93,7 @@ class TargetedAsUnknownFixer {
 
     // Get all TypeScript files
     const files = await glob("src/**/*.ts", {
-      ignore: ["**/*.d.ts", "**/*.test.ts", "**/node_modules/**"]
+      ignore: ["**/*.d.ts", "**/*.test.ts", "**/node_modules/**"],
     });
 
     console.log(`📁 Found ${files.length} files to process`);
@@ -139,7 +139,6 @@ class TargetedAsUnknownFixer {
         console.log(`  ✅ ${filePath}: Fixed ${fileFixCount} assertions`);
         this.fixedCount += fileFixCount;
       }
-
     } catch (error) {
       this.errors.push(`Error processing ${filePath}: ${error}`);
       console.error(`  ❌ Error processing ${filePath}:`, error);
@@ -157,11 +156,11 @@ class TargetedAsUnknownFixer {
 
     if (this.errors.length > 0) {
       console.log("\n🚨 Errors:");
-      this.errors.forEach(error => console.log(`  - ${error}`));
+      this.errors.forEach((error) => console.log(`  - ${error}`));
     }
 
     console.log("\n📋 Pattern breakdown:");
-    this.safePatterns.forEach(pattern => {
+    this.safePatterns.forEach((pattern) => {
       console.log(`  - ${pattern.name}: ${pattern.riskLevel} risk`);
     });
   }

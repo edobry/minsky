@@ -1,6 +1,6 @@
-import { 
-  ResourceNotFoundError, 
-  ValidationError 
+import {
+  ResourceNotFoundError,
+  ValidationError,
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/errors/index";
 import { taskIdSchema } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/common";
 import type {
@@ -11,7 +11,10 @@ import type {
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/session";
 import { resolveSessionContextWithFeedback } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session/session-context-resolver";
 import { getCurrentSessionContext } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/workspace";
-import type { SessionProviderInterface, Session } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
+import type {
+  SessionProviderInterface,
+  Session,
+} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
 
 /**
  * Gets session details based on parameters
@@ -172,4 +175,4 @@ export async function inspectSessionImpl(
   const session = await deps.sessionDB.getSession(context.sessionId);
 
   return session;
-} 
+}

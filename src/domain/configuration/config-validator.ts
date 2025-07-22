@@ -45,8 +45,8 @@ export class DefaultConfigValidator implements ConfigValidator {
       this.validateGitHub(),
     ];
 
-    const allErrors = results.flatMap(r => r.errors);
-    const allWarnings = results.flatMap(r => r.warnings);
+    const allErrors = results.flatMap((r) => r.errors);
+    const allWarnings = results.flatMap((r) => r.warnings);
 
     return {
       valid: allErrors.length === 0,
@@ -195,7 +195,10 @@ export class DefaultConfigValidator implements ConfigValidator {
       // Validate provider configurations
       if (ai?.providers) {
         for (const [providerName, providerConfig] of Object.entries(ai.providers)) {
-          const validationResult = this.validateAIProviderConfig(providerName, providerConfig as any);
+          const validationResult = this.validateAIProviderConfig(
+            providerName,
+            providerConfig as any
+          );
           errors.push(...validationResult.errors);
           warnings.push(...validationResult.warnings);
         }
@@ -272,12 +275,16 @@ export class DefaultConfigValidator implements ConfigValidator {
   private validateAIProviderConfig(
     providerName: string,
     providerConfig: any
-  ): { errors: ValidationError[], warnings: ValidationWarning[] } {
+  ): { errors: ValidationError[]; warnings: ValidationWarning[] } {
     const errors: ValidationError[] = [];
     const warnings: ValidationWarning[] = [];
     // Validate temperature
     if (providerConfig.temperature !== undefined) {
-      if (typeof providerConfig.temperature !== "number" || providerConfig.temperature < 0 || providerConfig.temperature > 2) {
+      if (
+        typeof providerConfig.temperature !== "number" ||
+        providerConfig.temperature < 0 ||
+        providerConfig.temperature > 2
+      ) {
         errors.push({
           field: `ai.providers.${providerName}.temperature`,
           message: "Temperature must be a number between 0 and 2",
@@ -323,4 +330,4 @@ export class DefaultConfigValidator implements ConfigValidator {
 }
 
 // Export singleton instance
-export const configValidator = new DefaultConfigValidator(); 
+export const configValidator = new DefaultConfigValidator();

@@ -1,16 +1,15 @@
 import { test, describe, beforeEach, mock } from "bun:test";
 
 describe("Session Approve", () => {
-
   // Mock log functions used by session approve operations
   const log = {
     cli: mock(() => {}),
     info: mock(() => {}),
     debug: mock(() => {}),
     error: mock(() => {}),
-    warn: mock(() => {})
+    warn: mock(() => {}),
   };
-              
+
   beforeEach(() => {
     // Clear all mocks before each test
     log.cli.mockClear();
@@ -24,4 +23,3 @@ describe("Session Approve", () => {
     // test that uses approveSession function
   });
 });
-      

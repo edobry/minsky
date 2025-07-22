@@ -5,9 +5,7 @@ import {
 } from "../../../../adapters/shared/command-registry";
 import { branchFromParams } from "../branch-command";
 import { log } from "../../../../utils/logger";
-import {
-  SESSION_DESCRIPTION,
-} from "../../../../utils/option-descriptions";
+import { SESSION_DESCRIPTION } from "../../../../utils/option-descriptions";
 
 /**
  * Parameters for the branch command
@@ -41,7 +39,9 @@ export const branchCommandParams: CommandParameterMap = {
  * Execute the branch command
  */
 export async function executeBranchCommand(
-  parameters: { [K in keyof typeof branchCommandParams]: z.infer<typeof branchCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof branchCommandParams]: z.infer<(typeof branchCommandParams)[K]["schema"]>;
+  },
   context: CommandExecutionContext
 ): Promise<{ workdir: string; branch: string }> {
   const { session, name } = parameters;
@@ -56,4 +56,4 @@ export async function executeBranchCommand(
   }
 
   return result;
-} 
+}

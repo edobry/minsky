@@ -12,7 +12,7 @@ describe("commitTaskChanges", () => {
     workspacePath: "/test/workspace",
     message: "test commit message",
     repoUrl: "https://github.com/test/repo.git",
-    backend: "markdown" as const
+    backend: "markdown" as const,
   };
 
   describe("Function Interface", () => {
@@ -40,7 +40,7 @@ describe("commitTaskChanges", () => {
       const options = {
         workspacePath: "/test/workspace",
         message: "test commit",
-        repoUrl: "https://github.com/test/repo.git"
+        repoUrl: "https://github.com/test/repo.git",
         // backend is undefined
       };
 
@@ -56,7 +56,7 @@ describe("commitTaskChanges", () => {
       const specialPaths = [
         "/Users/test/.local/state/minsky/task-operations",
         "/home/user/.local/state/minsky/task-operations",
-        "~/.local/state/minsky/task-operations"
+        "~/.local/state/minsky/task-operations",
       ];
 
       for (const workspacePath of specialPaths) {
@@ -72,7 +72,7 @@ describe("commitTaskChanges", () => {
       const regularPaths = [
         "/regular/project/workspace",
         "/Users/test/projects/minsky",
-        "/home/user/projects/workspace"
+        "/home/user/projects/workspace",
       ];
 
       for (const workspacePath of regularPaths) {
@@ -90,7 +90,7 @@ describe("commitTaskChanges", () => {
       const invalidOptions = {
         workspacePath: "",
         message: "",
-        repoUrl: ""
+        repoUrl: "",
       };
 
       // Should not throw during initial call
@@ -134,7 +134,7 @@ describe("commitTaskChanges", () => {
       const requiredParams = {
         workspacePath: "/test/workspace",
         message: "test message",
-        repoUrl: "https://github.com/test/repo.git"
+        repoUrl: "https://github.com/test/repo.git",
       };
 
       // Should not throw with minimal required parameters
@@ -146,7 +146,7 @@ describe("commitTaskChanges", () => {
     test("should accept optional backend parameter", () => {
       const withBackend = {
         ...defaultOptions,
-        backend: "markdown" as const
+        backend: "markdown" as const,
       };
 
       // Should not throw with backend parameter

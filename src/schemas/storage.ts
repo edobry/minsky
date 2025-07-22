@@ -9,13 +9,15 @@ import { taskStatusSchema } from "./tasks";
  * Schema for task state stored in JSON files
  */
 export const taskStateSchema = z.object({
-  tasks: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-    status: taskStatusSchema,
-    specPath: z.string().optional(),
-    description: z.string().optional(),
-  })),
+  tasks: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      status: taskStatusSchema,
+      specPath: z.string().optional(),
+      description: z.string().optional(),
+    })
+  ),
   lastUpdated: z.string(),
   metadata: z.object({
     storageLocation: z.string(),
@@ -71,30 +73,36 @@ export const githubIssueSchema = z.object({
   title: z.string(),
   body: z.string().nullable(),
   state: z.enum(["open", "closed"]),
-  labels: z.array(z.object({
-    name: z.string(),
-    color: z.string(),
-  })),
+  labels: z.array(
+    z.object({
+      name: z.string(),
+      color: z.string(),
+    })
+  ),
   created_at: z.string(),
   updated_at: z.string(),
-  assignees: z.array(z.object({
-    login: z.string(),
-  })),
+  assignees: z.array(
+    z.object({
+      login: z.string(),
+    })
+  ),
 });
 
 /**
  * Schema for session database state
  */
 export const sessionDbStateSchema = z.object({
-  sessions: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    repoUrl: z.string(),
-    repoPath: z.string().optional(),
-    createdAt: z.string(),
-    taskId: z.string().optional(),
-    branch: z.string().optional(),
-  })),
+  sessions: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      repoUrl: z.string(),
+      repoPath: z.string().optional(),
+      createdAt: z.string(),
+      taskId: z.string().optional(),
+      branch: z.string().optional(),
+    })
+  ),
   lastUpdated: z.string(),
 });
 
@@ -138,4 +146,4 @@ export function validateGitHubIssues(data: unknown): GitHubIssue[] {
 
 export function validateSessionDbState(data: unknown): SessionDbState {
   return sessionDbStateSchema.parse(data);
-} 
+}

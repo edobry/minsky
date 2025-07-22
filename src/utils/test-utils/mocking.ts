@@ -340,7 +340,9 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
   });
   const mockFs = {
     // Sync methods
-    existsSync: createMock((path: unknown) => files.has(String(path)) || directories.has(String(path))),
+    existsSync: createMock(
+      (path: unknown) => files.has(String(path)) || directories.has(String(path))
+    ),
     readFileSync: createMock((path: unknown) => {
       if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);

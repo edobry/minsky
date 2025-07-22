@@ -8,7 +8,10 @@ import { log } from "../../utils/logger";
 /**
  * Validates PR title and body to prevent duplication patterns
  */
-export function validatePrContent(title: string, body?: string): {
+export function validatePrContent(
+  title: string,
+  body?: string
+): {
   isValid: boolean;
   errors: string[];
   sanitizedBody?: string;
@@ -53,8 +56,7 @@ export function isDuplicateContent(content1: string, content2: string): boolean 
   if (!content1 || !content2) return false;
 
   // Normalize both strings for comparison
-  const normalize = (str: string) => 
-    str.trim().toLowerCase().replace(/\s+/g, " ");
+  const normalize = (str: string) => str.trim().toLowerCase().replace(/\s+/g, " ");
 
   return normalize(content1) === normalize(content2);
 }
@@ -70,7 +72,7 @@ export function sanitizePrBody(title: string, body: string): string {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
+
     // Skip lines that duplicate the title (handle undefined case)
     if (line && isDuplicateContent(line, title)) {
       log.debug("Skipping duplicate title line in PR body", {
@@ -90,7 +92,10 @@ export function sanitizePrBody(title: string, body: string): string {
 /**
  * Comprehensive PR content validation and sanitization
  */
-export function preparePrContent(title?: string, body?: string): {
+export function preparePrContent(
+  title?: string,
+  body?: string
+): {
   title: string;
   body: string;
   warnings: string[];
@@ -107,7 +112,7 @@ export function preparePrContent(title?: string, body?: string): {
   if (sanitizedBody.trim()) {
     const originalBodyLength = sanitizedBody.length;
     sanitizedBody = sanitizePrBody(title, sanitizedBody);
-    
+
     if (sanitizedBody.length !== originalBodyLength) {
       warnings.push("Removed duplicate title content from PR body");
     }
@@ -118,4 +123,4 @@ export function preparePrContent(title?: string, body?: string): {
     body: sanitizedBody,
     warnings,
   };
-} 
+}

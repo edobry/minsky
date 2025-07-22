@@ -1,12 +1,12 @@
 /**
  * Test isolation utilities for preventing cross-test contamination.
- * 
+ *
  * This module provides utilities for:
  * - Creating isolated test environments
  * - Generating unique test data sets
  * - Managing test-specific workspace creation
  * - Ensuring database isolation for integration tests
- * 
+ *
  * @module test-isolation
  */
 
@@ -46,17 +46,16 @@ export class TestDataFactory {
     specPath: string;
     metadata?: any;
   } {
-    const {
-      prefix = "test-task",
-      uniqueId = true,
-      includeMetadata = true
-    } = options;
+    const { prefix = "test-task", uniqueId = true, includeMetadata = true } = options;
 
     // Generate numeric task ID in expected format (#001, #002, etc.)
-    const numericId = uniqueId 
-      ? String(TestDataFactory?.instanceCount + Math.floor(Math.random() * 900) + 100).padStart(3, "0")
+    const numericId = uniqueId
+      ? String(TestDataFactory?.instanceCount + Math.floor(Math.random() * 900) + 100).padStart(
+          3,
+          "0"
+        )
       : String(TestDataFactory.instanceCount).padStart(3, "0");
-    
+
     const taskId = `#${numericId}`;
     const title = `${prefix.charAt(0).toUpperCase() + prefix.slice(1)} Task`;
 
@@ -65,10 +64,10 @@ export class TestDataFactory {
       title: title,
       description: `Test description for ${taskId}`,
       status: "TODO",
-      specPath: `process/tasks/${numericId}-${prefix.replace(/[^a-z0-9]+/g, "-").toLowerCase()}.md`
+      specPath: `process/tasks/${numericId}-${prefix.replace(/[^a-z0-9]+/g, "-").toLowerCase()}.md`,
     };
 
-    return includeMetadata 
+    return includeMetadata
       ? { ...data, metadata: { created: new Date().toISOString(), testId: this.instanceId } }
       : data;
   }
@@ -76,7 +75,10 @@ export class TestDataFactory {
   /**
    * Create multiple unique tasks
    */
-  createMultipleTaskData(count: number, options: TestDataFactoryOptions = {}): Array<{
+  createMultipleTaskData(
+    count: number,
+    options: TestDataFactoryOptions = {}
+  ): Array<{
     id: string;
     title: string;
     description: string;
@@ -93,7 +95,7 @@ export class TestDataFactory {
   getInstanceInfo(): { instanceId: string; createdCount: number } {
     return {
       instanceId: this.instanceId,
-      createdCount: TestDataFactory.instanceCount
+      createdCount: TestDataFactory.instanceCount,
     };
   }
 }
@@ -107,7 +109,10 @@ export class DatabaseIsolation {
   /**
    * Create an isolated database for testing
    */
-  static async createIsolatedDatabase(name: string, initialData: any = {}): Promise<{
+  static async createIsolatedDatabase(
+    name: string,
+    initialData: any = {}
+  ): Promise<{
     dbPath: string;
     dbId: string;
     cleanup: () => Promise<void>;
@@ -123,9 +128,9 @@ export class DatabaseIsolation {
       metadata: {
         dbId,
         created: new Date().toISOString(),
-        testDatabase: true
+        testDatabase: true,
       },
-      ...initialData
+      ...initialData,
     };
 
     await fs.promises.writeFile(dbPath, JSON.stringify(dbContent, null, 2));
@@ -141,14 +146,16 @@ export class DatabaseIsolation {
         }
         DatabaseIsolation.activeDatabases.delete(dbId);
       } catch (error) {
-        log.warn(`Failed to cleanup database ${dbId}: ${error instanceof Error ? error?.message : String(error as Error)}`);
+        log.warn(
+          `Failed to cleanup database ${dbId}: ${error instanceof Error ? error?.message : String(error as Error)}`
+        );
       }
     };
 
     return {
       dbPath,
       dbId,
-      cleanup
+      cleanup,
     };
   }
 
@@ -163,12 +170,13 @@ export class DatabaseIsolation {
    * Cleanup all test databases
    */
   static async cleanupAllDatabases(): Promise<void> {
-    const cleanupPromises = Array.from(DatabaseIsolation.activeDatabases.values())
-      .map(async (dbPath) => {
+    const cleanupPromises = Array.from(DatabaseIsolation.activeDatabases.values()).map(
+      async (dbPath) => {
         if (fs.existsSync(dbPath)) {
           fs.unlinkSync(dbPath);
         }
-      });
+      }
+    );
 
     await Promise.all(cleanupPromises);
     DatabaseIsolation.activeDatabases.clear();

@@ -2,7 +2,11 @@ import { describe, test, expect } from "bun:test";
 import { sessionReviewFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
-import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/dependencies";
+import {
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+} from "../utils/test-utils/dependencies";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
 const TEST_VALUE = 123;
@@ -20,10 +24,13 @@ describe("sessionReviewFromParams", () => {
         repoUrl: "https://github.com/test/test-repo",
         branch: "feature/test",
         createdAt: new Date().toISOString(),
-      }));
+      })
+    );
 
     let getSessionWorkdirSpy = createMock();
-    getSessionWorkdirSpy = mock((_sessionName: unknown) => Promise.resolve("/fake/path/to/session"));
+    getSessionWorkdirSpy = mock((_sessionName: unknown) =>
+      Promise.resolve("/fake/path/to/session")
+    );
 
     let execInRepositorySpy = createMock();
     execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
@@ -45,7 +52,8 @@ describe("sessionReviewFromParams", () => {
 
     let getTaskSpecDataSpy = createMock();
     getTaskSpecDataSpy = mock(() =>
-      Promise.resolve({ title: "Test Task", description: "Test description" }));
+      Promise.resolve({ title: "Test Task", description: "Test description" })
+    );
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
@@ -78,10 +86,7 @@ describe("sessionReviewFromParams", () => {
     };
 
     // Test the sessionReview functionality
-    const result = await sessionReviewFromParams(
-      { session: "testSession" },
-      deps
-    );
+    const result = await sessionReviewFromParams({ session: "testSession" }, deps);
 
     // Verify calls with individual spies
     expect(getSessionSpy).toHaveBeenCalledWith("testSession");
@@ -104,7 +109,8 @@ describe("sessionReviewFromParams", () => {
         repoUrl: "https://github.com/test/test-repo",
         branch: "feature/test",
         createdAt: new Date().toISOString(),
-      }));
+      })
+    );
 
     let getSessionSpy = createMock();
     getSessionSpy = mock((name: unknown) =>
@@ -115,10 +121,13 @@ describe("sessionReviewFromParams", () => {
         repoUrl: "https://github.com/test/test-repo",
         branch: "feature/test",
         createdAt: new Date().toISOString(),
-      }));
+      })
+    );
 
     let getSessionWorkdirSpy = createMock();
-    getSessionWorkdirSpy = mock((_sessionName: unknown) => Promise.resolve("/fake/path/to/session"));
+    getSessionWorkdirSpy = mock((_sessionName: unknown) =>
+      Promise.resolve("/fake/path/to/session")
+    );
 
     let execInRepositorySpy = createMock();
     execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
@@ -172,10 +181,7 @@ describe("sessionReviewFromParams", () => {
     };
 
     // Test by task ID
-    const result = await sessionReviewFromParams(
-      { task: "#TEST_VALUE" },
-      deps
-    );
+    const result = await sessionReviewFromParams({ task: "#TEST_VALUE" }, deps);
 
     // Verify calls with individual spies
     expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("#TEST_VALUE");
@@ -213,10 +219,7 @@ describe("sessionReviewFromParams", () => {
 
     // Test error case
     try {
-      await sessionReviewFromParams(
-        { repo: "/test/repo/path" },
-        deps
-      );
+      await sessionReviewFromParams({ repo: "/test/repo/path" }, deps);
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {
@@ -248,15 +251,12 @@ describe("sessionReviewFromParams", () => {
 
     // Test with non-existent session
     try {
-      await sessionReviewFromParams(
-        { session: "non-existent-session" },
-        deps
-      );
+      await sessionReviewFromParams({ session: "non-existent-session" }, deps);
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {
       expect(error instanceof ResourceNotFoundError).toBe(true);
-      expect((error as Error).message).toContain("Session \"non-existent-session\" not found");
+      expect((error as Error).message).toContain('Session "non-existent-session" not found');
     }
   });
 });

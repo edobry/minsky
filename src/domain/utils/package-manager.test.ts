@@ -11,11 +11,7 @@ mock.module("../logger.js", () => ({
   },
 }));
 
-import {
-  detectPackageManager,
-  getInstallCommand,
-  installDependencies,
-} from "./package-manager";
+import { detectPackageManager, getInstallCommand, installDependencies } from "./package-manager";
 
 describe("Package Manager Utilities", () => {
   // Mock fs.existsSync

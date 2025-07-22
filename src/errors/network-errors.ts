@@ -87,12 +87,18 @@ export function createNetworkError(
   const errorCode = originalError?.code || "";
 
   switch (errorCode) {
-  case "EADDRINUSE":
-    return new PortInUseError(port, host, originalError);
-  case "EACCES":
-    return new NetworkPermissionError(port, host, originalError);
-  default:
-    return new NetworkError(`Network error: ${originalError.message}`, errorCode, port, host, originalError);
+    case "EADDRINUSE":
+      return new PortInUseError(port, host, originalError);
+    case "EACCES":
+      return new NetworkPermissionError(port, host, originalError);
+    default:
+      return new NetworkError(
+        `Network error: ${originalError.message}`,
+        errorCode,
+        port,
+        host,
+        originalError
+      );
   }
 }
 
@@ -132,7 +138,9 @@ export function formatNetworkErrorMessage(error: NetworkError, debug: boolean = 
   if (error instanceof PortInUseError || error instanceof NetworkPermissionError) {
     message += "\nSuggestions:\n";
     message += error
-      .getSuggestions().map((s) => `- ${s}`).join("\n");
+      .getSuggestions()
+      .map((s) => `- ${s}`)
+      .join("\n");
   }
 
   // Add debug hint

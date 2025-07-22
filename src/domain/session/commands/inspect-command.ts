@@ -1,7 +1,5 @@
 import { getCurrentSessionContext } from "../../workspace";
-import { 
-  Session,
-} from "../types";
+import { Session } from "../types";
 
 /**
  * Inspects the current session based on workspace context
@@ -22,4 +20,4 @@ export async function inspectSessionFromParams(params: {
  */
 export async function inspectCurrentSession(): Promise<Session | null> {
   return inspectSessionFromParams({});
-} 
+}

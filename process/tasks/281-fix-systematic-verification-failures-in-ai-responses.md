@@ -7,6 +7,7 @@ AI responses are claiming resources don't exist without proper verification, lea
 ## Root Cause Analysis
 
 **Error Category: Verification Error**
+
 - Failed to use proper search tools before making negative claims
 - Relied on incomplete rule fetching instead of comprehensive file search
 - Did not follow existing verification protocols
@@ -14,6 +15,7 @@ AI responses are claiming resources don't exist without proper verification, lea
 ## Requirements
 
 1. **Mandatory Verification Protocol**: Before claiming any resource doesn't exist, must:
+
    - Use file_search tool to look for the resource
    - Use grep_search if needed for content verification
    - Only claim non-existence after exhaustive search
@@ -34,6 +36,7 @@ AI responses are claiming resources don't exist without proper verification, lea
 ## Implementation Completed
 
 ### 1. Updated Self-Improvement Rule
+
 - Added "Critical Resource Existence Verification Protocol" section
 - Documented specific failure patterns and user signals
 - Created mandatory verification protocol with 4-step process
@@ -41,6 +44,7 @@ AI responses are claiming resources don't exist without proper verification, lea
 - Implemented enforcement mechanisms
 
 ### 2. Created Verification Checklist Rule
+
 - New rule: `.cursor/rules/verification-checklist.mdc`
 - Comprehensive checklist for resource existence verification
 - Response templates for found/not found scenarios
@@ -48,6 +52,7 @@ AI responses are claiming resources don't exist without proper verification, lea
 - Always-apply rule to catch all negative existence claims
 
 ### 3. Created Test Case
+
 - Test file: `tests/verification-protocol.test.ts`
 - Documents the specific self-improvement rule failure case
 - Verifies all mandatory verification steps are enforced
@@ -55,6 +60,7 @@ AI responses are claiming resources don't exist without proper verification, lea
 - All tests passing
 
 ### 4. Enhanced Rule System
+
 - Both rules now work together as a system
 - Self-improvement rule handles error detection and correction
 - Verification checklist provides specific implementation guidance

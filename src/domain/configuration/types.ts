@@ -177,11 +177,7 @@ export type CredentialSource = "environment" | "file" | "prompt";
 
 export interface CredentialManager {
   getCredential(_service: "github"): Promise<string | undefined>;
-  setGlobalCredential(
-    _service: "github",
-    source: CredentialSource,
-    _value?: string
-  ): Promise<void>;
+  setGlobalCredential(_service: "github", source: CredentialSource, _value?: string): Promise<void>;
   promptForCredential(_service: "github"): Promise<string>;
 }
 

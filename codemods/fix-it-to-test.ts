@@ -10,12 +10,11 @@ import { CallExpression, SyntaxKind } from "ts-morph";
  * where 'it' is used but not imported, causing ReferenceError.
  */
 export class FixItToTestCodemod extends CodemodBase {
-
   constructor(options: CodemodOptions = {}) {
     super({
       includePatterns: ["**/*.test.ts", "**/*.spec.ts"],
       excludePatterns: ["**/node_modules/**"],
-      ...options
+      ...options,
     });
   }
 
@@ -26,9 +25,9 @@ export class FixItToTestCodemod extends CodemodBase {
 
     for (const sourceFile of sourceFiles) {
       // Check if file imports 'it' from bun:test or jest
-      const hasItImport = sourceFile.getImportDeclarations().some(importDecl => {
+      const hasItImport = sourceFile.getImportDeclarations().some((importDecl) => {
         const namedImports = importDecl.getNamedImports();
-        return namedImports.some(namedImport => namedImport.getName() === "it");
+        return namedImports.some((namedImport) => namedImport.getName() === "it");
       });
 
       // Find all call expressions that use 'it'
@@ -50,7 +49,7 @@ export class FixItToTestCodemod extends CodemodBase {
               severity: "error",
               type: "jest-bun-migration",
               original: "it(",
-              suggested: "test("
+              suggested: "test(",
             };
 
             this.issues.push(issue);
@@ -74,9 +73,9 @@ export class FixItToTestCodemod extends CodemodBase {
       let changesInFile = 0;
 
       // Check if file imports 'it' from bun:test or jest
-      const hasItImport = sourceFile.getImportDeclarations().some(importDecl => {
+      const hasItImport = sourceFile.getImportDeclarations().some((importDecl) => {
         const namedImports = importDecl.getNamedImports();
-        return namedImports.some(namedImport => namedImport.getName() === "it");
+        return namedImports.some((namedImport) => namedImport.getName() === "it");
       });
 
       // Skip files that legitimately import 'it'
@@ -97,7 +96,9 @@ export class FixItToTestCodemod extends CodemodBase {
           changesInFile++;
           this.metrics.issuesFixed++;
 
-          this.log(`✅ Fixed: ${sourceFile.getBaseName()}:${callExpr.getStartLineNumber()} - it() → test()`);
+          this.log(
+            `✅ Fixed: ${sourceFile.getBaseName()}:${callExpr.getStartLineNumber()} - it() → test()`
+          );
         }
       }
 
@@ -114,7 +115,7 @@ export class FixItToTestCodemod extends CodemodBase {
 if (import.meta.main) {
   const codemod = new FixItToTestCodemod({
     verbose: true,
-    dryRun: process.argv.includes("--dry-run")
+    dryRun: process.argv.includes("--dry-run"),
   });
 
   codemod.execute().catch(console.error);

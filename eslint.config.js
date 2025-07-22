@@ -2,6 +2,8 @@ import js from "@eslint/js";
 import tsEslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
+import prettierPlugin from "eslint-plugin-prettier";
+import prettierConfig from "eslint-config-prettier";
 import noUnderscorePrefixMismatch from "./src/eslint-rules/no-underscore-prefix-mismatch.js";
 import noExcessiveAsUnknown from "./src/eslint-rules/no-excessive-as-unknown.js";
 import noUnsafeGitExec from "./src/eslint-rules/no-unsafe-git-exec.js";
@@ -9,6 +11,7 @@ import noJestPatterns from "./src/eslint-rules/no-jest-patterns.js";
 
 export default [
   js.configs.recommended,
+  prettierConfig, // Disables ESLint rules that conflict with Prettier
   {
     ignores: [
       // Exclude codemod scripts from linting
@@ -82,6 +85,7 @@ export default [
     plugins: {
       "@typescript-eslint": tsEslint,
       import: importPlugin,
+      prettier: prettierPlugin,
       custom: {
         rules: {
           "no-underscore-prefix-mismatch": noUnderscorePrefixMismatch,
@@ -93,6 +97,9 @@ export default [
     },
     files: ["**/*.ts", "**/*.js"],
     rules: {
+      // === PRETTIER INTEGRATION ===
+      "prettier/prettier": "error", // Use Prettier for all formatting
+
       // === CORRECTNESS RULES (KEEP) ===
       "no-throw-literal": "error", // Prevents throwing non-Error objects
       "prefer-promise-reject-errors": "error", // Ensures proper error handling
@@ -107,28 +114,37 @@ export default [
       "custom/no-jest-patterns": "error", // Re-enabled after systematic Jest pattern migration
 
       // === GIT OPERATION SAFETY ===
-      "custom/no-unsafe-git-exec": ["error", {
-        allowInTests: false,
-        allowedLocalOperations: ["status", "branch", "log", "diff", "show", "rev-parse"]
-      }], // Prevents git operations that can hang without timeouts
+      "custom/no-unsafe-git-exec": [
+        "error",
+        {
+          allowInTests: false,
+          allowedLocalOperations: ["status", "branch", "log", "diff", "show", "rev-parse"],
+        },
+      ], // Prevents git operations that can hang without timeouts
 
       // === TYPE SAFETY RULES ===
-      "custom/no-excessive-as-unknown": ["warn", {
-        allowInTests: true,
-        allowedPatterns: [
-          // Allow specific patterns that are legitimate
-          "process\\.env\\[.*\\] as unknown",
-          "import\\(.*\\) as unknown",
-          // Add more patterns as needed
-        ],
-      }],
+      "custom/no-excessive-as-unknown": [
+        "warn",
+        {
+          allowInTests: true,
+          allowedPatterns: [
+            // Allow specific patterns that are legitimate
+            "process\\.env\\[.*\\] as unknown",
+            "import\\(.*\\) as unknown",
+            // Add more patterns as needed
+          ],
+        },
+      ],
 
       // === FILE SIZE RULES ===
-      "max-lines": ["warn", {
-        "max": 400,
-        "skipBlankLines": true,
-        "skipComments": true
-      }],
+      "max-lines": [
+        "warn",
+        {
+          max: 400,
+          skipBlankLines: true,
+          skipComments: true,
+        },
+      ],
 
       // === IMPORT RULES ===
       "no-restricted-imports": [
@@ -136,31 +152,79 @@ export default [
         {
           patterns: [
             {
-              group: ["*/*.js", "./*.js", "../*.js", "../../*.js", "../../../*.js", "../../../../*.js"],
-              message: "Use extensionless imports for local files (Bun-native style). Remove .js extension."
+              group: [
+                "*/*.js",
+                "./*.js",
+                "../*.js",
+                "../../*.js",
+                "../../../*.js",
+                "../../../../*.js",
+              ],
+              message:
+                "Use extensionless imports for local files (Bun-native style). Remove .js extension.",
             },
             {
-              group: ["*/*.ts", "./*.ts", "../*.ts", "../../*.ts", "../../../*.ts", "../../../../*.ts"],
-              message: "Use extensionless imports for local files (Bun-native style). Remove .ts extension."
+              group: [
+                "*/*.ts",
+                "./*.ts",
+                "../*.ts",
+                "../../*.ts",
+                "../../../*.ts",
+                "../../../../*.ts",
+              ],
+              message:
+                "Use extensionless imports for local files (Bun-native style). Remove .ts extension.",
             },
             {
-              group: ["*/*.jsx", "./*.jsx", "../*.jsx", "../../*.jsx", "../../..//*.jsx", "../../../../*.jsx"],
-              message: "Use extensionless imports for local files (Bun-native style). Remove .jsx extension."
+              group: [
+                "*/*.jsx",
+                "./*.jsx",
+                "../*.jsx",
+                "../../*.jsx",
+                "../../..//*.jsx",
+                "../../../../*.jsx",
+              ],
+              message:
+                "Use extensionless imports for local files (Bun-native style). Remove .jsx extension.",
             },
             {
-              group: ["*/*.tsx", "./*.tsx", "../*.tsx", "../../*.tsx", "../../../*.tsx", "../../../../*.tsx"],
-              message: "Use extensionless imports for local files (Bun-native style). Remove .tsx extension."
+              group: [
+                "*/*.tsx",
+                "./*.tsx",
+                "../*.tsx",
+                "../..//*.tsx",
+                "../../../*.tsx",
+                "../../../../*.tsx",
+              ],
+              message:
+                "Use extensionless imports for local files (Bun-native style). Remove .tsx extension.",
             },
             {
-              group: ["*/*.mjs", "./*.mjs", "../*.mjs", "../../*.mjs", "../../../*.mjs", "../../../../*.mjs"],
-              message: "Use extensionless imports for local files (Bun-native style). Remove .mjs extension."
+              group: [
+                "*/*.mjs",
+                "./*.mjs",
+                "../*.mjs",
+                "../../*.mjs",
+                "../../../*.mjs",
+                "../../../../*.mjs",
+              ],
+              message:
+                "Use extensionless imports for local files (Bun-native style). Remove .mjs extension.",
             },
             {
-              group: ["*/*.cjs", "./*.cjs", "../*.cjs", "../../*.cjs", "../../../*.cjs", "../../../../*.cjs"],
-              message: "Use extensionless imports for local files (Bun-native style). Remove .cjs extension."
-            }
-          ]
-        }
+              group: [
+                "*/*.cjs",
+                "./*.cjs",
+                "../*.cjs",
+                "../../*.cjs",
+                "../../../*.cjs",
+                "../../../../*.cjs",
+              ],
+              message:
+                "Use extensionless imports for local files (Bun-native style). Remove .cjs extension.",
+            },
+          ],
+        },
       ],
 
       // === STYLE RULES (DISABLED FOR NOW) ===
@@ -175,11 +239,8 @@ export default [
       "@typescript-eslint/ban-types": "off",
       "no-undef": "off", // TypeScript handles this better
 
-      // === FORMATTING (KEEP MINIMAL) ===
-      indent: ["error", 2],
-      "linebreak-style": ["error", "unix"],
-      quotes: ["error", "double"],
-      semi: ["error", "always"],
+      // === FORMATTING (REMOVED - LET PRETTIER HANDLE) ===
+      // Removed: indent, linebreak-style, quotes, semi - Prettier handles these
 
       // === OTHER ===
       "prefer-const": "off",
@@ -220,11 +281,14 @@ export default [
   {
     files: ["**/*.ts", "**/*.js"],
     rules: {
-      "max-lines": ["error", {
-        "max": 1500,
-        "skipBlankLines": true,
-        "skipComments": true
-      }]
-    }
-  }
+      "max-lines": [
+        "error",
+        {
+          max: 1500,
+          skipBlankLines: true,
+          skipComments: true,
+        },
+      ],
+    },
+  },
 ];

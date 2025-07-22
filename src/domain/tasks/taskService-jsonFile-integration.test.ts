@@ -23,10 +23,10 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
   beforeEach(async () => {
     // Create isolated test environment
     mockEnvironment = setupEnhancedMocking();
-    
+
     // Create isolated database
     const dbConfig = await DatabaseIsolation.createIsolatedDatabase("taskservice-test", {
-      tasks: []
+      tasks: [],
     });
     dbPath = dbConfig.dbPath;
 
@@ -68,7 +68,7 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       // Create test data using factory
       const taskData = testDataFactory.createTaskData({
         prefix: "integration-test",
-        includeMetadata: true
+        includeMetadata: true,
       });
 
       // Create task spec file in mock filesystem
@@ -98,7 +98,7 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       // Create multiple test tasks
       const tasks = testDataFactory.createMultipleTaskData(3, {
         prefix: "multi-test",
-        includeMetadata: true
+        includeMetadata: true,
       });
 
       // Create task spec files
@@ -126,7 +126,7 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       // Create test task
       const taskData = testDataFactory.createTaskData({
         prefix: "status-test",
-        includeMetadata: true
+        includeMetadata: true,
       });
 
       const specPath = join(workspacePath, taskData.specPath);
@@ -134,10 +134,10 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       mockEnvironment.mockFS.writeFile(specPath, specContent);
 
       const task = await taskServiceInstance.createTask(taskData.specPath);
-      
+
       // Update status
       await taskServiceInstance.updateTaskStatus(taskData.id, "IN-PROGRESS");
-      
+
       // Verify status was updated
       const status = await taskServiceInstance.getTaskStatus(taskData.id);
       expect(status).toBe("IN-PROGRESS");
@@ -151,7 +151,7 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
   describe("Error Handling", () => {
     test("should handle invalid task IDs gracefully", async () => {
       const invalidId = "#nonexistent-task";
-      
+
       const task = await taskServiceInstance.getTask(invalidId);
       expect(task).toBe(null);
 
@@ -159,20 +159,22 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       expect(status).toBeUndefined();
 
       // Should throw when setting status on non-existent task
-      await expect(taskServiceInstance.updateTaskStatus(invalidId, "DONE")).rejects.toThrow("not found");
+      await expect(taskServiceInstance.updateTaskStatus(invalidId, "DONE")).rejects.toThrow(
+        "not found"
+      );
     });
 
     test("should validate task status values", async () => {
       // Create a test task first
       const taskData = testDataFactory.createTaskData({
         prefix: "validation-test",
-        includeMetadata: true
+        includeMetadata: true,
       });
 
       const specPath = join(workspacePath, taskData.specPath);
       const specContent = `# Task ${taskData.id}: ${taskData.title}\n\n## Context\n\n${taskData.description}`;
       mockEnvironment.mockFS.writeFile(specPath, specContent);
-      
+
       await taskServiceInstance.createTask(taskData.specPath);
 
       // Should reject invalid status
@@ -187,7 +189,7 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       // Create task with first service instance
       const taskData = testDataFactory.createTaskData({
         prefix: "persistence-test",
-        includeMetadata: true
+        includeMetadata: true,
       });
 
       const specPath = join(workspacePath, taskData.specPath);

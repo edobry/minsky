@@ -1,6 +1,6 @@
 /**
  * Error Message Templates and Utilities
- * 
+ *
  * This module provides reusable templates and utilities for creating consistent,
  * user-friendly error messages throughout the Minsky application.
  */
@@ -13,12 +13,12 @@ export const ErrorEmojis = {
   WARNING: "⚠️",
   FAILED: "❌",
   CONFLICT: "💥",
-  
-  // Solution indicators  
+
+  // Solution indicators
   SUGGESTION: "💡",
   INFO: "ℹ️",
   TIP: "💭",
-  
+
   // Action indicators
   LIST: "📋",
   CREATE: "🆕",
@@ -26,7 +26,7 @@ export const ErrorEmojis = {
   DIRECTORY: "📂",
   COMMAND: "⚡",
   HELP: "❓",
-  
+
   // Navigation indicators
   NEXT_STEP: "➡️",
   ARROW: "→",
@@ -71,8 +71,12 @@ export function getErrorMessage(error: any): string {
  * Format command suggestions with consistent styling
  */
 export function formatCommandSuggestions(suggestions: CommandSuggestion[]): string {
-  return suggestions.map(({ description, command, emoji = ErrorEmojis.COMMAND }) => 
-    `${emoji} ${description}:\n   ${command}`).join("\n\n");
+  return suggestions
+    .map(
+      ({ description, command, emoji = ErrorEmojis.COMMAND }) =>
+        `${emoji} ${description}:\n   ${command}`
+    )
+    .join("\n\n");
 }
 
 /**
@@ -80,9 +84,9 @@ export function formatCommandSuggestions(suggestions: CommandSuggestion[]): stri
  */
 export function formatContextInfo(contexts: ContextInfo[]): string {
   if (contexts?.length === 0) return "";
-  
+
   const formatted = contexts.map(({ label, value }) => `${label}: ${value}`).join("\n");
-    
+
   return `\n${formatted}`;
 }
 
@@ -91,35 +95,35 @@ export function formatContextInfo(contexts: ContextInfo[]): string {
  */
 export function buildErrorMessage(template: ErrorTemplate, context?: ContextInfo[]): string {
   const parts: string[] = [];
-  
+
   // Add title
   parts.push(template.title);
-  
+
   // Add description if provided
   if (template?.description) {
     parts.push("");
     parts.push(template.description);
   }
-  
+
   // Add sections
-  template.sections.forEach(section => {
+  template.sections.forEach((section) => {
     parts.push("");
-    
+
     if (section?.title) {
       const title = section?.emoji ? `${section.emoji} ${section.title}` : section?.title;
       parts.push(title);
       parts.push("");
     }
-    
+
     parts.push(section.content);
   });
-  
+
   // Add context information if provided
   if (context && context?.length > 0) {
     parts.push("");
     parts.push(formatContextInfo(context));
   }
-  
+
   return parts.join("\n");
 }
 
@@ -139,11 +143,11 @@ export function createResourceNotFoundMessage(
       {
         title: "What you can do:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(suggestions)
-      }
-    ]
+        content: formatCommandSuggestions(suggestions),
+      },
+    ],
   };
-  
+
   return buildErrorMessage(template, context);
 }
 
@@ -160,11 +164,11 @@ export function createMissingInfoMessage(
     description: "You need to specify one of these options to continue:",
     sections: [
       {
-        content: formatCommandSuggestions(alternatives)
-      }
-    ]
+        content: formatCommandSuggestions(alternatives),
+      },
+    ],
   };
-  
+
   return buildErrorMessage(template, context);
 }
 
@@ -184,11 +188,11 @@ export function createValidationErrorMessage(
       {
         title: "Valid options:",
         emoji: ErrorEmojis.LIST,
-        content: validOptions.map(option => `• ${option}`).join("\n")
-      }
-    ]
+        content: validOptions.map((option) => `• ${option}`).join("\n"),
+      },
+    ],
   };
-  
+
   return buildErrorMessage(template, context);
 }
 
@@ -208,11 +212,11 @@ export function createCommandFailureMessage(
       {
         title: "Try these alternatives:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(suggestions)
-      }
-    ]
+        content: formatCommandSuggestions(suggestions),
+      },
+    ],
   };
-  
+
   return buildErrorMessage(template, context);
 }
 
@@ -221,8 +225,8 @@ export function createCommandFailureMessage(
  */
 export enum SessionErrorType {
   NOT_FOUND = "not_found",
-  ALREADY_EXISTS = "exists", 
-  INVALID = "invalid"
+  ALREADY_EXISTS = "exists",
+  INVALID = "invalid",
 }
 
 /**
@@ -248,19 +252,19 @@ export function createSessionErrorMessage(
         {
           description: "Create a new session",
           command: `minsky session start "${sessionName}"`,
-          emoji: ErrorEmojis.CREATE
+          emoji: ErrorEmojis.CREATE,
         },
         {
           description: "List available sessions",
           command: "minsky sessions list",
-          emoji: ErrorEmojis.INFO
+          emoji: ErrorEmojis.INFO,
         },
         {
           description: "Check session details",
           command: `minsky sessions get --name "${sessionName}"`,
-          emoji: ErrorEmojis.INFO
-        }
-      ]
+          emoji: ErrorEmojis.INFO,
+        },
+      ],
     },
     exists: {
       title: `${ErrorEmojis.BLOCKED} Session "${sessionName}" Already Exists`,
@@ -268,20 +272,20 @@ export function createSessionErrorMessage(
       suggestions: [
         {
           description: "Use a different session name",
-          command: "minsky session start \"new-session-name\"",
-          emoji: ErrorEmojis.CREATE
+          command: 'minsky session start "new-session-name"',
+          emoji: ErrorEmojis.CREATE,
         },
         {
           description: "Resume existing session",
           command: `minsky session get "${sessionName}"`,
-          emoji: ErrorEmojis.ARROW
+          emoji: ErrorEmojis.ARROW,
         },
         {
           description: "Delete existing session first",
           command: `minsky session delete "${sessionName}"`,
-          emoji: ErrorEmojis.WARNING
-        }
-      ]
+          emoji: ErrorEmojis.WARNING,
+        },
+      ],
     },
     invalid: {
       title: `${ErrorEmojis.FAILED} Invalid Session "${sessionName}"`,
@@ -290,17 +294,17 @@ export function createSessionErrorMessage(
         {
           description: "Check session status",
           command: `minsky sessions get --name "${sessionName}"`,
-          emoji: ErrorEmojis.INFO
+          emoji: ErrorEmojis.INFO,
         },
         {
           description: "Update session configuration",
           command: `minsky session update "${sessionName}"`,
-          emoji: ErrorEmojis.COMMAND
-        }
-      ]
-    }
+          emoji: ErrorEmojis.COMMAND,
+        },
+      ],
+    },
   };
-  
+
   const config = templates[errorType];
   const template: ErrorTemplate = {
     title: config.title,
@@ -309,41 +313,32 @@ export function createSessionErrorMessage(
       {
         title: "What you can do:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(config.suggestions)
-      }
-    ]
+        content: formatCommandSuggestions(config.suggestions),
+      },
+    ],
   };
-  
+
   return buildErrorMessage(template, context);
 }
 
 /**
  * Convenience function for session not found errors
  */
-export function createSessionNotFoundMessage(
-  sessionName: string,
-  context?: ContextInfo[]
-): string {
+export function createSessionNotFoundMessage(sessionName: string, context?: ContextInfo[]): string {
   return createSessionErrorMessage(sessionName, SessionErrorType.NOT_FOUND, context);
 }
 
 /**
  * Convenience function for session already exists errors
  */
-export function createSessionExistsMessage(
-  sessionName: string,
-  context?: ContextInfo[]
-): string {
+export function createSessionExistsMessage(sessionName: string, context?: ContextInfo[]): string {
   return createSessionErrorMessage(sessionName, SessionErrorType.ALREADY_EXISTS, context);
 }
 
 /**
  * Convenience function for invalid session errors
  */
-export function createInvalidSessionMessage(
-  sessionName: string,
-  context?: ContextInfo[]
-): string {
+export function createInvalidSessionMessage(sessionName: string, context?: ContextInfo[]): string {
   return createSessionErrorMessage(sessionName, SessionErrorType.INVALID, context);
 }
 
@@ -358,12 +353,12 @@ export function createGitErrorMessage(
 ): string {
   const errorMessage = getErrorMessage(error as any);
   const isConflict = (errorMessage.toLowerCase() as any).includes("conflict");
-  
+
   const baseContext: ContextInfo[] = [
     ...(context || []),
-    ...(workdir ? [{ label: "Working directory", value: workdir }] : [])
+    ...(workdir ? [{ label: "Working directory", value: workdir }] : []),
   ];
-  
+
   if (isConflict) {
     const template: ErrorTemplate = {
       title: `${ErrorEmojis.CONFLICT} Git ${operation} Conflict`,
@@ -376,31 +371,31 @@ export function createGitErrorMessage(
             {
               description: "Check conflict status",
               command: "git status",
-              emoji: ErrorEmojis.INFO
+              emoji: ErrorEmojis.INFO,
             },
             {
               description: "Edit conflicted files",
               command: "git diff --name-only --diff-filter=U",
-              emoji: ErrorEmojis.FILE
+              emoji: ErrorEmojis.FILE,
             },
             {
               description: "Mark conflicts as resolved",
               command: "git add .",
-              emoji: ErrorEmojis.CHECK
+              emoji: ErrorEmojis.CHECK,
             },
             {
               description: "Complete the operation",
               command: `git ${operation} --continue`,
-              emoji: ErrorEmojis.NEXT_STEP
-            }
-          ])
-        }
-      ]
+              emoji: ErrorEmojis.NEXT_STEP,
+            },
+          ]),
+        },
+      ],
     };
-    
+
     return buildErrorMessage(template, baseContext);
   }
-  
+
   const template: ErrorTemplate = {
     title: `${ErrorEmojis.FAILED} Git ${operation} Failed`,
     description: `The ${operation} operation failed: ${errorMessage}`,
@@ -412,23 +407,23 @@ export function createGitErrorMessage(
           {
             description: "Check repository status",
             command: "git status",
-            emoji: ErrorEmojis.INFO
+            emoji: ErrorEmojis.INFO,
           },
           {
             description: "Check recent commits",
             command: "git log --oneline -5",
-            emoji: ErrorEmojis.LIST
+            emoji: ErrorEmojis.LIST,
           },
           {
             description: "Get help for this command",
             command: `git ${operation} --help`,
-            emoji: ErrorEmojis.HELP
-          }
-        ])
-      }
-    ]
+            emoji: ErrorEmojis.HELP,
+          },
+        ]),
+      },
+    ],
   };
-  
+
   return buildErrorMessage(template, baseContext);
 }
 
@@ -448,11 +443,11 @@ export function createConfigErrorMessage(
       {
         title: "How to fix:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(suggestions)
-      }
-    ]
+        content: formatCommandSuggestions(suggestions),
+      },
+    ],
   };
-  
+
   return buildErrorMessage(template, context);
 }
 
@@ -461,52 +456,52 @@ export function createConfigErrorMessage(
  */
 export class ErrorContextBuilder {
   private contexts: ContextInfo[] = [];
-  
+
   addCurrentDirectory(): this {
     this.contexts.push({
       label: "Current directory",
-      value: (process as any).cwd()
+      value: (process as any).cwd(),
     });
     return this;
   }
-  
+
   addSession(sessionName: string): this {
     this.contexts.push({
       label: "Session",
-      value: sessionName
+      value: sessionName,
     });
     return this;
   }
-  
+
   addRepository(repoPath: string): this {
     this.contexts.push({
       label: "Repository",
-      value: repoPath
+      value: repoPath,
     });
     return this;
   }
-  
+
   addTask(taskId: string): this {
     this.contexts.push({
       label: "Task ID",
-      value: taskId
+      value: taskId,
     });
     return this;
   }
-  
+
   addCommand(command: string): this {
     this.contexts.push({
       label: "Command",
-      value: command
+      value: command,
     });
     return this;
   }
-  
+
   addCustom(label: string, value: string): this {
     this.contexts.push({ label, value });
     return this;
   }
-  
+
   build(): ContextInfo[] {
     return [...this.contexts];
   }
@@ -517,4 +512,4 @@ export class ErrorContextBuilder {
  */
 export function createErrorContext(): ErrorContextBuilder {
   return new ErrorContextBuilder();
-} 
+}

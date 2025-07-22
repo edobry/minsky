@@ -20,9 +20,7 @@ import {
  */
 export async function analyzeConflictFiles(repoPath: string): Promise<ConflictFile[]> {
   try {
-    const { stdout: statusOutput } = await execAsync(
-      `git -C ${repoPath} status --porcelain`
-    );
+    const { stdout: statusOutput } = await execAsync(`git -C ${repoPath} status --porcelain`);
 
     const conflictFiles: ConflictFile[] = [];
     const lines = statusOutput
@@ -38,25 +36,25 @@ export async function analyzeConflictFiles(repoPath: string): Promise<ConflictFi
       let deletionInfo: DeletionInfo | undefined;
 
       switch (status) {
-      case "UU":
-        fileStatus = FileConflictStatus.MODIFIED_BOTH;
-        break;
-      case "DU":
-        fileStatus = FileConflictStatus.DELETED_BY_US;
-        deletionInfo = await analyzeDeletion(repoPath, filePath, "us");
-        break;
-      case "UD":
-        fileStatus = FileConflictStatus.DELETED_BY_THEM;
-        deletionInfo = await analyzeDeletion(repoPath, filePath, "them");
-        break;
-      case "AU":
-        fileStatus = FileConflictStatus.ADDED_BY_US;
-        break;
-      case "UA":
-        fileStatus = FileConflictStatus.ADDED_BY_THEM;
-        break;
-      default:
-        continue; // Skip non-conflict files
+        case "UU":
+          fileStatus = FileConflictStatus.MODIFIED_BOTH;
+          break;
+        case "DU":
+          fileStatus = FileConflictStatus.DELETED_BY_US;
+          deletionInfo = await analyzeDeletion(repoPath, filePath, "us");
+          break;
+        case "UD":
+          fileStatus = FileConflictStatus.DELETED_BY_THEM;
+          deletionInfo = await analyzeDeletion(repoPath, filePath, "them");
+          break;
+        case "AU":
+          fileStatus = FileConflictStatus.ADDED_BY_US;
+          break;
+        case "UA":
+          fileStatus = FileConflictStatus.ADDED_BY_THEM;
+          break;
+        default:
+          continue; // Skip non-conflict files
       }
 
       const conflictRegions =
@@ -118,9 +116,7 @@ export async function analyzeConflictRegions(
   filePath: string
 ): Promise<ConflictRegion[]> {
   try {
-    const { stdout: fileContent } = await execAsync(
-      `cat "${repoPath}/${filePath}"`
-    );
+    const { stdout: fileContent } = await execAsync(`cat "${repoPath}/${filePath}"`);
     const lines = fileContent.split("\n");
 
     const regions: ConflictRegion[] = [];
@@ -209,16 +205,12 @@ export async function autoResolveDeleteConflicts(
           await execAsync(`git -C ${repoPath} rm "${file.path}"`);
         } else if (file.status === FileConflictStatus.DELETED_BY_THEM) {
           // Keep the modified file (add it)
-          await execAsync(
-            `git -C ${repoPath} add "${file.path}"`
-          );
+          await execAsync(`git -C ${repoPath} add "${file.path}"`);
         }
       }
 
       // Commit the resolution
-      await execAsync(
-        `git -C ${repoPath} commit -m "resolve conflicts: accept file deletions"`
-      );
+      await execAsync(`git -C ${repoPath} commit -m "resolve conflicts: accept file deletions"`);
       log.debug("Committed auto-resolved delete conflicts", {
         count: deleteConflicts.length,
       });
@@ -251,9 +243,7 @@ export function analyzeConflictSeverity(conflictFiles: ConflictFile[]): {
       f.status === FileConflictStatus.DELETED_BY_US ||
       f.status === FileConflictStatus.DELETED_BY_THEM
   );
-  const hasRenameConflicts = conflictFiles.some(
-    (f) => f.status === FileConflictStatus.RENAMED
-  );
+  const hasRenameConflicts = conflictFiles.some((f) => f.status === FileConflictStatus.RENAMED);
 
   let conflictType: ConflictType;
   let severity: ConflictSeverity;
@@ -280,14 +270,11 @@ export function analyzeConflictSeverity(conflictFiles: ConflictFile[]): {
       (sum, f) => sum + (f.conflictRegions?.length || 0),
       0
     );
-    severity =
-      totalRegions <= 3
-        ? ConflictSeverity.MANUAL_SIMPLE
-        : ConflictSeverity.MANUAL_COMPLEX;
+    severity = totalRegions <= 3 ? ConflictSeverity.MANUAL_SIMPLE : ConflictSeverity.MANUAL_COMPLEX;
   } else {
     conflictType = ConflictType.CONTENT_CONFLICT;
     severity = ConflictSeverity.MANUAL_SIMPLE;
   }
 
   return { conflictType, severity };
-} 
+}
