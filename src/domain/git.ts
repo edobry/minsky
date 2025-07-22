@@ -445,19 +445,19 @@ export class GitService implements GitServiceInterface {
     const workdir = repoPath || (process as any).cwd();
 
     // Get modified files
-    const { stdout: modifiedOutput } = await execGitWithTimeout("get-status-modified", `diff --name-only`, { workdir });
+    const { stdout: modifiedOutput } = await execGitWithTimeout("get-status-modified", "diff --name-only", { workdir });
     const modified = modifiedOutput.trim().split("\n").filter(Boolean);
 
     // Get untracked files
     const { stdout: untrackedOutput } = await execGitWithTimeout(
       "get-status-untracked",
-      `ls-files --others --exclude-standard`,
+      "ls-files --others --exclude-standard",
       { workdir }
     );
     const untracked = untrackedOutput.trim().split("\n").filter(Boolean);
 
     // Get deleted files
-    const { stdout: deletedOutput } = await execGitWithTimeout("get-status-deleted", `ls-files --deleted`, { workdir });
+    const { stdout: deletedOutput } = await execGitWithTimeout("get-status-deleted", "ls-files --deleted", { workdir });
     const deleted = deletedOutput.trim().split("\n").filter(Boolean);
 
     return { modified, untracked, deleted };
@@ -465,12 +465,12 @@ export class GitService implements GitServiceInterface {
 
   async stageAll(repoPath?: string): Promise<void> {
     const workdir = repoPath || (process as any).cwd();
-    await execGitWithTimeout("stage-all", `add -A`, { workdir });
+    await execGitWithTimeout("stage-all", "add -A", { workdir });
   }
 
   async stageModified(repoPath?: string): Promise<void> {
     const workdir = repoPath || (process as any).cwd();
-    await execGitWithTimeout("stage-modified", `add .`, { workdir });
+    await execGitWithTimeout("stage-modified", "add .", { workdir });
   }
 
   async commit(message: string, repoPath?: string, amend: boolean = false): Promise<string> {
@@ -490,14 +490,14 @@ export class GitService implements GitServiceInterface {
   async stashChanges(workdir: string): Promise<StashResult> {
     try {
       // Check if there are changes to stash
-      const { stdout: status } = await execGitWithTimeout("stash-check-status", `status --porcelain`, { workdir });
+      const { stdout: status } = await execGitWithTimeout("stash-check-status", "status --porcelain", { workdir });
       if (!status.trim()) {
         // No changes to stash
         return { workdir, stashed: false };
       }
 
       // Stash changes including untracked files
-      await execGitWithTimeout("stash-push", `stash push -u -m "minsky session update"`, { workdir });
+      await execGitWithTimeout("stash-push", "stash push -u -m \"minsky session update\"", { workdir });
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
@@ -507,14 +507,14 @@ export class GitService implements GitServiceInterface {
   async popStash(workdir: string): Promise<StashResult> {
     try {
       // Check if there's a stash to pop
-      const { stdout: stashList } = await execGitWithTimeout("stash-list", `stash list`, { workdir });
+      const { stdout: stashList } = await execGitWithTimeout("stash-list", "stash list", { workdir });
       if (!stashList.trim()) {
         // No stash to pop
         return { workdir, stashed: false };
       }
 
       // Pop the stash
-      await execGitWithTimeout("stash-pop", `stash pop`, { workdir });
+      await execGitWithTimeout("stash-pop", "stash pop", { workdir });
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to pop stash: ${getErrorMessage(err as any)}`);
