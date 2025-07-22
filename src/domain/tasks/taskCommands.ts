@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils";
 import { resolveTaskWorkspacePath } from "../../utils/workspace-resolver";
-import { autoCommitTaskChanges } from "../../utils/auto-commit";
+import { commitTaskChanges } from "../../utils/task-workspace-commit";
 import { getErrorMessage } from "../../errors/index";
 import {
   createTaskService as createTaskServiceImpl,
@@ -329,7 +329,12 @@ export async function setTaskStatusFromParams(
     // Auto-commit changes for markdown backend
     if ((validParams.backend || "markdown") === "markdown") {
       const commitMessage = `chore(${validParams.taskId}): update task status ${oldStatus} → ${validParams.status}`;
-      await autoCommitTaskChanges(workspacePath, commitMessage);
+      await commitTaskChanges({
+        workspacePath,
+        message: commitMessage,
+        repoUrl: repoPath,
+        backend: validParams.backend || "markdown"
+      });
     }
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -391,7 +396,12 @@ export async function createTaskFromParams(
     // Auto-commit changes for markdown backend
     if ((validParams.backend || "markdown") === "markdown") {
       const commitMessage = `feat(${task.id}): create task "${validParams.title}"`;
-      await autoCommitTaskChanges(workspacePath, commitMessage);
+      await commitTaskChanges({
+        workspacePath,
+        message: commitMessage,
+        repoUrl: repoPath,
+        backend: validParams.backend || "markdown"
+      });
     }
 
     return task;
@@ -599,7 +609,12 @@ export async function createTaskFromTitleAndDescription(
     // Auto-commit changes for markdown backend
     if ((validParams.backend || "markdown") === "markdown") {
       const commitMessage = `feat(${task.id}): create task "${validParams.title}"`;
-      await autoCommitTaskChanges(workspacePath, commitMessage);
+      await commitTaskChanges({
+        workspacePath,
+        message: commitMessage,
+        repoUrl: repoPath,
+        backend: validParams.backend || "markdown"
+      });
     }
 
     return task;
@@ -683,7 +698,12 @@ export async function deleteTaskFromParams(
     // Auto-commit changes for markdown backend
     if (deleted && (validParams.backend || "markdown") === "markdown") {
       const commitMessage = `chore(${validParams.taskId}): delete task`;
-      await autoCommitTaskChanges(workspacePath, commitMessage);
+      await commitTaskChanges({
+        workspacePath,
+        message: commitMessage,
+        repoUrl: repoPath,
+        backend: validParams.backend || "markdown"
+      });
     }
 
     return {
