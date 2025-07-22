@@ -506,7 +506,7 @@ export async function deleteSessionFromParams(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<boolean> {
-  const { name, task, repo, sessionName } = params;
+  const { name, task, repo } = params;
 
   // Set up dependencies with defaults
   const deps = {
@@ -516,7 +516,7 @@ export async function deleteSessionFromParams(
   try {
     // Use unified session context resolver with auto-detection support
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: sessionName || name,
+      session: name,
       task: task,
       repo: repo,
       sessionProvider: deps.sessionDB,
@@ -552,10 +552,7 @@ export async function getSessionDirFromParams(
 
   let sessionName: string;
 
-  // Handle the sessionName parameter (from MCP)
-  if (params.sessionName) {
-    sessionName = params.sessionName;
-  } else if (params.task && !params.name) {
+  if (params.task && !params.name) {
     // Find session by task ID
     const normalizedTaskId = taskIdSchema.parse(params.task);
     const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
@@ -564,7 +561,7 @@ export async function getSessionDirFromParams(
       // Provide a more helpful error message showing possible sessions
       const allSessions = await deps.sessionDB.listSessions();
       const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ''}`).join(", ");
-      
+
       throw new ResourceNotFoundError(
         `No session found for task ID "${normalizedTaskId}"\n\n` +
         `💡 Available sessions: ${sessionNames}`
@@ -600,7 +597,7 @@ You must provide either a session name or task ID to get the session directory.
     // Provide a more helpful error message with available sessions
     const allSessions = await deps.sessionDB.listSessions();
     const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ''}`).join(", ");
-    
+
     throw new ResourceNotFoundError(
       `Session "${sessionName}" not found\n\n` +
       `💡 Available sessions: ${sessionNames}`

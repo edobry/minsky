@@ -199,8 +199,7 @@ Examples:
 
       try {
         const directory = await sessionDir({
-          sessionName: params!.sessionName || params!.name || params!.task,
-          name: params!.name,
+          name: params!.sessionName || params!.name,
           task: params!.task,
           json: params!.json,
         });
@@ -216,27 +215,20 @@ Examples:
           name: params!.name,
           task: params!.task,
         });
-        
+
         // Improve error message for better user experience
         if (error instanceof ResourceNotFoundError) {
           const originalMessage = error.message;
-          
+
           // Add better guidance if task ID or session name wasn't found
           if (originalMessage.includes("not found")) {
-            if (params!.task) {
-              error.message = formatSessionErrorMessage(
-                originalMessage,
-                "Try using the full session name (e.g., task-${params!.task}) or use \"minsky session list\" to see available sessions."
-              );
-            } else {
-              error.message = formatSessionErrorMessage(
-                originalMessage,
-                "Try \"minsky session list\" to see available sessions."
-              );
-            }
+            error.message = formatSessionErrorMessage(
+              originalMessage,
+              "Try \"minsky session list\" to see available sessions."
+            );
           }
         }
-        
+
         throw error;
       }
     },
@@ -272,8 +264,7 @@ Examples:
 
       try {
         const deleted = await sessionDelete({
-          sessionName: params!.sessionName || params!.name || params!.task,
-          name: params!.name,
+          name: params!.sessionName || params!.name,
           task: params!.task,
           repo: params!.repo,
           force: params!.force,
@@ -283,33 +274,26 @@ Examples:
           success: deleted,
         };
       } catch (error) {
-        log.debug("Failed to delete session", {
+                log.debug("Failed to delete session", {
           error: getErrorMessage(error as Error),
           sessionName: params!.sessionName,
           name: params!.name,
           task: params!.task,
         });
-        
+
         // Improve error message for better user experience
         if (error instanceof ResourceNotFoundError) {
           const originalMessage = error.message;
-          
+
           // Add better guidance if task ID or session name wasn't found
           if (originalMessage.includes("not found")) {
-            if (params!.task) {
-              error.message = formatSessionErrorMessage(
-                originalMessage,
-                "Try using the full session name (e.g., task-${params!.task}) or use \"minsky session list\" to see available sessions."
-              );
-            } else {
-              error.message = formatSessionErrorMessage(
-                originalMessage,
-                "Try \"minsky session list\" to see available sessions."
-              );
-            }
+            error.message = formatSessionErrorMessage(
+              originalMessage,
+              "Try \"minsky session list\" to see available sessions."
+            );
           }
         }
-        
+
         throw error;
       }
     },
@@ -405,18 +389,18 @@ Examples:
 
       try {
         // Map interface parameters to domain parameters correctly:
-        // - sessionName/name → session (direct session identifier)  
+        // - sessionName/name → session (direct session identifier)
         // - task → task (for lookup by task ID)
         const approvalResult = await sessionApprove({
           session: params!.sessionName || params!.name,  // Direct session identifier
           task: params!.task,         // Task ID for lookup (not session identifier!)
-          repo: params!.repo,         
+          repo: params!.repo,
           json: params!.json,
           noStash: params!.noStash,   // Add the missing parameter
         });
 
         log.debug("Session approve result", { result: approvalResult });
-        
+
         // Return in the expected command response format
         return {
           success: true,
