@@ -19,6 +19,8 @@ export interface WorkspaceResolverOptions {
   maxResolutionTime?: number;
   /** Skip special workspace entirely for maximum speed */
   emergencyMode?: boolean;
+  /** Disable special workspace (use current directory) */
+  disableSpecialWorkspace?: boolean;
 }
 
 /**
@@ -32,7 +34,8 @@ export async function resolveTaskWorkspacePath(options: WorkspaceResolverOptions
     backend = "markdown", 
     repoUrl,
     maxResolutionTime = 2000, // 2 second default timeout
-    emergencyMode = false
+    emergencyMode = false,
+    disableSpecialWorkspace = false
   } = options;
 
   const startTime = performance.now();
@@ -45,6 +48,12 @@ export async function resolveTaskWorkspacePath(options: WorkspaceResolverOptions
 
   // For non-markdown backends, use current directory immediately
   if (backend !== "markdown") {
+    return process.cwd();
+  }
+
+  // If special workspace is disabled, use current directory
+  if (disableSpecialWorkspace) {
+    log.debug("Special workspace disabled, using current directory");
     return process.cwd();
   }
 
