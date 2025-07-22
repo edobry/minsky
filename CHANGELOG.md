@@ -11,4 +11,10 @@
   - Maintains backward compatibility with existing usage
   - Provides feature parity with Cursor's built-in read_file tool for session workspaces
 
+### Fixed
+
+- Fixed `--body-path` and `--body` parameters not working for updating existing PRs
+- Resolved issue where PR body was always reused instead of using new content
+- Added comprehensive test coverage for session PR body content handling to prevent regression
+
 // ... existing changelog content ...
