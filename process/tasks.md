@@ -555,3 +555,5 @@
 - [x] Investigate and fix task operations hanging issues [#317](process/tasks/317-investigate-and-fix-task-operations-hanging-issues.md)
 
 - [x] Fix all linter errors [#318](process/tasks/318-fix-all-linter-errors.md)
+
+- [ ] Fix special workspace and main workspace synchronization for task operations [#319](process/tasks/319-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
