@@ -129,12 +129,13 @@ Need help? Run 'git status' to see what files have changed.
   }
 
   // Handle body content - read from file if bodyPath is provided
-  let bodyContent = params.body;
+  let bodyContent: string | undefined = params.body;
   if (params.bodyPath) {
     try {
       // Resolve relative paths relative to current working directory
       const filePath = require("path").resolve(params.bodyPath);
-      bodyContent = await readFile(filePath, "utf-8");
+      const fileContent = await readFile(filePath, "utf-8");
+      bodyContent = typeof fileContent === "string" ? fileContent : fileContent.toString();
 
       if (!bodyContent.trim()) {
         throw new ValidationError(`Body file is empty: ${params.bodyPath}`);
@@ -201,7 +202,7 @@ Need help? Run 'git status' to see what files have changed.
     session: sessionName,
     title: params.title,
     hasBody: !!bodyContent,
-    bodySource: params.bodyPath ? "file" : "parameter",
+    bodySource: params.bodyPath ? "file" : params.body ? "parameter" : "none",
     baseBranch: params.baseBranch,
   });
 
@@ -219,7 +220,13 @@ Need help? Run 'git status' to see what files have changed.
 
   if (!titleToUse && prBranchExists) {
     // Case: Existing PR + no title → Auto-reuse existing title/body (refresh)
-    log.cli("🔄 Refreshing existing PR (reusing title and body)...");
+    const hasNewBodyContent = !!(params.body || params.bodyPath);
+
+    if (hasNewBodyContent) {
+      log.cli("🔄 Refreshing existing PR (reusing title, using new body)...");
+    } else {
+      log.cli("🔄 Refreshing existing PR (reusing title and body)...");
+    }
 
     const existingDescription = await extractPrDescription(
       sessionName,
@@ -228,8 +235,14 @@ Need help? Run 'git status' to see what files have changed.
     );
     if (existingDescription) {
       titleToUse = existingDescription.title;
-      bodyToUse = existingDescription.body;
+      // Only reuse existing body if user didn't provide new body content
+      if (!hasNewBodyContent) {
+        bodyToUse = existingDescription.body;
+      }
       log.cli(`📝 Reusing existing title: "${titleToUse}"`);
+      if (hasNewBodyContent) {
+        log.cli(`📝 Using new body content from ${params.bodyPath ? "--body-path" : "--body"}`);
+      }
     } else {
       // Fallback if we can't extract description
       throw new MinskyError(
@@ -243,7 +256,22 @@ Need help? Run 'git status' to see what files have changed.
     );
   } else if (titleToUse && prBranchExists) {
     // Case: Existing PR + new title → Use new title/body (update)
-    log.cli("📝 Updating existing PR with new title/body...");
+    const hasNewBodyContent = !!(params.body || params.bodyPath);
+    if (hasNewBodyContent) {
+      log.cli("📝 Updating existing PR with new title and body...");
+    } else {
+      log.cli("📝 Updating existing PR with new title (keeping existing body)...");
+      // If no new body provided, try to keep existing body
+      const existingDescription = await extractPrDescription(
+        sessionName,
+        deps.gitService,
+        currentDir
+      );
+      if (existingDescription && !bodyToUse) {
+        bodyToUse = existingDescription.body;
+        log.cli("📝 Preserving existing PR body");
+      }
+    }
   } else if (titleToUse && !prBranchExists) {
     // Case: No PR + title → Normal creation flow
     log.cli("✨ Creating new PR...");

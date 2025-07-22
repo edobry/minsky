@@ -442,6 +442,10 @@ export async function getTaskSpecContentFromParams(
       : validParams.taskId;
     const taskId = normalizeTaskId(taskIdString);
 
+    if (!taskId) {
+      throw new ValidationError(`Invalid task ID: ${taskIdString}`);
+    }
+
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
       session: validParams.session,
@@ -466,16 +470,21 @@ export async function getTaskSpecContentFromParams(
       throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
     }
 
-    // Get the task spec path
-    const specPath = await taskService.getTaskSpecPath(taskId);
+    // SYNCHRONIZATION FIX: Use the stored spec path directly from the task database
+    // instead of calling getTaskSpecPath which may generate stale paths
+    const { fixTaskSpecPath } = await import("../../utils/task-workspace-commit");
+    const specPath = fixTaskSpecPath(task, workspacePath);
+
     if (!specPath) {
       throw new ResourceNotFoundError(`Task ${taskId} has no specification file`, "task", taskId);
     }
 
-    // Read the spec content
+    // Read the spec content with workspace-relative path handling
     let content: string;
     try {
-      content = (await readFile(specPath, "utf8")) as string;
+      const path = await import("path");
+      const fullSpecPath = specPath.startsWith("/") ? specPath : path.join(workspacePath, specPath);
+      content = (await readFile(fullSpecPath, "utf8")) as string;
     } catch (error) {
       throw new ResourceNotFoundError(
         `Could not read specification file at ${specPath}`,

@@ -1,95 +1,103 @@
 /**
- * Task Workspace Auto-Commit Utility
+ * Task Workspace Commit Utility
  *
- * Handles auto-commit functionality for task operations with proper support
- * for both regular workspace and special workspace scenarios.
+ * Handles auto-commit for task operations with proper workspace detection
+ * and synchronization between special workspace and main workspace.
  */
-import { createSpecialWorkspaceManager } from "../domain/workspace/special-workspace-manager";
-import { autoCommitTaskChanges } from "./auto-commit";
-import { log } from "./logger";
-import { getErrorMessage } from "../errors/index";
 
-/**
- * Auto-commit task changes with smart workspace detection
- *
- * This function determines whether to use regular auto-commit or special workspace
- * commit based on the workspace configuration and repository URL.
- *
- * @param options Configuration for the commit operation
- * @returns Promise<boolean> - true if changes were committed, false if no changes
- */
-export async function commitTaskChanges(options: {
+import { autoCommitTaskChanges } from "./auto-commit";
+import { createSpecialWorkspaceManager } from "../domain/workspace/special-workspace-manager";
+import { log } from "./logger";
+
+export interface TaskWorkspaceCommitOptions {
   workspacePath: string;
   message: string;
   repoUrl?: string;
   backend?: string;
-}): Promise<boolean> {
-  const { workspacePath, message, repoUrl, backend = "markdown" } = options;
+}
 
-  // Only apply auto-commit for markdown backend
-  if (backend !== "markdown") {
-    log.debug("Task auto-commit: Skipping auto-commit for non-markdown backend", { backend });
-    return false;
+/**
+ * Commit task changes with intelligent workspace detection
+ *
+ * This function solves the synchronization issue between special workspace
+ * and main workspace by:
+ * 1. Detecting if we're in a special workspace context
+ * 2. Using SpecialWorkspaceManager for special workspace scenarios
+ * 3. Falling back to regular auto-commit for main workspace scenarios
+ *
+ * @param options Commit options including workspace path and repo URL
+ * @returns Promise resolving to true if successful
+ */
+export async function commitTaskChanges(options: TaskWorkspaceCommitOptions): Promise<boolean> {
+  const { workspacePath, message, repoUrl, backend } = options;
+
+  // Only apply auto-commit for markdown backend operations
+  if (backend && backend !== "markdown") {
+    log.debug("Skipping auto-commit for non-markdown backend", { backend });
+    return true;
   }
 
-  try {
-    // If repoUrl is provided and we're using markdown backend, check if special workspace is being used
-    if (repoUrl) {
-      // Check if this workspace path is a special workspace by comparing with expected path
-      const specialWorkspaceManager = createSpecialWorkspaceManager({
-        repoUrl: repoUrl,
-      });
-
+  // Smart detection of special workspace
+  if (repoUrl) {
+    try {
+      const specialWorkspaceManager = createSpecialWorkspaceManager({ repoUrl });
       const specialWorkspacePath = specialWorkspaceManager.getWorkspacePath();
 
-      // If workspacePath matches the special workspace path, use special workspace commit
       if (workspacePath === specialWorkspacePath) {
-        log.debug("Task auto-commit: Using special workspace commit", {
+        log.debug("Using special workspace atomic operations", {
           workspacePath,
           specialWorkspacePath,
         });
 
-        try {
-          // Ensure the special workspace is up to date before committing
-          await specialWorkspaceManager.ensureUpToDate();
-
-          // Use special workspace manager's commit and push method
-          await specialWorkspaceManager.commitAndPush(message);
-          log.info("Task auto-commit: Successfully committed via special workspace", {
-            message,
-            workspacePath,
-          });
-          return true;
-        } catch (error) {
-          log.warn("Task auto-commit: Special workspace commit failed, trying fallback", {
-            error: getErrorMessage(error),
-            workspacePath,
-            message,
-          });
-          // Fall through to regular auto-commit as fallback
-        }
-      } else {
-        log.debug(
-          "Task auto-commit: Workspace path doesn't match special workspace, using regular commit",
-          {
-            workspacePath,
-            specialWorkspacePath,
-          }
-        );
+        // Use special workspace atomic operations
+        await specialWorkspaceManager.ensureUpToDate();
+        await specialWorkspaceManager.commitAndPush(message);
+        return true;
       }
+    } catch (error) {
+      log.warn("Special workspace operations failed, falling back to regular auto-commit", {
+        error: error instanceof Error ? error.message : String(error),
+        workspacePath,
+        repoUrl,
+      });
+      // Fall through to regular auto-commit
     }
-
-    // Use regular auto-commit for non-special workspace scenarios
-    log.debug("Task auto-commit: Using regular auto-commit", { workspacePath });
-    return await autoCommitTaskChanges(workspacePath, message);
-  } catch (error) {
-    // Log error but don't throw - auto-commit should not break task operations
-    log.error("Task auto-commit: Failed to commit task changes", {
-      workspacePath,
-      message,
-      repoUrl,
-      error: getErrorMessage(error),
-    });
-    return false;
   }
+
+  // Fallback to regular auto-commit for main workspace
+  log.debug("Using regular auto-commit", { workspacePath });
+  return await autoCommitTaskChanges(workspacePath, message);
+}
+
+/**
+ * Fix task spec path synchronization issues
+ *
+ * This function addresses the core issue where task spec commands
+ * use stale or generated spec paths instead of the actual stored ones.
+ *
+ * @param task Task data object
+ * @param workspacePath Workspace path for fallback generation
+ * @returns Corrected spec path
+ */
+export function fixTaskSpecPath(task: any, workspacePath: string): string {
+  // Always prefer the stored specPath from the database
+  if (task.specPath && typeof task.specPath === "string" && task.specPath.trim()) {
+    log.debug("Using stored spec path from database", {
+      taskId: task.id,
+      specPath: task.specPath,
+    });
+    return task.specPath;
+  }
+
+  // Fallback: generate spec path if none stored (legacy tasks)
+  const { getTaskSpecRelativePath } = require("../domain/tasks/taskIO");
+  const generatedPath = getTaskSpecRelativePath(task.id, task.title, workspacePath);
+
+  log.warn("Generated spec path for task missing specPath", {
+    taskId: task.id,
+    title: task.title,
+    generatedPath,
+  });
+
+  return generatedPath;
 }
