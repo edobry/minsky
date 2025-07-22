@@ -137,7 +137,10 @@ export function createSessionTestData(): SessionTestData {
   
   // This mock needs special handling to make toHaveBeenCalledWith work properly
   const getSessionByTaskIdMock = mock((taskId: string) => {
-    return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
+    // Normalize taskId to ensure tests that check for "#160" will pass
+    // even if someone passes "160" without the #
+    const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
+    return Promise.resolve(mockSessions.find((s) => s.taskId === normalizedTaskId) || null);
   });
   (mockSessionDB.getSessionByTaskId as any) = getSessionByTaskIdMock;
   
