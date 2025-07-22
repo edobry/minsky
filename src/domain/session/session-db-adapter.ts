@@ -153,6 +153,12 @@ export class SessionDbAdapter implements SessionProviderInterface {
     const storage = await this.getStorage();
     const sessions = await storage.getEntities();
 
+    // Log sessions and task IDs for debugging
+    log.debug("Searching for session by task ID", {
+      taskId,
+      availableSessions: sessions.map(s => ({ session: s.session, taskId: s.taskId }))
+    });
+
     // TASK 283: Normalize input task ID to storage format for comparison
     const normalizedTaskId = normalizeTaskIdForStorage(taskId);
     if (!normalizedTaskId) {
@@ -160,13 +166,36 @@ export class SessionDbAdapter implements SessionProviderInterface {
       return null;
     }
 
+    log.debug("Normalized task ID for lookup", { original: taskId, normalized: normalizedTaskId });
+
     // Find session where stored task ID matches normalized input
-    return sessions.find((s) => {
+    const matchingSession = sessions.find((s) => {
       if (!s.taskId) return false;
       // Normalize the stored task ID for comparison
       const storedNormalized = normalizeTaskIdForStorage(s.taskId);
+      log.debug("Comparing task IDs", {
+        session: s.session,
+        sessionTaskId: s.taskId,
+        storedNormalized,
+        lookingFor: normalizedTaskId,
+        matches: storedNormalized === normalizedTaskId
+      });
       return storedNormalized === normalizedTaskId;
     }) || null;
+
+    if (matchingSession) {
+      log.debug("Found matching session", { 
+        session: matchingSession.session, 
+        taskId: matchingSession.taskId 
+      });
+    } else {
+      log.debug("No matching session found", { 
+        taskId, 
+        normalizedTaskId 
+      });
+    }
+
+    return matchingSession;
   }
 
   async addSession(record: SessionRecord): Promise<void> {

@@ -1,5 +1,10 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
 ### Added
@@ -20,7 +25,7 @@
 
 - **Task #283: Task ID Storage/Display Format Separation Complete** - Successfully implemented comprehensive task ID format separation with test-driven bugfix completion
   - **Core Implementation**: 8 phases completed with 30 comprehensive utility tests (29/29 passing)
-  - **Storage Layer**: All task IDs stored in plain format ("283") across JSON, Markdown, and Session backends  
+  - **Storage Layer**: All task IDs stored in plain format ("283") across JSON, Markdown, and Session backends
   - **Display Layer**: Consistent # prefix display ("#283") in CLI and MCP interfaces
   - **Schema Integration**: Input normalization at validation layer using `taskIdSchema`
   - **Test-Driven Bugfix**: Applied systematic approach to fix 12 failing tests caused by format changes
@@ -65,6 +70,16 @@
 ### Added
 - **Task ID Migration**: Completed migration script execution with backup support for converting hash format to plain storage format
 - **Transition Period Support**: Added robust handling of mixed storage formats during migration period
+
+### Fixed
+
+- **Critical Session Parameter Mapping Issues** - Fixed CLI `--task` parameter lookup and eliminated redundant parameter handling
+  - **Fixed `--task` Lookup**: Session commands like `minsky session dir --task 317` now correctly lookup sessions by task ID instead of treating task ID as session name
+  - **Cleaned Parameter Mapping**: Removed redundant `sessionName`/`name` parameter duplication in shared command layer
+  - **Interface Layer Responsibility**: Interface adapters (CLI/MCP) now properly handle parameter mapping to standardized domain parameters
+  - **Domain Simplification**: Domain schemas now use single clean parameters instead of multiple redundant parameter names
+  - **Error Message Fix**: Removed incorrect error suggestion of `task-${taskId}` naming convention that doesn't exist in the system
+  - **Architecture Improvement**: The interface layer now handles parameter mapping as it should, not the shared command layer
 
 ## [2.14.0] - 2024-01-15
 
@@ -1367,7 +1382,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 
 - Regulatory system gap that allowed premature completion claims without verification command output
 
-### Changed  
+### Changed
 
 - 🎯 **MAJOR ACHIEVEMENT**: Task #305 primary objective ACHIEVED - 0 ESLint Jest pattern violations (down from 217+)
 - Jest pattern migration completed using systematic AST approach with Implementation Verification Protocol compliance
@@ -1402,10 +1417,10 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - AST-based Jest-to-Bun migration codemod in `codemods/` directory following established framework patterns ([Task #305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md))
 - Automated const assignment detection and repair tools for systematic codemod error cleanup ([Task #305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md))
 
-### Changed  
+### Changed
 
 - 🏆 **PERFECT SUCCESS**: Task #305 achieved 100% linting error elimination (176→0 errors) while maintaining 0 Jest violations
-- **Session Workspace Quality**: Transformed from broken codebase to pristine, fully functional code ready for PR creation  
+- **Session Workspace Quality**: Transformed from broken codebase to pristine, fully functional code ready for PR creation
 - **Jest Pattern Migration**: Successfully completed complete Jest pattern elimination (217+→0) with perfect code quality
 - **Implementation Verification Protocol**: Enhanced with mandatory triggers and comprehensive workspace verification
 - **Code Quality Standards**: Demonstrated systematic approach to achieving 100% error elimination in large-scale migrations
@@ -1414,7 +1429,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 
 - **Complete Error Elimination**: Resolved all 176 linting errors across 26+ files using systematic automated approach
 - **Jest Pattern Auto-Fix**: Applied ESLint automatic fixes to all remaining Jest pattern violations
-- **Parse Error Resolution**: Fixed all parsing issues and malformed syntax from codemod transformations  
+- **Parse Error Resolution**: Fixed all parsing issues and malformed syntax from codemod transformations
 - **Variable Naming Consistency**: Standardized patterns across test files and utilities
 - **Pre-commit Validation**: All quality control hooks now passing with zero errors
 - **Regulatory System Gap**: Fixed Implementation Verification Protocol to prevent workspace verification failures
@@ -1448,4 +1463,8 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 **Next Steps:**
 - Apply proven AST migration approach to main workspace (434 violations)
 - Fix session workspace syntax errors (176 issues) without losing Jest migration
-- Achieve true global completion: 0 violations in ALL workspaces with clean code
+  - Achieve true global completion: 0 violations in ALL workspaces with clean code
+
+- Added ESLint max-lines rule with two-phase approach (400 lines warning, 1500 lines error) to improve code maintainability
+- Improved session command backward compatibility with new sessionname parameter for MCP interaction
+- Enhanced error messages for session commands to provide more helpful guidance when sessions or task IDs are not found

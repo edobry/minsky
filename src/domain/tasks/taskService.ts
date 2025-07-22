@@ -565,17 +565,17 @@ ${description}
   }
 
   /**
-   * Create TaskService with workspace-resolving backend configuration
+   * Create TaskService with enhanced backend configuration
    * This eliminates the need for external workspace resolution
    */
-  static async createWithWorkspaceResolvingBackend(options: {
+  static async createWithEnhancedBackend(options: {
     backend: "markdown" | "json-file";
     backendConfig?: any;
     customBackends?: TaskBackend[];
   }): Promise<TaskService> {
     const { backend, backendConfig, customBackends } = options;
 
-    log.debug("Creating TaskService with workspace-resolving backend", {
+    log.debug("Creating TaskService with enhanced backend", {
       backend,
       hasConfig: !!backendConfig,
       hasCustomBackends: !!customBackends
@@ -589,7 +589,7 @@ ${description}
       });
     }
 
-    // Create workspace-resolving backend based on type
+    // Create enhanced backend based on type
     let resolvedBackend: any;
     
     switch (backend) {
@@ -598,8 +598,8 @@ ${description}
         throw new Error("Backend configuration required for markdown backend");
       }
         
-      const { createWorkspaceResolvingMarkdownBackend } = await import("./workspace-resolving-markdown-backend");
-      resolvedBackend = await createWorkspaceResolvingMarkdownBackend(backendConfig);
+      const { createMarkdownBackend } = await import("./markdown-backend");
+      resolvedBackend = await createMarkdownBackend(backendConfig);
       break;
     }
       
@@ -614,7 +614,7 @@ ${description}
     }
       
     default: {
-      throw new Error(`Workspace-resolving backend not available for type: ${backend}`);
+      throw new Error(`Enhanced backend not available for type: ${backend}`);
     }
     }
 
@@ -633,7 +633,7 @@ ${description}
     repoUrl: string;
     forceSpecialWorkspace?: boolean;
   }): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
+    return TaskService.createWithEnhancedBackend({
       backend: "markdown",
       backendConfig: {
         name: "markdown",
@@ -649,7 +649,7 @@ ${description}
   static async createMarkdownWithWorkspace(config: {
     workspacePath: string;
   }): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
+    return TaskService.createWithEnhancedBackend({
       backend: "markdown",
       backendConfig: {
         name: "markdown",
@@ -662,7 +662,7 @@ ${description}
    * Convenience method for current directory workspace detection
    */
   static async createMarkdownWithAutoDetection(): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
+    return TaskService.createWithEnhancedBackend({
       backend: "markdown",
       backendConfig: {
         name: "markdown"
@@ -678,7 +678,7 @@ ${description}
     repoUrl: string;
     dbFilePath?: string;
   }): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
+    return TaskService.createWithEnhancedBackend({
       backend: "json-file",
       backendConfig: {
         name: "json-file",
@@ -695,7 +695,7 @@ ${description}
     workspacePath: string;
     dbFilePath?: string;
   }): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
+    return TaskService.createWithEnhancedBackend({
       backend: "json-file",
       backendConfig: {
         name: "json-file",
@@ -711,7 +711,7 @@ ${description}
   static async createJsonWithAutoDetection(config?: {
     dbFilePath?: string;
   }): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
+    return TaskService.createWithEnhancedBackend({
       backend: "json-file",
       backendConfig: {
         name: "json-file",
