@@ -168,13 +168,38 @@ Examples:
     category: CommandCategory.SESSION,
     name: "dir",
     description: "Get the directory of a session",
-    parameters: sessionDirCommandParams,
+    parameters: {
+      ...sessionDirCommandParams,
+      // Add backward compatible parameters for CLI
+      name: {
+        schema: z.string().min(1),
+        description: "Session name",
+        required: false,
+      },
+      task: {
+        schema: z.string(),
+        description: "Task ID associated with the session",
+        required: false,
+      },
+      repo: {
+        schema: z.string(),
+        description: "Repository path",
+        required: false,
+      }
+    },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.dir command", { params, context });
 
+      // CLI compatibility: map name or task to sessionname if not provided
+      if (!params!.sessionname && (params!.name || params!.task)) {
+        params!.sessionname = params!.name || params!.task;
+      }
+      
       try {
         const directory = await sessionDir({
-          session: params!.session,
+          sessionname: params!.sessionname,
+          name: params!.name,
+          task: params!.task,
           json: params!.json,
         });
 
@@ -185,7 +210,7 @@ Examples:
       } catch (error) {
         log.debug("Failed to get session directory", {
           error: getErrorMessage(error as Error),
-          session: params!.session,
+          sessionname: params!.sessionname,
         });
         throw error;
       }
