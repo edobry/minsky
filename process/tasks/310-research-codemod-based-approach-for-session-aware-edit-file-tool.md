@@ -17,7 +17,7 @@ Investigate replacing the current patch-style diff approach in the session-aware
 The current session-aware edit file tool uses a patch-style diff format similar to Cursor's built-in tool:
 - Agent submits content with `// ... existing code ...` comments
 - New code is interspersed between existing code markers
-- Sent to a "fast apply bottle" for automated application
+- Sent to a "fast apply model" for automated application
 - Can have ambiguity issues in locating exact edit positions
 
 A codemod-based approach could potentially provide more precision by having the agent write targeted transformations that explicitly specify what code to replace with what new code, eliminating ambiguity about edit locations.
@@ -26,7 +26,7 @@ A codemod-based approach could potentially provide more precision by having the 
 
 ### 1. Current Tool Analysis
 - Deep dive into how the existing session-aware edit tool works
-- Understand the "fast apply bottle" mechanism and its limitations
+- Understand the "fast apply model" mechanism and its limitations
 - Document current failure modes and ambiguity issues
 - Analyze performance characteristics and resource usage
 
