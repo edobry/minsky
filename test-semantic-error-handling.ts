@@ -133,7 +133,7 @@ async function testErrorMappings() {
   
   // Verify each mapping has required fields
   for (const [key, mapping] of Object.entries(FILESYSTEM_ERROR_MAPPINGS)) {
-    if (!mapping.errorCode || !mapping.message || !mapping.solutions || typeof mapping.retryable !== 'boolean') {
+    if (!mapping.errorCode || !mapping.message || !mapping.solutions || typeof mapping.retryable !== "boolean") {
       throw new Error(`Invalid mapping for ${key}: missing required fields`);
     }
   }
@@ -159,10 +159,10 @@ async function testPathExtraction() {
   
   console.log("✅ Path Extraction:");
   console.log(`   Extracted Path: ${result.path}`);
-  console.log(`   Expected: /extracted/path/file.txt`);
+  console.log("   Expected: /extracted/path/file.txt");
   
   if (result.path !== "/extracted/path/file.txt") {
-    throw new Error(`Path extraction failed: expected '/extracted/path/file.txt', got '${result.path}'`);
+    throw new Error(`Path extraction failed: expected "/extracted/path/file.txt", got "${result.path}"`);
   }
 }
 
