@@ -506,7 +506,7 @@ export async function deleteSessionFromParams(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<boolean> {
-  const { name, task, repo } = params;
+  const { name, task, repo, sessionname } = params;
 
   // Set up dependencies with defaults
   const deps = {
@@ -516,7 +516,7 @@ export async function deleteSessionFromParams(
   try {
     // Use unified session context resolver with auto-detection support
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: name,
+      session: sessionname || name,
       task: task,
       repo: repo,
       sessionProvider: deps.sessionDB,
@@ -546,7 +546,6 @@ export async function getSessionDirFromParams(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<string> {
-  // Set up dependencies with defaults
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
   };
@@ -562,7 +561,14 @@ export async function getSessionDirFromParams(
     const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
 
     if (!session) {
-      throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
+      // Provide a more helpful error message showing possible sessions
+      const allSessions = await deps.sessionDB.listSessions();
+      const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ''}`).join(", ");
+      
+      throw new ResourceNotFoundError(
+        `No session found for task ID "${normalizedTaskId}"\n\n` +
+        `💡 Available sessions: ${sessionNames}`
+      );
     }
 
     sessionName = session.session;
@@ -591,7 +597,14 @@ You must provide either a session name or task ID to get the session directory.
   const session = await deps.sessionDB.getSession(sessionName);
 
   if (!session) {
-    throw new ResourceNotFoundError(`Session "${sessionName}" not found`);
+    // Provide a more helpful error message with available sessions
+    const allSessions = await deps.sessionDB.listSessions();
+    const sessionNames = allSessions.map(s => `${s.session}${s.taskId ? ` (Task #${s.taskId})` : ''}`).join(", ");
+    
+    throw new ResourceNotFoundError(
+      `Session "${sessionName}" not found\n\n` +
+      `💡 Available sessions: ${sessionNames}`
+    );
   }
 
   // Get repo path from session using the getRepoPath method which has fallback logic

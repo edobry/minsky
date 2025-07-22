@@ -1457,3 +1457,4 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 
 - Added ESLint max-lines rule with two-phase approach (400 lines warning, 1500 lines error) to improve code maintainability
 - Improved session command backward compatibility with new sessionname parameter for MCP interaction
+- Enhanced error messages for session commands to provide more helpful guidance when sessions or task IDs are not found
