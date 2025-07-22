@@ -102,7 +102,6 @@ export function getSessionCustomizations(): { category: CommandCategory; options
             task: {
               alias: "t",
               description: "Task ID associated with the session",
-              mapTo: "session", // Map the task parameter to the session parameter
             },
           },
         },

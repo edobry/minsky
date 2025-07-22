@@ -530,7 +530,7 @@
 
 - [x] Implement Custom Type-Safe Configuration System [#295](process/tasks/295-implement-custom-type-safe-configuration-system.md)
 
-- [ ] Audit codebase for git command timeout issues and create ESLint rule [#301](process/tasks/301-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
+- [+] Audit codebase for git command timeout issues and create ESLint rule [#301](process/tasks/301-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
 
 - [ ] Explore Exposing Rules and Documentation as MCP Resources with Template Integration [#302](process/tasks/302-explore-exposing-rules-and-documentation-as-mcp-resources-with-template-integration.md)
 
@@ -548,8 +548,10 @@
 
 - [x] Fix meta-cognitive boundary protocol violations: remove workspace-resolving prefixes, use simple names like markdown-backend.ts [#309](process/tasks/309-fix-meta-cognitive-boundary-protocol-violations-remove-workspace-resolving-prefixes-use-simple-names-like-markdown-backend-ts.md)
 
-- [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
+- [x] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
 
 - [x] Enable max-lines ESLint rule with two-phase approach (400 warning, 1500 error) [#316](process/tasks/316-enable-max-lines-eslint-rule-with-two-phase-approach-400-warning-1500-error-.md)
 
 - [x] Investigate and fix task operations hanging issues [#317](process/tasks/317-investigate-and-fix-task-operations-hanging-issues.md)
+
+- [+] Fix all linter errors [#318](process/tasks/318-fix-all-linter-errors.md)
