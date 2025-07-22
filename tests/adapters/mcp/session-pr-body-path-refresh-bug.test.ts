@@ -1,10 +1,10 @@
 /**
  * Test-Driven Bug Fix: session PR --body-path and --body ignored for existing PRs
- * 
+ *
  * Bug Description: When refreshing an existing PR without providing a title,
  * the sessionPrImpl function ignores new body content provided via --body-path
  * or --body parameters and always reuses the existing PR body.
- * 
+ *
  * This test should have been written BEFORE fixing the bug to reproduce it,
  * then updated to verify the fix works correctly.
  */
@@ -17,7 +17,7 @@ describe("Session PR Body Content Bug Fix", () => {
   const testDir = "/tmp/minsky-session-pr-body-test";
   const testBodyPath = join(testDir, "new-pr-body.md");
   const newBodyContent = "## New PR Body\n\nThis content should be used instead of existing body.";
-  
+
   beforeEach(async () => {
     await mkdir(testDir, { recursive: true });
     await writeFile(testBodyPath, newBodyContent);
@@ -32,30 +32,30 @@ describe("Session PR Body Content Bug Fix", () => {
     test("should use new --body-path content when refreshing existing PR", async () => {
       // This test reproduces the specific bug scenario:
       // 1. Existing PR exists (prBranchExists = true)
-      // 2. No title provided (titleToUse = undefined) 
+      // 2. No title provided (titleToUse = undefined)
       // 3. New body content provided via --body-path
       // 4. BUG: bodyToUse gets overwritten with existing body instead of new content
 
       // Arrange: Mock the core logic that had the bug
       let bodyUsedForPr: string | undefined;
-      
+
       // Simulate the buggy logic (before our fix)
       const simulateBuggyLogic = (params: any, existingBody: string) => {
         const prBranchExists = true; // Existing PR
         const titleToUse = params.title; // undefined = refresh mode
         let bodyToUse = params.bodyContent; // New content from --body-path
-        
+
         if (!titleToUse && prBranchExists) {
           // BUG WAS HERE: Always overwrote bodyToUse with existing body
           // bodyToUse = existingBody; // This was the bug!
-          
+
           // FIXED LOGIC: Only reuse existing body if no new content provided
           const hasNewBodyContent = !!(params.body || params.bodyContent);
           if (!hasNewBodyContent) {
             bodyToUse = existingBody;
           }
         }
-        
+
         bodyUsedForPr = bodyToUse;
         return { body: bodyToUse };
       };
@@ -66,7 +66,7 @@ describe("Session PR Body Content Bug Fix", () => {
         body: undefined,
         bodyContent: newBodyContent, // New content from file
       };
-      
+
       const existingEmptyBody = ""; // Existing PR had empty body
       const result = simulateBuggyLogic(params, existingEmptyBody);
 
@@ -79,14 +79,14 @@ describe("Session PR Body Content Bug Fix", () => {
     test("should use new --body content when refreshing existing PR", async () => {
       // Test the same bug but with direct --body parameter
       const directBodyContent = "## Direct Body\n\nProvided via --body parameter.";
-      
+
       let bodyUsedForPr: string | undefined;
-      
+
       const simulateLogic = (params: any, existingBody: string) => {
         const prBranchExists = true;
         const titleToUse = params.title;
         let bodyToUse = params.body;
-        
+
         if (!titleToUse && prBranchExists) {
           // Fixed logic: Check if new body content was provided
           const hasNewBodyContent = !!(params.body || params.bodyPath);
@@ -94,7 +94,7 @@ describe("Session PR Body Content Bug Fix", () => {
             bodyToUse = existingBody;
           }
         }
-        
+
         bodyUsedForPr = bodyToUse;
         return { body: bodyToUse };
       };
@@ -104,7 +104,7 @@ describe("Session PR Body Content Bug Fix", () => {
         body: directBodyContent, // Direct body content
         bodyPath: undefined,
       };
-      
+
       const existingBody = "Old existing body content";
       const result = simulateLogic(params, existingBody);
 
@@ -116,19 +116,19 @@ describe("Session PR Body Content Bug Fix", () => {
     test("should reuse existing body when no new content provided (correct behavior)", async () => {
       // This verifies the correct behavior when NO new body is provided
       let bodyUsedForPr: string | undefined;
-      
+
       const simulateLogic = (params: any, existingBody: string) => {
         const prBranchExists = true;
         const titleToUse = params.title;
         let bodyToUse = params.body;
-        
+
         if (!titleToUse && prBranchExists) {
           const hasNewBodyContent = !!(params.body || params.bodyPath);
           if (!hasNewBodyContent) {
             bodyToUse = existingBody; // This should happen
           }
         }
-        
+
         bodyUsedForPr = bodyToUse;
         return { body: bodyToUse };
       };
@@ -138,7 +138,7 @@ describe("Session PR Body Content Bug Fix", () => {
         body: undefined,
         bodyPath: undefined,
       };
-      
+
       const existingBody = "This existing body should be reused";
       const result = simulateLogic(params, existingBody);
 
@@ -153,10 +153,10 @@ describe("Session PR Body Content Bug Fix", () => {
       // Test the actual file reading logic that works with --body-path
       const filePath = require("path").resolve(testBodyPath);
       const { readFile } = await import("fs/promises");
-      
+
       const fileContent = await readFile(filePath, "utf-8");
       const content = typeof fileContent === "string" ? fileContent : fileContent.toString();
-      
+
       expect(content).toBe(newBodyContent);
       expect(content.trim()).not.toBe("");
     });
@@ -164,10 +164,10 @@ describe("Session PR Body Content Bug Fix", () => {
     test("should handle non-existent body files correctly", async () => {
       const nonExistentPath = join(testDir, "missing-file.md");
       const { readFile } = await import("fs/promises");
-      
+
       await expect(async () => {
         await readFile(nonExistentPath, "utf-8");
       }).toThrow();
     });
   });
-}); 
+});

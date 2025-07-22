@@ -51,13 +51,7 @@ export default {
   create(context) {
     const options = context.options[0] || {};
     const allowInTests = options.allowInTests || false;
-    const allowedLocalOperations = options.allowedLocalOperations || [
-      "status",
-      "branch",
-      "log",
-      "diff",
-      "show",
-    ];
+    const allowedLocalOperations = options.allowedLocalOperations || [];
 
     // Check if we're in a test file
     const filename = context.getFilename();
@@ -82,12 +76,28 @@ export default {
 
     function getSuggestion(operation) {
       const suggestions = {
+        // Network operations (high priority)
         push: "gitPushWithTimeout() or execGitWithTimeout('push', ...)",
         pull: "gitPullWithTimeout() or execGitWithTimeout('pull', ...)",
         fetch: "gitFetchWithTimeout() or execGitWithTimeout('fetch', ...)",
         clone: "gitCloneWithTimeout() or execGitWithTimeout('clone', ...)",
         "ls-remote": "execGitWithTimeout('ls-remote', ...)",
+
+        // Local operations that can hang (identified in audit)
+        status: "execGitWithTimeout('status', ...)",
+        diff: "execGitWithTimeout('diff', ...)",
+        "ls-files": "execGitWithTimeout('ls-files', ...)",
+        add: "execGitWithTimeout('add', ...)",
+        commit: "execGitWithTimeout('commit', ...)",
+        stash: "execGitWithTimeout('stash', ...)",
+        "rev-parse": "execGitWithTimeout('rev-parse', ...)",
         remote: "execGitWithTimeout('remote', ...)",
+        checkout: "execGitWithTimeout('checkout', ...)",
+        rebase: "execGitWithTimeout('rebase', ...)",
+        branch: "execGitWithTimeout('branch', ...)",
+        log: "execGitWithTimeout('log', ...)",
+        show: "execGitWithTimeout('show', ...)",
+        rm: "execGitWithTimeout('rm', ...)",
       };
       return suggestions[operation] || "execGitWithTimeout() with appropriate timeout";
     }

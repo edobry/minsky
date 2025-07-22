@@ -46,7 +46,7 @@ function processFileContentWithLineRange(
     const maxLines = Math.min(250, totalLines);
     const selectedLines = lines.slice(0, maxLines);
     const resultContent = selectedLines.join("\n");
-    
+
     let summary: string | undefined;
     if (totalLines > maxLines) {
       summary = `Outline of the rest of the file:\n[Lines ${maxLines + 1}-${totalLines} contain additional content...]`;
@@ -69,7 +69,7 @@ function processFileContentWithLineRange(
   let actualEndLine = endLine;
 
   // For very small files (≤50 lines), show entire file if range is small
-  if (totalLines <= 50 && (endLine - startLine + 1) < totalLines) {
+  if (totalLines <= 50 && endLine - startLine + 1 < totalLines) {
     actualStartLine = 1;
     actualEndLine = totalLines;
   } else {
@@ -87,8 +87,12 @@ function processFileContentWithLineRange(
 
   let summary: string | undefined;
   if (actualStartLine > 1 || actualEndLine < totalLines) {
-    const before = actualStartLine > 1 ? `Lines 1-${actualStartLine - 1}: [Earlier content...]` : "";
-    const after = actualEndLine < totalLines ? `Lines ${actualEndLine + 1}-${totalLines}: [Later content...]` : "";
+    const before =
+      actualStartLine > 1 ? `Lines 1-${actualStartLine - 1}: [Earlier content...]` : "";
+    const after =
+      actualEndLine < totalLines
+        ? `Lines ${actualEndLine + 1}-${totalLines}: [Later content...]`
+        : "";
     const parts = [before, after].filter(Boolean);
     if (parts.length > 0) {
       summary = `Outline of the rest of the file:\n${parts.join("\n")}`;
@@ -98,7 +102,10 @@ function processFileContentWithLineRange(
   return {
     content: resultContent,
     totalLines,
-    linesShown: actualStartLine === actualEndLine ? `${actualStartLine}` : `${actualStartLine}-${actualEndLine}`,
+    linesShown:
+      actualStartLine === actualEndLine
+        ? `${actualStartLine}`
+        : `${actualStartLine}-${actualEndLine}`,
     summary,
   };
 }
@@ -191,10 +198,25 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
-      start_line_one_indexed: z.number().min(1).optional().describe("The one-indexed line number to start reading from (inclusive)"),
-      end_line_one_indexed_inclusive: z.number().min(1).optional().describe("The one-indexed line number to end reading at (inclusive)"),
-      should_read_entire_file: z.boolean().optional().default(false).describe("Whether to read the entire file"),
-      explanation: z.string().optional().describe("One sentence explanation of why this tool is being used"),
+      start_line_one_indexed: z
+        .number()
+        .min(1)
+        .optional()
+        .describe("The one-indexed line number to start reading from (inclusive)"),
+      end_line_one_indexed_inclusive: z
+        .number()
+        .min(1)
+        .optional()
+        .describe("The one-indexed line number to end reading at (inclusive)"),
+      should_read_entire_file: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("Whether to read the entire file"),
+      explanation: z
+        .string()
+        .optional()
+        .describe("One sentence explanation of why this tool is being used"),
     }),
     handler: async (args): Promise<FileOperationResponse> => {
       try {
@@ -246,7 +268,10 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         };
 
         // Add line range metadata if applicable
-        if (processed.linesShown !== "(entire file)" && !processed.linesShown.includes("entire file")) {
+        if (
+          processed.linesShown !== "(entire file)" &&
+          !processed.linesShown.includes("entire file")
+        ) {
           const [start, end] = processed.linesShown.split("-").map(Number);
           response.linesRead = {
             start: start || Number(processed.linesShown),
