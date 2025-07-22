@@ -30,6 +30,11 @@ export const sessionListCommandParams: CommandParameterMap = {
  * Parameters for the session get command
  */
 export const sessionGetCommandParams: CommandParameterMap = {
+  session: {
+    schema: z.string().min(1),
+    description: "Session identifier (name or task ID)",
+    required: false,
+  },
   name: {
     schema: z.string().min(1),
     description: "Session name",
@@ -120,7 +125,7 @@ export const sessionDirCommandParams: CommandParameterMap = {
   session: {
     schema: z.string().min(1),
     description: "Session identifier (name or task ID)",
-    required: true,
+    required: false, // Change from true to false to allow using name or task instead
   },
   json: {
     schema: z.boolean(),
@@ -137,7 +142,7 @@ export const sessionDeleteCommandParams: CommandParameterMap = {
   session: {
     schema: z.string().min(1),
     description: "Session identifier (name or task ID)",
-    required: true,
+    required: false, // Changed to allow using name or task instead
   },
   force: {
     schema: z.boolean(),
@@ -160,7 +165,7 @@ export const sessionUpdateCommandParams: CommandParameterMap = {
   session: {
     schema: z.string().min(1),
     description: "Session identifier (name or task ID)",
-    required: true,
+    required: false, // Changed to allow using name or task instead
   },
   branch: {
     schema: z.string(),
@@ -224,7 +229,7 @@ export const sessionApproveCommandParams: CommandParameterMap = {
   session: {
     schema: z.string().min(1),
     description: "Session identifier (name or task ID)",
-    required: true,
+    required: false, // Changed to allow using name or task instead
   },
   noStash: {
     schema: z.boolean(),
@@ -247,7 +252,7 @@ export const sessionPrCommandParams: CommandParameterMap = {
   session: {
     schema: z.string().min(1),
     description: "Session identifier (name or task ID)",
-    required: true,
+    required: false, // Changed to allow using name or task instead
   },
   title: {
     schema: z.string().min(1),
