@@ -122,10 +122,10 @@ export const sessionStartCommandParams: CommandParameterMap = {
  * Parameters for the session dir command
  */
 export const sessionDirCommandParams: CommandParameterMap = {
-  session: {
+  sessionname: {
     schema: z.string().min(1),
     description: "Session identifier (name or task ID)",
-    required: false, // Change from true to false to allow using name or task instead
+    required: false, // Not required to allow using name or task instead
   },
   json: {
     schema: z.boolean(),
