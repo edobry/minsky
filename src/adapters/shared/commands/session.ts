@@ -94,12 +94,15 @@ export function registerSessionCommands(): void {
 
       try {
         const session = await sessionGet({
-          session: params!.session,
+          name: params!.name,
+          task: params!.task,
+          repo: params!.repo,
           json: params!.json,
         });
 
         if (!session) {
-          throw new Error(`Session '${params!.session}' not found`);
+          const identifier = params!.name || `task #${params!.task}`;
+          throw new Error(`Session '${identifier}' not found`);
         }
 
         return {
@@ -109,7 +112,8 @@ export function registerSessionCommands(): void {
       } catch (error) {
         log.error("Failed to get session", {
           error: getErrorMessage(error as Error),
-          session: params!.session,
+          session: params!.name,
+          task: params!.task,
         });
         throw error;
       }

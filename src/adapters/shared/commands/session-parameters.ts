@@ -30,10 +30,20 @@ export const sessionListCommandParams: CommandParameterMap = {
  * Parameters for the session get command
  */
 export const sessionGetCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string().min(1),
-    description: "Session identifier (name or task ID)",
-    required: true,
+    description: "Session name",
+    required: false,
+  },
+  task: {
+    schema: z.string(),
+    description: "Task ID associated with the session",
+    required: false,
+  },
+  repo: {
+    schema: z.string(),
+    description: "Repository path",
+    required: false,
   },
   json: {
     schema: z.boolean(),
