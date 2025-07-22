@@ -15,6 +15,8 @@ import {
   type CommandParameterMap,
 } from "../../shared/command-registry";
 import { RuleService, type RuleFormat } from "../../../domain/rules";
+import { createRuleTemplateService } from "../../../domain/rules/rule-template-service";
+import { type RuleGenerationConfig } from "../../../domain/rules/template-system";
 import { resolveWorkspacePath } from "../../../domain/workspace";
 import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers";
 import { log } from "../../../utils/logger";
@@ -82,6 +84,83 @@ const rulesGetCommandParams: CommandParameterMap = {
     schema: z.string().optional(),
     description: "Preferred rule format (cursor or generic)",
     required: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output in JSON format",
+    required: false,
+    defaultValue: false,
+  },
+  debug: {
+    schema: z.boolean(),
+    description: "Enable debug output",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
+ * Parameters for the rules generate command
+ */
+type RulesGenerateParams = {
+  interface?: "cli" | "mcp" | "hybrid";
+  rules?: string;
+  outputDir?: string;
+  dryRun?: boolean;
+  overwrite?: boolean;
+  format?: "cursor" | "openai";
+  preferMcp?: boolean;
+  mcpTransport?: "stdio" | "http";
+  json?: boolean;
+  debug?: boolean;
+};
+
+const rulesGenerateCommandParams: CommandParameterMap = {
+  interface: {
+    schema: z.enum(["cli", "mcp", "hybrid"]),
+    description: "Interface preference for generated rules (cli, mcp, or hybrid)",
+    required: false,
+    defaultValue: "cli",
+  },
+  rules: {
+    schema: z.string().optional(),
+    description: "Comma-separated list of specific rule templates to generate (if not specified, generates all available templates)",
+    required: false,
+  },
+  outputDir: {
+    schema: z.string().optional(),
+    description: "Output directory for generated rules (defaults to .cursor/rules for cursor format, .ai/rules for openai format)",
+    required: false,
+  },
+  dryRun: {
+    schema: z.boolean(),
+    description: "Show what would be generated without actually creating files",
+    required: false,
+    defaultValue: false,
+  },
+  overwrite: {
+    schema: z.boolean(),
+    description: OVERWRITE_DESCRIPTION,
+    required: false,
+    defaultValue: false,
+  },
+  format: {
+    schema: z.enum(["cursor", "openai"]),
+    description: "Rule format for file system organization (cursor or openai)",
+    required: false,
+    defaultValue: "cursor",
+  },
+  preferMcp: {
+    schema: z.boolean(),
+    description: "In hybrid mode, prefer MCP commands over CLI commands",
+    required: false,
+    defaultValue: false,
+  },
+  mcpTransport: {
+    schema: z.enum(["stdio", "http"]),
+    description: "MCP transport method (only relevant when interface is mcp or hybrid)",
+    required: false,
+    defaultValue: "stdio",
   },
   json: {
     schema: z.boolean(),
@@ -345,6 +424,67 @@ export function registerRulesCommands(): void {
           error: getErrorMessage(error),
           id: typedParams.id,
         });
+        throw error;
+      }
+    },
+  });
+
+  // Register rules generate command
+  sharedCommandRegistry.registerCommand({
+    id: "rules.generate",
+    category: CommandCategory.RULES,
+    name: "generate",
+    description: "Generate new rules from templates",
+    parameters: rulesGenerateCommandParams,
+    execute: async (params: any) => {
+      log.debug("Executing rules.generate command", { params });
+        
+      const typedParams = params as RulesGenerateParams;
+
+      try {
+                 // Resolve workspace path
+         const workspacePath = await resolveWorkspacePath({});
+         const ruleTemplateService = createRuleTemplateService(workspacePath);
+         
+         // Register templates
+         await ruleTemplateService.registerDefaultTemplates();
+
+         // Convert parameters to RuleGenerationConfig
+         const config: RuleGenerationConfig = {
+           interface: (typedParams.interface || "cli") as "cli" | "mcp" | "hybrid",
+           mcpEnabled: typedParams.interface === "mcp" || typedParams.interface === "hybrid",
+           mcpTransport: (typedParams.mcpTransport || "stdio") as "stdio" | "http",
+           preferMcp: typedParams.preferMcp || false,
+           ruleFormat: (typedParams.format || "cursor") as "cursor" | "openai",
+           outputDir: typedParams.outputDir || (typedParams.format === "cursor" ? ".cursor/rules" : ".ai/rules"),
+         };
+
+         const selectedRules = typedParams.rules ? typedParams.rules.split(",").map(t => t.trim()) : undefined;
+         const dryRun = typedParams.dryRun || false;
+         const overwrite = typedParams.overwrite || false;
+
+         // Call domain function
+         const result = await ruleTemplateService.generateRules({
+           config,
+           selectedRules,
+           dryRun,
+           overwrite,
+         });
+
+                 return {
+           success: result.success,
+           rules: result.rules,
+           errors: result.errors,
+           generated: result.rules.length,
+         };
+      } catch (error) {
+                 log.error("Failed to generate rules", {
+           error: getErrorMessage(error),
+           interface: typedParams.interface,
+           selectedRules: typedParams.rules,
+           dryRun: typedParams.dryRun,
+           overwrite: typedParams.overwrite,
+         });
         throw error;
       }
     },
