@@ -2,6 +2,10 @@
 
 ## Context
 
+# Fix special workspace and main workspace synchronization for task operations
+
+## Context
+
 During investigation of task #313, we discovered that while task files are correctly created in both the special workspace (~/.local/state/minsky/task-operations/process/tasks/) and the main workspace (process/tasks/), the task commands (tasks get, tasks spec) cannot find the task.
 
 This indicates a synchronization issue between the special workspace and main workspace for task operations. Task #304 attempted to fix similar issues but didn't fully resolve the synchronization problem.
@@ -89,10 +93,10 @@ Each function now passes the complete context including `repoUrl` and `backend` 
 
 ### Verification Results
 
-✅ **Task Creation**: Successfully created task #319 from session workspace  
-✅ **Task Lookup**: Task visible from both session workspace and main workspace  
-✅ **Status Updates**: Successfully updated task #310 status to IN-PROGRESS  
-✅ **Synchronization**: Status change visible from both workspaces immediately  
+✅ **Task Creation**: Successfully created task #319 from session workspace
+✅ **Task Lookup**: Task visible from both session workspace and main workspace
+✅ **Status Updates**: Successfully updated task #321 status to IN-PROGRESS
+✅ **Synchronization**: Status change visible from both workspaces immediately
 ✅ **Auto-commit**: Changes properly committed and synchronized via special workspace
 
 ### Test Cases Covered
@@ -104,9 +108,9 @@ Each function now passes the complete context including `repoUrl` and `backend` 
 
 ## Requirements
 
-✅ **Consistent Task Visibility**: Task commands can find tasks regardless of creation location  
-✅ **Proper Synchronization**: Changes in special workspace sync to main workspace  
-✅ **Auto-commit Integration**: Automatic git operations work correctly for both workspace types  
+✅ **Consistent Task Visibility**: Task commands can find tasks regardless of creation location
+✅ **Proper Synchronization**: Changes in special workspace sync to main workspace
+✅ **Auto-commit Integration**: Automatic git operations work correctly for both workspace types
 ✅ **Backward Compatibility**: Existing functionality preserved for regular workspace operations
 
 ## Solution Benefits
@@ -127,3 +131,10 @@ This fix resolves the core synchronization issue by ensuring that:
 - All changes are properly synchronized between special workspace and main workspace via git operations
 
 The solution maintains backward compatibility while adding robust support for the special workspace architecture implemented in Task #193.
+
+
+## Requirements
+
+## Solution
+
+## Notes
