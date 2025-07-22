@@ -16,6 +16,11 @@ import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "../tasks";
 import { execAsync } from "../../utils/exec";
+import { 
+  gitPushWithTimeout, 
+  gitFetchWithTimeout,
+  execGitWithTimeout 
+} from "../../utils/git-exec";
 import {
   type WorkspaceUtilsInterface,
   getCurrentSession,
@@ -78,34 +83,62 @@ export async function approveSessionImpl(
     const taskIdToUse = taskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
-    // Get session by task ID
+    // **BUG FIX**: Validate task existence BEFORE checking for session
+    // Create TaskService to check if task actually exists
+    const taskService = new TaskService({
+      workspacePath: params.repo || process.cwd(),
+      backend: "markdown", // Use default backend for validation
+    });
+
+    try {
+      const task = await taskService.getTask(taskIdToUse);
+      if (!task) {
+        // Task doesn't exist - provide clear, concise error
+        throw new ResourceNotFoundError(
+          `❌ Task not found: ${taskIdToUse}
+
+The specified task does not exist.
+
+💡 Available options:
+• Run 'minsky tasks list' to see all available tasks
+• Check your task ID for typos
+• Use 'minsky session list' to see tasks with active sessions`,
+          "task",
+          taskIdToUse
+        );
+      }
+    } catch (error) {
+      // If task validation fails, re-throw with clear error
+      if (error instanceof ResourceNotFoundError) {
+        throw error;
+      }
+      // For other errors (like TaskService issues), provide generic error
+      throw new ResourceNotFoundError(
+        `❌ Could not validate task: ${taskIdToUse}
+
+Unable to check if the task exists.
+
+💡 Available options:
+• Run 'minsky tasks list' to see all available tasks
+• Check your task ID for typos`,
+        "task",
+        taskIdToUse
+      );
+    }
+
+    // Task exists, now check for session
     const session = await sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
+      // Task exists but no session - provide clear, concise error
       throw new ResourceNotFoundError(
-        `🚫 No Session Found for Task ${taskIdToUse}
+        `❌ No session found for task ${taskIdToUse}
 
-Task ${taskIdToUse} exists but has no associated session to approve.
+The task exists but has no associated session to approve.
 
-💡 Here's what you can do:
-
-1️⃣ Check if the task has a session:
-   minsky session list
-
-2️⃣ Start a session for this task:
-   minsky session start --task ${taskIdToUse}
-
-3️⃣ Or approve a different task that has a session:
-   minsky session list | grep "task:"
-   minsky session approve --task <task-id-with-session>
-
-📋 Current available sessions:
-   Run 'minsky session list' to see which tasks have active sessions.
-
-❓ Need help?
-   • Use 'minsky session start --task ${taskIdToUse}' to create a session
-   • Use 'minsky tasks list' to see all available tasks
-   • Use 'minsky session get --task <id>' to check session details`,
-        "task",
+💡 Available options:
+• Run 'minsky session start --task ${taskIdToUse}' to create a session
+• Use 'minsky session list' to see tasks with active sessions`,
+        "session",
         taskIdToUse
       );
     }
@@ -256,7 +289,7 @@ Task ${taskIdToUse} exists but has no associated session to approve.
     if (!params.json) {
       log.cli("📡 Fetching latest changes...");
     }
-    await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
+    await gitFetchWithTimeout("origin", undefined, { workdir: workingDirectory });
 
     // Check if the PR branch has already been merged
     let isNewlyApproved = true;
@@ -301,14 +334,14 @@ Task ${taskIdToUse} exists but has no associated session to approve.
         ).trim();
 
         // Push the changes
-        await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
+        await gitPushWithTimeout("origin", baseBranch, { workdir: workingDirectory });
 
         // Delete the PR branch from remote only if it exists there
         try {
-          // Check if remote branch exists first using execAsync directly to avoid error logging
+          // Check if remote branch exists first using timeout wrapper to avoid hanging
           // This is expected to fail if the branch doesn't exist, which is normal
-          await execAsync(`git show-ref --verify --quiet refs/remotes/origin/${prBranch}`, {
-            cwd: workingDirectory
+          await execGitWithTimeout("check-remote-ref", `show-ref --verify --quiet refs/remotes/origin/${prBranch}`, {
+            workdir: workingDirectory
           });
           // If it exists, delete it
           await deps.gitService.execInRepository(
@@ -437,7 +470,7 @@ Task ${taskIdToUse} exists but has no associated session to approve.
               await deps.gitService.execInRepository(workingDirectory, `git commit -m "chore(${taskId}): update task status to DONE"`);
 
               // Push the commit
-              await deps.gitService.execInRepository(workingDirectory, "git push");
+              await gitPushWithTimeout("origin", undefined, { workdir: workingDirectory });
 
               log.debug(`Committed and pushed task ${taskId} status update`);
             } else {

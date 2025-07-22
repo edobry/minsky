@@ -10,8 +10,8 @@ import { readFile, writeFile } from "fs/promises";
 setupTestMocks();
 
 // Mock fs operations
-const mockReadFile = createMock() as any;
-const mockWriteFile = createMock() as any;
+let mockReadFile = createMock() as any;
+let mockWriteFile = createMock() as any;
 const mockMkdir = createMock() as any;
 const mockStat = createMock() as any;
 
@@ -33,9 +33,9 @@ mockModule("../../../src/utils/logger", () => ({
 }));
 
 // CRITICAL: Mock SessionPathResolver at module level to control its behavior
-const mockResolvePath = createMock() as any;
-const mockValidatePath = createMock() as any;
-const mockValidatePathExists = createMock() as any;
+let mockResolvePath = createMock() as any;
+let mockValidatePath = createMock() as any;
+let mockValidatePathExists = createMock() as any;
 
 mockModule("../../../src/adapters/mcp/session-files", () => ({
   SessionPathResolver: class MockSessionPathResolver {
@@ -45,9 +45,9 @@ mockModule("../../../src/adapters/mcp/session-files", () => ({
     
     constructor() {
       // Set default successful behavior
-      this.resolvePath.mockResolvedValue("/mock/session/path/file.txt");
-      this.validatePath.mockReturnValue(true);
-      this.validatePathExists.mockResolvedValue(undefined);
+      this.resolvePath = mock(() => Promise.resolve("/mock/session/path/file.txt"));
+      this.validatePath = mock(() => true);
+      this.validatePathExists = mock(() => Promise.resolve(undefined));
     }
   },
 }));
@@ -70,9 +70,9 @@ describe("Session Edit Tools", () => {
     mockValidatePathExists.mockReset();
 
     // Set default successful behavior for path resolution
-    mockResolvePath.mockResolvedValue("/mock/session/path/file.txt");
-    mockValidatePath.mockReturnValue(true);
-    mockValidatePathExists.mockResolvedValue(undefined);
+    mockResolvePath = mock(() => Promise.resolve("/mock/session/path/file.txt"));
+    mockValidatePath = mock(() => true);
+    mockValidatePathExists = mock(() => Promise.resolve(undefined));
 
     // Create mock command mapper
     commandMapper = {
@@ -81,7 +81,7 @@ describe("Session Edit Tools", () => {
     registeredTools = {};
 
     // Mock addTool to capture registered tools
-    commandMapper.addCommand.mockImplementation((command: { name: string; description: string; parameters?: any; handler: any }) => {
+    commandMapper.addCommand = mock((command: { name: string; description: string; parameters?: any; handler: any }) => {
       registeredTools[command.name] = {
         name: command.name,
         description: command.description,
@@ -105,8 +105,8 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_edit_file"].handler;
 
       // Mock file doesn't exist
-      mockReadFile.mockRejectedValue(new Error("ENOENT: no such file or directory"));
-      mockWriteFile.mockResolvedValue(undefined);
+      mockReadFile = mock(() => Promise.reject(new Error("ENOENT: no such file or directory")));
+      mockWriteFile = mock(() => Promise.resolve(undefined));
 
       const result = await handler({
         session: "test-session",
@@ -124,7 +124,7 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_edit_file"].handler;
 
       // FIXED: Mock SessionPathResolver to reject with error
-      mockResolvePath.mockRejectedValue(new Error("Invalid path"));
+      mockResolvePath = mock(() => Promise.reject(new Error("Invalid path")));
 
       const result = await handler({
         session: "test-session",
@@ -164,16 +164,16 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_search_replace"].handler;
 
       // Mock file content
-      const mockReadFile = readFile as unknown;
-      mockReadFile.mockResolvedValueOnce("This is oldText in the file");
+      let mockReadFile = readFile as unknown;
+      mockReadFile = mock(() => Promise.resolve("This is oldText in the file"));
 
       // Mock successful write
-      const mockWriteFile = writeFile as unknown;
-      mockWriteFile.mockResolvedValueOnce(undefined);
+      let mockWriteFile = writeFile as unknown;
+      mockWriteFile = mock(() => Promise.resolve(undefined));
 
       // Mock path resolver - use module-level mocks
-      mockResolvePath.mockResolvedValue("/session/path/test.ts");
-      mockValidatePath.mockResolvedValue(undefined);
+      mockResolvePath = mock(() => Promise.resolve("/session/path/test.ts"));
+      mockValidatePath = mock(() => Promise.resolve(undefined));
 
       const result = await handler({
         session: "test-session",
@@ -195,12 +195,12 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_search_replace"].handler;
 
       // Mock file content
-      const mockReadFile = readFile as unknown;
-      mockReadFile.mockResolvedValueOnce("This is some text in the file");
+      let mockReadFile = readFile as unknown;
+      mockReadFile = mock(() => Promise.resolve("This is some text in the file"));
 
       // Mock path resolver - use module-level mocks
-      mockResolvePath.mockResolvedValue("/session/path/test.ts");
-      mockValidatePath.mockResolvedValue(undefined);
+      mockResolvePath = mock(() => Promise.resolve("/session/path/test.ts"));
+      mockValidatePath = mock(() => Promise.resolve(undefined));
 
       const result = await handler({
         session: "test-session",
@@ -217,12 +217,12 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_search_replace"].handler;
 
       // Mock file content with multiple occurrences
-      const mockReadFile = readFile as unknown;
-      mockReadFile.mockResolvedValueOnce("This is oldText and another oldText in the file");
+      let mockReadFile = readFile as unknown;
+      mockReadFile = mock(() => Promise.resolve("This is oldText and another oldText in the file"));
 
       // Mock path resolver - use module-level mocks
-      mockResolvePath.mockResolvedValue("/session/path/test.ts");
-      mockValidatePath.mockResolvedValue(undefined);
+      mockResolvePath = mock(() => Promise.resolve("/session/path/test.ts"));
+      mockValidatePath = mock(() => Promise.resolve(undefined));
 
       const result = await handler({
         session: "test-session",

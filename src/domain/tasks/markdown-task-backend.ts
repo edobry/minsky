@@ -1,6 +1,6 @@
 /**
  * Markdown Task Backend
- * 
+ *
  * Implementation of TaskBackend for markdown-based task storage.
  * Extracted from tasks.ts to improve modularity and maintainability.
  */
@@ -13,12 +13,12 @@ import { ResourceNotFoundError, getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./taskConstants";
 import type { TaskStatus } from "./taskConstants";
 import { getTaskSpecRelativePath } from "./taskIO";
-import type { 
-  TaskBackend, 
-  Task, 
-  TaskListOptions, 
-  CreateTaskOptions, 
-  DeleteTaskOptions 
+import type {
+  TaskBackend,
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions
 } from "./types";
 
 const matter = require("gray-matter");
@@ -72,12 +72,16 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
+    console.error("DEBUG backend setTaskStatus called with:", { id, status });
+
     if (!Object.values(TASK_STATUS).includes(status as TaskStatus)) {
       throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(", ")}`);
     }
 
     // First verify the task exists with our enhanced getTask method
     const task = await this.getTask(id);
+    console.error("DEBUG backend getTask result:", { id, found: !!task, taskId: task?.id });
+
     if (!task) {
       // Return silently if task doesn't exist
       return;
@@ -489,4 +493,4 @@ export class MarkdownTaskBackend implements TaskBackend {
       return false;
     }
   }
-} 
+}

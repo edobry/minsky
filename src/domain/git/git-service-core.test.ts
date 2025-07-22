@@ -102,8 +102,7 @@ describe("GitService", () => {
 
   test("execInRepository should propagate errors", async () => {
     // Override the mock implementation to simulate an error
-    const execInRepoMock = spyOn(GitService.prototype, "execInRepository");
-    execInRepoMock.mockImplementation(async (workdir, command) => {
+    const execInRepoMock = spyOn(GitService.prototype, "execInRepository").mockImplementation(async (workdir, command) => {
       throw new Error("Command execution failed");
     });
 

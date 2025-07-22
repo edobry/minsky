@@ -514,7 +514,7 @@
 
 - [ ] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
 
-- [ ] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
+- [+] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
 
 - [ ] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/290-convert-cursor-rules-to-mcp-only-tool-references.md)
 
@@ -524,11 +524,9 @@
 
 - [ ] Add session chat interface context UI elements [#293](process/tasks/293-add-session-chat-interface-context-ui-elements.md)
 
-- [ ] Audit codebase for git command timeout issues and create ESLint rule [#294](process/tasks/294-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
+- [x] Audit codebase for git command timeout issues and create ESLint rule [#294](process/tasks/294-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
 
-- [ ] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
-
-- [ ] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
+- [x] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
 
 - [x] Implement Custom Type-Safe Configuration System [#295](process/tasks/295-implement-custom-type-safe-configuration-system.md)
 
@@ -537,3 +535,19 @@
 - [ ] Explore Exposing Rules and Documentation as MCP Resources with Template Integration [#302](process/tasks/302-explore-exposing-rules-and-documentation-as-mcp-resources-with-template-integration.md)
 
 - [x] Improve Task Operations Workflow with Auto-Commit for Markdown Backend [#303](process/tasks/303-improve-task-operations-workflow-with-auto-commit-for-markdown-backend.md)
+
+- [x] Fix special workspace auto-commit sync issue [#304](process/tasks/304-fix-special-workspace-auto-commit-sync-issue.md)
+
+- [x] Systematic Jest Pattern Migration & ESLint Rule Re-enablement [#305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md)
+
+- [x] Migrate codebase from TaskBackendRouter to workspace-resolving backends [#306](process/tasks/306-migrate-codebase-from-taskbackendrouter-to-workspace-resolving-backends.md)
+
+- [ ] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
+
+- [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
+
+- [x] Fix meta-cognitive boundary protocol violations: remove workspace-resolving prefixes, use simple names like markdown-backend.ts [#309](process/tasks/309-fix-meta-cognitive-boundary-protocol-violations-remove-workspace-resolving-prefixes-use-simple-names-like-markdown-backend-ts.md)
+
+- [ ] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
+
+- [ ] Enable max-lines ESLint rule with two-phase approach (400 warning, 1500 error) [#316](process/tasks/316-enable-max-lines-eslint-rule-with-two-phase-approach-400-warning-1500-error-.md)

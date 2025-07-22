@@ -105,7 +105,7 @@ describe("Session Start Consistency Tests", () => {
     it("should not add session to database when git clone fails", async () => {
       // Arrange
       const gitError = new Error("destination path already exists and is not an empty directory");
-      gitCloneSpy.mockImplementation(() => Promise.reject(gitError));
+      gitCloneSpy = mock(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -133,7 +133,7 @@ describe("Session Start Consistency Tests", () => {
     it("should not add session to database when git branch creation fails", async () => {
       // Arrange
       const branchError = new Error("failed to create branch");
-      gitBranchWithoutSessionSpy.mockImplementation(() => Promise.reject(branchError));
+      gitBranchWithoutSessionSpy = mock(() => Promise.reject(branchError));
 
       const params = {
         task: "160",
@@ -162,7 +162,7 @@ describe("Session Start Consistency Tests", () => {
       // Arrange
       const gitError = new Error("git operation failed");
 
-      gitCloneSpy.mockImplementation(() => Promise.reject(gitError));
+      gitCloneSpy = mock(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -299,7 +299,7 @@ describe("Session Start Consistency Tests", () => {
       const gitError = new Error(
         "fatal: destination path 'task#160' already exists and is not an empty directory"
       );
-      gitCloneSpy.mockImplementation(() => Promise.reject(gitError));
+      gitCloneSpy = mock(() => Promise.reject(gitError));
 
       const params = {
         task: "160",

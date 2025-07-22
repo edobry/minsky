@@ -11,6 +11,7 @@ import { normalizeTaskId } from "./taskFunctions";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { get } from "../configuration/index";
+import { normalizeTaskIdForStorage } from "./task-id-utils";
 
 // Dynamic import for GitHub backend to avoid hard dependency
 
@@ -150,7 +151,18 @@ export class TaskService {
    */
   async updateTask(id: string, updates: Partial<TaskData>): Promise<TaskData> {
     const tasks = await this.getAllTasks();
-    const taskIndex = tasks.findIndex((task) => task.id === id);
+
+    // Use proper task ID normalization from systematic architecture
+    // This handles the transition period where storage might be in either format
+    const storageId = normalizeTaskIdForStorage(id);
+    if (!storageId) {
+      throw new Error(`Invalid task ID format: ${id}`);
+    }
+
+    // Try both storage format and legacy display format during transition
+    const taskIndex = tasks.findIndex((task) =>
+      task.id === storageId || task.id === `#${storageId}`
+    );
 
     if (taskIndex === -1) {
       throw new Error(`Task with ID ${id} not found`);
@@ -204,7 +216,18 @@ export class TaskService {
     }
 
     const tasks = await this.getAllTasks();
-    const taskIndex = tasks.findIndex((task) => task.id === id);
+
+    // Use proper task ID normalization from systematic architecture
+    // This handles the transition period where storage might be in either format
+    const storageId = normalizeTaskIdForStorage(id);
+    if (!storageId) {
+      throw new Error(`Invalid task ID format: ${id}`);
+    }
+
+    // Try both storage format and legacy display format during transition
+    const taskIndex = tasks.findIndex((task) =>
+      task.id === storageId || task.id === `#${storageId}`
+    );
 
     if (taskIndex === -1) {
       throw new Error(`Task with ID ${id} not found`);
@@ -407,6 +430,31 @@ export class TaskService {
   }
 
   /**
+   * Create a task from title and description
+   * @param title Task title
+   * @param description Task description
+   * @param options Create options
+   * @returns Promise resolving to the created task
+   */
+  async createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options: CreateTaskOptions = {}
+  ): Promise<TaskData> {
+    // Delegate to the current backend
+    const task = await this.currentBackend.createTaskFromTitleAndDescription(title, description, options);
+
+    // Convert the backend Task to TaskData format for consistency
+    return {
+      id: task.id,
+      title: task.title,
+      description: task.description || "",
+      status: task.status || "TODO",
+      specPath: task.specPath || "",
+    };
+  }
+
+  /**
    * Get the content of a task specification file
    * @param id Task ID
    * @returns Promise resolving to object with spec content and path
@@ -486,59 +534,6 @@ export class TaskService {
   }
 
   /**
-   * Create a new task from title and description
-   * @param title Title of the task
-   * @param description Description of the task
-   * @param options Options for creating the task
-   * @returns Promise resolving to the created task
-   */
-  async createTaskFromTitleAndDescription(
-    title: string,
-    description: string,
-    options: CreateTaskOptions = {}
-  ): Promise<TaskData> {
-    // Generate a task specification file content
-    const taskSpecContent = this.generateTaskSpecification(title, description);
-
-    // Create a temporary file path for the spec
-    const fs = await import("fs/promises");
-    const path = await import("path");
-    const os = await import("os");
-
-    const tempDir = os.tmpdir();
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(
-      tempDir,
-      `temp-task-${normalizedTitle}-${Date.now()}.md`
-    );
-
-    try {
-      // Write the spec content to the temporary file
-      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
-
-      // Use the existing createTask method
-      const task = await this.createTask(tempSpecPath, options);
-
-      // Clean up the temporary file
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (error) {
-        // Ignore cleanup errors
-      }
-
-      return task;
-    } catch (error) {
-      // Clean up the temporary file on error
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (cleanupError) {
-        // Ignore cleanup errors
-      }
-      throw error;
-    }
-  }
-
-  /**
    * Generate a task specification file content from title and description
    * @param title Title of the task
    * @param description Description of the task
@@ -570,17 +565,17 @@ ${description}
   }
 
   /**
-   * Create TaskService with workspace-resolving backend configuration
+   * Create TaskService with enhanced backend configuration
    * This eliminates the need for external workspace resolution
    */
-  static async createWithWorkspaceResolvingBackend(options: {
+  static async createWithEnhancedBackend(options: {
     backend: "markdown" | "json-file";
     backendConfig?: any;
     customBackends?: TaskBackend[];
   }): Promise<TaskService> {
     const { backend, backendConfig, customBackends } = options;
 
-    log.debug("Creating TaskService with workspace-resolving backend", {
+    log.debug("Creating TaskService with enhanced backend", {
       backend,
       hasConfig: !!backendConfig,
       hasCustomBackends: !!customBackends
@@ -594,21 +589,41 @@ ${description}
       });
     }
 
-    // For now, only markdown backend supports workspace resolution
-    if (backend === "markdown" && backendConfig) {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("./workspace-resolving-markdown-backend");
+    // Create enhanced backend based on type
+    let resolvedBackend: any;
+    
+    switch (backend) {
+    case "markdown": {
+      if (!backendConfig) {
+        throw new Error("Backend configuration required for markdown backend");
+      }
+        
+      const { createMarkdownBackend } = await import("./markdown-backend");
+      resolvedBackend = await createMarkdownBackend(backendConfig);
+      break;
+    }
       
-      const resolvedBackend = await createWorkspaceResolvingMarkdownBackend(backendConfig);
+    case "json-file": {
+      if (!backendConfig) {
+        throw new Error("Backend configuration required for json-file backend");
+      }
+        
+      const { createJsonBackendWithConfig } = await import("./jsonFileTaskBackend");
+      resolvedBackend = await createJsonBackendWithConfig(backendConfig);
+      break;
+    }
       
-      return new TaskService({
-        workspacePath: (resolvedBackend as any).getWorkspacePath(),
-        backend,
-        customBackends: [resolvedBackend as any]
-      });
+    default: {
+      throw new Error(`Enhanced backend not available for type: ${backend}`);
+    }
     }
 
-    // Fallback to standard backend creation
-    throw new Error(`Workspace-resolving backend not available for type: ${backend}`);
+    // Create TaskService with the resolved backend
+    return new TaskService({
+      workspacePath: resolvedBackend.getWorkspacePath(),
+      backend,
+      customBackends: [resolvedBackend]
+    });
   }
 
   /**
@@ -618,7 +633,7 @@ ${description}
     repoUrl: string;
     forceSpecialWorkspace?: boolean;
   }): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
+    return TaskService.createWithEnhancedBackend({
       backend: "markdown",
       backendConfig: {
         name: "markdown",
@@ -634,8 +649,8 @@ ${description}
   static async createMarkdownWithWorkspace(config: {
     workspacePath: string;
   }): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
-      backend: "markdown", 
+    return TaskService.createWithEnhancedBackend({
+      backend: "markdown",
       backendConfig: {
         name: "markdown",
         workspacePath: config.workspacePath
@@ -647,7 +662,7 @@ ${description}
    * Convenience method for current directory workspace detection
    */
   static async createMarkdownWithAutoDetection(): Promise<TaskService> {
-    return TaskService.createWithWorkspaceResolvingBackend({
+    return TaskService.createWithEnhancedBackend({
       backend: "markdown",
       backendConfig: {
         name: "markdown"
@@ -655,6 +670,57 @@ ${description}
       }
     });
   }
+
+  /**
+   * Convenience method for JSON backends with repo URLs
+   */
+  static async createJsonWithRepo(config: {
+    repoUrl: string;
+    dbFilePath?: string;
+  }): Promise<TaskService> {
+    return TaskService.createWithEnhancedBackend({
+      backend: "json-file",
+      backendConfig: {
+        name: "json-file",
+        repoUrl: config.repoUrl,
+        dbFilePath: config.dbFilePath
+      }
+    });
+  }
+
+  /**
+   * Convenience method for JSON backends with explicit workspace paths
+   */
+  static async createJsonWithWorkspace(config: {
+    workspacePath: string;
+    dbFilePath?: string;
+  }): Promise<TaskService> {
+    return TaskService.createWithEnhancedBackend({
+      backend: "json-file",
+      backendConfig: {
+        name: "json-file",
+        workspacePath: config.workspacePath,
+        dbFilePath: config.dbFilePath
+      }
+    });
+  }
+
+  /**
+   * Convenience method for JSON backend with auto-detection
+   */
+  static async createJsonWithAutoDetection(config?: {
+    dbFilePath?: string;
+  }): Promise<TaskService> {
+    return TaskService.createWithEnhancedBackend({
+      backend: "json-file",
+      backendConfig: {
+        name: "json-file",
+        dbFilePath: config?.dbFilePath
+        // No explicit workspace config - will auto-detect workspace
+      }
+    });
+  }
+
 }
 
 /**

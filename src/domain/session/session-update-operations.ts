@@ -1,9 +1,13 @@
+import { existsSync } from "fs";
+import { readFile, writeFile, mkdir, access } from "fs/promises";
+import { join } from "path";
 import { getMinskyStateDir, getSessionDir } from "../../utils/paths";
 import {
   MinskyError,
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
+  createCommandFailureMessage
 } from "../../errors/index";
 import type { SessionUpdateParams } from "../../schemas/session";
 import { log } from "../../utils/logger";
@@ -12,6 +16,12 @@ import { getCurrentSession } from "../workspace";
 import { ConflictDetectionService } from "../git/conflict-detection";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 import { resolveSessionContextWithFeedback } from "./session-context-resolver";
+import { 
+  gitFetchWithTimeout 
+} from "../../utils/git-exec";
+import {
+  type WorkspaceUtilsInterface,
+} from "../workspace";
 
 export interface UpdateSessionDependencies {
   gitService: GitServiceInterface;
@@ -504,7 +514,7 @@ export async function extractPrDescription(
 
     if (remoteBranchExists) {
       // Fetch the PR branch to ensure we have latest
-      await gitService.execInRepository(currentDir, `git fetch origin ${prBranch}`);
+      await gitFetchWithTimeout("origin", prBranch, { workdir: currentDir });
 
       // Get the commit message from the remote branch's last commit
       commitMessage = await gitService.execInRepository(
