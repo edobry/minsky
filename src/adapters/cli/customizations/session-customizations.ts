@@ -102,6 +102,7 @@ export function getSessionCustomizations(): { category: CommandCategory; options
             task: {
               alias: "t",
               description: "Task ID associated with the session",
+              mapTo: "session", // Map the task parameter to the session parameter
             },
           },
         },
@@ -109,7 +110,7 @@ export function getSessionCustomizations(): { category: CommandCategory; options
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name (optional, alternative to --task)",
+              description: "Session name",
             },
             task: {
               alias: "t",
@@ -121,7 +122,7 @@ export function getSessionCustomizations(): { category: CommandCategory; options
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name (optional, alternative to --task)",
+              description: "Session name",
             },
             task: {
               alias: "t",
@@ -133,7 +134,7 @@ export function getSessionCustomizations(): { category: CommandCategory; options
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name (optional, alternative to --task)",
+              description: "Session name",
             },
             task: {
               alias: "t",
@@ -145,7 +146,7 @@ export function getSessionCustomizations(): { category: CommandCategory; options
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name (optional, alternative to --task)",
+              description: "Session name",
             },
             task: {
               alias: "t",

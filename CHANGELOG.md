@@ -1,5 +1,10 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
 ### Added
@@ -65,6 +70,16 @@
 ### Added
 - **Task ID Migration**: Completed migration script execution with backup support for converting hash format to plain storage format
 - **Transition Period Support**: Added robust handling of mixed storage formats during migration period
+
+### Fixed
+
+- **Critical Session Parameter Mapping Issues** - Fixed CLI `--task` parameter lookup and eliminated redundant parameter handling
+  - **Fixed `--task` Lookup**: Session commands like `minsky session dir --task 317` now correctly lookup sessions by task ID instead of treating task ID as session name
+  - **Cleaned Parameter Mapping**: Removed redundant `sessionName`/`name` parameter duplication in shared command layer
+  - **Interface Layer Responsibility**: Interface adapters (CLI/MCP) now properly handle parameter mapping to standardized domain parameters
+  - **Domain Simplification**: Domain schemas now use single clean parameters instead of multiple redundant parameter names
+  - **Error Message Fix**: Removed incorrect error suggestion of `task-${taskId}` naming convention that doesn't exist in the system
+  - **Architecture Improvement**: The interface layer now handles parameter mapping as it should, not the shared command layer
 
 ## [2.14.0] - 2024-01-15
 
@@ -1449,3 +1464,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Apply proven AST migration approach to main workspace (434 violations)
 - Fix session workspace syntax errors (176 issues) without losing Jest migration
   - Achieve true global completion: 0 violations in ALL workspaces with clean code
+
+- Added ESLint max-lines rule with two-phase approach (400 lines warning, 1500 lines error) to improve code maintainability
+- Improved session command backward compatibility with new sessionname parameter for MCP interaction
+- Enhanced error messages for session commands to provide more helpful guidance when sessions or task IDs are not found
