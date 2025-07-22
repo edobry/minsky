@@ -557,3 +557,5 @@
 - [ ] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
 
 - [ ] Test task to see next available ID [#314](process/tasks/314-test-task-to-see-next-available-id.md)
+
+- [ ] Implement External Task Database for Metadata Storage [#315](process/tasks/315-implement-external-task-database-for-metadata-storage.md)
