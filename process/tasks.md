@@ -547,3 +547,5 @@
 - [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
 
 - [ ] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
+
+- [ ] Research codemod-based approach for session-aware edit file tool [#310](process/tasks/310-research-codemod-based-approach-for-session-aware-edit-file-tool.md)
