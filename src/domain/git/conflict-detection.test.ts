@@ -193,7 +193,7 @@ describe("ConflictDetectionService", () => {
     test("should perform actual merge when no conflicts predicted", async () => {
       // Setup: no conflicts, successful merge
       mockExecAsync.mockImplementationOnce(() => Promise.resolve({ stdout: "1\t1", stderr: "" })).mockImplementationOnce(() => Promise.resolve({ stdout: "abc123", stderr: "" })).mockImplementationOnce(() => Promise.resolve({ stdout: "commit1", stderr: "" })).mockImplementationOnce(() => Promise.resolve({ stdout: "tree1", stderr: "" })).mockImplementationOnce(() => Promise.resolve({ stdout: "tree2", stderr: "" })).mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })).mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })).mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })).mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })).mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })).mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })) // delete temp branch
-                        = mock(() => Promise.resolve({ stdout: "", stderr: "" }))({ stdout: "", stderr: "" }) = mock(() => Promise.resolve({ stdout: "def456", stderr: "" })); // after hash
+                        .mockImplementationOnce(() => Promise.resolve({ stdout: "def456", stderr: "" })); // after hash
 
       const result = await ConflictDetectionService.mergeWithConflictPrevention(
         testRepoPath, sessionBranch, baseBranch, { dryRun: false }

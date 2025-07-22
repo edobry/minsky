@@ -242,7 +242,7 @@ describe("pushFromParams - Detailed Tests", () => {
   });
   test("should push changes successfully", async () => {
     // Mock git push command response
-    mockExecAsync = mock(() => Promise.resolve({ stdout: "main", stderr: "" })) = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
     const params = {
       repo: "/test/repo",
     };
