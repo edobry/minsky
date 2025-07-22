@@ -274,7 +274,7 @@ Examples:
           success: deleted,
         };
       } catch (error) {
-                log.debug("Failed to delete session", {
+        log.debug("Failed to delete session", {
           error: getErrorMessage(error as Error),
           sessionName: params!.sessionName,
           name: params!.name,
