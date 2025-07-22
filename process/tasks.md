@@ -554,4 +554,4 @@
 
 - [x] Investigate and fix task operations hanging issues [#317](process/tasks/317-investigate-and-fix-task-operations-hanging-issues.md)
 
-- [+] Fix all linter errors [#318](process/tasks/318-fix-all-linter-errors.md)
+- [x] Fix all linter errors [#318](process/tasks/318-fix-all-linter-errors.md)
