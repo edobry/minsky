@@ -138,7 +138,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -201,7 +201,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -280,7 +280,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -349,7 +349,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -407,7 +407,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });
@@ -463,7 +463,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return await SemanticErrorClassifier.classifyError(error, errorContext);
+        return SemanticErrorClassifier.classifyError(error, errorContext);
       }
     },
   });

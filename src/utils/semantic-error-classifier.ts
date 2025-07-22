@@ -5,7 +5,6 @@
  * with actionable guidance for AI agents.
  */
 
-import { stat } from "fs/promises";
 import { dirname } from "path";
 import { 
   SemanticErrorCode, 
@@ -36,10 +35,10 @@ export class SemanticErrorClassifier {
   /**
    * Convert a filesystem error to a semantic error response
    */
-  static async classifyError(
+  static classifyError(
     error: any, 
     context: ErrorContext
-  ): Promise<SemanticErrorResponse> {
+  ): SemanticErrorResponse {
     const errorMessage = getErrorMessage(error);
     const errorCode = error?.code || error?.errno;
     
@@ -51,7 +50,7 @@ export class SemanticErrorClassifier {
 
     // Handle specific filesystem errors
     if (errorCode === "ENOENT") {
-      return await this.handleENOENTError(error, context);
+      return this.handleENOENTError(error, context);
     }
     
     if (errorCode === "EACCES") {
@@ -93,10 +92,10 @@ export class SemanticErrorClassifier {
   /**
    * Handle ENOENT errors by determining if it's a file or directory issue
    */
-  private static async handleENOENTError(
+  private static handleENOENTError(
     error: any, 
     context: ErrorContext
-  ): Promise<SemanticErrorResponse> {
+  ): SemanticErrorResponse {
     const errorMessage = getErrorMessage(error);
     const rawMessage = error?.message || error || "";
     const path = context.path || this.extractPathFromError(errorMessage) || this.extractPathFromError(rawMessage);
@@ -104,38 +103,20 @@ export class SemanticErrorClassifier {
     // Determine if this is a file or directory issue based on context and error message
     let isDirectoryIssue = false;
     
-    // Use operation type as primary indicator
+    // Use operation type and context as indicators
     if (context.operation === "write_file" || context.operation === "create_directory") {
-      // For write operations, check if the error message indicates a mkdir operation
-      // or if the error suggests parent directory doesn't exist
+      // For write operations, check if the error message indicates a directory operation
+      // or if createDirs is explicitly disabled (user needs directory guidance)
       if (errorMessage.includes("mkdir") || 
           errorMessage.includes("parent") ||
           errorMessage.includes("directory") ||
-          (context.createDirs === false && context.operation === "write_file")) {
+          context.createDirs === false) {
         isDirectoryIssue = true;
-      } else {
-        // For write_file, if createDirs is true or unspecified, assume file issue
-        // since directories should be auto-created
-        isDirectoryIssue = false;
       }
     } else {
       // For read operations, this is typically a file not found issue
       // unless the error message specifically mentions directory operations
       isDirectoryIssue = errorMessage.includes("mkdir") || errorMessage.includes("directory");
-    }
-    
-    // If we still can't determine, try checking parent directory existence
-    if (path && !isDirectoryIssue && context.operation === "write_file") {
-      try {
-        const parentDir = dirname(path);
-        await stat(parentDir);
-        // Parent exists, so this is likely a file-level issue
-        isDirectoryIssue = false;
-      } catch {
-        // Parent doesn't exist, but only treat as directory issue for write operations
-        // where directory creation might be expected
-        isDirectoryIssue = context.operation === "write_file";
-      }
     }
     
     const mappingKey = isDirectoryIssue ? "ENOENT_DIR" : "ENOENT_FILE";
@@ -158,12 +139,12 @@ export class SemanticErrorClassifier {
   private static handlePermissionError(
     error: any, 
     context: ErrorContext
-  ): Promise<SemanticErrorResponse> {
+  ): SemanticErrorResponse {
     const mapping = FILESYSTEM_ERROR_MAPPINGS.EACCES;
     if (!mapping) {
       return this.handleGenericError(error, context);
     }
-    return Promise.resolve(this.createSemanticErrorResponse(mapping, error, context));
+    return this.createSemanticErrorResponse(mapping, error, context);
   }
   
   /**
@@ -172,12 +153,12 @@ export class SemanticErrorClassifier {
   private static handleExistsError(
     error: any, 
     context: ErrorContext
-  ): Promise<SemanticErrorResponse> {
+  ): SemanticErrorResponse {
     const mapping = FILESYSTEM_ERROR_MAPPINGS.EEXIST;
     if (!mapping) {
       return this.handleGenericError(error, context);
     }
-    return Promise.resolve(this.createSemanticErrorResponse(mapping, error, context));
+    return this.createSemanticErrorResponse(mapping, error, context);
   }
   
   /**
@@ -186,12 +167,12 @@ export class SemanticErrorClassifier {
   private static handleInvalidPathError(
     error: any, 
     context: ErrorContext
-  ): Promise<SemanticErrorResponse> {
+  ): SemanticErrorResponse {
     const mapping = FILESYSTEM_ERROR_MAPPINGS.EINVAL;
     if (!mapping) {
       return this.handleGenericError(error, context);
     }
-    return Promise.resolve(this.createSemanticErrorResponse(mapping, error, context));
+    return this.createSemanticErrorResponse(mapping, error, context);
   }
   
   /**
@@ -201,12 +182,12 @@ export class SemanticErrorClassifier {
     error: any, 
     context: ErrorContext,
     sessionErrorType: keyof typeof SESSION_ERROR_MAPPINGS
-  ): Promise<SemanticErrorResponse> {
+  ): SemanticErrorResponse {
     const mapping = SESSION_ERROR_MAPPINGS[sessionErrorType];
     if (!mapping) {
       return this.handleGenericError(error, context);
     }
-    return Promise.resolve(this.createSemanticErrorResponse(mapping, error, context));
+    return this.createSemanticErrorResponse(mapping, error, context);
   }
   
   /**
@@ -215,7 +196,7 @@ export class SemanticErrorClassifier {
   private static handleGitError(
     error: any, 
     context: ErrorContext
-  ): Promise<SemanticErrorResponse> {
+  ): SemanticErrorResponse {
     const errorMessage = getErrorMessage(error);
     const originalMessage = error?.message || error || "";
     
@@ -231,7 +212,7 @@ export class SemanticErrorClassifier {
     if (!mapping) {
       return this.handleGenericError(error, context);
     }
-    return Promise.resolve(this.createSemanticErrorResponse(mapping, error, context));
+    return this.createSemanticErrorResponse(mapping, error, context);
   }
   
   /**
@@ -240,10 +221,10 @@ export class SemanticErrorClassifier {
   private static handleGenericError(
     error: any, 
     context: ErrorContext
-  ): Promise<SemanticErrorResponse> {
+  ): SemanticErrorResponse {
     const errorMessage = getErrorMessage(error);
     
-    return Promise.resolve({
+    return {
       success: false,
       error: `Operation failed: ${errorMessage}`,
       errorCode: SemanticErrorCode.OPERATION_FAILED,
@@ -257,7 +238,7 @@ export class SemanticErrorClassifier {
       retryable: true,
       path: context.path,
       session: context.session
-    });
+    };
   }
   
   /**
@@ -305,26 +286,46 @@ export class SemanticErrorClassifier {
    * Extract file path from error message
    */
   private static extractPathFromError(errorMessage: string): string | undefined {
-    // Try to extract path from common error message patterns
+    if (!errorMessage || typeof errorMessage !== "string") {
+      return undefined;
+    }
+
+    // Try to extract path from common error message patterns (ordered by specificity)
     const patterns = [
-      /no such file or directory.*['"`]([^'"`]+)['"`]/,
-      /ENOENT.*['"`]([^'"`]+)['"`]/,
-      /open ['"`]([^'"`]+)['"`]/,
+      // Specific Node.js error patterns (most reliable)
       /no such file or directory, open '([^']+)'/,
       /no such file or directory, open "([^"]+)"/,
-      /no such file or directory, open `([^`]+)`/,
+      /no such file or directory, mkdir '([^']+)'/,
+      /no such file or directory, scandir '([^']+)'/,
+      
+      // Generic ENOENT patterns
+      /ENOENT.*['"`]([^'"`]+)['"`]/,
+      /open ['"`]([^'"`]+)['"`]/,
+      
+      // Fallback patterns (less reliable)
       /'([^']+)'/,
-      /"([^"]+)"/,
-      /`([^`]+)`/
+      /"([^"]+)"/
     ];
     
     for (const pattern of patterns) {
       const match = errorMessage.match(pattern);
-      if (match && match[1]) {
+      if (match && match[1] && this.isValidExtractedPath(match[1])) {
         return match[1];
       }
     }
     
     return undefined;
+  }
+
+  /**
+   * Validate that an extracted path looks reasonable
+   */
+  private static isValidExtractedPath(path: string): boolean {
+    if (!path || path.length === 0) return false;
+    if (path.length > 1000) return false; // Suspiciously long
+    if (path.includes("\n") || path.includes("\r")) return false; // Multi-line
+    if (/^[<>:|*?]+$/.test(path)) return false; // Only special characters
+    
+    return true;
   }
 }
