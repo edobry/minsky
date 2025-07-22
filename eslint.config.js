@@ -118,10 +118,9 @@ export default [
         "error",
         {
           allowInTests: false,
-          allowedLocalOperations: ["status", "branch", "log", "diff", "show", "rev-parse"],
-        },
-      ], // Prevents git operations that can hang without timeouts
-
+          allowedLocalOperations: []
+        }
+      ], // Prevents ALL git operations without timeout protection - enhanced after task #301 audit
       // === TYPE SAFETY RULES ===
       "custom/no-excessive-as-unknown": [
         "warn",
