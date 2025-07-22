@@ -11,199 +11,225 @@
  * Target: 9th systematic category in AST codemod optimization series
  */
 
-import { Project, SourceFile, SyntaxKind } from "ts-morph";
-import { readdirSync, statSync } from "fs";
-import { join } from "path";
-
-export interface FixResult {
-  changed: boolean;
-  reason: string;
-  transformations: number;
-}
+import { Project, SourceFile, SyntaxKind, ImportDeclaration } from "ts-morph";
+import { dirname, join, relative } from "path";
+import { SimplifiedCodemodBase } from "./utils/codemod-framework";
+import { existsSync } from "fs";
+import { globSync } from "glob";
 
 /**
- * Fixes bun:test vs vitest mocking consistency by converting vi.fn() to mock()
- * in test files that import from "bun:test"
+ * BunTestMockingConsistencyFixer
+ * 
+ * This codemod fixes mock imports in test files by:
+ * 1. Adding the mock import from bun:test if it's missing
+ * 2. Ensuring consistent mock function usage throughout the file
+ * 3. Fixing incorrect mock function assignments (createMock() = mock() pattern)
+ * 
+ * This is a structure-aware codemod that analyzes the actual directory structure
+ * and manipulates the AST directly instead of using string replacement.
  */
-export function fixMockingConsistencyInFile(sourceFile: SourceFile): FixResult {
-  // Safety check: Only process test files
-  const fileName = sourceFile.getBaseName();
-  if (!fileName.includes('.test.') && !fileName.includes('_test_') && 
-      !fileName.includes('.spec.') && !fileName.includes('_spec_')) {
-    return { changed: false, reason: 'Not a test file - skipped for safety', transformations: 0 };
+export class BunTestMockingConsistencyFixer extends SimplifiedCodemodBase {
+  constructor() {
+    super("BunTestMockingConsistencyFixer", {
+      description: "Fixes mock imports and usage in test files for Bun",
+      explanation: "Ensures consistent mock usage with proper imports from bun:test"
+    });
   }
 
-  // Check if file imports from "bun:test"
-  const bunTestImport = sourceFile.getImportDeclarations()
-    .find(imp => imp.getModuleSpecifierValue() === "bun:test");
-  
-  if (!bunTestImport) {
-    return { changed: false, reason: 'No bun:test import found - not a bun test file', transformations: 0 };
-  }
-
-  // Check if mock is imported from bun:test
-  const mockImport = bunTestImport.getNamedImports()
-    .find(imp => imp.getName() === "mock");
-  
-  if (!mockImport) {
-    // Add mock to the import statement
-    bunTestImport.addNamedImport("mock");
-  }
-
-  let transformationCount = 0;
-
-  // Find all vi.fn() calls and replace with mock()
-  sourceFile.forEachDescendant((node) => {
-    if (node.getKind() === SyntaxKind.CallExpression) {
-      const callExpr = node.asKindOrThrow(SyntaxKind.CallExpression);
-      const expression = callExpr.getExpression();
-      
-      // Check if this is vi.fn()
-      if (expression.getKind() === SyntaxKind.PropertyAccessExpression) {
-        const propAccess = expression.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
-        const object = propAccess.getExpression();
-        const property = propAccess.getName();
-        
-        if (object.getText() === "vi" && property === "fn") {
-          // Replace vi.fn() with mock()
-          const args = callExpr.getArguments();
-          if (args.length === 0) {
-            // vi.fn() → mock(() => {})
-            callExpr.replaceWithText("mock(() => {})");
-          } else {
-            // vi.fn(implementation) → mock(implementation)
-            const argText = args[0].getText();
-            callExpr.replaceWithText(`mock(${argText})`);
-          }
-          transformationCount++;
-        }
-      }
+  /**
+   * Process all test files in a directory
+   */
+  public async processDirectory(dirPath: string): Promise<void> {
+    if (!existsSync(dirPath)) {
+      this.logError(`Directory does not exist: ${dirPath}`);
+      return;
     }
-  });
 
-  if (transformationCount > 0) {
-    return { 
-      changed: true, 
-      reason: `Converted ${transformationCount} vi.fn() calls to mock() for bun:test compatibility`,
-      transformations: transformationCount 
-    };
-  }
-
-  return { changed: false, reason: 'No vi.fn() calls found to convert', transformations: 0 };
-}
-
-/**
- * Processes multiple test files to fix mocking consistency
- */
-export function fixMockingConsistency(filePaths: string[]): FixResult[] {
-  const project = new Project();
-  const results: FixResult[] = [];
-
-  for (const filePath of filePaths) {
-    try {
-      const sourceFile = project.addSourceFileAtPath(filePath);
-      const result = fixMockingConsistencyInFile(sourceFile);
-      
-      if (result.changed) {
-        sourceFile.saveSync();
-      }
-      
-      results.push(result);
-    } catch (error) {
-      console.error(`❌ Error processing ${filePath}:`, error);
-      results.push({ 
-        changed: false, 
-        reason: `Error: ${error instanceof Error ? error.message : String(error)}`,
-        transformations: 0 
-      });
+    const testFilePaths = globSync(`${dirPath}/**/*.test.ts`);
+    if (testFilePaths.length === 0) {
+      this.logWarning(`No test files found in ${dirPath}`);
+      return;
     }
+
+    this.logSuccess(`Found ${testFilePaths.length} test files in ${dirPath}`);
+    await this.run(testFilePaths);
   }
 
-  return results;
-}
-
-/**
- * Find all test files in a directory recursively
- */
-export function findTestFiles(directory: string): string[] {
-  const testFiles: string[] = [];
-  
-  function traverseDirectory(dir: string) {
-    const entries = readdirSync(dir);
+  /**
+   * Find files with potential issues for batch processing
+   */
+  public findPotentialIssues(dirPath: string): string[] {
+    // Find all test files
+    const testFiles = globSync(`${dirPath}/**/*.test.ts`);
     
-    for (const entry of entries) {
-      const fullPath = join(dir, entry);
-      const stat = statSync(fullPath);
-      
-      if (stat.isDirectory()) {
-        // Skip node_modules and other common directories
-        if (!entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist') {
-          traverseDirectory(fullPath);
+    // Find files that might have issues
+    const potentialIssues: string[] = [];
+    
+    for (const filePath of testFiles) {
+      try {
+        const content = require("fs").readFileSync(filePath, "utf8");
+        
+        // Look for patterns indicating potential issues
+        const hasMockUsage = content.includes("mock(");
+        const hasBunTestImport = content.includes('from "bun:test"');
+        const hasInvalidAssignment = content.includes("createMock() = mock(");
+        
+        if ((hasMockUsage && hasBunTestImport && !content.includes("import { mock }") && 
+             !content.includes("import {mock}") && !content.includes(", mock }")) || 
+            hasInvalidAssignment) {
+          potentialIssues.push(filePath);
         }
-      } else if (stat.isFile() && (
-        entry.includes('.test.') || entry.includes('_test_') ||
-        entry.includes('.spec.') || entry.includes('_spec_')
-      )) {
-        testFiles.push(fullPath);
+      } catch (error) {
+        this.logError(`Error checking file ${filePath}: ${error}`);
+      }
+    }
+    
+    return potentialIssues;
+  }
+
+  protected async analyzeFile(sourceFile: SourceFile): Promise<boolean> {
+    // Only process test files
+    if (!sourceFile.getFilePath().includes(".test.ts")) {
+      return false;
+    }
+
+    // Check if file uses mock without proper import
+    const mockUsages = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
+      .filter(id => id.getText() === "mock" && 
+        !id.getFirstAncestorByKind(SyntaxKind.ImportDeclaration));
+    
+    if (mockUsages.length === 0) {
+      return false; // No mock usage found
+    }
+
+    // Check if mock is already imported from bun:test
+    const bunTestImports = sourceFile.getImportDeclarations()
+      .filter(imp => imp.getModuleSpecifierValue() === "bun:test");
+    
+    if (bunTestImports.length > 0) {
+      const hasMockImport = bunTestImports.some(imp => {
+        const namedImports = imp.getNamedImports();
+        return namedImports.some(namedImport => namedImport.getName() === "mock");
+      });
+      
+      if (hasMockImport) {
+        // Check for invalid mock function assignments
+        const hasInvalidAssignments = this.hasInvalidMockAssignments(sourceFile);
+        return hasInvalidAssignments;
+      }
+    }
+
+    // Either missing import or has invalid assignments
+    return true;
+  }
+
+  private hasInvalidMockAssignments(sourceFile: SourceFile): boolean {
+    // Look for patterns like: createMock() = mock()
+    const binaryExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression);
+    return binaryExpressions.some(expr => {
+      const left = expr.getLeft().getText();
+      const right = expr.getRight().getText();
+      const operator = expr.getOperatorToken().getText();
+      
+      return operator === "=" && 
+             left.includes("createMock()") && 
+             right.includes("mock(");
+    });
+  }
+
+  protected async transformFile(sourceFile: SourceFile): Promise<void> {
+    // Step 1: Add mock import from bun:test if missing
+    this.ensureMockImport(sourceFile);
+    
+    // Step 2: Fix invalid mock function assignments
+    this.fixInvalidMockAssignments(sourceFile);
+  }
+
+  private ensureMockImport(sourceFile: SourceFile): void {
+    const bunTestImports = sourceFile.getImportDeclarations()
+      .filter(imp => imp.getModuleSpecifierValue() === "bun:test");
+    
+    if (bunTestImports.length > 0) {
+      // bun:test is already imported, add mock to the named imports if missing
+      const bunTestImport = bunTestImports[0];
+      const namedImports = bunTestImport.getNamedImports();
+      
+      const hasMockImport = namedImports.some(namedImport => 
+        namedImport.getName() === "mock");
+      
+      if (!hasMockImport) {
+        bunTestImport.addNamedImport("mock");
+        this.logSuccess(`Added mock to existing bun:test import in ${sourceFile.getBaseName()}`);
+      }
+    } else {
+      // No bun:test import, add it with mock
+      sourceFile.addImportDeclaration({
+        moduleSpecifier: "bun:test",
+        namedImports: ["mock"]
+      });
+      this.logSuccess(`Added new bun:test import with mock in ${sourceFile.getBaseName()}`);
+    }
+  }
+
+  private fixInvalidMockAssignments(sourceFile: SourceFile): void {
+    // Find binary expressions with invalid assignments: createMock() = mock()
+    const binaryExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression);
+    
+    for (const expr of binaryExpressions) {
+      const left = expr.getLeft().getText();
+      const right = expr.getRight().getText();
+      const operator = expr.getOperatorToken().getText();
+      
+      if (operator === "=" && left.includes("createMock()") && right.includes("mock(")) {
+        // Replace the entire expression with just the right side (mock call)
+        expr.replaceWithText(right);
+        this.logSuccess(`Fixed invalid mock assignment in ${sourceFile.getBaseName()}`);
       }
     }
   }
-  
-  traverseDirectory(directory);
-  return testFiles;
 }
 
 /**
- * Main function to fix mocking consistency across all test files
+ * Factory function to create the codemod instance
  */
-export function fixAllMockingConsistency(projectRoot: string = "."): FixResult[] {
-  console.log("🔍 Finding test files with mocking consistency issues...");
-  
-  const testFiles = findTestFiles(projectRoot);
-  const project = new Project();
-  const problematicFiles: string[] = [];
-  
-  // First pass: identify files with vi.fn() that import from bun:test
-  for (const filePath of testFiles) {
-    try {
-      const sourceFile = project.addSourceFileAtPath(filePath);
-      
-      // Check if file imports from bun:test and has vi.fn()
-      const bunTestImport = sourceFile.getImportDeclarations()
-        .find(imp => imp.getModuleSpecifierValue() === "bun:test");
-      
-      if (bunTestImport) {
-        const fileText = sourceFile.getFullText();
-        if (fileText.includes('vi.fn(')) {
-          problematicFiles.push(filePath);
-        }
-      }
-    } catch (error) {
-      console.error(`Error analyzing ${filePath}:`, error);
-    }
-  }
-  
-  console.log(`📁 Found ${problematicFiles.length} test files with mocking consistency issues`);
-  
-  if (problematicFiles.length === 0) {
-    console.log("✅ No mocking consistency issues found!");
-    return [];
-  }
-  
-  // Second pass: fix the identified files
-  console.log("🔧 Fixing mocking consistency issues...");
-  const results = fixMockingConsistency(problematicFiles);
-  
-  const successCount = results.filter(r => r.changed).length;
-  const totalTransformations = results.reduce((sum, r) => sum + r.transformations, 0);
-  
-  console.log(`✅ Fixed ${successCount} files with ${totalTransformations} total transformations`);
-  
-  return results;
-} 
+export function createCodemod(): SimplifiedCodemodBase {
+  return new BunTestMockingConsistencyFixer();
+}
 
-// Main execution for direct usage
+// Allow running directly from command line
 if (require.main === module) {
-  const results = fixAllMockingConsistency(".");
-  process.exit(results.some(r => !r.changed && r.reason.includes('Error')) ? 1 : 0);
+  const codemod = createCodemod() as BunTestMockingConsistencyFixer;
+  
+  // Check if argument is directory, and process all files if so
+  const args = process.argv.slice(2);
+  
+  if (args.length === 0) {
+    console.log("Usage: bun bun-test-mocking-consistency-fixer.ts <path-or-directory>");
+    process.exit(1);
+  }
+  
+  const path = args[0];
+  
+  if (existsSync(path) && require("fs").statSync(path).isDirectory()) {
+    // Process directory
+    codemod.processDirectory(path);
+  } else if (args[0] === "--find-issues") {
+    // Find potential issues
+    const dirPath = args[1] || ".";
+    const issues = codemod.findPotentialIssues(dirPath);
+    
+    if (issues.length > 0) {
+      console.log(`Found ${issues.length} files with potential issues:`);
+      issues.forEach(file => console.log(`- ${file}`));
+      
+      // Automatically process these files
+      console.log("\nAutomatically processing these files...");
+      codemod.run(issues);
+    } else {
+      console.log("No potential issues found.");
+    }
+  } else {
+    // Process individual files
+    codemod.run(args);
+  }
 }

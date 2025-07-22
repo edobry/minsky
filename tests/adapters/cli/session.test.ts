@@ -5,7 +5,7 @@
  *
  * This test suite will be reimplemented after resolving the testing framework compatibility issues.
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { mkdir, rmdir } from "fs/promises";
 import { existsSync } from "fs";

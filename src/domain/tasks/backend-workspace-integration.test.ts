@@ -219,13 +219,8 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       expect(resolutionInfo.method).toBe("local-tasks-md");
     });
 
-<<<<<<< HEAD:src/domain/tasks/__tests__/backend-workspace-integration.test.ts
-    test.skip("should handle special workspace resolution with repo URL", async () => {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("../workspace-resolving-markdown-backend");
-=======
     test("should handle special workspace resolution with repo URL", async () => {
       const { createMarkdownBackend } = await import("../markdown-backend");
->>>>>>> origin/main:src/domain/tasks/backend-workspace-integration.test.ts
       
       const backend = await createMarkdownBackend({
         name: "markdown",
@@ -279,13 +274,8 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       expect(resolutionInfo.method).toBe("explicit");
     });
 
-<<<<<<< HEAD:src/domain/tasks/__tests__/backend-workspace-integration.test.ts
-    test.skip("should eliminate external workspace resolution for repo URLs", async () => {
-      const { createWorkspaceResolvingMarkdownBackend } = await import("../workspace-resolving-markdown-backend");
-=======
     test("should eliminate external workspace resolution for repo URLs", async () => {
       const { createMarkdownBackend } = await import("../markdown-backend");
->>>>>>> origin/main:src/domain/tasks/backend-workspace-integration.test.ts
       
       // One-step creation with repo URL
       const backend = await createMarkdownBackend({
