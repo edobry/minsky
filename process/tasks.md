@@ -548,10 +548,12 @@
 
 - [ ] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
-- [ ] Research codemod-based approach for session-aware edit file tool [#310](process/tasks/310-research-codemod-based-approach-for-session-aware-edit-file-tool.md)
+- [ ] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
 
 - [x] Standardize MCP session-awareness: Make session PR and commit tools explicitly session-aware [#311](process/tasks/311-standardize-mcp-session-awareness-make-session-pr-and-commit-tools-explicitly-session-aware.md)
 
 - [ ] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
 
 - [ ] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
+
+- [ ] Test task to see next available ID [#314](process/tasks/314-test-task-to-see-next-available-id.md)
