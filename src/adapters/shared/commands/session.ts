@@ -94,15 +94,12 @@ export function registerSessionCommands(): void {
 
       try {
         const session = await sessionGet({
-          name: params!.name,
-          task: params!.task,
-          repo: params!.repo,
+          session: params!.session,
           json: params!.json,
         });
 
         if (!session) {
-          const identifier = params!.name || `task #${params!.task}`;
-          throw new Error(`Session '${identifier}' not found`);
+          throw new Error(`Session '${params!.session}' not found`);
         }
 
         return {
@@ -112,8 +109,7 @@ export function registerSessionCommands(): void {
       } catch (error) {
         log.error("Failed to get session", {
           error: getErrorMessage(error as Error),
-          session: params!.name,
-          task: params!.task,
+          session: params!.session,
         });
         throw error;
       }
@@ -174,9 +170,7 @@ Examples:
 
       try {
         const directory = await sessionDir({
-          name: params!.name,
-          task: params!.task,
-          repo: params!.repo,
+          session: params!.session,
           json: params!.json,
         });
 
@@ -187,8 +181,7 @@ Examples:
       } catch (error) {
         log.debug("Failed to get session directory", {
           error: getErrorMessage(error as Error),
-          session: params!.name,
-          task: params!.task,
+          session: params!.session,
         });
         throw error;
       }
@@ -207,21 +200,19 @@ Examples:
 
       try {
         const deleted = await sessionDelete({
-          name: params!.name,
-          task: params!.task,
+          session: params!.session,
           force: params!.force,
-          repo: params!.repo,
           json: params!.json,
         });
 
         return {
           success: deleted,
-          session: params!.name || params!.task,
+          session: params!.session,
         };
       } catch (error) {
         log.error("Failed to delete session", {
           error: getErrorMessage(error as Error),
-          session: params!.name || params!.task,
+          session: params!.session,
         });
         throw error;
       }
@@ -240,28 +231,26 @@ Examples:
 
       try {
         await sessionUpdate({
-          name: params!.name,
-          task: params!.task,
-          repo: params!.repo,
+          session: params!.session,
           branch: params!.branch,
           noStash: params!.noStash,
           noPush: params!.noPush,
           force: params!.force,
-          json: params!.json,
           skipConflictCheck: params!.skipConflictCheck,
           autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,
           dryRun: params!.dryRun,
           skipIfAlreadyMerged: params!.skipIfAlreadyMerged,
+          json: params!.json,
         });
 
         return {
           success: true,
-          session: params!.name || params!.task,
+          session: params!.session,
         };
       } catch (error) {
         log.error("Failed to update session", {
           error: getErrorMessage(error as Error),
-          session: params!.name || params!.task,
+          session: params!.session,
         });
         throw error;
       }
@@ -280,9 +269,8 @@ Examples:
 
       try {
         const result = (await sessionApprove({
-          session: params!.name,
-          task: params!.task,
-          repo: params!.repo,
+          session: params!.session,
+          noStash: params!.noStash,
           json: params!.json,
         })) as unknown;
 
@@ -293,8 +281,7 @@ Examples:
       } catch (error) {
         log.error("Failed to approve session", {
           error: getErrorMessage(error as Error),
-          session: params!.name,
-          task: params!.task,
+          session: params!.session,
         });
         throw error;
       }
