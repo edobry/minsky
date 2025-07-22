@@ -3,6 +3,7 @@ import { normalizeRepoName } from "../../repo-utils";
 import { createSessionProvider } from "../../session";
 import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";
+import { execGitWithTimeout } from "../../../utils/git-exec";
 import { promisify } from "node:util";
 import { exec } from "node:child_process";
 
@@ -55,8 +56,8 @@ export async function checkoutFromParams(params: {
 
   // Perform the checkout
   try {
-    const { stdout, stderr } = await execAsync(`git checkout ${params.branch}`, {
-      cwd: repoPath,
+    const { stdout, stderr } = await execGitWithTimeout("checkout-command", `checkout ${params.branch}`, {
+      workdir: repoPath,
       timeout: 30000,
     });
 

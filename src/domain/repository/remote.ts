@@ -4,7 +4,12 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
-import { gitPushWithTimeout, gitPullWithTimeout, type GitExecOptions } from "../../utils/git-exec";
+import { 
+  execGitWithTimeout,
+  gitPushWithTimeout, 
+  gitPullWithTimeout,
+  type GitExecOptions 
+} from "../../utils/git-exec";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -150,7 +155,7 @@ Repository: ${this.repoUrl}
 
     try {
       // Create the branch in the specified session's repo
-      await execAsync(`git -C ${workdir} checkout -b ${branch}`);
+      await execGitWithTimeout("remote-create-branch", `checkout -b ${branch}`, { workdir });
 
       return {
         workdir,
@@ -194,11 +199,11 @@ Repository: ${this.repoUrl}
       }
 
       // Check for unstaged changes
-      const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
+      const { stdout: statusOutput } = await execGitWithTimeout("remote-status-check", "status --porcelain", { workdir });
       const dirty = statusOutput.trim().length > 0;
 
       // Get remotes
-      const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote`);
+      const { stdout: remoteOutput } = await execGitWithTimeout("remote-list", "remote", { workdir });
       const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
       return {
@@ -319,9 +324,7 @@ Repository: ${this.repoUrl}
           if ((normalizedError?.message as any).includes("Authentication failed")) {
             return {
               success: false,
-              error: new Error(
-                "Authentication failed during push operation. Please check your credentials."
-              ),
+              error: new Error("Authentication failed during push operation. Please check your credentials."),
             };
           }
           throw normalizedError;

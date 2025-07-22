@@ -25,6 +25,7 @@ import {
 } from "../utils/repository-utils";
 import { normalizeRepoName } from "./repo-utils";
 import { log } from "../utils/logger";
+import { execGitWithTimeout } from "../utils/git-exec";
 
 const execAsync = promisify(exec);
 
@@ -61,12 +62,15 @@ export class LocalGitBackend implements RepositoryBackend {
    * @returns The command output
    */
   private async execGit(args: string[], cwd?: string): Promise<string> {
-    const cmd = `git ${args.join(" ")}`;
+    const operation = `local-backend-${args[0] || "unknown"}`;
+    const gitCommand = args.join(" ");
     try {
-      const { stdout, stderr } = await execAsync(cmd, { cwd: cwd || this.localPath });
+      const { stdout, stderr } = await execGitWithTimeout(operation, gitCommand, { 
+        workdir: cwd || this.localPath 
+      });
       if (stderr) {
         log.debug("Git _command produced stderr", {
-          _command: cmd,
+          _command: `git ${gitCommand}`,
           stderr,
           cwd: cwd || this.localPath,
         });
@@ -74,7 +78,7 @@ export class LocalGitBackend implements RepositoryBackend {
       return stdout.trim();
     } catch (error) {
       throw new RepositoryError(
-        `Git _command failed: ${cmd}`,
+        `Git _command failed: git ${gitCommand}`,
         error instanceof Error ? error : undefined
       );
     }
@@ -208,7 +212,9 @@ export class LocalGitBackend implements RepositoryBackend {
 
     // Check if it's a Git repository
     try {
-      await execAsync(`git -C ${this.config.path} rev-parse --git-dir`);
+      await execGitWithTimeout("validate-git-dir", "rev-parse --git-dir", { 
+        workdir: this.config.path 
+      });
     } catch (error) {
       issues.push(`Not a valid Git repository: ${this.config.path}`);
       return { valid: false, issues };
