@@ -549,3 +549,5 @@
 - [ ] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
 - [ ] Research codemod-based approach for session-aware edit file tool [#310](process/tasks/310-research-codemod-based-approach-for-session-aware-edit-file-tool.md)
+
+- [ ] Standardize MCP session-awareness: Make session PR and commit tools explicitly session-aware [#311](process/tasks/311-standardize-mcp-session-awareness-make-session-pr-and-commit-tools-explicitly-session-aware.md)
