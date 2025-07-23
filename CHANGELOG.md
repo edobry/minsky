@@ -1494,3 +1494,11 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Arrays: Wrapped with minimal metadata `{success: true, data: [...], count: N}`
   - Objects: Return direct results with zero wrapper overhead
   - Achieves maximum context efficiency while maintaining MCP client compatibility
+
+### Added
+
+- **Cognitive Error Correction**: Fixed implementation-verification-protocol rule after Task #171 false completion claim
+  - Original error: Trusted task documentation claiming "75% reduction achieved" without verification
+  - Reality: session.ts was 2,218 lines (not 464 as claimed), 56 files still over 400 lines
+  - Rule now enforces: Never accept completion claims without direct verification
+  - Requires evidence-based language instead of claim-based assertions
