@@ -20,6 +20,7 @@ import { createMockLogger, clearLoggerMocks } from "../../utils/test-utils/logge
 // Mock git utilities (which is what the service actually uses)
 let mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
 let mockGitFetchWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
+let mockExecAsync = mock(() => Promise.resolve({ stdout: "mock-output", stderr: "" }));
 
 // Use centralized logger mock
 const mockLog = createMockLogger();
@@ -28,6 +29,11 @@ const mockLog = createMockLogger();
 mock.module("../../utils/git-exec", () => ({
   execGitWithTimeout: mockExecGitWithTimeout,
   gitFetchWithTimeout: mockGitFetchWithTimeout
+}));
+
+// Mock the exec utility that conflict detection actually uses
+mock.module("../../utils/exec", () => ({
+  execAsync: mockExecAsync
 }));
 
 mock.module("../../utils/logger", () => ({
