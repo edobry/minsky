@@ -220,7 +220,25 @@ export class HybridBackendWrapper implements TaskBackend {
   }
 
   getCapabilities(): BackendCapabilities {
-    const backendCaps = this.backend.getCapabilities();
+    // Get backend capabilities if available, otherwise use defaults
+    const backendCaps = typeof this.backend.getCapabilities === 'function' 
+      ? this.backend.getCapabilities()
+      : {
+          supportsTaskCreation: true,
+          supportsTaskUpdate: true,
+          supportsTaskDeletion: true,
+          supportsStatus: true,
+          supportsSubtasks: false,
+          supportsDependencies: false,
+          supportsOriginalRequirements: false,
+          supportsAiEnhancementTracking: false,
+          supportsMetadataQuery: false,
+          supportsFullTextSearch: false,
+          requiresSpecialWorkspace: false,
+          supportsTransactions: false,
+          supportsRealTimeSync: false,
+          isHybridBackend: false,
+        };
     
     return {
       ...backendCaps,
