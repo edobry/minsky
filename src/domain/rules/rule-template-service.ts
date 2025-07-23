@@ -108,6 +108,9 @@ export interface GenerateRulesResult {
   
   /** Any errors that occurred during generation */
   errors: string[];
+  
+  /** Configuration used for generation */
+  config?: RuleGenerationConfig;
 }
 
 /**
@@ -213,6 +216,9 @@ export class RuleTemplateService {
       result.success = false;
     }
     
+    // Add config to result for testing/debugging
+    result.config = config;
+    
     return result;
   }
   
@@ -267,12 +273,20 @@ export class RuleTemplateService {
       fs.writeFileSync(rulePath, fileContent);
     }
     
-    return {
+    // Create the base rule object
+    const rule: any = {
       id: template.id,
       path: rulePath,
       content,
       meta
     };
+    
+    // Flatten metadata properties onto the rule object if metadata exists
+    if (meta) {
+      Object.assign(rule, meta);
+    }
+    
+    return rule;
   }
   
   /**
@@ -422,9 +436,10 @@ export function createRuleTemplateService(workspacePath: string): RuleTemplateSe
  */
 export async function generateRulesWithConfig(
   workspacePath: string,
-  options: GenerateRulesOptions
+  config: RuleGenerationConfig,
+  options: Omit<GenerateRulesOptions, "config">
 ): Promise<GenerateRulesResult> {
   const service = createRuleTemplateService(workspacePath);
   await service.registerDefaultTemplates();
-  return service.generateRules(options);
+  return service.generateRules({ ...options, config });
 } 
