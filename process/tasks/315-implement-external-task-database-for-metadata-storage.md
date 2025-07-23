@@ -7,6 +7,7 @@
 - ✅ True spec/metadata separation with HybridTaskBackend architecture
 - ✅ GitHub + SQLite hybrid backend for collaborative workflows
 - ✅ Markdown + SQLite hybrid backend for file-based workflows
+- ✅ **Database Infrastructure Reuse**: SQLite and PostgreSQL metadata backends reuse existing session database infrastructure
 
 ## Context
 
@@ -38,6 +39,40 @@ Currently, task backends (Markdown, JSON, GitHub Issues) already serve as both t
    - Special workspace (for markdown)
    - Direct database operations (for SQLite/PostgreSQL)
    - API calls (for GitHub/Linear)
+
+## Database Infrastructure Reuse
+
+**CRITICAL**: The SQLite and PostgreSQL metadata backends reuse the existing database storage infrastructure from the session database system.
+
+### Existing Infrastructure Components Reused:
+
+1. **DatabaseStorage Interface** (`src/domain/storage/database-storage.ts`):
+   - Generic interface for database operations
+   - Type-safe entity and state management
+   - Supports SQLite, PostgreSQL, and JSON backends
+
+2. **SQLite Storage Backend** (`src/domain/storage/backends/sqlite-storage.ts`):
+   - Uses Drizzle ORM with Bun's native SQLite driver
+   - WAL mode support for concurrent access
+   - Transaction support for atomic operations
+
+3. **PostgreSQL Storage Backend** (`src/domain/storage/backends/postgres-storage.ts`):
+   - Connection pooling for performance
+   - Advanced query capabilities
+   - Production-ready for team environments
+
+### Implementation Strategy:
+
+- **SqliteMetadataDatabase**: Wraps `SqliteStorage<TaskMetadata, TaskMetadataDbState>`
+- **PostgresMetadataDatabase**: Wraps `PostgresStorage<TaskMetadata, TaskMetadataDbState>`
+- **Consistent API**: Same interface as session storage but specialized for task metadata
+- **Proven Reliability**: Leverages battle-tested database code from session management
+
+This approach ensures:
+- ✅ **Code Reuse**: No duplicate database implementations
+- ✅ **Consistency**: Same patterns across session and task metadata storage
+- ✅ **Reliability**: Proven infrastructure with existing testing
+- ✅ **Maintainability**: Single source of truth for database operations
 
 ## Core Metadata Categories (Simplified)
 
@@ -88,13 +123,13 @@ Backend when possible, database when not:
 
 2. **Task Metadata Storage**: Where metadata is stored
    - Enhanced JSON: `process/tasks.json` (all-in-repo)
-   - SQLite: `~/.local/state/minsky/tasks.db` (local)
-   - PostgreSQL: Shared team database
+   - SQLite: `~/.local/state/minsky/tasks.db` (local, **reuses session storage infrastructure**)
+   - PostgreSQL: Shared team database (**reuses session storage infrastructure**)
    - Backend native: GitHub labels, Linear custom fields
 
 3. **Update Mechanism**: How we perform updates
    - Special workspace (for file-based backends)
-   - Direct database access (SQLite/PostgreSQL)
+   - Direct database access (SQLite/PostgreSQL via **existing storage backends**)
    - API calls (GitHub, Linear, etc.)
 
 ## Storage Configuration Patterns
