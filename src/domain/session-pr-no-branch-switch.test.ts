@@ -1,71 +1,106 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { preparePrFromParams } from "./git";
 import { createMock } from "../utils/test-utils/mocking";
 
-describe("Session PR Command Branch Behavior", () => {
-  test("should never switch user to PR branch during session pr creation", async () => {
-    const gitCommands: string[] = [];
+// Track git commands globally
+let gitCommands: string[] = [];
+
+// Module-level mocks for execution utilities
+mock.module("../utils/exec", () => ({
+  execAsync: mock(async (command: string) => {
+    gitCommands.push(command);
+    
     const sessionBranch = "task#228";
     const prBranch = "pr/task#228";
-
-    // Mock execAsync to capture all git commands
-    const mockExecAsync = createMock(async (...args: unknown[]) => {
-      const command = args[0] as string;
-      gitCommands.push(command);
-
-      // Simulate different command responses
-      if (command.includes("git -C") && command.includes("rev-parse --abbrev-ref HEAD")) {
-        return { stdout: sessionBranch, stderr: "" };
-      }
-      if (command.includes("symbolic-ref refs/remotes/origin/HEAD")) {
-        return { stdout: "origin/main", stderr: "" };
-      }
-      if (command.includes("fetch origin")) {
-        return { stdout: "", stderr: "" };
-      }
-      if (command.includes("rev-parse --verify")) {
-        return { stdout: "abcdef123", stderr: "" };
-      }
-      if (command.includes(`branch ${prBranch}`)) {
-        return { stdout: "", stderr: "" };
-      }
-      if (command.includes(`switch ${prBranch}`)) {
-        return { stdout: "", stderr: "" };
-      }
-      if (command.includes("merge --no-ff")) {
-        return { stdout: "", stderr: "" };
-      }
-      if (command.includes(`switch ${sessionBranch}`)) {
-        return { stdout: "", stderr: "" };
-      }
-      if (command.includes(`push origin ${prBranch}`)) {
-        return { stdout: "", stderr: "" };
-      }
-
+    
+    // Simulate different command responses
+    if (command.includes("git -C") && command.includes("rev-parse --abbrev-ref HEAD")) {
+      return { stdout: sessionBranch, stderr: "" };
+    }
+    if (command.includes("symbolic-ref refs/remotes/origin/HEAD")) {
+      return { stdout: "origin/main", stderr: "" };
+    }
+    if (command.includes("fetch origin")) {
       return { stdout: "", stderr: "" };
-    });
+    }
+    if (command.includes("rev-parse --verify")) {
+      return { stdout: "abcdef123", stderr: "" };
+    }
+    if (command.includes(`branch ${prBranch}`)) {
+      return { stdout: "", stderr: "" };
+    }
+    if (command.includes(`switch ${prBranch}`)) {
+      return { stdout: "", stderr: "" };
+    }
+    if (command.includes("merge --no-ff")) {
+      return { stdout: "", stderr: "" };
+    }
+    if (command.includes(`switch ${sessionBranch}`)) {
+      return { stdout: "", stderr: "" };
+    }
+    if (command.includes(`push origin ${prBranch}`)) {
+      return { stdout: "", stderr: "" };
+    }
 
-    // Mock session database
-    const mockSessionDb = {
-      getSession: createMock((): Promise<any> =>
-        Promise.resolve({
-          session: "task#228",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "#228",
-        })
-      ),
-    };
+    return { stdout: "", stderr: "" };
+  })
+}));
 
-    // Mock dependencies
-    const mockDeps = {
-      execAsync: mockExecAsync,
-      getSession: mockSessionDb.getSession,
-      getSessionWorkdir: createMock(() => "/test/session/workdir"),
-      mkdir: createMock(() => Promise.resolve()),
-      readdir: createMock(() => Promise.resolve(["file1.txt"])),
-      access: createMock(() => Promise.resolve()),
-    };
+mock.module("../utils/git-exec", () => ({
+  execGitWithTimeout: mock((command: string) => {
+    gitCommands.push(`git ${command}`);
+    return Promise.resolve({ stdout: "", stderr: "" });
+  }),
+  gitFetchWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" })),
+  gitPushWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" }))
+}));
+
+// Module-level mocks to prevent real storage and session provider access
+mock.module("../domain/storage/backends/json-file-storage", () => ({
+  JsonFileStorage: class MockJsonFileStorage {
+    async getEntity() {
+      return {
+        session: "task#228",
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        taskId: "#228",
+      };
+    }
+    async saveEntity() {
+      return Promise.resolve();
+    }
+    async getAllEntities() {
+      return [{
+        session: "task#228",
+        repoName: "test-repo",
+        repoUrl: "/test/repo",
+        taskId: "#228",
+      }];
+    }
+  }
+}));
+
+mock.module("../domain/session", () => ({
+  createSessionProvider: () => ({
+    getSession: () => Promise.resolve({
+      session: "task#228",
+      repoName: "test-repo",
+      repoUrl: "/test/repo",
+      taskId: "#228",
+    }),
+    getSessionWorkdir: () => Promise.resolve("/test/session/workdir"),
+  })
+}));
+
+describe("Session PR Command Branch Behavior", () => {
+  beforeEach(() => {
+    // Reset git commands tracking
+    gitCommands = [];
+  });
+
+  test("should never switch user to PR branch during session pr creation", async () => {
+    const sessionBranch = "task#228";
+    const prBranch = "pr/task#228";
 
     // Execute preparePr which is called by session pr
     await preparePrFromParams({
