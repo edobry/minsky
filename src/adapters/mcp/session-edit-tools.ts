@@ -16,7 +16,7 @@ import { getErrorMessage } from "../../errors/index";
  * Interface for edit file operation
  */
 interface EditFileArgs {
-  session: string;
+  sessionName: string;
   path: string;
   instructions: string;
   content: string;
@@ -27,7 +27,7 @@ interface EditFileArgs {
  * Interface for search replace operation
  */
 interface SearchReplaceArgs {
-  session: string;
+  sessionName: string;
   path: string;
   search: string;
   replace: string;
@@ -41,7 +41,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
 
   // Session edit file tool
   commandMapper.addCommand({
-    name: "session_edit_file",
+    name: "session.edit_file",
     description: "Edit a file within a session workspace using a diff-like format",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
@@ -133,7 +133,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
 
   // Session search replace tool
   commandMapper.addCommand({
-    name: "session_search_replace",
+    name: "session.search_replace",
     description: "Replace a single occurrence of text in a file within a session workspace",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
@@ -230,8 +230,8 @@ function applyEditPattern(originalContent: string, editContent: string): string 
 
   // Process each pair of before/after content around the markers
   for (let i = 0; i < editParts.length - 1; i++) {
-    const beforeContent = editParts[i].trim() || "";
-    const afterContent = editParts[i + 1].trim() || "";
+    const beforeContent = editParts[i]?.trim() || "";
+    const afterContent = editParts[i + 1]?.trim() || "";
 
     // Find where to apply this edit
     if (i === 0 && beforeContent) {
@@ -245,7 +245,7 @@ function applyEditPattern(originalContent: string, editContent: string): string 
       let endIndex = result.length;
       if (i < editParts.length - 2) {
         // There's another edit section, find where it starts
-        const nextBefore = editParts[i + 2].trim() || "";
+        const nextBefore = editParts[i + 2]?.trim() || "";
         const nextStart = result.indexOf(nextBefore, startIndex + beforeContent.length);
         if (nextStart !== -1) {
           endIndex = nextStart;
