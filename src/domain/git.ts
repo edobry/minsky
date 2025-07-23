@@ -18,7 +18,13 @@ import {
 } from "../errors/index";
 import { log } from "../utils/logger";
 import { getMinskyStateDir } from "../utils/paths";
-import { ConflictDetectionService } from "./git/conflict-detection";
+import {
+  ConflictDetectionService,
+  ConflictPrediction,
+  BranchDivergenceAnalysis,
+  EnhancedMergeResult,
+  SmartUpdateResult,
+} from "./git/conflict-detection";
 import { validateError, validateGitError } from "../schemas/error";
 import { validateDirectoryContents, validateExecResult, validateProcess } from "../schemas/runtime";
 import {
@@ -26,7 +32,7 @@ import {
   gitFetchWithTimeout,
   gitMergeWithTimeout,
   gitPushWithTimeout,
-} from "../utils/git-exec";
+} from "../utils/git-exec-enhanced";
 import {
   preparePrImpl,
   type PreparePrOptions,
@@ -425,27 +431,17 @@ export class GitService implements GitServiceInterface {
     const workdir = repoPath || (process as any).cwd();
 
     // Get modified files
-    const { stdout: modifiedOutput } = await execGitWithTimeout(
-      "get-status-modified",
-      "diff --name-only",
-      { workdir }
-    );
+    const { stdout: modifiedOutput } = await execAsync(`git -C ${workdir} diff --name-only`);
     const modified = modifiedOutput.trim().split("\n").filter(Boolean);
 
     // Get untracked files
-    const { stdout: untrackedOutput } = await execGitWithTimeout(
-      "get-status-untracked",
-      "ls-files --others --exclude-standard",
-      { workdir }
+    const { stdout: untrackedOutput } = await execAsync(
+      `git -C ${workdir} ls-files --others --exclude-standard`
     );
     const untracked = untrackedOutput.trim().split("\n").filter(Boolean);
 
     // Get deleted files
-    const { stdout: deletedOutput } = await execGitWithTimeout(
-      "get-status-deleted",
-      "ls-files --deleted",
-      { workdir }
-    );
+    const { stdout: deletedOutput } = await execAsync(`git -C ${workdir} ls-files --deleted`);
     const deleted = deletedOutput.trim().split("\n").filter(Boolean);
 
     return { modified, untracked, deleted };
@@ -453,20 +449,18 @@ export class GitService implements GitServiceInterface {
 
   async stageAll(repoPath?: string): Promise<void> {
     const workdir = repoPath || (process as any).cwd();
-    await execGitWithTimeout("stage-all", "add -A", { workdir });
+    await execAsync(`git -C ${workdir} add -A`);
   }
 
   async stageModified(repoPath?: string): Promise<void> {
     const workdir = repoPath || (process as any).cwd();
-    await execGitWithTimeout("stage-modified", "add .", { workdir });
+    await execAsync(`git -C ${workdir} add .`);
   }
 
   async commit(message: string, repoPath?: string, amend: boolean = false): Promise<string> {
     const workdir = repoPath || (process as any).cwd();
     const amendFlag = amend ? "--amend" : "";
-    const { stdout } = await execGitWithTimeout("commit", `commit ${amendFlag} -m "${message}"`, {
-      workdir,
-    });
+    const { stdout } = await execAsync(`git -C ${workdir} commit ${amendFlag} -m "${message}"`);
 
     // Extract commit hash from git output
     const match = stdout.match(/\[.*\s+([a-f0-9]+)\]/);
@@ -480,20 +474,14 @@ export class GitService implements GitServiceInterface {
   async stashChanges(workdir: string): Promise<StashResult> {
     try {
       // Check if there are changes to stash
-      const { stdout: status } = await execGitWithTimeout(
-        "stash-check-status",
-        "status --porcelain",
-        { workdir }
-      );
+      const { stdout: status } = await execAsync(`git -C ${workdir} status --porcelain`);
       if (!status.trim()) {
         // No changes to stash
         return { workdir, stashed: false };
       }
 
-      // Stash changes including untracked files
-      await execGitWithTimeout("stash-push", 'stash push -u -m "minsky session update"', {
-        workdir,
-      });
+      // Stash changes
+      await execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
@@ -503,16 +491,14 @@ export class GitService implements GitServiceInterface {
   async popStash(workdir: string): Promise<StashResult> {
     try {
       // Check if there's a stash to pop
-      const { stdout: stashList } = await execGitWithTimeout("stash-list", "stash list", {
-        workdir,
-      });
+      const { stdout: stashList } = await execAsync(`git -C ${workdir} stash list`);
       if (!stashList.trim()) {
         // No stash to pop
         return { workdir, stashed: false };
       }
 
       // Pop the stash
-      await execGitWithTimeout("stash-pop", "stash pop", { workdir });
+      await execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to pop stash: ${getErrorMessage(err as any)}`);
@@ -522,20 +508,14 @@ export class GitService implements GitServiceInterface {
   async pullLatest(workdir: string, remote: string = "origin"): Promise<PullResult> {
     try {
       // Get current commit hash before fetch
-      const { stdout: beforeHash } = await execGitWithTimeout(
-        "pull-before-hash",
-        "rev-parse HEAD",
-        { workdir }
-      );
+      const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
 
       // Fetch latest changes from remote (don't pull current branch)
       // This gets all refs from remote without merging anything
-      await gitFetchWithTimeout(remote, undefined, { workdir });
+      await execAsync(`git -C ${workdir} fetch ${remote}`);
 
       // Get commit hash after fetch (should be the same since we only fetched)
-      const { stdout: afterHash } = await execGitWithTimeout("pull-after-hash", "rev-parse HEAD", {
-        workdir,
-      });
+      const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
 
       // Return whether local working directory changed (should be false for fetch-only)
       // The 'updated' flag indicates if remote refs were updated, but we can't easily detect that
@@ -613,9 +593,7 @@ export class GitService implements GitServiceInterface {
       const { stdout } = await execAsync(command!, { cwd: workdir });
       return stdout;
     } catch (error) {
-      // Use debug logging instead of error logging since these failures are often expected
-      // and caught by calling code (e.g., checking if a branch exists)
-      log.debug("Git command failed (this may be expected)", {
+      log.error("Command execution failed", {
         error: getErrorMessage(error as any),
         command,
         workdir,
@@ -748,8 +726,8 @@ export class GitService implements GitServiceInterface {
         return { workdir, stashed: false };
       }
 
-      // Stash changes including untracked files
-      await deps.execAsync(`git -C ${workdir} stash push -u -m "minsky session update"`);
+      // Stash changes
+      await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
@@ -855,7 +833,7 @@ export class GitService implements GitServiceInterface {
       const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
       // Fetch latest changes from remote using dependency-injected execution
-      await gitFetchWithTimeout(remote, undefined, { workdir });
+      await deps.execAsync(`git -C ${workdir} fetch ${remote}`);
 
       // Get commit hash after fetch (should be the same since we only fetched)
       const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
@@ -894,11 +872,7 @@ export class GitService implements GitServiceInterface {
    * Get the current branch name
    */
   async getCurrentBranch(repoPath: string): Promise<string> {
-    const { stdout } = await execGitWithTimeout(
-      "get-current-branch",
-      "rev-parse --abbrev-ref HEAD",
-      { workdir: repoPath }
-    );
+    const { stdout } = await execAsync(`git -C ${repoPath} rev-parse --abbrev-ref HEAD`);
     return stdout.trim();
   }
 
@@ -906,9 +880,7 @@ export class GitService implements GitServiceInterface {
    * Check if repository has uncommitted changes
    */
   async hasUncommittedChanges(repoPath: string): Promise<boolean> {
-    const { stdout } = await execGitWithTimeout("check-uncommitted-changes", "status --porcelain", {
-      workdir: repoPath,
-    });
+    const { stdout } = await execAsync(`git -C ${repoPath} status --porcelain`);
     return stdout.trim().length > 0;
   }
 
@@ -951,7 +923,7 @@ export class GitService implements GitServiceInterface {
       repoPath,
       sourceBranch,
       targetBranch,
-      options
+      options as unknown
     );
   }
 
@@ -971,14 +943,14 @@ export class GitService implements GitServiceInterface {
       repoPath,
       sessionBranch,
       baseBranch,
-      options
+      options as unknown
     );
   }
 }
 
 /**
  * Interface-agnostic function to create a pull request
- * This implements the interface agnostic command architecture pattern
+ * MODULARIZED: Delegates to modular operation
  */
 export async function createPullRequestFromParams(params: {
   session?: string;
@@ -988,33 +960,13 @@ export async function createPullRequestFromParams(params: {
   debug?: boolean;
   noStatusUpdate?: boolean;
 }): Promise<{ markdown: string; statusUpdateResult?: any }> {
-  try {
-    const git = new GitService();
-    const result = await git.pr({
-      session: params.session,
-      repoPath: params.repo,
-      branch: params.branch,
-      taskId: params.taskId,
-      debug: params.debug,
-      noStatusUpdate: params.noStatusUpdate,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error creating pull request", {
-      session: params.session,
-      repo: params.repo,
-      branch: params.branch,
-      taskId: params.taskId,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.createPullRequestFromParams(params);
 }
 
 /**
  * Interface-agnostic function to commit changes
- * This implements the interface agnostic command architecture pattern
+ * MODULARIZED: Delegates to modular operation
  */
 export async function commitChangesFromParams(params: {
   message: string;
@@ -1024,39 +976,13 @@ export async function commitChangesFromParams(params: {
   amend?: boolean;
   noStage?: boolean;
 }): Promise<{ commitHash: string; message: string }> {
-  try {
-    const git = new GitService();
-
-    if (!params.noStage) {
-      if (params.all) {
-        await git.stageAll(params.repo);
-      } else {
-        await git.stageModified(params.repo);
-      }
-    }
-
-    const commitHash = await git.commit(params.message, params.repo, params.amend);
-
-    return {
-      commitHash,
-      message: params.message,
-    };
-  } catch (error) {
-    log.error("Error committing changes", {
-      session: params.session,
-      repo: params.repo,
-      message: params.message,
-      all: params.all,
-      amend: params.amend,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.commitChangesFromParams(params);
 }
 
 /**
  * Interface-agnostic function to prepare a PR branch
+ * MODULARIZED: Delegates to modular operation
  */
 export async function preparePrFromParams(params: {
   session?: string;
@@ -1067,20 +993,13 @@ export async function preparePrFromParams(params: {
   branchName?: string;
   debug?: boolean;
 }): Promise<PreparePrResult> {
-  const git = new GitService();
-  return await git.preparePr({
-    session: params.session,
-    repoPath: params.repo,
-    baseBranch: params.baseBranch,
-    title: params.title,
-    body: params.body,
-    branchName: params.branchName,
-    debug: params.debug,
-  });
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.preparePrFromParams(params);
 }
 
 /**
  * Interface-agnostic function to merge a PR branch
+ * MODULARIZED: Delegates to modular operation
  */
 export async function mergePrFromParams(params: {
   prBranch: string;
@@ -1088,30 +1007,13 @@ export async function mergePrFromParams(params: {
   baseBranch?: string;
   session?: string;
 }): Promise<MergePrResult> {
-  try {
-    const git = new GitService();
-    const result = await git.mergePr({
-      prBranch: params.prBranch,
-      repoPath: params.repo,
-      baseBranch: params.baseBranch,
-      session: params.session,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error merging PR branch", {
-      prBranch: params.prBranch,
-      baseBranch: params.baseBranch,
-      session: params.session,
-      repo: params.repo,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.mergePrFromParams(params);
 }
 
 /**
  * Interface-agnostic function to clone a repository
+ * MODULARIZED: Delegates to modular operation
  */
 export async function cloneFromParams(params: {
   url: string;
@@ -1119,54 +1021,25 @@ export async function cloneFromParams(params: {
   session?: string;
   branch?: string;
 }): Promise<CloneResult> {
-  try {
-    const git = new GitService();
-    const result = await git.clone({
-      repoUrl: params.url,
-      workdir: params.workdir,
-      session: params.session,
-      branch: params.branch,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error cloning repository", {
-      url: params.url,
-      session: params.session,
-      branch: params.branch,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.cloneFromParams(params);
 }
 
 /**
  * Interface-agnostic function to create a branch
+ * MODULARIZED: Delegates to modular operation
  */
 export async function branchFromParams(params: {
   session: string;
   name: string;
 }): Promise<BranchResult> {
-  try {
-    const git = new GitService();
-    const result = await git.branch({
-      session: params.session,
-      branch: params.name,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error creating branch", {
-      session: params.session,
-      name: params.name,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.branchFromParams(params);
 }
 
 /**
  * Interface-agnostic function to push changes to a remote repository
+ * MODULARIZED: Delegates to modular operation
  */
 export async function pushFromParams(params: {
   session?: string;
@@ -1175,27 +1048,8 @@ export async function pushFromParams(params: {
   force?: boolean;
   debug?: boolean;
 }): Promise<PushResult> {
-  try {
-    const git = new GitService();
-    const result = await git.push({
-      session: params.session,
-      repoPath: params.repo,
-      remote: params.remote,
-      force: params.force,
-      debug: params.debug,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error pushing changes", {
-      session: params.session,
-      repo: params.repo,
-      remote: params.remote,
-      force: params.force,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.pushFromParams(params);
 }
 
 /**
@@ -1211,6 +1065,7 @@ export function createGitService(options?: { baseDir?: string }): GitServiceInte
 
 /**
  * Interface-agnostic function to merge branches with conflict detection
+ * MODULARIZED: Delegates to modular operation
  */
 export async function mergeFromParams(params: {
   sourceBranch: string;
@@ -1221,38 +1076,13 @@ export async function mergeFromParams(params: {
   autoResolve?: boolean;
   conflictStrategy?: string;
 }): Promise<EnhancedMergeResult> {
-  try {
-    const git = new GitService();
-    const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
-    const targetBranch = params.targetBranch || "HEAD";
-
-    const result = await git.mergeWithConflictPrevention(
-      repoPath,
-      params.sourceBranch,
-      targetBranch,
-      {
-        dryRun: params.preview,
-        autoResolveDeleteConflicts: params.autoResolve,
-        skipConflictCheck: false,
-      }
-    );
-
-    return result;
-  } catch (error) {
-    log.error("Error merging branches", {
-      sourceBranch: params.sourceBranch,
-      targetBranch: params.targetBranch,
-      session: params.session,
-      repo: params.repo,
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.mergeFromParams(params);
 }
 
 /**
  * Interface-agnostic function to checkout/switch branches with conflict detection
+ * MODULARIZED: Delegates to modular operation
  */
 export async function checkoutFromParams(params: {
   branch: string;
@@ -1268,55 +1098,13 @@ export async function checkoutFromParams(params: {
   conflictDetails?: string;
   warning?: { wouldLoseChanges: boolean; recommendedAction: string };
 }> {
-  try {
-    const git = new GitService();
-    const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
-
-    // Use ConflictDetectionService to check for branch switch conflicts
-    const { ConflictDetectionService } = await import("./git/conflict-detection");
-
-    if (params.preview) {
-      // Just preview the operation
-      const warning = await ConflictDetectionService.checkBranchSwitchConflicts(
-        repoPath,
-        params.branch
-      );
-      return {
-        workdir: repoPath,
-        switched: false,
-        conflicts: warning.wouldLoseChanges,
-        conflictDetails: warning.wouldLoseChanges
-          ? `Switching to ${params.branch} would lose uncommitted changes. ${warning.recommendedAction}`
-          : undefined,
-        warning: {
-          wouldLoseChanges: warning.wouldLoseChanges,
-          recommendedAction: warning.recommendedAction,
-        },
-      };
-    }
-
-    // Perform actual checkout
-    await git.execInRepository(repoPath, `checkout ${params.branch}`);
-
-    return {
-      workdir: repoPath,
-      switched: true,
-      conflicts: false,
-    };
-  } catch (error) {
-    log.error("Error checking out branch", {
-      branch: params.branch,
-      session: params.session,
-      repo: params.repo,
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.checkoutFromParams(params);
 }
 
 /**
  * Interface-agnostic function to rebase branches with conflict detection
+ * MODULARIZED: Delegates to modular operation
  */
 export async function rebaseFromParams(params: {
   baseBranch: string;
@@ -1337,71 +1125,6 @@ export async function rebaseFromParams(params: {
     overallComplexity: string;
   };
 }> {
-  try {
-    const git = new GitService();
-    const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
-    const featureBranch = params.featureBranch || "HEAD";
-
-    // Use ConflictDetectionService to predict rebase conflicts
-    const { ConflictDetectionService } = await import("./git/conflict-detection");
-
-    const prediction = await ConflictDetectionService.predictRebaseConflicts(
-      repoPath,
-      params.baseBranch,
-      featureBranch
-    );
-
-    if (params.preview) {
-      // Just preview the operation
-      return {
-        workdir: repoPath,
-        rebased: false,
-        conflicts: !prediction.canAutoResolve,
-        conflictDetails: prediction.recommendations.join("\n"),
-        prediction: {
-          canAutoResolve: prediction.canAutoResolve,
-          recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity,
-        },
-      };
-    }
-
-    // Perform actual rebase if no conflicts or auto-resolve enabled
-    if (prediction.canAutoResolve || params.autoResolve) {
-      await git.execInRepository(repoPath, `rebase ${params.baseBranch}`);
-      return {
-        workdir: repoPath,
-        rebased: true,
-        conflicts: false,
-        prediction: {
-          canAutoResolve: prediction.canAutoResolve,
-          recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity,
-        },
-      };
-    } else {
-      return {
-        workdir: repoPath,
-        rebased: false,
-        conflicts: true,
-        conflictDetails:
-          "Rebase would create conflicts. Use --preview to see details or --auto-resolve to attempt automatic resolution.",
-        prediction: {
-          canAutoResolve: prediction.canAutoResolve,
-          recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity,
-        },
-      };
-    }
-  } catch (error) {
-    log.error("Error rebasing branch", {
-      baseBranch: params.baseBranch,
-      featureBranch: params.featureBranch,
-      session: params.session,
-      repo: params.repo,
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.rebaseFromParams(params);
 }
