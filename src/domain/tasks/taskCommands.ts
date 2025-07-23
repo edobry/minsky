@@ -473,7 +473,7 @@ export async function getTaskSpecContentFromParams(
     // SYNCHRONIZATION FIX: Use the stored spec path directly from the task database
     // instead of calling getTaskSpecPath which may generate stale paths
     const { fixTaskSpecPath } = await import("../../utils/task-workspace-commit");
-    const specPath = fixTaskSpecPath(task, workspacePath);
+    const specPath = await fixTaskSpecPath(task.id, task.specPath || "", workspacePath);
 
     if (!specPath) {
       throw new ResourceNotFoundError(`Task ${taskId} has no specification file`, "task", taskId);

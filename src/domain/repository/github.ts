@@ -222,7 +222,9 @@ Repository: https://github.com/${this.owner}/${this.repo}
       }
 
       // Get remote information
-      const { stdout: remoteOutput } = await execGitWithTimeout("github-remote-list", "remote -v", { workdir });
+      const { stdout: remoteOutput } = await execGitWithTimeout("github-remote-list", "remote -v", {
+        workdir,
+      });
       const remotes = remoteOutput
         .trim()
         .split("\n")

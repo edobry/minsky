@@ -56,10 +56,14 @@ export async function checkoutFromParams(params: {
 
   // Perform the checkout
   try {
-    const { stdout, stderr } = await execGitWithTimeout("checkout-command", `checkout ${params.branch}`, {
-      workdir: repoPath,
-      timeout: 30000,
-    });
+    const { stdout, stderr } = await execGitWithTimeout(
+      "checkout-command",
+      `checkout ${params.branch}`,
+      {
+        workdir: repoPath,
+        timeout: 30000,
+      }
+    );
 
     log("Branch checkout completed", {
       branch: params.branch,
