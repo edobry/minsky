@@ -258,54 +258,8 @@ export class MinskyMCPServer {
       try {
         const result = await tool.handler(request.params.arguments || {});
 
-        // Return content efficiently according to MCP best practices
-        if (typeof result === "string") {
-          // Simple text response
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: result,
-              },
-            ],
-          };
-        } else if (result && typeof result === "object") {
-          // For structured data, prefer structured content over redundant JSON text
-          const isPlainObject = !Array.isArray(result) && !result.error;
-
-          if (isPlainObject) {
-            // Return structured content for objects - more efficient for MCP clients
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `Returned ${Object.keys(result).length} properties: ${Object.keys(result).join(", ")}`,
-                },
-              ],
-              structuredContent: result,
-            };
-          } else {
-            // For arrays or error objects, return formatted text
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify(result, null, 2),
-                },
-              ],
-            };
-          }
-        } else {
-          // Handle other types (numbers, booleans, etc.)
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: String(result),
-              },
-            ],
-          };
-        }
+        // Return result directly - test if MCP requires content field
+        return result;
       } catch (error) {
         log.error("Tool execution failed", {
           tool: request.params.name,
