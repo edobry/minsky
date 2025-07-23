@@ -1,3 +1,21 @@
+/**
+ * SESSION PR BODY VALIDATION TESTS
+ *
+ * What this file tests:
+ * - Session PR body validation requirements
+ * - Validation errors for missing PR descriptions
+ * - Business rule enforcement for PR creation
+ * - Session PR parameter validation edge cases
+ *
+ * Key functionality tested:
+ * - Required body/bodyPath validation for new PRs
+ * - ValidationError throwing for missing PR descriptions
+ * - Session PR business rule enforcement
+ * - Bug fix verification for PR validation logic
+ *
+ * NOTE: This tests PR validation, not PR creation workflow (see other session tests)
+ */
+
 import { describe, test, expect } from "bun:test";
 import { sessionPrImpl } from "../session-pr-operations";
 import { ValidationError } from "../../../errors";

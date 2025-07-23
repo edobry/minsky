@@ -1,5 +1,19 @@
 /**
- * Git PR Workflow Tests
+ * SESSION APPROVAL WORKFLOW TESTS
+ *
+ * What this file tests:
+ * - Session approval workflow via approveSessionFromParams function
+ * - Integration between session management, git operations, and task status updates
+ * - End-to-end session approval process including PR merging and cleanup
+ *
+ * Key functionality tested:
+ * - Session retrieval and validation
+ * - Git operations during session approval (merging, cleanup)
+ * - Task status updates after successful session approval
+ * - Error handling in session approval workflow
+ *
+ * NOTE: This is different from git-service-pr-workflow.test.ts which tests GitService class methods
+ *
  * @migrated Updated to use centralized factories and proper Bun patterns
  * @refactored Eliminated interface mismatches and local mock objects
  */

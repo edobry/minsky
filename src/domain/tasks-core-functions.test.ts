@@ -1,7 +1,23 @@
 const TEST_VALUE = 123;
 
 /**
- * Tests for interface-agnostic task functions
+ * TASK CORE FUNCTION TESTS
+ *
+ * What this file tests:
+ * - Core task domain functions and business logic
+ * - Task data manipulation and validation
+ * - Task service integration and backend operations
+ * - Core task lifecycle without interface concerns
+ *
+ * Key functionality tested:
+ * - Task creation and initialization
+ * - Task data validation and sanitization
+ * - Task status transitions and business rules
+ * - Integration with task storage backends
+ * - Error handling in core task operations
+ *
+ * NOTE: This tests core domain logic, not interface commands (see tasks-interface-commands.test.ts)
+ *
  * @migrated Migrated to native Bun patterns
  */
 import { describe, test, expect } from "bun:test";
