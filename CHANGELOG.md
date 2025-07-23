@@ -13,11 +13,12 @@
 
 ### Fixed
 
-- **Session Approve Consolidation**: Fixed architectural inconsistency from incomplete refactoring
-  - Removed old/broken `approve-command.ts` that incorrectly used session workspace
-  - Consolidated all session approve calls to use correct `approveSessionImpl`
-  - All session approve operations now correctly operate on main repository
-  - Eliminated duplicate implementations that caused confusion
+- **Session Commands Consolidation**: Fixed architectural inconsistencies from incomplete Task #171 refactoring
+  - **Session Approve**: Removed old/broken `approve-command.ts` that incorrectly used session workspace
+  - **Import Fixes**: Added missing export aliases for `updateSession` and `deleteSession` in command files
+  - **Architecture Clarity**: Established triple-layer pattern (core operations, compatibility wrappers, interface bridges)
+  - **Single Source of Truth**: All session operations now correctly use main repository implementations
+  - **TypeScript Fixes**: Resolved multiple broken imports in subcommand files
 
 - **Session Approve Linter Output**: Improved error handling during automatic task status commits
   - Pre-commit hook linter errors now show clean summary instead of raw ESLint dump
