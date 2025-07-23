@@ -1,3 +1,21 @@
+/**
+ * GIT COMMANDS INTEGRATION TESTS
+ *
+ * What this file tests:
+ * - Integration between git command functions and GitService
+ * - End-to-end git command workflows with mocked dependencies
+ * - Git command parameter validation and transformation
+ * - Error handling across git command operations
+ *
+ * Key functionality tested:
+ * - cloneFromParams, branchFromParams, commitChangesFromParams, etc.
+ * - Git command execution with proper dependency injection
+ * - Integration with session management and workspace handling
+ * - Error propagation and validation across command boundaries
+ *
+ * NOTE: This tests command integration, not simple functions (see simple-function.test.ts)
+ */
+
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { setupTestMocks, createMock } from "../../../../utils/test-utils/mocking";
 import { FileSystemTestCleanup } from "../../../../utils/test-utils/cleanup-patterns";

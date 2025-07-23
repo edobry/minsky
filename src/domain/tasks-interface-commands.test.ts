@@ -1,7 +1,23 @@
 const TEST_VALUE = 123;
 
 /**
- * Tests for interface-agnostic task functions
+ * TASK INTERFACE COMMAND TESTS
+ *
+ * What this file tests:
+ * - Interface-agnostic task command functions (*FromParams functions)
+ * - Parameter validation and transformation for task operations
+ * - Business logic layer between CLI/MCP adapters and domain services
+ * - Task lifecycle operations (list, get, create, update status)
+ *
+ * Key functionality tested:
+ * - listTasksFromParams - task listing with filtering
+ * - getTaskFromParams - task retrieval with validation
+ * - setTaskStatusFromParams - task status updates
+ * - Input validation and error handling
+ * - Business rule enforcement
+ *
+ * NOTE: This tests the command layer, not core task services (see tasks-core-functions.test.ts)
+ *
  * @migrated Migrated to native Bun patterns
  */
 import { describe, test, expect, mock } from "bun:test";
