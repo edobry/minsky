@@ -75,11 +75,28 @@ export default {
 
     function getSuggestion(operation) {
       const suggestions = {
-        push: "execGitWithTimeout() for push operations",
-        pull: "execGitWithTimeout() for pull operations",
-        fetch: "execGitWithTimeout() for fetch operations",
-        clone: "execGitWithTimeout() for clone operations",
-        "ls-remote": "execGitWithTimeout() for remote queries",
+        // Network operations (high priority)
+        push: "gitPushWithTimeout() or execGitWithTimeout('push', ...)",
+        pull: "gitPullWithTimeout() or execGitWithTimeout('pull', ...)",
+        fetch: "gitFetchWithTimeout() or execGitWithTimeout('fetch', ...)",
+        clone: "gitCloneWithTimeout() or execGitWithTimeout('clone', ...)",
+        "ls-remote": "execGitWithTimeout('ls-remote', ...)",
+
+        // Local operations that can hang (identified in audit)
+        status: "execGitWithTimeout('status', ...)",
+        diff: "execGitWithTimeout('diff', ...)",
+        "ls-files": "execGitWithTimeout('ls-files', ...)",
+        add: "execGitWithTimeout('add', ...)",
+        commit: "execGitWithTimeout('commit', ...)",
+        stash: "execGitWithTimeout('stash', ...)",
+        "rev-parse": "execGitWithTimeout('rev-parse', ...)",
+        remote: "execGitWithTimeout('remote', ...)",
+        checkout: "execGitWithTimeout('checkout', ...)",
+        rebase: "execGitWithTimeout('rebase', ...)",
+        branch: "execGitWithTimeout('branch', ...)",
+        log: "execGitWithTimeout('log', ...)",
+        show: "execGitWithTimeout('show', ...)",
+        rm: "execGitWithTimeout('rm', ...)",
       };
       return suggestions[operation] || "execGitWithTimeout() with appropriate timeout";
     }

@@ -51,25 +51,23 @@ async function resolveWorkspacePath(
     };
   }
 
-  // 3. Check for local tasks.json file in process directory
-  const currentDir = (process as any).cwd();
-  const localTasksPath = join(currentDir, "process", "tasks.json");
+  // 3. ALWAYS use special workspace for task operations - NO FALLBACKS
+  // Task operations MUST be consistent across CLI and MCP interfaces
+  const specialWorkspaceManager = createSpecialWorkspaceManager({
+    repoUrl: "https://github.com/local/minsky-tasks.git", // Default repo for tasks
+    workspaceName: "task-operations",
+    lockTimeoutMs: 30000, // Wait up to 30 seconds for lock
+  });
 
-  if (existsSync(localTasksPath)) {
-    return {
-      workspacePath: currentDir,
-      method: "local-tasks-md",
-      description: "Using current directory with existing tasks.json file",
-      dbFilePath: config.dbFilePath || localTasksPath,
-    };
-  }
+  // NO try/catch - let it fail if special workspace can't be initialized
+  await specialWorkspaceManager.initialize();
+  const workspacePath = specialWorkspaceManager.getWorkspacePath();
+  const dbFilePath = config.dbFilePath || join(workspacePath, "process", "tasks.json");
 
-  // 4. Default to current directory
-  const dbFilePath = config.dbFilePath || join(currentDir, "process", "tasks.json");
   return {
-    workspacePath: currentDir,
-    method: "current-directory",
-    description: "Using current directory as default workspace",
+    workspacePath,
+    method: "special-workspace",
+    description: "Using special workspace for consistent task operations",
     dbFilePath,
   };
 }

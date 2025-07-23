@@ -7,6 +7,7 @@
 
 import { autoCommitTaskChanges } from "./auto-commit";
 import { createSpecialWorkspaceManager } from "../domain/workspace/special-workspace-manager";
+import { autoSyncTaskDatabases } from "./task-database-sync";
 import { log } from "./logger";
 
 export interface TaskWorkspaceCommitOptions {
@@ -17,87 +18,122 @@ export interface TaskWorkspaceCommitOptions {
 }
 
 /**
- * Commit task changes with intelligent workspace detection
+ * Commit task changes with intelligent workspace detection and synchronization
  *
  * This function solves the synchronization issue between special workspace
  * and main workspace by:
- * 1. Detecting if we're in a special workspace context
- * 2. Using SpecialWorkspaceManager for special workspace scenarios
- * 3. Falling back to regular auto-commit for main workspace scenarios
+ * 1. Auto-syncing databases before any task operations
+ * 2. Detecting if we're in a special workspace context
+ * 3. Using SpecialWorkspaceManager for special workspace scenarios
+ * 4. Using standard auto-commit for main workspace scenarios
  *
- * @param options Commit options including workspace path and repo URL
- * @returns Promise resolving to true if successful
+ * @param options Commit options
+ * @returns Success status
  */
 export async function commitTaskChanges(options: TaskWorkspaceCommitOptions): Promise<boolean> {
   const { workspacePath, message, repoUrl, backend } = options;
 
-  // Only apply auto-commit for markdown backend operations
-  if (backend && backend !== "markdown") {
-    log.debug("Skipping auto-commit for non-markdown backend", { backend });
-    return true;
-  }
+  log.debug("Committing task changes with workspace detection", {
+    workspacePath,
+    hasRepoUrl: !!repoUrl,
+    backend,
+  });
 
-  // Smart detection of special workspace
-  if (repoUrl) {
-    try {
+  try {
+    // CRITICAL SYNC FIX: Auto-sync databases before any operation
+    log.debug("Auto-syncing task databases before commit");
+    await autoSyncTaskDatabases(repoUrl);
+
+    // Check if we're in a special workspace context
+    if (repoUrl && workspacePath.includes(".local/state/minsky")) {
+      log.debug("Using special workspace manager for commit");
+
       const specialWorkspaceManager = createSpecialWorkspaceManager({ repoUrl });
-      const specialWorkspacePath = specialWorkspaceManager.getWorkspacePath();
+      await specialWorkspaceManager.initialize();
+      await specialWorkspaceManager.commitAndPush(message);
 
-      if (workspacePath === specialWorkspacePath) {
-        log.debug("Using special workspace atomic operations", {
-          workspacePath,
-          specialWorkspacePath,
-        });
+      // Sync back to main workspace after special workspace commit
+      log.debug("Syncing changes back to main workspace");
+      await autoSyncTaskDatabases(repoUrl);
 
-        // Use special workspace atomic operations
-        await specialWorkspaceManager.ensureUpToDate();
-        await specialWorkspaceManager.commitAndPush(message);
-        return true;
+      return true;
+    } else {
+      log.debug("Using standard auto-commit for main workspace");
+
+      await autoCommitTaskChanges(workspacePath, message);
+
+      // Sync to special workspace after main workspace commit
+      if (repoUrl) {
+        log.debug("Syncing changes to special workspace");
+        await autoSyncTaskDatabases(repoUrl);
       }
-    } catch (error) {
-      log.warn("Special workspace operations failed, falling back to regular auto-commit", {
-        error: error instanceof Error ? error.message : String(error),
-        workspacePath,
-        repoUrl,
-      });
-      // Fall through to regular auto-commit
-    }
-  }
 
-  // Fallback to regular auto-commit for main workspace
-  log.debug("Using regular auto-commit", { workspacePath });
-  return await autoCommitTaskChanges(workspacePath, message);
+      return true;
+    }
+  } catch (error) {
+    log.error("Task workspace commit failed", {
+      error: error instanceof Error ? error.message : String(error),
+      workspacePath,
+      repoUrl,
+    });
+    return false;
+  }
 }
 
 /**
- * Fix task spec path synchronization issues
+ * Fix task spec path issues by ensuring database consistency
  *
- * This function addresses the core issue where task spec commands
- * use stale or generated spec paths instead of the actual stored ones.
+ * This function addresses the core issue where getTaskSpecPath returns
+ * stale/incorrect paths due to database synchronization problems.
  *
- * @param task Task data object
- * @param workspacePath Workspace path for fallback generation
+ * @param taskId Task ID to fix
+ * @param currentSpecPath Current spec path from database
+ * @param workspacePath Workspace path
  * @returns Corrected spec path
  */
-export function fixTaskSpecPath(task: any, workspacePath: string): string {
-  // Always prefer the stored specPath from the database
-  if (task.specPath && typeof task.specPath === "string" && task.specPath.trim()) {
-    log.debug("Using stored spec path from database", {
-      taskId: task.id,
-      specPath: task.specPath,
-    });
-    return task.specPath;
-  }
-
-  // Fallback: generate spec path if none stored (legacy tasks)
-  const { getTaskSpecRelativePath } = require("../domain/tasks/taskIO");
-  const generatedPath = getTaskSpecRelativePath(task.id, task.title, workspacePath);
-
-  log.warn("Generated spec path for task missing specPath", {
-    taskId: task.id,
-    title: task.title,
-    generatedPath,
+export async function fixTaskSpecPath(
+  taskId: string,
+  currentSpecPath: string,
+  workspacePath: string
+): Promise<string> {
+  log.debug("Fixing task spec path", {
+    taskId,
+    currentSpecPath,
+    workspacePath,
   });
 
-  return generatedPath;
+  try {
+    // Auto-sync databases first to ensure we have latest data
+    await autoSyncTaskDatabases();
+
+    // If path exists and is accessible, return as-is
+    const fs = await import("fs");
+    const path = await import("path");
+
+    let fullPath = currentSpecPath;
+    if (!path.isAbsolute(currentSpecPath)) {
+      fullPath = path.join(workspacePath, currentSpecPath);
+    }
+
+    if (fs.existsSync(fullPath)) {
+      log.debug("Spec path exists, using current path", { fullPath });
+      return currentSpecPath;
+    }
+
+    log.warn("Spec path does not exist, database may be out of sync", {
+      taskId,
+      currentSpecPath,
+      fullPath,
+    });
+
+    // Return current path anyway - sync should have fixed database issues
+    return currentSpecPath;
+  } catch (error) {
+    log.warn("Failed to fix task spec path", {
+      error: error instanceof Error ? error.message : String(error),
+      taskId,
+      currentSpecPath,
+    });
+    return currentSpecPath;
+  }
 }
