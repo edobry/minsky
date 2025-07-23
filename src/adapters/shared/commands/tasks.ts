@@ -697,6 +697,225 @@ const tasksDeleteRegistration = {
   },
 };
 
+/**
+ * Parameters for tasks migrate command
+ */
+const tasksMigrateParams: CommandParameterMap = {
+  to: {
+    schema: z.enum(["markdown", "json-file", "github-issues"]),
+    description: "Target backend type",
+    required: true,
+  },
+  from: {
+    schema: z.enum(["markdown", "json-file", "github-issues"]),
+    description: "Source backend type (auto-detect if not provided)",
+    required: false,
+  },
+  backup: {
+    schema: z.boolean(),
+    description: "Create backup before migration",
+    required: false,
+  },
+  dryRun: {
+    schema: z.boolean(),
+    description: "Show what would be migrated without doing it",
+    required: false,
+  },
+  workspacePath: {
+    schema: z.string(),
+    description: "Workspace path for task operations",
+    required: false,
+  },
+  statusMapping: {
+    schema: z.record(z.string()),
+    description: "Custom status mapping (source:target)",
+    required: false,
+  },
+};
+
+/**
+ * Task migrate command definition
+ */
+const tasksMigrateRegistration = {
+  id: "tasks.migrate",
+  category: CommandCategory.TASKS,
+  name: "migrate",
+  description: "Migrate tasks between backends (markdown, json-file, github-issues)",
+  parameters: tasksMigrateParams,
+  execute: async (params: any, context: CommandExecutionContext) => {
+    const { to, from, backup, dryRun, workspacePath, statusMapping } = params;
+
+    try {
+      // Import TaskService
+      const { TaskService } = await import("../../../domain/tasks/taskService");
+      const { writeFileSync, readFileSync, existsSync, mkdirSync } = await import("fs");
+      const { join, dirname } = await import("path");
+
+      const currentWorkspacePath = workspacePath || (process as any).cwd();
+
+      // Detect source backend if not specified
+      let sourceBackend = from;
+      if (!sourceBackend) {
+        // Auto-detect based on existing files
+        const tasksMarkdownPath = join(currentWorkspacePath, "process", "tasks.md");
+        const tasksJsonPath = join(currentWorkspacePath, "process", "tasks.json");
+
+        if (existsSync(tasksJsonPath)) {
+          sourceBackend = "json-file";
+        } else if (existsSync(tasksMarkdownPath)) {
+          sourceBackend = "markdown";
+        } else {
+          throw new Error("No source backend detected. Please specify --from parameter.");
+        }
+      }
+
+      if (sourceBackend === to) {
+        throw new Error(`Source and target backends are the same: ${sourceBackend}`);
+      }
+
+      log.info(`Migrating tasks from ${sourceBackend} to ${to} backend`);
+
+      // Create source and target task services
+      const sourceService = new TaskService({
+        workspacePath: currentWorkspacePath,
+        backend: sourceBackend,
+      });
+
+      const targetService = new TaskService({
+        workspacePath: currentWorkspacePath,
+        backend: to,
+      });
+
+      // Get all tasks from source backend
+      const sourceTasks = await sourceService.getAllTasks();
+      const sourceCount = sourceTasks.length;
+
+      log.info(`Found ${sourceCount} tasks in ${sourceBackend} backend`);
+
+      if (dryRun) {
+        log.info("DRY RUN - No changes will be made");
+        log.info(`Would migrate ${sourceCount} tasks from ${sourceBackend} to ${to} backend`);
+        return {
+          success: true,
+          dryRun: true,
+          sourceBackend,
+          targetBackend: to,
+          sourceCount,
+          tasks: sourceTasks.map(task => ({
+            id: task.id,
+            title: task.title,
+            status: task.status,
+          })),
+        };
+      }
+
+      // Create backup if requested
+      let backupPath: string | undefined;
+      if (backup) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        backupPath = join(currentWorkspacePath, `tasks-backup-${sourceBackend}-${timestamp}.json`);
+        const backupDir = dirname(backupPath);
+        if (!existsSync(backupDir)) {
+          mkdirSync(backupDir, { recursive: true });
+        }
+        writeFileSync(backupPath, JSON.stringify({
+          backend: sourceBackend,
+          timestamp: new Date().toISOString(),
+          tasks: sourceTasks,
+        }, null, 2));
+        log.info(`Backup created: ${backupPath}`);
+      }
+
+      // Migrate tasks to target backend
+      let migratedCount = 0;
+      const errors: string[] = [];
+
+      for (const task of sourceTasks) {
+        try {
+          // Apply status mapping if provided
+          let targetStatus = task.status;
+          if (statusMapping && statusMapping[task.status]) {
+            targetStatus = statusMapping[task.status];
+          }
+
+          // Create task using title and description
+          const createdTask = await targetService.createTaskFromTitleAndDescription(
+            task.title,
+            task.description || "",
+            { force: true }
+          );
+
+          // Update status if different from default
+          if (targetStatus !== "TODO") {
+            await targetService.setTaskStatus(createdTask.id, targetStatus);
+          }
+
+          // For JSON backend, set enhanced metadata if available
+          if (to === "json-file") {
+            const jsonBackend = (targetService as any).currentBackend;
+            
+            // Check if backend has metadata capabilities
+            if (jsonBackend.setTaskMetadata) {
+              await jsonBackend.setTaskMetadata(createdTask.id, {
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                status: targetStatus,
+                migratedFrom: sourceBackend,
+                originalId: task.id,
+              });
+            }
+          }
+
+          migratedCount++;
+          log.debug(`Migrated task ${task.id} -> ${createdTask.id}: ${task.title}`);
+        } catch (error) {
+          const errorMsg = `Failed to migrate task ${task.id}: ${getErrorMessage(error as any)}`;
+          errors.push(errorMsg);
+          log.warn(errorMsg);
+        }
+      }
+
+      const result = {
+        success: true,
+        sourceBackend,
+        targetBackend: to,
+        sourceCount,
+        migratedCount,
+        errors,
+        backupPath,
+      };
+
+      log.info(`Migration completed: ${migratedCount}/${sourceCount} tasks migrated successfully`);
+      if (errors.length > 0) {
+        log.warn(`Migration had ${errors.length} errors`);
+      }
+
+      // Format human-readable output
+      if (context.format === "human") {
+        let output = `Task migration ${result.success ? "completed" : "failed"}\n`;
+        output += `Source backend: ${result.sourceBackend}\n`;
+        output += `Target backend: ${result.targetBackend}\n`;
+        output += `Tasks migrated: ${result.migratedCount}/${result.sourceCount}\n`;
+        if (result.backupPath) {
+          output += `Backup created: ${result.backupPath}\n`;
+        }
+        if (result.errors && result.errors.length > 0) {
+          output += `Errors: ${result.errors.length}\n`;
+          result.errors.forEach((error) => {
+            output += `  - ${error}\n`;
+          });
+        }
+        return output;
+      }
+
+      return result;
+    } catch (error) {
+      log.error("Task migration failed", { error: getErrorMessage(error as any) });
+      throw error;
+    }
+  },
+};
+
 export function registerTasksCommands() {
   // Register tasks.list command
   sharedCommandRegistry.registerCommand(tasksListRegistration);
@@ -718,4 +937,7 @@ export function registerTasksCommands() {
 
   // Register tasks.spec command
   sharedCommandRegistry.registerCommand(tasksSpecRegistration);
+
+  // Register tasks.migrate command
+  sharedCommandRegistry.registerCommand(tasksMigrateRegistration);
 }

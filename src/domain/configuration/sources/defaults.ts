@@ -16,7 +16,7 @@ import type { PartialConfiguration } from "../schemas";
  */
 export const defaultConfiguration: PartialConfiguration = {
   // Backend configuration
-  backend: "markdown",
+  backend: "json-file",
 
   backendConfig: {
     "github-issues": undefined,
@@ -25,9 +25,9 @@ export const defaultConfiguration: PartialConfiguration = {
   },
 
   detectionRules: [
-    { condition: "tasks_md_exists", backend: "markdown" },
     { condition: "json_file_exists", backend: "json-file" },
-    { condition: "always", backend: "markdown" },
+    { condition: "tasks_md_exists", backend: "markdown" },
+    { condition: "always", backend: "json-file" },
   ],
 
   // Session database configuration

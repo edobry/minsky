@@ -63,9 +63,20 @@ export class TaskService {
   constructor(options: TaskServiceOptions = {}) {
     const {
       workspacePath = (process as any).cwd(),
-      backend = "markdown",
+      backend,
       customBackends,
     } = options;
+
+    // Get default backend from configuration if not explicitly provided
+    let resolvedBackend = backend;
+    if (!resolvedBackend) {
+      try {
+        resolvedBackend = get("backend") || "json-file"; // Fallback if config fails
+      } catch (error) {
+        // Fallback if configuration system is not available
+        resolvedBackend = "json-file";
+      }
+    }
 
     // Initialize with provided backends or create defaults
     if (customBackends && customBackends.length > 0) {
@@ -96,10 +107,10 @@ export class TaskService {
     }
 
     // Set current backend
-    const selectedBackend = this.backends.find((b) => b.name === backend);
+    const selectedBackend = this.backends.find((b) => b.name === resolvedBackend);
     if (!selectedBackend) {
       throw new Error(
-        `Backend '${backend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
+        `Backend '${resolvedBackend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
       );
     }
     this.currentBackend = selectedBackend;
