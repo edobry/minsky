@@ -212,7 +212,7 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_search_replace"].handler;
 
       // Configure the module-level mock to return content with multiple occurrences
-      mockReadFile as any = mock(() => Promise.resolve("This is oldText and oldText again"));
+      mockReadFile = mock(() => Promise.resolve("This is oldText and oldText again"));
 
       // Mock path resolver - use module-level mocks
       mockResolvePath = mock(() => Promise.resolve("/session/path/test.ts"));
