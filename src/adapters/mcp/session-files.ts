@@ -193,7 +193,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
 
   // Session read file tool with line range support
   commandMapper.addCommand({
-    name: "session_read_file",
+    name: "session.read_file",
     description: "Read a file within a session workspace with optional line range support",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
@@ -307,7 +307,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
 
   // Session write file tool
   commandMapper.addCommand({
-    name: "session_write_file",
+    name: "session.write_file",
     description: "Write content to a file within a session workspace",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
@@ -370,7 +370,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
 
   // Session list directory tool
   commandMapper.addCommand({
-    name: "session_list_directory",
+    name: "session.list_directory",
     description: "List contents of a directory within a session workspace",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),

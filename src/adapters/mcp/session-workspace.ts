@@ -93,8 +93,8 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
 
   // Session read file tool
   commandMapper.addCommand({
-    name: "session_read_file",
-    description: "Read a file within a session workspace",
+    name: "session.read_file",
+    description: "Read a file within a session workspace with optional line range support",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
@@ -143,7 +143,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
 
   // Session write file tool
   commandMapper.addCommand({
-    name: "session_write_file",
+    name: "session.write_file",
     description: "Write content to a file within a session workspace",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
@@ -205,7 +205,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
 
   // Session list directory tool
   commandMapper.addCommand({
-    name: "session_list_directory",
+    name: "session.list_directory",
     description: "List contents of a directory within a session workspace",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
@@ -283,7 +283,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
 
   // Session file exists tool
   commandMapper.addCommand({
-    name: "session_file_exists",
+    name: "session.file_exists",
     description: "Check if a file or directory exists within a session workspace",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
@@ -351,7 +351,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
 
   // Session delete file tool
   commandMapper.addCommand({
-    name: "session_delete_file",
+    name: "session.delete_file",
     description: "Delete a file within a session workspace",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
@@ -408,7 +408,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
 
   // Session create directory tool
   commandMapper.addCommand({
-    name: "session_create_directory",
+    name: "session.create_directory",
     description: "Create a directory within a session workspace",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
@@ -463,7 +463,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
 
   // Session grep search tool
   commandMapper.addCommand({
-    name: "session_grep_search",
+    name: "session.grep_search",
     description: "Search for patterns in files within a session workspace using regex",
     parameters: z.object({
       sessionName: z.string().describe("Session identifier (name or task ID)"),
