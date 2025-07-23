@@ -2,7 +2,7 @@
  * MCP adapter for session file operations
  * Provides session-scoped file operations that enforce workspace isolation
  */
-import { readFile, writeFile, mkdir, access, readdir, unlink, stat } from "fs/promises";
+import { readFile, writeFile, mkdir, access, readdir, unlink, stat, rename } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
 import { z } from "zod";
 import { createSessionProvider, type SessionProviderInterface } from "../../domain/session";
@@ -622,6 +622,210 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         log.error("Session directory create failed", {
           session: args.sessionName,
           path: args.path,
+          error: getErrorMessage(error),
+        });
+
+        return SemanticErrorClassifier.classifyError(error, errorContext);
+      }
+    },
+  });
+
+  // Session move file tool
+  commandMapper.addCommand({
+    name: "session_move_file",
+    description: "Move a file from one location to another within a session workspace",
+    parameters: z.object({
+      sessionName: z.string().describe("Session identifier (name or task ID)"),
+      sourcePath: z.string().describe("Current file path within the session workspace"),
+      targetPath: z.string().describe("New file path within the session workspace"),
+      createDirs: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe("Create parent directories if they don't exist"),
+      overwrite: z.boolean().optional().default(false).describe("Overwrite target if it exists"),
+    }),
+    handler: async (args): Promise<FileOperationResponse> => {
+      try {
+        const sourceResolvedPath = await pathResolver.resolvePath(
+          args.sessionName,
+          args.sourcePath
+        );
+        const targetResolvedPath = await pathResolver.resolvePath(
+          args.sessionName,
+          args.targetPath
+        );
+
+        // Validate source file exists
+        await pathResolver.validatePathExists(sourceResolvedPath);
+
+        // Additional safety check - ensure source is a file, not a directory
+        const sourceStats = await stat(sourceResolvedPath);
+        if (!sourceStats.isFile()) {
+          throw new Error(
+            `Source path "${args.sourcePath}" is not a file - use appropriate directory tools`
+          );
+        }
+
+        // Check if target already exists and handle overwrite logic
+        let targetExists = false;
+        try {
+          await stat(targetResolvedPath);
+          targetExists = true;
+        } catch (error) {
+          // Target doesn't exist - that's fine
+          targetExists = false;
+        }
+
+        if (targetExists && !args.overwrite) {
+          throw new Error(
+            `Target path "${args.targetPath}" already exists. Set overwrite: true to replace it.`
+          );
+        }
+
+        // Create parent directories if requested and they don't exist
+        if (args.createDirs) {
+          const parentDir = dirname(targetResolvedPath);
+          await mkdir(parentDir, { recursive: true });
+        }
+
+        // Perform the atomic move operation
+        await rename(sourceResolvedPath, targetResolvedPath);
+
+        log.debug("Session file move successful", {
+          session: args.sessionName,
+          sourcePath: args.sourcePath,
+          targetPath: args.targetPath,
+          sourceResolvedPath,
+          targetResolvedPath,
+          overwrite: args.overwrite,
+          createdDirs: args.createDirs,
+        });
+
+        return {
+          success: true,
+          sourcePath: args.sourcePath,
+          targetPath: args.targetPath,
+          session: args.sessionName,
+          sourceResolvedPath: relative(
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
+            sourceResolvedPath
+          ),
+          targetResolvedPath: relative(
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
+            targetResolvedPath
+          ),
+          moved: true,
+          overwritten: targetExists,
+        };
+      } catch (error) {
+        const errorContext: ErrorContext = {
+          operation: "move_file",
+          path: `${args.sourcePath} -> ${args.targetPath}`,
+          session: args.sessionName,
+          createDirs: args.createDirs,
+        };
+
+        log.error("Session file move failed", {
+          session: args.sessionName,
+          sourcePath: args.sourcePath,
+          targetPath: args.targetPath,
+          error: getErrorMessage(error),
+        });
+
+        return SemanticErrorClassifier.classifyError(error, errorContext);
+      }
+    },
+  });
+
+  // Session rename file tool
+  commandMapper.addCommand({
+    name: "session_rename_file",
+    description: "Rename a file within a session workspace",
+    parameters: z.object({
+      sessionName: z.string().describe("Session identifier (name or task ID)"),
+      path: z.string().describe("Current file path within the session workspace"),
+      newName: z.string().describe("New filename (not full path)"),
+      overwrite: z.boolean().optional().default(false).describe("Overwrite target if it exists"),
+    }),
+    handler: async (args): Promise<FileOperationResponse> => {
+      try {
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
+
+        // Validate source file exists
+        await pathResolver.validatePathExists(resolvedPath);
+
+        // Additional safety check - ensure source is a file, not a directory
+        const stats = await stat(resolvedPath);
+        if (!stats.isFile()) {
+          throw new Error(`Path "${args.path}" is not a file - use appropriate directory tools`);
+        }
+
+        // Construct target path by replacing the filename
+        const sourceDir = dirname(resolvedPath);
+        const targetResolvedPath = join(sourceDir, args.newName);
+        const targetPath = join(dirname(args.path), args.newName);
+
+        // Validate that target path is still within session workspace
+        await pathResolver.resolvePath(args.sessionName, targetPath);
+
+        // Check if target already exists and handle overwrite logic
+        let targetExists = false;
+        try {
+          await stat(targetResolvedPath);
+          targetExists = true;
+        } catch (error) {
+          // Target doesn't exist - that's fine
+          targetExists = false;
+        }
+
+        if (targetExists && !args.overwrite) {
+          throw new Error(
+            `Target file "${args.newName}" already exists in the same directory. Set overwrite: true to replace it.`
+          );
+        }
+
+        // Perform the atomic rename operation
+        await rename(resolvedPath, targetResolvedPath);
+
+        log.debug("Session file rename successful", {
+          session: args.sessionName,
+          originalPath: args.path,
+          newName: args.newName,
+          targetPath,
+          resolvedPath,
+          targetResolvedPath,
+          overwrite: args.overwrite,
+        });
+
+        return {
+          success: true,
+          originalPath: args.path,
+          newPath: targetPath,
+          newName: args.newName,
+          session: args.sessionName,
+          originalResolvedPath: relative(
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
+            resolvedPath
+          ),
+          newResolvedPath: relative(
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
+            targetResolvedPath
+          ),
+          renamed: true,
+          overwritten: targetExists,
+        };
+      } catch (error) {
+        const errorContext: ErrorContext = {
+          operation: "rename_file",
+          path: `${args.path} -> ${args.newName}`,
+          session: args.sessionName,
+        };
+
+        log.error("Session file rename failed", {
+          session: args.sessionName,
+          path: args.path,
+          newName: args.newName,
           error: getErrorMessage(error),
         });
 
