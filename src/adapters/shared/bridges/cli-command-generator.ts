@@ -132,7 +132,7 @@ export class CliCommandGenerator {
     log.debug(`generateCommand called with commandId: ${commandId}`);
 
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
+    if ((process.env as any).NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
         `[CLI Command Generator] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
       );
@@ -257,7 +257,7 @@ export class CliCommandGenerator {
     }
 
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
+    if ((process.env as any).NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
         `[CLI Command Generator] Direct usage detected for category '${category}'. Consider using CLI Command Factory for proper customization support.`
       );
@@ -347,7 +347,7 @@ export class CliCommandGenerator {
    */
   generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean }): void {
     // Warn about direct usage in development (but not when called via factory)
-    if ((process.env as any).NODE_ENV !== "production" && !(context?.viaFactory)) {
+    if ((process.env as any).NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
         "[CLI Command Generator] Direct usage of generateAllCategoryCommands detected. Consider using CLI Command Factory for proper customization support."
       );
@@ -476,12 +476,12 @@ export class CliCommandGenerator {
           } else {
             log.cli("No sessions found.");
           }
-        } else if ((commandDef as any).id === "session.pr" && "prBranch" in result) {
+        } else if ((commandDef as any).id === "session.pr" && (result as any).status) {
           // Handle session pr results - format them nicely
           formatSessionPrDetails(result as any);
-        } else if ((commandDef as any).id === "session.approve" && ((result as any).result && "session" in (result as any).result)) {
+        } else if ((commandDef as any).id === "session.approve" && "session" in result) {
           // Handle session approve results - format them nicely
-          formatSessionApprovalDetails((result as any).result);
+          formatSessionApprovalDetails(result as any);
         } else if ((commandDef as any).id === "rules.list" && "rules" in result) {
           // Handle rules list results
           if (Array.isArray((result as any).rules)) {
@@ -509,7 +509,9 @@ export class CliCommandGenerator {
           const status = String((resultObj as any).status || "unknown");
           const previousStatus = String((resultObj as any).previousStatus || "unknown");
           if (status === previousStatus) {
-            log.cli(`Task ${formatTaskIdForDisplay(taskId)} status is already ${status.toLowerCase()}`);
+            log.cli(
+              `Task ${formatTaskIdForDisplay(taskId)} status is already ${status.toLowerCase()}`
+            );
           } else {
             log.cli(
               `Task ${formatTaskIdForDisplay(taskId)} status changed from ${(previousStatus as any).toLowerCase()} to ${status.toLowerCase()}`
@@ -604,7 +606,7 @@ export class CliCommandGenerator {
     log.cli("💡 Next steps:");
     log.cli("   • Your session workspace is ready for editing");
     log.cli("   • All changes will be tracked on your session branch");
-    log.cli("   • Run \"minsky session pr\" when ready to create a pull request");
+    log.cli('   • Run "minsky session pr" when ready to create a pull request');
   }
 }
 

@@ -2,7 +2,7 @@
  * Test Configuration Manager for Custom Configuration System
  *
  * Handles configuration overrides for testing while integrating with the new
- * type-safe configuration system. Provides a way to override configuration 
+ * type-safe configuration system. Provides a way to override configuration
  * values during testing without affecting the main configuration system.
  */
 
@@ -38,7 +38,10 @@ export class DefaultTestConfigManager implements TestConfigManager {
   /**
    * Execute an async test function with configuration overrides
    */
-  async withOverridesAsync<T>(overrides: TestConfigOverrides, testFn: () => Promise<T>): Promise<T> {
+  async withOverridesAsync<T>(
+    overrides: TestConfigOverrides,
+    testFn: () => Promise<T>
+  ): Promise<T> {
     this.applyOverrides(overrides);
     try {
       return await testFn();
@@ -168,6 +171,9 @@ export function withTestConfig<T>(overrides: TestConfigOverrides, testFn: () => 
 /**
  * Utility function for async testing with configuration overrides
  */
-export async function withTestConfigAsync<T>(overrides: TestConfigOverrides, testFn: () => Promise<T>): Promise<T> {
+export async function withTestConfigAsync<T>(
+  overrides: TestConfigOverrides,
+  testFn: () => Promise<T>
+): Promise<T> {
   return testConfigManager.withOverridesAsync(overrides, testFn);
-} 
+}

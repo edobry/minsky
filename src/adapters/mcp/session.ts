@@ -40,7 +40,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         description: "Create a pull request for a session",
       },
       "session.inspect": {
-        description: "Inspect the current session",
+        hidden: true, // Hide from MCP - no "current session" context in remote calls
       },
     },
   });

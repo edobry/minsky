@@ -2,7 +2,7 @@
 
 /**
  * Simple Pattern-Based Fixer for Task #280
- * 
+ *
  * Uses regex-based string replacement for simple, safe patterns
  * that don't require complex AST manipulation.
  */
@@ -31,38 +31,38 @@ class PatternBasedFixer {
     {
       pattern: /\(params as unknown\)/g,
       replacement: "params",
-      description: "Remove unnecessary params cast"
+      description: "Remove unnecessary params cast",
     },
     {
       pattern: /\(result as unknown\)/g,
       replacement: "result",
-      description: "Remove unnecessary result cast"
+      description: "Remove unnecessary result cast",
     },
     {
       pattern: /\(provider as unknown\)/g,
       replacement: "provider",
-      description: "Remove unnecessary provider cast"
+      description: "Remove unnecessary provider cast",
     },
     {
       pattern: /\(current as unknown\)/g,
       replacement: "current",
-      description: "Remove unnecessary current cast"
+      description: "Remove unnecessary current cast",
     },
     {
       pattern: /\(task as unknown\)/g,
       replacement: "task",
-      description: "Remove unnecessary task cast"
+      description: "Remove unnecessary task cast",
     },
     // Promise patterns
     {
       pattern: /Promise\.resolve\(([^)]+)\) as unknown/g,
       replacement: "Promise.resolve($1)",
-      description: "Remove unnecessary Promise.resolve cast"
+      description: "Remove unnecessary Promise.resolve cast",
     },
     {
       pattern: /Promise\.reject\(([^)]+)\) as unknown/g,
       replacement: "Promise.reject($1)",
-      description: "Remove unnecessary Promise.reject cast"
+      description: "Remove unnecessary Promise.reject cast",
     },
     // Simple property access
     {
@@ -72,21 +72,21 @@ class PatternBasedFixer {
       safetyCheck: (match, file) => {
         // Only apply if it's a simple property access (no method calls)
         return !match.includes("(") || match.split("(").length <= 2;
-      }
-    }
+      },
+    },
   ];
 
   public async fixAllFiles(): Promise<void> {
     console.log("🔧 Starting pattern-based fixes...");
-    
-    const files = await glob("src/**/*.ts", { 
-      ignore: ["**/*.test.ts", "**/*.spec.ts", "**/node_modules/**", "**/*.d.ts"] 
+
+    const files = await glob("src/**/*.ts", {
+      ignore: ["**/*.test.ts", "**/*.spec.ts", "**/node_modules/**", "**/*.d.ts"],
     });
-    
+
     for (const file of files) {
       this.fixFile(file);
     }
-    
+
     this.generateReport();
   }
 
@@ -94,10 +94,10 @@ class PatternBasedFixer {
     let content = readFileSync(filePath, "utf-8");
     let totalFixes = 0;
     const appliedPatterns: string[] = [];
-    
+
     for (const fix of this.fixes) {
       const originalContent = content;
-      
+
       if (fix.safetyCheck) {
         // Apply safety check for each match
         content = content.replace(fix.pattern, (match, ...args) => {
@@ -109,20 +109,20 @@ class PatternBasedFixer {
       } else {
         content = content.replace(fix.pattern, fix.replacement);
       }
-      
+
       if (content !== originalContent) {
         const fixCount = (originalContent.match(fix.pattern) || []).length;
         totalFixes += fixCount;
         appliedPatterns.push(`${fix.description} (${fixCount}x)`);
       }
     }
-    
+
     if (totalFixes > 0) {
       writeFileSync(filePath, content);
       this.transformations.push({
         file: filePath,
         fixes: totalFixes,
-        patterns: appliedPatterns
+        patterns: appliedPatterns,
       });
     }
   }
@@ -130,26 +130,26 @@ class PatternBasedFixer {
   private generateReport(): void {
     const reportPath = "pattern-based-transformation-report.json";
     const totalFixes = this.transformations.reduce((sum, t) => sum + t.fixes, 0);
-    
+
     const report = {
       timestamp: new Date().toISOString(),
       totalTransformations: totalFixes,
       filesModified: this.transformations.length,
-      transformations: this.transformations
+      transformations: this.transformations,
     };
-    
+
     writeFileSync(reportPath, JSON.stringify(report, null, 2));
-    
+
     console.log(`\n✅ Pattern-based fixes completed!`);
     console.log(`📊 Total transformations: ${totalFixes}`);
     console.log(`📁 Files modified: ${this.transformations.length}`);
     console.log(`📄 Full report: ${reportPath}`);
-    
+
     if (this.transformations.length > 0) {
       console.log(`\n🔍 Modified files:`);
-      this.transformations.forEach(t => {
+      this.transformations.forEach((t) => {
         console.log(`   ${t.file}: ${t.fixes} fixes`);
-        t.patterns.forEach(p => console.log(`     - ${p}`));
+        t.patterns.forEach((p) => console.log(`     - ${p}`));
       });
     }
   }
@@ -163,4 +163,4 @@ async function main() {
 
 if (import.meta.main) {
   main().catch(console.error);
-} 
+}

@@ -39,7 +39,9 @@ export const createTempTestDir: (prefix?: string) => string | undefined = create
 export function setupConsoleSpy() {
   const consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
   const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
-  const processExitSpy = spyOn(process, "exit" as any).mockImplementation(() => { throw new Error("process.exit called"); });
+  const processExitSpy = spyOn(process, "exit" as any).mockImplementation(() => {
+    throw new Error("process.exit called");
+  });
 
   return { consoleLogSpy, consoleErrorSpy, processExitSpy };
 }
@@ -75,7 +77,8 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
  * Setup standard test environment with temp directory and console capture
  * Handles cleanup automatically via afterEach
  */
-export function setupTestEnvironment(options: {
+export function setupTestEnvironment(
+  options: {
     mockDate?: boolean;
     createTempDir?: boolean;
   } = {}

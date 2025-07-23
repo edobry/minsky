@@ -43,7 +43,11 @@ export interface TaskServiceInterface {
   /**
    * Create a task from title and description
    */
-  createTaskFromTitleAndDescription(title: string, description: string, options?: CreateTaskOptions): Promise<Task>;
+  createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options?: CreateTaskOptions
+  ): Promise<Task>;
 
   /**
    * Delete a task
@@ -83,7 +87,11 @@ export interface TaskBackend {
   setTaskStatus(id: string, status: string): Promise<void>;
   getWorkspacePath(): string;
   createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
-  createTaskFromTitleAndDescription(title: string, description: string, options?: CreateTaskOptions): Promise<Task>;
+  createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options?: CreateTaskOptions
+  ): Promise<Task>;
   setTaskMetadata?(id: string, metadata: any): Promise<void>;
   deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
 }

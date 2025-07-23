@@ -34,6 +34,8 @@ export interface ParameterMappingOptions {
   variadic?: boolean;
   /** Whether to treat this as a CLI argument instead of option */
   asArgument?: boolean;
+  /** Map this parameter to a different parameter in the command execution */
+  mapTo?: string;
 }
 
 /**
@@ -169,23 +171,23 @@ function addTypeHandlingToOption(
 
   // Otherwise use schema type to determine parsing
   switch (schemaType) {
-  case "number":
-    return option.argParser((value) => {
-      const num = Number(value);
-      if (isNaN(num)) {
-        throw new Error("Option requires a number value");
-      }
-      return num;
-    });
+    case "number":
+      return option.argParser((value) => {
+        const num = Number(value);
+        if (isNaN(num)) {
+          throw new Error("Option requires a number value");
+        }
+        return num;
+      });
 
-  case "boolean":
-    return option;
+    case "boolean":
+      return option;
 
-  case "array":
-    return option.argParser((value) => value.split(",").map((v) => v.trim()));
+    case "array":
+      return option.argParser((value) => value.split(",").map((v) => v.trim()));
 
-  default:
-    return option;
+    default:
+      return option;
   }
 }
 
@@ -274,7 +276,9 @@ export function normalizeCliParameters(
           const userFriendlyMessage = formatZodError(error, paramName);
           throw new Error(`Invalid value for parameter '${paramName}': ${userFriendlyMessage}`);
         } else {
-          throw new Error(`Invalid value for parameter '${paramName}': ${getErrorMessage(error as any)}`);
+          throw new Error(
+            `Invalid value for parameter '${paramName}': ${getErrorMessage(error as any)}`
+          );
         }
       }
     }

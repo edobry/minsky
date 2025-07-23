@@ -15,7 +15,8 @@ export default {
   meta: {
     type: "problem",
     docs: {
-      description: "Prevent excessive use of 'as unknown' type assertions that mask real type errors",
+      description:
+        "Prevent excessive use of 'as unknown' type assertions that mask real type errors",
       category: "TypeScript",
       recommended: true,
     },
@@ -40,12 +41,16 @@ export default {
       },
     ],
     messages: {
-      criticalAsUnknown: "Critical: 'as unknown' assertion in {{context}} masks real type errors. {{suggestion}}",
-      dangerousAsUnknown: "Dangerous: 'as unknown' assertion on {{context}} likely indicates a typing issue. {{suggestion}}",
-      riskAsUnknown: "Risky: 'as unknown' assertion on {{context}} may be unnecessary. {{suggestion}}",
+      criticalAsUnknown:
+        "Critical: 'as unknown' assertion in {{context}} masks real type errors. {{suggestion}}",
+      dangerousAsUnknown:
+        "Dangerous: 'as unknown' assertion on {{context}} likely indicates a typing issue. {{suggestion}}",
+      riskAsUnknown:
+        "Risky: 'as unknown' assertion on {{context}} may be unnecessary. {{suggestion}}",
       returnAsUnknown: "Never cast return values to 'as unknown'. Return proper types instead.",
       nullAsUnknown: "Don't cast null/undefined to 'as unknown'. Use proper null checks instead.",
-      propertyAsUnknown: "Don't cast property access to 'as unknown'. Use proper type definitions instead.",
+      propertyAsUnknown:
+        "Don't cast property access to 'as unknown'. Use proper type definitions instead.",
     },
   },
 
@@ -59,7 +64,7 @@ export default {
     const isTestFile = /\.(test|spec)\.ts$/.test(filename) || /\/__tests__\//.test(filename);
 
     function isAllowedPattern(text) {
-      return allowedPatterns.some(pattern => {
+      return allowedPatterns.some((pattern) => {
         const regex = new RegExp(pattern);
         return regex.test(text);
       });
@@ -99,8 +104,9 @@ export default {
 
       // Property access patterns - these usually indicate missing types
       if (node.parent.type === "MemberExpression" && node.parent.object === node) {
-        const propertyName = node.parent.property.name ||
-                            (node.parent.property.type === "Literal" ? node.parent.property.value : "property");
+        const propertyName =
+          node.parent.property.name ||
+          (node.parent.property.type === "Literal" ? node.parent.property.value : "property");
 
         return {
           level: "warn",
@@ -111,8 +117,11 @@ export default {
       }
 
       // Array/object method calls
-      if (node.parent.type === "CallExpression" && node.parent.callee.type === "MemberExpression" &&
-          node.parent.callee.object === node) {
+      if (
+        node.parent.type === "CallExpression" &&
+        node.parent.callee.type === "MemberExpression" &&
+        node.parent.callee.object === node
+      ) {
         const methodName = node.parent.callee.property.name || "method";
 
         return {
@@ -124,8 +133,12 @@ export default {
       }
 
       // State/session property patterns
-      if (expressionText.includes("state") || expressionText.includes("session") ||
-          expressionText.includes("config") || expressionText.includes("options")) {
+      if (
+        expressionText.includes("state") ||
+        expressionText.includes("session") ||
+        expressionText.includes("config") ||
+        expressionText.includes("options")
+      ) {
         return {
           level: "warn",
           messageId: "dangerousAsUnknown",
@@ -135,8 +148,12 @@ export default {
       }
 
       // Service method patterns
-      if (expressionText.includes("Service") || expressionText.includes("service") ||
-          expressionText.includes("Backend") || expressionText.includes("backend")) {
+      if (
+        expressionText.includes("Service") ||
+        expressionText.includes("service") ||
+        expressionText.includes("Backend") ||
+        expressionText.includes("backend")
+      ) {
         return {
           level: "warn",
           messageId: "dangerousAsUnknown",
@@ -181,7 +198,7 @@ export default {
           // Add auto-fix for simple cases
           if (analysis.level === "error" && node.parent.type === "ReturnStatement") {
             if (node.expression.type === "Literal") {
-              reportConfig.fix = function(fixer) {
+              reportConfig.fix = function (fixer) {
                 return fixer.replaceText(node, context.getSourceCode().getText(node.expression));
               };
             }

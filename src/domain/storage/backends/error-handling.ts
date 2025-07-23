@@ -1,6 +1,6 @@
 /**
  * Enhanced Error Handling for SessionDB Storage Backends
- * 
+ *
  * Provides comprehensive error classification, recovery suggestions,
  * and monitoring hooks for all storage backend operations.
  */
@@ -9,7 +9,7 @@ import { log } from "../../../utils/logger";
 
 export enum StorageErrorType {
   CONNECTION = "CONNECTION",
-  PERMISSION = "PERMISSION", 
+  PERMISSION = "PERMISSION",
   CORRUPTION = "CORRUPTION",
   RESOURCE = "RESOURCE",
   VALIDATION = "VALIDATION",
@@ -18,10 +18,10 @@ export enum StorageErrorType {
 }
 
 export enum StorageErrorSeverity {
-  CRITICAL = "CRITICAL",   // Data loss possible, immediate attention required
-  HIGH = "HIGH",          // Operation failed, but recoverable
-  MEDIUM = "MEDIUM",      // Operation failed, retry recommended
-  LOW = "LOW",           // Warning, operation may have degraded performance
+  CRITICAL = "CRITICAL", // Data loss possible, immediate attention required
+  HIGH = "HIGH", // Operation failed, but recoverable
+  MEDIUM = "MEDIUM", // Operation failed, retry recommended
+  LOW = "LOW", // Warning, operation may have degraded performance
 }
 
 export interface StorageErrorContext {
@@ -83,7 +83,7 @@ export class StorageError extends Error {
   toJSON(): object {
     return {
       message: this.message,
-      type: (this).type,
+      type: this.type,
       severity: this.severity,
       context: this.context,
       recoveryActions: this.recoveryActions,
@@ -98,12 +98,9 @@ export class StorageErrorClassifier {
   /**
    * Classify an error and create appropriate StorageError
    */
-  static classifyError(
-    error: Error,
-    context: StorageErrorContext
-  ): StorageError {
+  static classifyError(error: Error, context: StorageErrorContext): StorageError {
     const classification = this.analyzeError(error, context);
-    
+
     return new StorageError(
       classification.message,
       classification.type,
@@ -144,8 +141,8 @@ export class StorageErrorClassifier {
     // Generic error fallback
     return {
       message: `Unclassified storage error: ${(error as any).message}`,
-      type: (StorageErrorType).UNKNOWN,
-      severity: (StorageErrorSeverity).MEDIUM,
+      type: StorageErrorType.UNKNOWN,
+      severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [
         {
           type: "RETRY" as const,
@@ -166,8 +163,8 @@ export class StorageErrorClassifier {
     if (errorMessage.includes("enoent") || errorMessage.includes("no such file")) {
       return {
         message: "Session database file not found - database may need initialization",
-        type: (StorageErrorType).RESOURCE,
-        severity: (StorageErrorSeverity).HIGH,
+        type: StorageErrorType.RESOURCE,
+        severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
             type: "REPAIR" as const,
@@ -184,8 +181,8 @@ export class StorageErrorClassifier {
     if (errorMessage.includes("eacces") || errorMessage.includes("permission denied")) {
       return {
         message: "Insufficient permissions to access session database file",
-        type: (StorageErrorType).PERMISSION,
-        severity: (StorageErrorSeverity).HIGH,
+        type: StorageErrorType.PERMISSION,
+        severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
             type: "MANUAL" as const,
@@ -201,8 +198,8 @@ export class StorageErrorClassifier {
     if (errorMessage.includes("syntaxerror") || errorMessage.includes("unexpected token")) {
       return {
         message: "Session database file is corrupted or contains invalid JSON",
-        type: (StorageErrorType).CORRUPTION,
-        severity: (StorageErrorSeverity).CRITICAL,
+        type: StorageErrorType.CORRUPTION,
+        severity: StorageErrorSeverity.CRITICAL,
         recoveryActions: [
           {
             type: "FALLBACK" as const,
@@ -226,8 +223,8 @@ export class StorageErrorClassifier {
     if (errorMessage.includes("enospc") || errorMessage.includes("no space left")) {
       return {
         message: "Insufficient disk space for session database operations",
-        type: (StorageErrorType).RESOURCE,
-        severity: (StorageErrorSeverity).HIGH,
+        type: StorageErrorType.RESOURCE,
+        severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
             type: "MANUAL" as const,
@@ -241,8 +238,8 @@ export class StorageErrorClassifier {
 
     return {
       message: `JSON backend error: ${(error as any).message}`,
-      type: (StorageErrorType).UNKNOWN,
-      severity: (StorageErrorSeverity).MEDIUM,
+      type: StorageErrorType.UNKNOWN,
+      severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
     };
   }
@@ -252,8 +249,8 @@ export class StorageErrorClassifier {
     if (errorMessage.includes("sqlite_busy") || errorMessage.includes("database is locked")) {
       return {
         message: "SQLite database is locked by another process",
-        type: (StorageErrorType).RESOURCE,
-        severity: (StorageErrorSeverity).MEDIUM,
+        type: StorageErrorType.RESOURCE,
+        severity: StorageErrorSeverity.MEDIUM,
         recoveryActions: [
           {
             type: "RETRY" as const,
@@ -275,8 +272,8 @@ export class StorageErrorClassifier {
     if (errorMessage.includes("sqlite_corrupt") || errorMessage.includes("malformed")) {
       return {
         message: "SQLite database is corrupted",
-        type: (StorageErrorType).CORRUPTION,
-        severity: (StorageErrorSeverity).CRITICAL,
+        type: StorageErrorType.CORRUPTION,
+        severity: StorageErrorSeverity.CRITICAL,
         recoveryActions: [
           {
             type: "REPAIR" as const,
@@ -299,8 +296,8 @@ export class StorageErrorClassifier {
     if (errorMessage.includes("sqlite_readonly") || errorMessage.includes("readonly")) {
       return {
         message: "SQLite database is in read-only mode",
-        type: (StorageErrorType).PERMISSION,
-        severity: (StorageErrorSeverity).HIGH,
+        type: StorageErrorType.PERMISSION,
+        severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
             type: "MANUAL" as const,
@@ -316,8 +313,8 @@ export class StorageErrorClassifier {
     if (errorMessage.includes("sqlite_cantopen") || errorMessage.includes("unable to open")) {
       return {
         message: "Cannot open SQLite database file",
-        type: (StorageErrorType).RESOURCE,
-        severity: (StorageErrorSeverity).HIGH,
+        type: StorageErrorType.RESOURCE,
+        severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
             type: "REPAIR" as const,
@@ -331,8 +328,8 @@ export class StorageErrorClassifier {
 
     return {
       message: `SQLite backend error: ${(error as any).message}`,
-      type: (StorageErrorType).UNKNOWN,
-      severity: (StorageErrorSeverity).MEDIUM,
+      type: StorageErrorType.UNKNOWN,
+      severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
     };
   }
@@ -344,8 +341,8 @@ export class StorageErrorClassifier {
     if (errorMessage.includes("econnrefused") || errorMessage.includes("connection refused")) {
       return {
         message: "Cannot connect to PostgreSQL server",
-        type: (StorageErrorType).CONNECTION,
-        severity: (StorageErrorSeverity).HIGH,
+        type: StorageErrorType.CONNECTION,
+        severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
             type: "RETRY" as const,
@@ -367,8 +364,8 @@ export class StorageErrorClassifier {
     if (pgError.code === "28P01" || errorMessage.includes("authentication failed")) {
       return {
         message: "PostgreSQL authentication failed",
-        type: (StorageErrorType).PERMISSION,
-        severity: (StorageErrorSeverity).HIGH,
+        type: StorageErrorType.PERMISSION,
+        severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
             type: "MANUAL" as const,
@@ -381,11 +378,14 @@ export class StorageErrorClassifier {
     }
 
     // Database does not exist
-    if (pgError.code === "3D000" || errorMessage.includes("database") && errorMessage.includes("does not exist")) {
+    if (
+      pgError.code === "3D000" ||
+      (errorMessage.includes("database") && errorMessage.includes("does not exist"))
+    ) {
       return {
         message: "PostgreSQL database does not exist",
-        type: (StorageErrorType).RESOURCE,
-        severity: (StorageErrorSeverity).HIGH,
+        type: StorageErrorType.RESOURCE,
+        severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
             type: "MANUAL" as const,
@@ -398,11 +398,14 @@ export class StorageErrorClassifier {
     }
 
     // Table does not exist
-    if (pgError.code === "42P01" || errorMessage.includes("relation") && errorMessage.includes("does not exist")) {
+    if (
+      pgError.code === "42P01" ||
+      (errorMessage.includes("relation") && errorMessage.includes("does not exist"))
+    ) {
       return {
         message: "PostgreSQL schema not initialized",
-        type: (StorageErrorType).RESOURCE,
-        severity: (StorageErrorSeverity).HIGH,
+        type: StorageErrorType.RESOURCE,
+        severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
             type: "REPAIR" as const,
@@ -418,8 +421,8 @@ export class StorageErrorClassifier {
     if (pgError.code === "53300" || errorMessage.includes("too many connections")) {
       return {
         message: "PostgreSQL connection limit exceeded",
-        type: (StorageErrorType).RESOURCE,
-        severity: (StorageErrorSeverity).MEDIUM,
+        type: StorageErrorType.RESOURCE,
+        severity: StorageErrorSeverity.MEDIUM,
         recoveryActions: [
           {
             type: "RETRY" as const,
@@ -440,8 +443,8 @@ export class StorageErrorClassifier {
     if (errorMessage.includes("timeout") || errorMessage.includes("etimedout")) {
       return {
         message: "PostgreSQL operation timed out",
-        type: (StorageErrorType).TIMEOUT,
-        severity: (StorageErrorSeverity).MEDIUM,
+        type: StorageErrorType.TIMEOUT,
+        severity: StorageErrorSeverity.MEDIUM,
         recoveryActions: [
           {
             type: "RETRY" as const,
@@ -454,8 +457,8 @@ export class StorageErrorClassifier {
 
     return {
       message: `PostgreSQL backend error: ${(error as any).message}`,
-      type: (StorageErrorType).UNKNOWN,
-      severity: (StorageErrorSeverity).MEDIUM,
+      type: StorageErrorType.UNKNOWN,
+      severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
     };
   }
@@ -490,21 +493,20 @@ export class StorageErrorRecovery {
         }
 
         const result = await operation();
-        
+
         log.debug("Storage operation recovery successful", {
           attempt,
           errorType: storageError.type,
         });
 
         return { success: true, result };
-
       } catch (error) {
         if (attempt === maxRetries) {
           const finalError = StorageErrorClassifier.classifyError(
             error as Error,
             storageError.context
           );
-          
+
           log.error("Storage operation recovery failed after all attempts", {
             attempts: maxRetries,
             finalError: finalError.message,
@@ -525,32 +527,32 @@ export class StorageErrorRecovery {
 
   private static getMaxRetries(errorType: StorageErrorType): number {
     switch (errorType) {
-    case StorageErrorType.CONNECTION:
-      return 3;
-    case StorageErrorType.TIMEOUT:
-      return 2;
-    case StorageErrorType.RESOURCE:
-      return 2;
-    default:
-      return 1;
+      case StorageErrorType.CONNECTION:
+        return 3;
+      case StorageErrorType.TIMEOUT:
+        return 2;
+      case StorageErrorType.RESOURCE:
+        return 2;
+      default:
+        return 1;
     }
   }
 
   private static getRetryDelay(errorType: StorageErrorType): number {
     switch (errorType) {
-    case StorageErrorType.CONNECTION:
-      return 1000; // 1 second
-    case StorageErrorType.TIMEOUT:
-      return 2000; // 2 seconds
-    case StorageErrorType.RESOURCE:
-      return 500;  // 0.5 seconds
-    default:
-      return 1000;
+      case StorageErrorType.CONNECTION:
+        return 1000; // 1 second
+      case StorageErrorType.TIMEOUT:
+        return 2000; // 2 seconds
+      case StorageErrorType.RESOURCE:
+        return 500; // 0.5 seconds
+      default:
+        return 1000;
     }
   }
 
   private static delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 
@@ -564,7 +566,7 @@ export class StorageErrorMonitor {
   static recordError(error: StorageError): void {
     const key = `${(error.context as any).backend}-${(error as any).type}`;
     const currentCount = (this.errorCounts as any).get(key) || 0;
-    
+
     this.errorCounts.set(key, currentCount + 1);
     this.lastErrors.set(key, error);
 
@@ -587,7 +589,7 @@ export class StorageErrorMonitor {
    */
   static getErrorStats(): Record<string, { count: number; lastError: StorageError }> {
     const stats: Record<string, { count: number; lastError: StorageError }> = {};
-    
+
     for (const [key, count] of this.errorCounts.entries()) {
       const lastError = this.lastErrors.get(key);
       if (lastError) {
@@ -626,4 +628,4 @@ export class StorageErrorMonitor {
       });
     }
   }
-} 
+}

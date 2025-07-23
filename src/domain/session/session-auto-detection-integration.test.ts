@@ -9,11 +9,7 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  sessionGet,
-  updateSessionFromParams,
-  sessionDelete,
-} from "../session/commands";
+import { sessionGet, updateSessionFromParams, sessionDelete } from "../session/commands";
 import { type SessionProviderInterface } from "../session";
 import { type SessionRecord } from "../session/types";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
@@ -39,7 +35,7 @@ describe("Session Command Domain Logic", () => {
           createdAt: "2024-01-02T00:00:00Z",
           taskId: "#456",
         },
-      ]
+      ],
     });
   });
 

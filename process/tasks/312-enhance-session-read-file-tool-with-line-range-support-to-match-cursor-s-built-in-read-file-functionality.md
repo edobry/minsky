@@ -13,7 +13,7 @@ Through reverse engineering of Cursor's built-in `read_file` tool, we identified
 ### Cursor's Built-in `read_file` Parameters:
 - `target_file`: File path (relative or absolute)
 - `start_line_one_indexed`: Starting line number (1-indexed, inclusive)
-- `end_line_one_indexed_inclusive`: Ending line number (1-indexed, inclusive)  
+- `end_line_one_indexed_inclusive`: Ending line number (1-indexed, inclusive)
 - `should_read_entire_file`: Boolean to read complete file
 - `limit`: Number of lines to read (legacy parameter, 250 lines max)
 - `offset`: Starting offset (legacy parameter)
@@ -41,7 +41,7 @@ Update `session_read_file` to support all Cursor parameters while maintaining se
 ```typescript
 parameters: z.object({
   session: z.string().describe("Session identifier (name or task ID)"),
-  path: z.string().describe("Path to the file within the session workspace"), 
+  path: z.string().describe("Path to the file within the session workspace"),
   start_line_one_indexed: z.number().optional().describe("Starting line number (1-indexed, inclusive)"),
   end_line_one_indexed_inclusive: z.number().optional().describe("Ending line number (1-indexed, inclusive)"),
   should_read_entire_file: z.boolean().optional().default(false).describe("Whether to read the entire file"),
@@ -160,7 +160,7 @@ This enhancement will:
 
 4. **Enhanced Response Format**:
    - Added `totalLines` metadata
-   - Added `linesShown` range indicator  
+   - Added `linesShown` range indicator
    - Added dynamic content summaries
    - Maintained backward compatibility
 

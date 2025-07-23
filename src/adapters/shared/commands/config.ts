@@ -148,7 +148,9 @@ const configShowRegistration = {
         configuration: resolved,
         showSources: params.sources || false,
         ...(params.sources && {
-          sources: [{ name: "custom-config", original: "Custom Configuration System", parsed: resolved }],
+          sources: [
+            { name: "custom-config", original: "Custom Configuration System", parsed: resolved },
+          ],
         }),
       };
     } catch (error) {

@@ -1,6 +1,6 @@
 /**
  * Environment Variable Configuration Source
- * 
+ *
  * Maps environment variables to configuration values using automatic pattern matching
  * and explicit mappings. Provides the highest priority configuration source.
  */
@@ -9,14 +9,14 @@ import type { PartialConfiguration } from "../schemas";
 
 /**
  * Environment variable to configuration path mappings
- * 
+ *
  * These mappings define how environment variables are translated into
  * configuration object paths.
  */
 export const environmentMappings = {
   // Backend configuration
   MINSKY_BACKEND: "backend",
-  
+
   // GitHub configuration
   GITHUB_TOKEN: "github.token",
   GH_TOKEN: "github.token", // Fallback for GitHub CLI
@@ -24,31 +24,31 @@ export const environmentMappings = {
   GITHUB_REPOSITORY: "github.repository",
   GITHUB_BASE_URL: "github.baseUrl",
   GITHUB_API_URL: "github.baseUrl",
-  
+
   // AI provider configuration
   OPENAI_API_KEY: "ai.providers.openai.apiKey",
   OPENAI_ORGANIZATION: "ai.providers.openai.organization",
   OPENAI_BASE_URL: "ai.providers.openai.baseUrl",
-  
+
   ANTHROPIC_API_KEY: "ai.providers.anthropic.apiKey",
   ANTHROPIC_BASE_URL: "ai.providers.anthropic.baseUrl",
-  
+
   GOOGLE_API_KEY: "ai.providers.google.apiKey",
   GOOGLE_AI_API_KEY: "ai.providers.google.apiKey",
   GOOGLE_PROJECT_ID: "ai.providers.google.projectId",
-  
+
   COHERE_API_KEY: "ai.providers.cohere.apiKey",
-  
+
   MISTRAL_API_KEY: "ai.providers.mistral.apiKey",
-  
+
   AI_DEFAULT_PROVIDER: "ai.defaultProvider",
-  
+
   // SessionDB configuration
   MINSKY_SESSIONDB_BACKEND: "sessiondb.backend",
   MINSKY_SESSIONDB_SQLITE_PATH: "sessiondb.sqlite.path",
   MINSKY_SESSIONDB_POSTGRES_URL: "sessiondb.postgres.connectionString",
   MINSKY_SESSIONDB_BASE_DIR: "sessiondb.baseDir",
-  
+
   // Logger configuration
   MINSKY_LOG_MODE: "logger.mode",
   LOG_MODE: "logger.mode",
@@ -97,20 +97,20 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
   "ai.providers.google.temperature": "number",
   "ai.providers.cohere.temperature": "number",
   "ai.providers.mistral.temperature": "number",
-  
+
   // Booleans
   "logger.enableAgentLogs": "boolean",
   "logger.includeTimestamp": "boolean",
-  "logger.includeLevel": "boolean", 
+  "logger.includeLevel": "boolean",
   "logger.includeSource": "boolean",
   "ai.providers.openai.enabled": "boolean",
   "ai.providers.anthropic.enabled": "boolean",
   "ai.providers.google.enabled": "boolean",
   "ai.providers.cohere.enabled": "boolean",
   "ai.providers.mistral.enabled": "boolean",
-  
+
   // JSON (arrays and objects)
-  "detectionRules": "json",
+  detectionRules: "json",
   "ai.providers.openai.models": "json",
   "ai.providers.anthropic.models": "json",
   "ai.providers.google.models": "json",
@@ -128,7 +128,7 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
  */
 export function loadEnvironmentConfiguration(): PartialConfiguration {
   const config: any = {};
-  
+
   // Process explicit mappings
   for (const [envVar, configPath] of Object.entries(environmentMappings)) {
     const value = process.env[envVar];
@@ -136,13 +136,13 @@ export function loadEnvironmentConfiguration(): PartialConfiguration {
       setConfigValue(config, configPath, value);
     }
   }
-  
+
   // Process MINSKY_ prefixed variables (automatic mapping)
   for (const [envVar, value] of Object.entries(process.env)) {
     if (envVar.startsWith("MINSKY_") && value !== undefined) {
       // Skip if already handled by explicit mapping
       if (envVar in environmentMappings) continue;
-      
+
       // Convert MINSKY_PREFIX to config path
       const configPath = envVarToConfigPath(envVar);
       if (configPath) {
@@ -150,7 +150,7 @@ export function loadEnvironmentConfiguration(): PartialConfiguration {
       }
     }
   }
-  
+
   return config;
 }
 
@@ -160,10 +160,10 @@ export function loadEnvironmentConfiguration(): PartialConfiguration {
 function envVarToConfigPath(envVar: string): string | null {
   // Remove MINSKY_ prefix
   const withoutPrefix = envVar.replace(/^MINSKY_/, "");
-  
+
   // Convert SCREAMING_SNAKE_CASE to dot.notation.path
   const parts = withoutPrefix.toLowerCase().split("_");
-  
+
   // Handle known patterns
   if (parts[0] === "ai" && parts[1] === "providers" && parts.length >= 3) {
     // AI_PROVIDERS_OPENAI_API_KEY -> ai.providers.openai.apiKey
@@ -171,7 +171,7 @@ function envVarToConfigPath(envVar: string): string | null {
     const field = parts.slice(3).join("_");
     return `ai.providers.${provider}.${camelCase(field)}`;
   }
-  
+
   if (parts[0] === "sessiondb") {
     // SESSIONDB_BACKEND -> sessiondb.backend
     // SESSIONDB_SQLITE_PATH -> sessiondb.sqlite.path
@@ -181,14 +181,14 @@ function envVarToConfigPath(envVar: string): string | null {
       return `sessiondb.${parts[1]}.${camelCase(parts[2]!)}`;
     }
   }
-  
+
   if (parts[0] === "logger" || parts[0] === "log") {
     // LOGGER_MODE -> logger.mode
     // LOG_LEVEL -> logger.level
     const field = parts.slice(1).join("_");
     return `logger.${camelCase(field)}`;
   }
-  
+
   // Default: convert to camelCase path
   return parts.map(camelCase).join(".");
 }
@@ -206,7 +206,7 @@ function camelCase(str: string): string {
 function setConfigValue(config: any, path: string, value: string): void {
   const parts = path.split(".");
   let current = config;
-  
+
   // Navigate to the parent object
   for (let i = 0; i < parts.length - 1; i++) {
     const part = parts[i]!;
@@ -215,12 +215,12 @@ function setConfigValue(config: any, path: string, value: string): void {
     }
     current = current[part];
   }
-  
+
   // Set the final value with type conversion
   const finalKey = parts[parts.length - 1]!;
   const fieldType = fieldTypes[path] || "string";
   const convertedValue = typeConverters[fieldType](value);
-  
+
   current[finalKey] = convertedValue;
 }
 
@@ -233,10 +233,10 @@ export function getEnvironmentConfiguration(): {
     loadedVariables: string[];
     mappings: Record<string, string>;
   };
-  } {
+} {
   const loadedVariables: string[] = [];
   const mappings: Record<string, string> = {};
-  
+
   // Track which environment variables were loaded
   for (const [envVar, configPath] of Object.entries(environmentMappings)) {
     if (process.env[envVar] !== undefined) {
@@ -244,7 +244,7 @@ export function getEnvironmentConfiguration(): {
       mappings[envVar] = configPath;
     }
   }
-  
+
   // Track MINSKY_ prefixed variables
   for (const envVar of Object.keys(process.env)) {
     if (envVar.startsWith("MINSKY_") && !(envVar in environmentMappings)) {
@@ -255,7 +255,7 @@ export function getEnvironmentConfiguration(): {
       }
     }
   }
-  
+
   return {
     config: loadEnvironmentConfiguration(),
     metadata: {
@@ -273,4 +273,4 @@ export const environmentSourceMetadata = {
   description: "Environment variables configuration",
   priority: 100, // Highest priority
   required: false,
-} as const; 
+} as const;

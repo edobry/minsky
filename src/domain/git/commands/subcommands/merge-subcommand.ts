@@ -4,7 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { mergeFromParams } from "../merge-command";
-import { log } from "../../../../../utils/logger";
+import { log } from "../../../../utils/logger";
 import {
   REPO_DESCRIPTION,
   SESSION_DESCRIPTION,
@@ -58,10 +58,13 @@ export const mergeCommandParams: CommandParameterMap = {
  * Execute the merge command
  */
 export async function executeMergeCommand(
-  parameters: { [K in keyof typeof mergeCommandParams]: z.infer<typeof mergeCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof mergeCommandParams]: z.infer<(typeof mergeCommandParams)[K]["schema"]>;
+  },
   context: CommandExecutionContext
 ): Promise<any> {
-  const { sourceBranch, targetBranch, session, repo, preview, autoResolve, conflictStrategy } = parameters;
+  const { sourceBranch, targetBranch, session, repo, preview, autoResolve, conflictStrategy } =
+    parameters;
 
   const result = await mergeFromParams({
     sourceBranch,
@@ -78,4 +81,4 @@ export async function executeMergeCommand(
   }
 
   return result;
-} 
+}

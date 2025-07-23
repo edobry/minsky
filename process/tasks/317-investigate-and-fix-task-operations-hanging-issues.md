@@ -11,6 +11,7 @@ Task operations (particularly after they output) have been taking a very long ti
 ## Problem Statement
 
 Task operations like `minsky tasks get`, `minsky tasks spec`, `minsky tasks create`, and others have been observed to:
+
 1. Complete their primary operation successfully (outputting the expected result)
 2. Then hang for an extended period before returning control to the user
 3. Sometimes requiring manual termination (Ctrl+C)
@@ -30,6 +31,7 @@ The most likely culprit is the auto-commit functionality added in Task #303. Thi
 ### 2. Special Workspace Synchronization
 
 Task #310 identified issues with special workspace and main workspace synchronization:
+
 - Files are created correctly in both workspaces
 - But task commands cannot find tasks that physically exist on disk
 - This may cause additional lookups or retries that hang
@@ -37,6 +39,7 @@ Task #310 identified issues with special workspace and main workspace synchroniz
 ### 3. Performance Monitoring
 
 The `SessionDbHealthMonitor` and other monitoring systems may be causing performance issues:
+
 - Excessive logging
 - Metric collection that blocks the main thread
 - Cleanup operations that run synchronously
@@ -44,6 +47,7 @@ The `SessionDbHealthMonitor` and other monitoring systems may be causing perform
 ### 4. File System Operations
 
 File system operations may be causing issues:
+
 - Lack of proper timeouts on file operations
 - Race conditions between operations
 - Lock contention between processes
@@ -51,16 +55,19 @@ File system operations may be causing issues:
 ## Technical Investigation Plan
 
 1. **Profiling Task Operations**:
+
    - Add timing instrumentation around key operations
    - Identify which specific operations are causing delays
    - Measure time spent in auto-commit vs. primary operations
 
 2. **Git Operation Analysis**:
+
    - Review all git operations in auto-commit
    - Ensure all git operations use timeout-aware utilities (`execGitWithTimeout`, etc.)
    - Check for unnecessary git operations or optimizations
 
 3. **Special Workspace Audit**:
+
    - Verify synchronization between special workspace and main workspace
    - Check for redundant operations or unnecessary git operations
    - Review error handling and recovery mechanisms
@@ -73,11 +80,13 @@ File system operations may be causing issues:
 ## Solution Requirements
 
 1. **Performance Improvements**:
+
    - Task operations should complete within a reasonable time frame (< 2 seconds)
    - No hanging or blocking operations after primary task is complete
    - Clear feedback to user when operations are in progress
 
 2. **Reliability Enhancements**:
+
    - All git operations must have proper timeouts
    - Graceful error handling for all operations
    - No silent failures or hangs
@@ -90,11 +99,13 @@ File system operations may be causing issues:
 ## Implementation Plan
 
 1. **Diagnostic Phase**:
+
    - Add detailed logging and timing around task operations
    - Create a test harness to reproduce the hanging issues
    - Identify specific components causing delays
 
 2. **Fix Implementation**:
+
    - Apply timeout protection to all git operations
    - Optimize or defer auto-commit operations
    - Improve error handling and recovery mechanisms

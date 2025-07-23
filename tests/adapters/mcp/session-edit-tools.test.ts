@@ -42,7 +42,7 @@ mockModule("../../../src/adapters/mcp/session-files", () => ({
     resolvePath = mockResolvePath;
     validatePath = mockValidatePath;
     validatePathExists = mockValidatePathExists;
-    
+
     constructor() {
       // Set default successful behavior
       this.resolvePath = mock(() => Promise.resolve("/mock/session/path/file.txt"));
@@ -81,14 +81,16 @@ describe("Session Edit Tools", () => {
     registeredTools = {};
 
     // Mock addTool to capture registered tools
-    commandMapper.addCommand = mock((command: { name: string; description: string; parameters?: any; handler: any }) => {
-      registeredTools[command.name] = {
-        name: command.name,
-        description: command.description,
-        schema: command.parameters,
-        handler: command.handler,
-      };
-    });
+    commandMapper.addCommand = mock(
+      (command: { name: string; description: string; parameters?: any; handler: any }) => {
+        registeredTools[command.name] = {
+          name: command.name,
+          description: command.description,
+          schema: command.parameters,
+          handler: command.handler,
+        };
+      }
+    );
 
     // Register the tools
     registerSessionEditTools(commandMapper);
