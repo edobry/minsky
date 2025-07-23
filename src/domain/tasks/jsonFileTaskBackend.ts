@@ -614,7 +614,7 @@ ${description}
     try {
       await this.storage.initialize();
       const result = await this.storage.readState();
-      
+
       if (!result.success || !result.data) {
         return null;
       }
@@ -641,13 +641,13 @@ ${description}
     try {
       await this.storage.initialize();
       const result = await this.storage.readState();
-      
+
       if (!result.success) {
         throw new Error(`Failed to read current state: ${result.error?.message}`);
       }
 
       const currentState = result.data || { tasks: [], metadata: {} };
-      
+
       // Ensure metadata structure exists
       if (!currentState.metadata) {
         currentState.metadata = {};
@@ -688,7 +688,7 @@ ${description}
     try {
       await this.storage.initialize();
       const result = await this.storage.readState();
-      
+
       if (!result.success || !result.data) {
         return [];
       }
@@ -698,7 +698,7 @@ ${description}
       const taskMetadata = state.metadata?.tasks || {};
 
       // Convert TaskData to Task objects first
-      const allTasks: Task[] = tasks.map(taskData => ({
+      const allTasks: Task[] = tasks.map((taskData) => ({
         id: taskData.id,
         title: taskData.title,
         description: taskData.description,
@@ -712,22 +712,20 @@ ${description}
 
       // Filter by task IDs
       if (query.taskIds && query.taskIds.length > 0) {
-        const normalizedIds = query.taskIds.map(id => normalizeTaskIdForStorage(id));
-        filteredTasks = filteredTasks.filter(task => 
+        const normalizedIds = query.taskIds.map((id) => normalizeTaskIdForStorage(id));
+        filteredTasks = filteredTasks.filter((task) =>
           normalizedIds.includes(normalizeTaskIdForStorage(task.id))
         );
       }
 
       // Filter by status
       if (query.status && query.status.length > 0) {
-        filteredTasks = filteredTasks.filter(task => 
-          query.status!.includes(task.status)
-        );
+        filteredTasks = filteredTasks.filter((task) => query.status!.includes(task.status));
       }
 
       // Filter by structural metadata
       if (query.hasParent !== undefined) {
-        filteredTasks = filteredTasks.filter(task => {
+        filteredTasks = filteredTasks.filter((task) => {
           const metadata = taskMetadata[normalizeTaskIdForStorage(task.id)];
           const hasParent = metadata?.parentTask !== undefined;
           return hasParent === query.hasParent;
@@ -736,7 +734,7 @@ ${description}
 
       if (query.parentTask) {
         const normalizedParentId = normalizeTaskIdForStorage(query.parentTask);
-        filteredTasks = filteredTasks.filter(task => {
+        filteredTasks = filteredTasks.filter((task) => {
           const metadata = taskMetadata[normalizeTaskIdForStorage(task.id)];
           return metadata?.parentTask === normalizedParentId;
         });
@@ -748,20 +746,20 @@ ${description}
           let aValue: any;
           let bValue: any;
 
-          if (query.sortBy === 'id') {
+          if (query.sortBy === "id") {
             aValue = a.id;
             bValue = b.id;
-          } else if (query.sortBy === 'title') {
+          } else if (query.sortBy === "title") {
             aValue = a.title;
             bValue = b.title;
-          } else if (query.sortBy === 'status') {
+          } else if (query.sortBy === "status") {
             aValue = a.status;
             bValue = b.status;
-          } else if (query.sortBy === 'createdAt' || query.sortBy === 'updatedAt') {
+          } else if (query.sortBy === "createdAt" || query.sortBy === "updatedAt") {
             const aMetadata = taskMetadata[normalizeTaskIdForStorage(a.id)];
             const bMetadata = taskMetadata[normalizeTaskIdForStorage(b.id)];
-            aValue = query.sortBy === 'createdAt' ? aMetadata?.createdAt : aMetadata?.updatedAt;
-            bValue = query.sortBy === 'createdAt' ? bMetadata?.createdAt : bMetadata?.updatedAt;
+            aValue = query.sortBy === "createdAt" ? aMetadata?.createdAt : aMetadata?.updatedAt;
+            bValue = query.sortBy === "createdAt" ? bMetadata?.createdAt : bMetadata?.updatedAt;
           } else {
             return 0; // Unknown sort field
           }
@@ -771,7 +769,7 @@ ${description}
           if (bValue === undefined) return -1;
 
           const comparison = aValue < bValue ? -1 : 1;
-          return query.sortOrder === 'desc' ? -comparison : comparison;
+          return query.sortOrder === "desc" ? -comparison : comparison;
         });
       }
 

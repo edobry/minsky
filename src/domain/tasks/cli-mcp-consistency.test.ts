@@ -215,19 +215,19 @@ describe("Backend Capabilities System (Task #315)", () => {
       expect(capabilities.supportsTaskUpdate).toBe(true);
       expect(capabilities.supportsTaskDeletion).toBe(true);
       expect(capabilities.supportsStatus).toBe(true);
-      
+
       // Structural metadata not yet implemented
       expect(capabilities.supportsSubtasks).toBe(false);
       expect(capabilities.supportsDependencies).toBe(false);
-      
+
       // Provenance metadata not yet implemented
       expect(capabilities.supportsOriginalRequirements).toBe(false);
       expect(capabilities.supportsAiEnhancementTracking).toBe(false);
-      
+
       // Query capabilities
       expect(capabilities.supportsMetadataQuery).toBe(false);
       expect(capabilities.supportsFullTextSearch).toBe(true);
-      
+
       // Update mechanism
       expect(capabilities.requiresSpecialWorkspace).toBe(true);
       expect(capabilities.supportsTransactions).toBe(false);
@@ -236,7 +236,7 @@ describe("Backend Capabilities System (Task #315)", () => {
 
     test("should provide capabilities discovery for backend selection", () => {
       const backend = createMarkdownTaskBackend({
-        name: "markdown", 
+        name: "markdown",
         workspacePath: "/tmp/test",
       });
 
@@ -244,13 +244,15 @@ describe("Backend Capabilities System (Task #315)", () => {
 
       // This test demonstrates how the capability system could be used
       // for intelligent backend selection based on requirements
-      
+
       if (capabilities.supportsDependencies) {
         // This backend can handle task dependencies
         console.log("Backend supports dependencies");
       } else {
         // Need a different backend or upgrade this one
-        console.log("Backend does not support dependencies - use JSON backend or implement feature");
+        console.log(
+          "Backend does not support dependencies - use JSON backend or implement feature"
+        );
       }
 
       if (capabilities.requiresSpecialWorkspace) {

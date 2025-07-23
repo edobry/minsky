@@ -13,10 +13,10 @@ export interface TaskBackend {
   ): Promise<Task>;
   setTaskMetadata?(id: string, metadata: any): Promise<void>;
   deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
-  
+
   // New capability discovery method
   getCapabilities(): BackendCapabilities;
-  
+
   // Enhanced metadata methods (optional for now, using proper types)
   getTaskMetadata?(id: string): Promise<TaskMetadata | null>;
   setTaskMetadata?(id: string, metadata: TaskMetadata): Promise<void>;

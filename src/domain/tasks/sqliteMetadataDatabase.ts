@@ -1,6 +1,6 @@
 /**
  * SQLite-based MetadataDatabase implementation
- * 
+ *
  * Provides persistent storage for task metadata separate from task specs.
  * Implements the hybrid spec+database pattern from Task #315.
  */
@@ -22,13 +22,13 @@ export interface SqliteMetadataDatabaseOptions {
    * Defaults to ~/.local/state/minsky/tasks.db
    */
   databasePath?: string;
-  
+
   /**
    * Whether to enable WAL mode for better concurrent access
    * Defaults to true
    */
   enableWalMode?: boolean;
-  
+
   /**
    * Whether to enable foreign key constraints
    * Defaults to true
@@ -38,7 +38,7 @@ export interface SqliteMetadataDatabaseOptions {
 
 /**
  * SQLite-based implementation of MetadataDatabase
- * 
+ *
  * Features:
  * - Persistent storage using SQLite
  * - Transaction support for atomic operations
@@ -90,7 +90,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
       if (this.options.enableWalMode) {
         this.db.run("PRAGMA journal_mode = WAL");
       }
-      
+
       if (this.options.enableForeignKeys) {
         this.db.run("PRAGMA foreign_keys = ON");
       }
@@ -107,10 +107,9 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
       this.db.run("PRAGMA defer_foreign_keys = ON");
 
       this.initialized = true;
-      log.debug("SQLite metadata database initialized", { 
-        path: this.databasePath 
+      log.debug("SQLite metadata database initialized", {
+        path: this.databasePath,
       });
-
     } catch (error) {
       log.error("Failed to initialize SQLite metadata database", {
         path: this.databasePath,
@@ -169,7 +168,9 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
     this.db.run("CREATE INDEX IF NOT EXISTS idx_subtasks_parent ON task_subtasks(parent_id)");
     this.db.run("CREATE INDEX IF NOT EXISTS idx_subtasks_child ON task_subtasks(subtask_id)");
     this.db.run("CREATE INDEX IF NOT EXISTS idx_deps_task ON task_dependencies(task_id)");
-    this.db.run("CREATE INDEX IF NOT EXISTS idx_deps_dependency ON task_dependencies(dependency_id)");
+    this.db.run(
+      "CREATE INDEX IF NOT EXISTS idx_deps_dependency ON task_dependencies(dependency_id)"
+    );
     this.db.run("CREATE INDEX IF NOT EXISTS idx_deps_type ON task_dependencies(dependency_type)");
   }
 
@@ -178,7 +179,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
    */
   async getTaskMetadata(taskId: string): Promise<TaskMetadata | null> {
     await this.initialize();
-    
+
     if (!this.db) {
       throw new Error("Database not initialized");
     }
@@ -214,11 +215,17 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
         originalRequirements: metadata.original_requirements,
         aiEnhanced: metadata.ai_enhanced === 1,
         creationContext: metadata.creation_context,
-        subtasks: subtasks.map(row => row.subtask_id),
+        subtasks: subtasks.map((row) => row.subtask_id),
         dependencies: {
-          prerequisite: dependencies.filter(d => d.dependency_type === 'prerequisite').map(d => d.dependency_id),
-          optional: dependencies.filter(d => d.dependency_type === 'optional').map(d => d.dependency_id),
-          related: dependencies.filter(d => d.dependency_type === 'related').map(d => d.dependency_id),
+          prerequisite: dependencies
+            .filter((d) => d.dependency_type === "prerequisite")
+            .map((d) => d.dependency_id),
+          optional: dependencies
+            .filter((d) => d.dependency_type === "optional")
+            .map((d) => d.dependency_id),
+          related: dependencies
+            .filter((d) => d.dependency_type === "related")
+            .map((d) => d.dependency_id),
         },
         custom: metadata.custom_data ? JSON.parse(metadata.custom_data) : undefined,
       };
@@ -238,7 +245,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
    */
   async setTaskMetadata(taskId: string, metadata: TaskMetadata): Promise<void> {
     await this.initialize();
-    
+
     if (!this.db) {
       throw new Error("Database not initialized");
     }
@@ -275,7 +282,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
         const insertSubtask = this.db!.prepare(`
           INSERT INTO task_subtasks (parent_id, subtask_id) VALUES (?, ?)
         `);
-        
+
         for (const subtaskId of metadata.subtasks) {
           insertSubtask.run(taskId, subtaskId);
         }
@@ -288,13 +295,13 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
         `);
 
         for (const depId of metadata.dependencies.prerequisite || []) {
-          insertDep.run(taskId, depId, 'prerequisite');
+          insertDep.run(taskId, depId, "prerequisite");
         }
         for (const depId of metadata.dependencies.optional || []) {
-          insertDep.run(taskId, depId, 'optional');
+          insertDep.run(taskId, depId, "optional");
         }
         for (const depId of metadata.dependencies.related || []) {
-          insertDep.run(taskId, depId, 'related');
+          insertDep.run(taskId, depId, "related");
         }
       }
     });
@@ -316,7 +323,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
    */
   async deleteTaskMetadata(taskId: string): Promise<void> {
     await this.initialize();
-    
+
     if (!this.db) {
       throw new Error("Database not initialized");
     }
@@ -325,7 +332,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
       // Delete main record (cascades to relationships due to foreign keys)
       const deleteQuery = this.db.prepare("DELETE FROM task_metadata WHERE task_id = ?");
       deleteQuery.run(taskId);
-      
+
       log.debug("Task metadata deleted successfully", { taskId });
     } catch (error) {
       log.error("Failed to delete task metadata", {
@@ -341,7 +348,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
    */
   async queryTasks(query: MetadataQuery): Promise<TaskMetadata[]> {
     await this.initialize();
-    
+
     if (!this.db) {
       throw new Error("Database not initialized");
     }
@@ -352,7 +359,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
 
       // Add query conditions
       if (query.taskIds && query.taskIds.length > 0) {
-        const placeholders = query.taskIds.map(() => '?').join(',');
+        const placeholders = query.taskIds.map(() => "?").join(",");
         sql += ` AND task_id IN (${placeholders})`;
         params.push(...query.taskIds);
       }
@@ -382,9 +389,13 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
 
       // Add sorting
       if (query.sortBy) {
-        const column = query.sortBy === 'createdAt' ? 'created_at' : 
-                      query.sortBy === 'updatedAt' ? 'updated_at' : 'task_id';
-        const order = query.sortOrder === 'desc' ? 'DESC' : 'ASC';
+        const column =
+          query.sortBy === "createdAt"
+            ? "created_at"
+            : query.sortBy === "updatedAt"
+              ? "updated_at"
+              : "task_id";
+        const order = query.sortOrder === "desc" ? "DESC" : "ASC";
         sql += ` ORDER BY ${column} ${order}`;
       }
 
@@ -392,7 +403,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
       if (query.limit) {
         sql += " LIMIT ?";
         params.push(query.limit);
-        
+
         if (query.offset) {
           sql += " OFFSET ?";
           params.push(query.offset);
@@ -400,7 +411,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
       }
 
       const taskIds = this.db.prepare(sql).all(...params) as any[];
-      
+
       // Get full metadata for each task
       const results: TaskMetadata[] = [];
       for (const row of taskIds) {
@@ -425,7 +436,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
    */
   async getSubtasks(parentId: string): Promise<TaskMetadata[]> {
     await this.initialize();
-    
+
     if (!this.db) {
       throw new Error("Database not initialized");
     }
@@ -435,7 +446,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
         SELECT subtask_id FROM task_subtasks WHERE parent_id = ?
       `);
       const subtaskIds = query.all(parentId) as any[];
-      
+
       const results: TaskMetadata[] = [];
       for (const row of subtaskIds) {
         const metadata = await this.getTaskMetadata(row.subtask_id);
@@ -459,7 +470,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
    */
   async getDependencies(taskId: string): Promise<TaskMetadata[]> {
     await this.initialize();
-    
+
     if (!this.db) {
       throw new Error("Database not initialized");
     }
@@ -469,7 +480,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
         SELECT dependency_id FROM task_dependencies WHERE task_id = ?
       `);
       const depIds = query.all(taskId) as any[];
-      
+
       const results: TaskMetadata[] = [];
       for (const row of depIds) {
         const metadata = await this.getTaskMetadata(row.dependency_id);
@@ -493,7 +504,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
    */
   async setMultipleTaskMetadata(metadata: Record<string, TaskMetadata>): Promise<void> {
     await this.initialize();
-    
+
     if (!this.db) {
       throw new Error("Database not initialized");
     }
@@ -507,8 +518,8 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
 
     try {
       transaction();
-      log.debug("Multiple task metadata saved successfully", { 
-        count: Object.keys(metadata).length 
+      log.debug("Multiple task metadata saved successfully", {
+        count: Object.keys(metadata).length,
       });
     } catch (error) {
       log.error("Failed to set multiple task metadata", {
@@ -524,7 +535,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
    */
   async deleteMultipleTaskMetadata(taskIds: string[]): Promise<void> {
     await this.initialize();
-    
+
     if (!this.db) {
       throw new Error("Database not initialized");
     }
@@ -538,8 +549,8 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
 
     try {
       transaction();
-      log.debug("Multiple task metadata deleted successfully", { 
-        count: taskIds.length 
+      log.debug("Multiple task metadata deleted successfully", {
+        count: taskIds.length,
       });
     } catch (error) {
       log.error("Failed to delete multiple task metadata", {
@@ -567,7 +578,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
    */
   async backup(backupPath: string): Promise<void> {
     await this.initialize();
-    
+
     if (!this.db) {
       throw new Error("Database not initialized");
     }
@@ -583,10 +594,10 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
 
       // Use SQLite backup API
       this.db.run(`VACUUM INTO '${backupPath}'`);
-      
-      log.debug("Database backup created successfully", { 
+
+      log.debug("Database backup created successfully", {
         source: this.databasePath,
-        backup: backupPath 
+        backup: backupPath,
       });
     } catch (error) {
       log.error("Failed to create database backup", {
@@ -610,14 +621,14 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
       // Replace current database with backup
       const fs = await import("fs/promises");
       await fs.copyFile(backupPath, this.databasePath);
-      
+
       // Reinitialize
       this.initialized = false;
       await this.initialize();
-      
-      log.debug("Database restored successfully", { 
+
+      log.debug("Database restored successfully", {
         backup: backupPath,
-        target: this.databasePath 
+        target: this.databasePath,
       });
     } catch (error) {
       log.error("Failed to restore database from backup", {

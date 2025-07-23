@@ -151,6 +151,37 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     }
   }
 
+  // ---- Capability Discovery ----
+
+  getCapabilities(): BackendCapabilities {
+    return {
+      // Core operations - GitHub API supports full CRUD operations
+      supportsTaskCreation: true,
+      supportsTaskUpdate: true,
+      supportsTaskDeletion: true,
+
+      // Essential metadata support - GitHub Issues native features
+      supportsStatus: true, // Mapped to GitHub labels and issue state
+
+      // Structural metadata - GitHub Issues supports some relationships
+      supportsSubtasks: false, // GitHub doesn't have native subtask support
+      supportsDependencies: false, // Could be implemented via issue references but not native
+
+      // Provenance metadata - can be stored in issue description or custom fields
+      supportsOriginalRequirements: true, // Can store in issue description/body
+      supportsAiEnhancementTracking: true, // Can track via comments or description
+
+      // Query capabilities - GitHub API provides robust search
+      supportsMetadataQuery: true, // GitHub API supports advanced search
+      supportsFullTextSearch: true, // GitHub search includes issue content
+
+      // Update mechanism - direct API calls
+      requiresSpecialWorkspace: false, // Direct API operations
+      supportsTransactions: false, // GitHub API doesn't support transactions
+      supportsRealTimeSync: true, // Real-time via API calls
+    };
+  }
+
   // ---- Data Retrieval ----
 
   async getTasksData(): Promise<TaskReadOperationResult> {

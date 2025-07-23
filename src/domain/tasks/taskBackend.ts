@@ -70,7 +70,7 @@ export interface TaskBackend {
    * @param content Formatted tasks content
    * @returns Promise resolving to operation result
    */
-  saveTasksData(content: string): Promise<TaskWriteOperationResult>
+  saveTasksData(content: string): Promise<TaskWriteOperationResult>;
 
   /**
    * Save task specification data
