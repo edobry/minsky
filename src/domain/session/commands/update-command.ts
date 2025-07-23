@@ -88,3 +88,6 @@ export async function updateSessionFromParams(
     throw error;
   }
 }
+
+// Export alias for compatibility with subcommands
+export { updateSessionFromParams as updateSession };

@@ -886,7 +886,12 @@ src/domain/git/commands/
 - ✅ **Proper Repository Usage**: All operations correctly target main repository
 - ✅ **Interface Consistency**: Subcommands properly bridge to core implementations
 
-**Follow-up Required**: Audit other session commands for similar dual implementation patterns that may need consolidation
+**Additional Fixes Applied**:
+- Fixed broken import in `update-subcommand.ts` (missing `updateSession` export alias)
+- Fixed broken import in `delete-subcommand.ts` (missing `deleteSession` export alias)
+- Pattern discovered: Several session subcommands had broken imports due to missing export aliases
+
+**Follow-up Required**: Complete audit of remaining session commands for similar dual implementation patterns
 
 ### Current Status Summary
 
