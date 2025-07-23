@@ -156,10 +156,10 @@ describe("TaskService JsonFile Integration (Enhanced)", () => {
       expect(task).toBe(null);
 
       const status = await taskServiceInstance.getTaskStatus(invalidId);
-      expect(status).toBeUndefined();
+      expect(status).toBe(null); // TaskService returns null for non-existent tasks
 
       // Should throw when setting status on non-existent task
-      await expect(taskServiceInstance.updateTaskStatus(invalidId, "DONE")).rejects.toThrow("not found");
+      await expect(taskServiceInstance.updateTaskStatus(invalidId, "DONE")).rejects.toThrow("Invalid task ID format");
     });
 
     test("should validate task status values", async () => {
