@@ -13,6 +13,12 @@
 
 ### Fixed
 
+- **Session Approve Linter Output**: Improved error handling during automatic task status commits
+  - Pre-commit hook linter errors now show clean summary instead of raw ESLint dump
+  - Displays error/warning counts with helpful guidance on fixing issues
+  - Command still fails appropriately when linting issues occur
+  - Manual commits continue to show full linter output as expected
+
 - Fixed `--body-path` and `--body` parameters not working for updating existing PRs
 - Resolved issue where PR body was always reused instead of using new content
 - Added comprehensive test coverage for session PR body content handling to prevent regression
