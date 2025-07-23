@@ -1,6 +1,6 @@
 /**
  * Backend Selection System for Task #315
- * 
+ *
  * Provides capability-aware backend selection for optimal task management.
  * This demonstrates Phase 4 integration patterns.
  */
@@ -19,22 +19,22 @@ export interface BackendRequirements {
   requiresTaskCreation?: boolean;
   requiresTaskUpdate?: boolean;
   requiresTaskDeletion?: boolean;
-  
+
   // Essential metadata support
   requiresStatus?: boolean;
-  
+
   // Structural metadata (Tasks #238, #239)
   requiresSubtasks?: boolean;
   requiresDependencies?: boolean;
-  
+
   // Provenance metadata
   requiresOriginalRequirements?: boolean;
   requiresAiEnhancementTracking?: boolean;
-  
+
   // Query capabilities
   requiresMetadataQuery?: boolean;
   requiresFullTextSearch?: boolean;
-  
+
   // Update mechanism preferences
   allowsSpecialWorkspace?: boolean;
   requiresTransactions?: boolean;
@@ -60,16 +60,16 @@ export class BackendSelector {
 
   constructor() {
     // Register available backend factories
-    this.availableBackends.set("markdown", () => 
+    this.availableBackends.set("markdown", () =>
       createMarkdownTaskBackend({
         name: "markdown",
         workspacePath: process.cwd(), // Default workspace
       })
     );
-    
-    this.availableBackends.set("json-file", () => 
+
+    this.availableBackends.set("json-file", () =>
       createJsonFileTaskBackend({
-        name: "json-file", 
+        name: "json-file",
         workspacePath: process.cwd(), // Default workspace
       })
     );
@@ -87,7 +87,7 @@ export class BackendSelector {
         const backend = factory();
         const capabilities = backend.getCapabilities();
         const evaluation = this.evaluateBackend(capabilities, requirements);
-        
+
         candidates.push({
           backend,
           capabilities,
@@ -114,7 +114,7 @@ export class BackendSelector {
     }
 
     const selected = candidates[0];
-    
+
     if (selected.score === 0) {
       log.warn("Selected backend has score 0 - requirements may not be met", {
         backend: selected.backend.name,
@@ -223,7 +223,10 @@ export class BackendSelector {
     if (requirements.allowsSpecialWorkspace === false && capabilities.requiresSpecialWorkspace) {
       score -= 5;
       limitations.push("Requires special workspace (may be inconvenient)");
-    } else if (requirements.allowsSpecialWorkspace !== false && capabilities.requiresSpecialWorkspace) {
+    } else if (
+      requirements.allowsSpecialWorkspace !== false &&
+      capabilities.requiresSpecialWorkspace
+    ) {
       reasons.push("Uses special workspace for consistency");
     }
 
@@ -266,7 +269,7 @@ export class BackendSelector {
       requirements.requiresMetadataQuery = true;
     }
 
-    if (taskNumbers.some(t => parseInt(t) > 300)) {
+    if (taskNumbers.some((t) => parseInt(t) > 300)) {
       // Future tasks likely need advanced features
       requirements.requiresOriginalRequirements = true;
       requirements.requiresAiEnhancementTracking = true;

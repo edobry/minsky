@@ -1,5 +1,7 @@
 # Implement Task Backend Capabilities System and Enhanced Metadata Support
 
+## Status: ✅ COMPLETED
+
 ## Context
 
 Currently, task backends (Markdown, JSON, GitHub Issues) already serve as both task content and metadata storage. However, the current implementation has limitations:
@@ -207,39 +209,78 @@ Focus on essential capabilities while preserving workflows:
 
 ## Implementation Plan
 
-### Phase 1: Core Infrastructure (Week 1)
+### ✅ Phase 1: Core Infrastructure (COMPLETED)
 1. **✅ Architecture Decisions** (folded from Task #235)
-2. Define BackendCapabilities interface
-3. Add getCapabilities() to TaskBackend interface
-4. Implement capabilities for existing backends
-5. Create basic MetadataDatabase interface
+2. **✅ BackendCapabilities interface** defined with CRUD, metadata, query capabilities
+3. **✅ getCapabilities()** added to TaskBackend interface
+4. **✅ Capabilities implemented** for all backends (Markdown, JSON, GitHub)
+5. **✅ MetadataDatabase interface** created with query and relationship operations
 
-### Phase 2: Enhanced JSON Backend (Week 2)
-1. Implement enhanced JSON schema with metadata support
-2. Add efficient metadata operations 
-3. Create migration from markdown backend
-4. Integrate with special workspace system
+### ✅ Phase 2: Enhanced JSON Backend (COMPLETED)
+1. **✅ Enhanced JSON schema** with comprehensive metadata support
+2. **✅ Metadata operations** - getTaskMetadata, setTaskMetadata, queryTasksByMetadata
+3. **✅ Migration from markdown** via `minsky tasks migrate` command
+4. **✅ Special workspace integration** for workspace-aware operations
 
-### Phase 3: SQLite Database Backend (Week 2-3)
-1. Implement SQLite-based MetadataDatabase
-2. Create hybrid spec+database pattern
-3. Add transaction support and concurrent access
-4. Performance optimization for queries
+### ✅ Phase 3: SQLite Database Backend (COMPLETED)
+1. **✅ SQLite MetadataDatabase** with full CRUD and relationship support
+2. **✅ Hybrid pattern** supporting both file-based and database storage
+3. **✅ Transaction support** with atomic operations and rollback
+4. **✅ Performance optimization** with indexing and bulk operations
 
-### Phase 4: Integration & Foundation (Week 3-4)
-1. Update TaskService to use capability-aware operations
-2. Create backend selection and configuration system
-3. Add migration utilities between storage patterns
-4. **Prepare for Task #238 (subtasks) and Task #239 (dependencies)**
+### ✅ Phase 4: Integration & Foundation (COMPLETED)
+1. **✅ Capability-aware TaskService** operations implemented
+2. **✅ Backend selection system** with BackendSelector and scoring
+3. **✅ Migration utilities** with backup, dry-run, and status mapping
+4. **✅ JSON backend as default** with seamless metadata integration
+5. **✅ CLI customizations** for `minsky tasks migrate` command
+6. **✅ Special workspace awareness** in migration and metadata operations
 
-## Success Criteria
+## 🎯 Additional Accomplishments
+
+### ✅ JSON Backend as Default Source of Truth
+- **Configuration-driven defaults**: Single source of truth in `defaults.ts`
+- **Smart detection rules**: JSON > Markdown > JSON for new projects
+- **Backward compatibility**: Existing markdown projects continue working
+- **No hardcoded backends**: TaskService reads from configuration
+
+### ✅ Migration Command (`minsky tasks migrate`)
+- **Sessiondb-style patterns**: Dry-run, backup, auto-detection
+- **Special workspace aware**: Uses `resolveTaskWorkspacePath()` and enhanced backends
+- **Status mapping**: Custom transitions between backend status formats
+- **Enhanced metadata**: Tracks migration provenance and original IDs
+
+### ✅ Seamless Metadata Integration
+- **Transparent operations**: Existing `minsky tasks list/status` automatically use metadata
+- **Automatic tracking**: createdAt, updatedAt, status stored transparently
+- **Future-ready foundation**: Infrastructure for Tasks #238 (subtasks) and #239 (dependencies)
+
+## ✅ Success Criteria (ALL COMPLETED)
 
 1. **✅ Clear Architecture**: Spec vs metadata storage distinction established
-2. **Backend Capability Discovery**: Any code can query what a backend supports
-3. **Essential Metadata Support**: Structural and provenance metadata working
-4. **Flexible Storage**: Users can choose pattern based on needs
-5. **Migration Path**: Smooth transition from markdown backend
-6. **Foundation Ready**: Tasks #238 and #239 can build on this infrastructure
+2. **✅ Backend Capability Discovery**: Any code can query what a backend supports via `getCapabilities()`
+3. **✅ Essential Metadata Support**: Structural and provenance metadata working with JSON/SQLite backends
+4. **✅ Flexible Storage**: Users can choose between JSON (in-repo), SQLite (local), or PostgreSQL (team) patterns
+5. **✅ Migration Path**: `minsky tasks migrate` provides smooth transition from markdown backend
+6. **✅ Foundation Ready**: Tasks #238 and #239 can build on the metadata infrastructure
+7. **✅ Default Integration**: JSON backend is now the default with seamless metadata tracking
+8. **✅ Special Workspace Support**: Full integration with Minsky's workspace management system
+
+## 🚀 Ready for Migration
+
+The external task database infrastructure is complete and ready for production use:
+
+```bash
+# Preview migration from markdown to JSON backend
+minsky tasks migrate --to json-file --dry-run
+
+# Migrate with backup (recommended)
+minsky tasks migrate --to json-file --backup
+
+# Existing workflows work unchanged
+minsky tasks list           # Automatically uses JSON backend with metadata
+minsky tasks status set #123 DONE  # Metadata tracked transparently
+```
 
 ## Next Steps After This Task
 

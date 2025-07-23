@@ -61,11 +61,7 @@ export class TaskService {
   private readonly currentBackend: TaskBackend;
 
   constructor(options: TaskServiceOptions = {}) {
-    const {
-      workspacePath = (process as any).cwd(),
-      backend,
-      customBackends,
-    } = options;
+    const { workspacePath = (process as any).cwd(), backend, customBackends } = options;
 
     // Get default backend from configuration if not explicitly provided
     let resolvedBackend = backend;

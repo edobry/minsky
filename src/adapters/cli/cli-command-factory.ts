@@ -261,6 +261,31 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           },
         },
       },
+      "tasks.migrate": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          to: {
+            asArgument: true,
+            description: "Target backend (markdown, json-file, github-issues)",
+          },
+          from: {
+            description: "Source backend (auto-detect if not provided)",
+          },
+          backup: {
+            description: "Create backup before migration",
+          },
+          dryRun: {
+            alias: "n",
+            description: "Show what would be migrated without doing it",
+          },
+          workspacePath: {
+            description: "Workspace path for task operations",
+          },
+          statusMapping: {
+            description: "Custom status mapping (JSON object)",
+          },
+        },
+      },
     },
   });
 

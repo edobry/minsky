@@ -15,22 +15,22 @@ export interface BackendCapabilities {
   supportsTaskCreation: boolean;
   supportsTaskUpdate: boolean;
   supportsTaskDeletion: boolean;
-  
+
   // Essential metadata support
   supportsStatus: boolean;
-  
+
   // Structural metadata (Tasks #238, #239)
   supportsSubtasks: boolean;
   supportsDependencies: boolean;
-  
+
   // Provenance metadata
   supportsOriginalRequirements: boolean;
   supportsAiEnhancementTracking: boolean;
-  
+
   // Query capabilities
   supportsMetadataQuery: boolean;
   supportsFullTextSearch: boolean;
-  
+
   // Update mechanism
   requiresSpecialWorkspace: boolean;
   supportsTransactions: boolean;
@@ -45,10 +45,10 @@ export interface TaskMetadata {
   // Core metadata
   createdAt?: string;
   updatedAt?: string;
-  
+
   // Basic task metadata that backends already support
   status?: TaskStatus;
-  
+
   // Structural metadata - to be designed in Tasks #238, #239
   // Leave this space for future implementation
 }
@@ -61,12 +61,12 @@ export interface MetadataQuery {
   // Task filtering
   taskIds?: string[];
   status?: TaskStatus[];
-  
+
   // Search options
   limit?: number;
   offset?: number;
   sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
+  sortOrder?: "asc" | "desc";
 }
 
 /**
@@ -78,14 +78,14 @@ export interface MetadataDatabase {
   getTaskMetadata(taskId: string): Promise<TaskMetadata | null>;
   setTaskMetadata(taskId: string, metadata: TaskMetadata): Promise<void>;
   deleteTaskMetadata(taskId: string): Promise<void>;
-  
+
   // Query operations
   queryTasks(query: MetadataQuery): Promise<TaskMetadata[]>;
-  
+
   // Bulk operations
   setMultipleTaskMetadata(metadata: Record<string, TaskMetadata>): Promise<void>;
   deleteMultipleTaskMetadata(taskIds: string[]): Promise<void>;
-  
+
   // Database management
   initialize(): Promise<void>;
   close(): Promise<void>;
@@ -182,10 +182,10 @@ export interface TaskBackend {
   ): Promise<Task>;
   setTaskMetadata?(id: string, metadata: any): Promise<void>;
   deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
-  
+
   // New capability discovery method
   getCapabilities(): BackendCapabilities;
-  
+
   // Enhanced metadata methods (optional for now, using proper types)
   getTaskMetadata?(id: string): Promise<TaskMetadata | null>;
   setTaskMetadata?(id: string, metadata: TaskMetadata): Promise<void>;
