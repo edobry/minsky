@@ -25,6 +25,7 @@ import {
   sessionPr,
   sessionInspect,
   sessionCommit,
+  sessionLint,
 } from "../../../domain/session";
 import { log } from "../../../utils/logger";
 import { MinskyError, ResourceNotFoundError } from "../../../errors/index";
@@ -39,6 +40,7 @@ import {
   sessionPrCommandParams,
   sessionInspectCommandParams,
   sessionCommitCommandParams,
+  sessionLintCommandParams,
 } from "./session-parameters";
 import {
   handleSessionPrError,
@@ -559,6 +561,59 @@ Examples:
         log.error("Failed to commit in session", {
           error: getErrorMessage(error as Error),
           session: params!.session,
+        });
+        throw error;
+      }
+    },
+  });
+
+  // Register session lint command
+  sharedCommandRegistry.registerCommand({
+    id: "session.lint",
+    category: CommandCategory.SESSION,
+    name: "lint",
+    description: "Run ESLint validation in session workspace",
+    parameters: sessionLintCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.lint command", { params, context });
+
+      try {
+        // First get the session directory
+        const sessionDirectory = await sessionDir({
+          name: params!.sessionName || params!.name,
+          task: params!.task,
+          json: false,
+        });
+
+        // Import and call session lint
+        const { sessionLint, formatLintResults } = await import(
+          "../../../domain/session/session-lint"
+        );
+
+        const result = await sessionLint(sessionDirectory, {
+          fix: params!.fix,
+          quiet: params!.quiet,
+          changed: params!.changed,
+          json: params!.json,
+        });
+
+        if (params!.json) {
+          return {
+            success: result.success,
+            result,
+          };
+        } else {
+          const formattedOutput = formatLintResults(result);
+
+          return {
+            success: result.success,
+            message: formattedOutput,
+          };
+        }
+      } catch (error) {
+        log.error("Failed to lint session", {
+          error: getErrorMessage(error as Error),
+          sessionName: params!.sessionName,
         });
         throw error;
       }

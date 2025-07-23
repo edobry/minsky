@@ -351,3 +351,48 @@ export const sessionCommitCommandParams: CommandParameterMap = {
     defaultValue: false,
   },
 };
+
+/**
+ * Parameters for the session lint command
+ */
+export const sessionLintCommandParams: CommandParameterMap = {
+  sessionName: {
+    schema: z.string().min(1),
+    description: "Session identifier (name or task ID)",
+    required: false,
+  },
+  name: {
+    schema: z.string().min(1),
+    description: "Session name",
+    required: false,
+  },
+  task: {
+    schema: z.string(),
+    description: "Task ID associated with the session",
+    required: false,
+  },
+  fix: {
+    schema: z.boolean(),
+    description: "Auto-fix issues where possible",
+    required: false,
+    defaultValue: false,
+  },
+  quiet: {
+    schema: z.boolean(),
+    description: "Suppress warnings, show only errors",
+    required: false,
+    defaultValue: false,
+  },
+  changed: {
+    schema: z.boolean(),
+    description: "Only check files changed since last commit",
+    required: false,
+    defaultValue: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output in JSON format",
+    required: false,
+    defaultValue: false,
+  },
+};

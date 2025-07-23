@@ -2169,3 +2169,6 @@ export { inspectSessionFromParams as sessionInspect };
 
 // Export new session-scoped git commands
 export { sessionCommit };
+
+// Export session lint command
+export { sessionLint } from "./session/session-lint";
