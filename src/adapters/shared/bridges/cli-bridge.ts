@@ -3,7 +3,7 @@
  *
  * This module provides backward compatibility for the original CLI bridge interface
  * while delegating to the new modular architecture underneath.
- * 
+ *
  * MIGRATION COMPLETE: 740 lines reduced to ~100 lines (86.5% reduction)
  * All functionality preserved through modular delegation pattern.
  */
@@ -27,10 +27,10 @@ export type {
 
 /**
  * Legacy CLI Bridge Interface (Backward Compatibility)
- * 
+ *
  * ⚠️ DEPRECATED: This class is maintained for backward compatibility only.
  * New code should use ModularCliCommandBridge directly.
- * 
+ *
  * This wrapper delegates all functionality to the new modular architecture
  * while preserving the original API surface.
  */
@@ -50,7 +50,7 @@ export class CliCommandBridge {
   }
 
   /**
-   * Register category customization options  
+   * Register category customization options
    * @deprecated Use ModularCliCommandBridge directly
    */
   registerCategoryCustomization(category: CommandCategory, options: any): void {
@@ -87,14 +87,14 @@ export class CliCommandBridge {
 
 /**
  * Default exported instance for the CLI bridge
- * 
+ *
  * @deprecated Use modularCliBridge from cli-bridge-modular.ts instead
  */
 export const cliBridge = modularCliBridge;
 
 /**
  * Register categorized CLI commands to a Commander.js program
- * 
+ *
  * @deprecated Use registerCategorizedCliCommands from cli-bridge-modular.ts instead
  */
 export function registerCategorizedCliCommands(

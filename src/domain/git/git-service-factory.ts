@@ -1,6 +1,6 @@
 /**
  * Git Service Factory
- * 
+ *
  * Factory function for creating GitService instances.
  * Extracted from git.ts to support modular architecture.
  */
@@ -17,11 +17,11 @@ export function createGitService(options?: { baseDir?: string }): GitServiceInte
   // Dynamic import to avoid circular dependency - GitService is defined in git.ts
   const GitServiceModule = require("../git");
   const GitService = GitServiceModule.GitService || GitServiceModule.default?.GitService;
-  
+
   if (!GitService) {
     throw new Error("GitService class not found - check git.ts exports");
   }
-  
+
   return new GitService(options?.baseDir);
 }
 

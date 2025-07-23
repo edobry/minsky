@@ -5,11 +5,7 @@
  * This replaces the monolithic tasks.ts with a modular, command-pattern architecture.
  */
 import { sharedCommandRegistry } from "../command-registry";
-import {
-  createAllTaskCommands,
-  setupTaskCommandRegistry,
-  type TaskCommandRegistry,
-} from "./tasks";
+import { createAllTaskCommands, setupTaskCommandRegistry, type TaskCommandRegistry } from "./tasks";
 
 /**
  * Modular Tasks Command Manager
@@ -29,8 +25,8 @@ export class ModularTasksCommandManager {
    */
   registerAllCommands(): void {
     const registrations = this.taskRegistry.getAllRegistrations();
-    
-    registrations.forEach(registration => {
+
+    registrations.forEach((registration) => {
       sharedCommandRegistry.registerCommand(registration);
     });
   }
@@ -60,7 +56,7 @@ export class ModularTasksCommandManager {
    * Get command IDs
    */
   getCommandIds(): string[] {
-    return this.taskRegistry.getAll().map(cmd => cmd.id);
+    return this.taskRegistry.getAll().map((cmd) => cmd.id);
   }
 
   /**
@@ -79,7 +75,7 @@ export const modularTasksManager = new ModularTasksCommandManager();
 
 /**
  * Register task commands function (backward compatibility)
- * 
+ *
  * This function maintains compatibility with the original registerTasksCommands()
  * while using the new modular architecture underneath.
  */

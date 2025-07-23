@@ -33,34 +33,20 @@ import {
   gitMergeWithTimeout,
   gitPushWithTimeout,
 } from "../utils/git-exec-enhanced";
-import { 
-  preparePrImpl, 
-  type PreparePrOptions, 
-  type PreparePrResult 
+import {
+  preparePrImpl,
+  type PreparePrOptions,
+  type PreparePrResult,
 } from "./git/prepare-pr-operations";
-import { 
-  mergePrImpl, 
-  type MergePrOptions, 
-  type MergePrResult 
-} from "./git/merge-pr-operations";
-import { 
-  mergeBranchImpl 
-} from "./git/merge-branch-operations";
-import { 
+import { mergePrImpl, type MergePrOptions, type MergePrResult } from "./git/merge-pr-operations";
+import { mergeBranchImpl } from "./git/merge-branch-operations";
+import {
   prWithDependenciesImpl,
   type PrOptions,
-  type PrResult 
+  type PrResult,
 } from "./git/pr-generation-operations";
-import { 
-  pushImpl,
-  type PushOptions,
-  type PushResult 
-} from "./git/push-operations";
-import { 
-  cloneImpl,
-  type CloneOptions,
-  type CloneResult 
-} from "./git/clone-operations";
+import { pushImpl, type PushOptions, type PushResult } from "./git/push-operations";
+import { cloneImpl, type CloneOptions, type CloneResult } from "./git/clone-operations";
 
 const execAsync = promisify(exec);
 
@@ -214,8 +200,6 @@ export interface ExtendedGitDependencies extends BasicGitDependencies {
   access: (path: string) => Promise<void>;
 }
 
-
-
 export interface BranchOptions {
   session: string;
   branch: string;
@@ -225,8 +209,6 @@ export interface BranchResult {
   workdir: string;
   branch: string;
 }
-
-
 
 export interface GitStatus {
   modified: string[];
@@ -250,17 +232,9 @@ export interface MergeResult {
   conflicts: boolean;
 }
 
-
-
-
-
 export interface GitResult {
   workdir: string;
 }
-
-
-
-
 
 export class GitService implements GitServiceInterface {
   private readonly baseDir: string;
@@ -301,7 +275,7 @@ export class GitService implements GitServiceInterface {
       readdir: fs.readdir,
       access: fs.access,
       rm: fs.rm,
-      generateSessionId: this.generateSessionId.bind(this)
+      generateSessionId: this.generateSessionId.bind(this),
     });
   }
 
@@ -355,8 +329,7 @@ export class GitService implements GitServiceInterface {
       execAsync,
       getSession: async (name: string) => this.sessionDb.getSession(name),
       getSessionWorkdir: (session: string) => this.getSessionWorkdir(session),
-      getSessionByTaskId: async (taskId: string) =>
-        this.sessionDb.getSessionByTaskId?.(taskId),
+      getSessionByTaskId: async (taskId: string) => this.sessionDb.getSessionByTaskId?.(taskId),
     };
 
     const result = await this.prWithDependencies(options, deps);
@@ -408,13 +381,16 @@ export class GitService implements GitServiceInterface {
   async prWithDependencies(options: PrOptions, deps: PrDependencies): Promise<PrResult> {
     const extendedDeps = {
       ...deps,
-      ensureBaseDir: () => this.ensureBaseDir()
+      ensureBaseDir: () => this.ensureBaseDir(),
     };
-    
+
     return await prWithDependenciesImpl(options, extendedDeps);
   }
 
-  private async getWorkingDirectoryForOptions(options: PrOptions, deps: PrDependencies): Promise<string> {
+  private async getWorkingDirectoryForOptions(
+    options: PrOptions,
+    deps: PrDependencies
+  ): Promise<string> {
     if (options.repoPath) {
       return options.repoPath;
     }
@@ -438,7 +414,11 @@ export class GitService implements GitServiceInterface {
     return deps.getSessionWorkdir(sessionName);
   }
 
-  private async getCurrentBranchForOptions(workdir: string, options: PrOptions, deps: PrDependencies): Promise<string> {
+  private async getCurrentBranchForOptions(
+    workdir: string,
+    options: PrOptions,
+    deps: PrDependencies
+  ): Promise<string> {
     if (options.branch) {
       return options.branch;
     }
@@ -548,7 +528,7 @@ export class GitService implements GitServiceInterface {
 
   async mergeBranch(workdir: string, branch: string): Promise<MergeResult> {
     return mergeBranchImpl(workdir, branch, {
-      execAsync
+      execAsync,
     });
   }
 
@@ -557,11 +537,11 @@ export class GitService implements GitServiceInterface {
    */
   async push(options: PushOptions): Promise<PushResult> {
     await this.ensureBaseDir();
-    
+
     return pushImpl(options, {
       execAsync,
       getSession: (sessionName: string) => this.sessionDb.getSession(sessionName),
-      getSessionWorkdir: (sessionName: string) => this.getSessionWorkdir(sessionName)
+      getSessionWorkdir: (sessionName: string) => this.getSessionWorkdir(sessionName),
     });
   }
 
@@ -641,7 +621,9 @@ export class GitService implements GitServiceInterface {
     return title
       .toLowerCase()
       .replace(/[\s:/#]+/g, "-") // Replace spaces, colons, slashes, and hashes with dashes
-      .replace(/[^\w-]/g, "").replace(/--+/g, "-").replace(/^-|-$/g, ""); // Remove leading and trailing dashes
+      .replace(/[^\w-]/g, "")
+      .replace(/--+/g, "-")
+      .replace(/^-|-$/g, ""); // Remove leading and trailing dashes
   }
 
   async mergePr(options: MergePrOptions): Promise<MergePrResult> {
@@ -738,9 +720,7 @@ export class GitService implements GitServiceInterface {
   ): Promise<StashResult> {
     try {
       // Check if there are changes to stash
-      const { stdout: status } = await deps.execAsync(
-        `git -C ${workdir} status --porcelain`
-      );
+      const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
       if (!status.trim()) {
         // No changes to stash
         return { workdir, stashed: false };
@@ -787,9 +767,7 @@ export class GitService implements GitServiceInterface {
   ): Promise<MergeResult> {
     try {
       // Get current commit hash
-      const { stdout: beforeHash } = await deps.execAsync(
-        `git -C ${workdir} rev-parse HEAD`
-      );
+      const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
       // Try to merge the branch using dependency-injected execution
       try {
@@ -798,22 +776,15 @@ export class GitService implements GitServiceInterface {
         // Check if the error indicates merge conflicts
         if (
           err instanceof Error &&
-          (err.message.includes("Merge Conflicts Detected") ||
-            err.message.includes("CONFLICT"))
+          (err.message.includes("Merge Conflicts Detected") || err.message.includes("CONFLICT"))
         ) {
           // The error message indicates conflicts
           return { workdir, merged: false, conflicts: true };
         }
 
         // Check if there are merge conflicts using traditional method as fallback
-        const { stdout: status } = await deps.execAsync(
-          `git -C ${workdir} status --porcelain`
-        );
-        if (
-          status.includes("UU") ||
-          status.includes("AA") ||
-          status.includes("DD")
-        ) {
+        const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
+        if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
           // Abort the merge and report conflicts
           await deps.execAsync(`git -C ${workdir} merge --abort`);
           return { workdir, merged: false, conflicts: true };
@@ -822,9 +793,7 @@ export class GitService implements GitServiceInterface {
       }
 
       // Get new commit hash
-      const { stdout: afterHash } = await deps.execAsync(
-        `git -C ${workdir} rev-parse HEAD`
-      );
+      const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
       // Return whether any changes were merged
       return {
@@ -861,17 +830,13 @@ export class GitService implements GitServiceInterface {
   ): Promise<PullResult> {
     try {
       // Get current commit hash before fetch
-      const { stdout: beforeHash } = await deps.execAsync(
-        `git -C ${workdir} rev-parse HEAD`
-      );
+      const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
       // Fetch latest changes from remote using dependency-injected execution
       await deps.execAsync(`git -C ${workdir} fetch ${remote}`);
 
       // Get commit hash after fetch (should be the same since we only fetched)
-      const { stdout: afterHash } = await deps.execAsync(
-        `git -C ${workdir} rev-parse HEAD`
-      );
+      const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
       // Return whether local working directory changed (should be false for fetch-only)
       // The 'updated' flag indicates if remote refs were updated, but we can't easily detect that
@@ -881,8 +846,6 @@ export class GitService implements GitServiceInterface {
       throw new Error(`Failed to pull latest changes: ${getErrorMessage(err as any)}`);
     }
   }
-
-
 
   /**
    * Testable version of branch with dependency injection
@@ -904,8 +867,6 @@ export class GitService implements GitServiceInterface {
       branch: options.branch,
     };
   }
-
-
 
   /**
    * Get the current branch name
@@ -942,11 +903,7 @@ export class GitService implements GitServiceInterface {
     sessionBranch: string,
     baseBranch: string
   ): Promise<BranchDivergenceAnalysis> {
-    return ConflictDetectionService.analyzeBranchDivergence(
-      repoPath,
-      sessionBranch,
-      baseBranch
-    );
+    return ConflictDetectionService.analyzeBranchDivergence(repoPath, sessionBranch, baseBranch);
   }
 
   /**

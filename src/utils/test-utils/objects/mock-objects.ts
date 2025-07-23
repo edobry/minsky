@@ -1,9 +1,9 @@
 /**
  * Mock Objects and Specialized Utilities
- * 
+ *
  * Provides utilities for creating mock objects and specialized mocks for common scenarios.
  * This module includes mock object factories, exec sync mocks, and partial mock implementations.
- * 
+ *
  * @module objects/mock-objects
  */
 import { createMock } from "../core/mock-functions";

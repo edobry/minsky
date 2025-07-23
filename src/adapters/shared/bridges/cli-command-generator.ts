@@ -86,10 +86,7 @@ export class CliCommandGenerator {
 export const cliCommandGenerator = new CliCommandGenerator();
 
 // Export modular components for migration path
-export {
-  ModularCliCommandBridge,
-  modularCliBridge,
-} from "./cli-bridge-modular";
+export { ModularCliCommandBridge, modularCliBridge } from "./cli-bridge-modular";
 
 // Export for backward compatibility
 export { ModularCliCommandBridge as CliCommandBridge };

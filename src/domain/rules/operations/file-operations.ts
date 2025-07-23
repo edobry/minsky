@@ -1,6 +1,6 @@
 /**
  * Rule File Operations
- * 
+ *
  * Operations for file handling, YAML processing, and format management.
  * Extracted from rules.ts as part of modularization effort.
  */
@@ -11,7 +11,13 @@ import * as jsYaml from "js-yaml";
 import { HTTP_OK } from "../../../utils/constants";
 import { getErrorMessage } from "../../../errors/index";
 import { BaseRuleOperation, type RuleOperationDependencies } from "./base-rule-operation";
-import { type Rule, type RuleMeta, type RuleFormat, type RuleOptions, type CreateRuleOptions } from "../types";
+import {
+  type Rule,
+  type RuleMeta,
+  type RuleFormat,
+  type RuleOptions,
+  type CreateRuleOptions,
+} from "../types";
 
 const matter = grayMatterNamespace.default || grayMatterNamespace;
 
@@ -23,7 +29,7 @@ function customMatterStringify(content: string, data: any): string {
   let yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
-    quotingType: "\"", // Use double quotes when necessary
+    quotingType: '"', // Use double quotes when necessary
     forceQuotes: false, // Don't force quotes on all strings
   });
 
@@ -43,14 +49,21 @@ function customMatterStringify(content: string, data: any): string {
 /**
  * Read Rule File Operation
  */
-export class ReadRuleFileOperation extends BaseRuleOperation<{ id: string; format: RuleFormat; debug?: boolean }, Rule> {
+export class ReadRuleFileOperation extends BaseRuleOperation<
+  { id: string; format: RuleFormat; debug?: boolean },
+  Rule
+> {
   getOperationName(): string {
     return "read rule file";
   }
 
-  async executeOperation(params: { id: string; format: RuleFormat; debug?: boolean }): Promise<Rule> {
+  async executeOperation(params: {
+    id: string;
+    format: RuleFormat;
+    debug?: boolean;
+  }): Promise<Rule> {
     const filePath = this.getRuleFilePath(params.id, params.format);
-    
+
     if (params.debug) {
       this.logDebug("Reading rule file", { filePath, format: params.format });
     }
@@ -115,7 +128,11 @@ export class ReadRuleFileOperation extends BaseRuleOperation<{ id: string; forma
     console.log(`[DEBUG] ${message}`, context);
   }
 
-  protected getAdditionalLogContext(params: { id: string; format: RuleFormat; debug?: boolean }): Record<string, any> {
+  protected getAdditionalLogContext(params: {
+    id: string;
+    format: RuleFormat;
+    debug?: boolean;
+  }): Record<string, any> {
     return {
       ruleId: params.id,
       format: params.format,
@@ -126,12 +143,15 @@ export class ReadRuleFileOperation extends BaseRuleOperation<{ id: string; forma
 /**
  * Write Rule File Operation
  */
-export class WriteRuleFileOperation extends BaseRuleOperation<{
-  id: string;
-  content: string;
-  meta: RuleMeta;
-  options: CreateRuleOptions;
-}, Rule> {
+export class WriteRuleFileOperation extends BaseRuleOperation<
+  {
+    id: string;
+    content: string;
+    meta: RuleMeta;
+    options: CreateRuleOptions;
+  },
+  Rule
+> {
   getOperationName(): string {
     return "write rule file";
   }
@@ -198,7 +218,10 @@ export class WriteRuleFileOperation extends BaseRuleOperation<{
 /**
  * List Rules Directory Operation
  */
-export class ListRulesDirectoryOperation extends BaseRuleOperation<{ format: RuleFormat; debug?: boolean }, string[]> {
+export class ListRulesDirectoryOperation extends BaseRuleOperation<
+  { format: RuleFormat; debug?: boolean },
+  string[]
+> {
   getOperationName(): string {
     return "list rules directory";
   }
@@ -212,7 +235,7 @@ export class ListRulesDirectoryOperation extends BaseRuleOperation<{ format: Rul
 
     try {
       const files = await fs.readdir(dirPath);
-      return files.filter(file => file.endsWith(".mdc"));
+      return files.filter((file) => file.endsWith(".mdc"));
     } catch (error) {
       // Directory might not exist, which is fine
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -222,7 +245,10 @@ export class ListRulesDirectoryOperation extends BaseRuleOperation<{ format: Rul
     }
   }
 
-  protected getAdditionalLogContext(params: { format: RuleFormat; debug?: boolean }): Record<string, any> {
+  protected getAdditionalLogContext(params: {
+    format: RuleFormat;
+    debug?: boolean;
+  }): Record<string, any> {
     return {
       format: params.format,
     };

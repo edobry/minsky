@@ -1,6 +1,6 @@
 /**
  * Session Commands Module
- * 
+ *
  * Exports for all modularized session command components.
  * Part of the modularization effort from session.ts.
  */
@@ -11,10 +11,7 @@ export {
   SessionCommandRegistry,
   sessionCommandRegistry,
 } from "./base-session-command";
-export type {
-  SessionCommandDependencies,
-  BaseSessionCommandParams,
-} from "./base-session-command";
+export type { SessionCommandDependencies, BaseSessionCommandParams } from "./base-session-command";
 
 // Parameter definitions
 export * from "./session-parameters";
@@ -57,11 +54,11 @@ export function createAllSessionCommands(deps?: SessionCommandDependencies) {
     get: createSessionGetCommand(deps),
     start: createSessionStartCommand(deps),
     dir: createSessionDirCommand(deps),
-    
+
     // Management commands
     delete: createSessionDeleteCommand(deps),
     update: createSessionUpdateCommand(deps),
-    
+
     // Workflow commands
     approve: createSessionApproveCommand(deps),
     pr: createSessionPrCommand(deps),
@@ -70,10 +67,12 @@ export function createAllSessionCommands(deps?: SessionCommandDependencies) {
 }
 
 // Registry setup function
-export function setupSessionCommandRegistry(deps?: SessionCommandDependencies): SessionCommandRegistry {
+export function setupSessionCommandRegistry(
+  deps?: SessionCommandDependencies
+): SessionCommandRegistry {
   const registry = new SessionCommandRegistry();
   const commands = createAllSessionCommands(deps);
-  
+
   // Register all commands
   registry.register("session.list", commands.list);
   registry.register("session.get", commands.get);
@@ -84,6 +83,6 @@ export function setupSessionCommandRegistry(deps?: SessionCommandDependencies): 
   registry.register("session.approve", commands.approve);
   registry.register("session.pr", commands.pr);
   registry.register("session.inspect", commands.inspect);
-  
+
   return registry;
 }

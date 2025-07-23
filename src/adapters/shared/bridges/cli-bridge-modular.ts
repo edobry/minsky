@@ -53,9 +53,10 @@ export class ModularCliCommandBridge {
 
   constructor(config: ModularCliBridgeConfig = {}) {
     // Initialize components with dependency injection
-    this.customizationManager = config.customCustomizationManager || new CommandCustomizationManager();
+    this.customizationManager =
+      config.customCustomizationManager || new CommandCustomizationManager();
     this.parameterProcessor = config.customParameterProcessor || new ParameterProcessor();
-    
+
     // Set up result formatter
     if (config.customResultFormatter) {
       this.resultFormatter = config.customResultFormatter;

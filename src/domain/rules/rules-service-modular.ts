@@ -10,7 +10,14 @@ import {
   type RuleOperationDependencies,
   type RuleOperationRegistry,
 } from "./operations";
-import { type Rule, type RuleMeta, type RuleOptions, type CreateRuleOptions, type UpdateRuleOptions, type SearchRuleOptions } from "./types";
+import {
+  type Rule,
+  type RuleMeta,
+  type RuleOptions,
+  type CreateRuleOptions,
+  type UpdateRuleOptions,
+  type SearchRuleOptions,
+} from "./types";
 
 /**
  * Modular Rules Service Manager
@@ -27,7 +34,7 @@ export class ModularRulesService {
       workspacePath,
       ...additionalDeps,
     };
-    
+
     this.operations = createAllRuleOperations(deps);
     this.operationRegistry = setupRuleOperationRegistry(deps);
   }

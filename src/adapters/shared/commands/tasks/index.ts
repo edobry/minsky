@@ -1,6 +1,6 @@
 /**
  * Task Commands Module
- * 
+ *
  * Exports for all modularized task command components.
  * Part of the modularization effort from tasks.ts.
  */
@@ -20,10 +20,7 @@ export {
   createTasksStatusSetCommand,
 } from "./status-commands";
 
-export {
-  TasksSpecCommand,
-  createTasksSpecCommand,
-} from "./spec-command";
+export { TasksSpecCommand, createTasksSpecCommand } from "./spec-command";
 
 export {
   TasksListCommand,
@@ -52,11 +49,11 @@ export function createAllTaskCommands() {
 // Registry setup function
 export function setupTaskCommandRegistry(): TaskCommandRegistry {
   const registry = new TaskCommandRegistry();
-  
+
   // Register all commands
-  createAllTaskCommands().forEach(command => {
+  createAllTaskCommands().forEach((command) => {
     registry.register(command);
   });
-  
+
   return registry;
 }

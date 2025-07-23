@@ -1,6 +1,6 @@
 /**
  * Task Command Parameters
- * 
+ *
  * Consolidated parameter definitions for all task commands.
  * Extracted from tasks.ts as part of modularization effort.
  */

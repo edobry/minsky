@@ -104,10 +104,7 @@ export class ModularGitCommandsManager {
   /**
    * Create branch using the provided parameters
    */
-  async branchFromParams(params: {
-    session: string;
-    name: string;
-  }): Promise<any> {
+  async branchFromParams(params: { session: string; name: string }): Promise<any> {
     return await this.operations.branch.execute(params);
   }
 
@@ -315,20 +312,6 @@ export async function cloneFromParams(
 ): Promise<any> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.cloneFromParams(params);
-}
-
-/**
- * Create branch using the provided parameters (backward compatibility)
- */
-export async function branchFromParams(
-  params: {
-    session: string;
-    name: string;
-  },
-  deps?: GitOperationDependencies
-): Promise<any> {
-  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
-  return await manager.branchFromParams(params);
 }
 
 /**

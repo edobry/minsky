@@ -1,6 +1,6 @@
 /**
  * Base Rule Operation
- * 
+ *
  * Abstract base class providing common functionality for all rule operations.
  * Extracted from rules.ts as part of modularization effort.
  */
@@ -30,9 +30,7 @@ export interface BaseRuleOperationParams {
  * Abstract base class for rule operations
  */
 export abstract class BaseRuleOperation<TParams, TResult> {
-  constructor(
-    protected deps: RuleOperationDependencies
-  ) {}
+  constructor(protected deps: RuleOperationDependencies) {}
 
   /**
    * Get the operation name (for logging and debugging)
@@ -49,7 +47,7 @@ export abstract class BaseRuleOperation<TParams, TResult> {
    */
   async execute(params: TParams): Promise<TResult> {
     try {
-      log.debug(`Executing ${this.getOperationName()} operation`, { 
+      log.debug(`Executing ${this.getOperationName()} operation`, {
         operation: this.getOperationName(),
         workspacePath: this.deps.workspacePath,
         ...this.getAdditionalLogContext(params),
@@ -174,10 +172,7 @@ export class RuleOperationRegistry {
   /**
    * Register a rule operation
    */
-  register<TParams, TResult>(
-    name: string,
-    operation: BaseRuleOperation<TParams, TResult>
-  ): void {
+  register<TParams, TResult>(name: string, operation: BaseRuleOperation<TParams, TResult>): void {
     this.operations.set(name, operation);
   }
 
@@ -191,10 +186,7 @@ export class RuleOperationRegistry {
   /**
    * Execute an operation by name
    */
-  async execute<TParams, TResult>(
-    name: string,
-    params: TParams
-  ): Promise<TResult> {
+  async execute<TParams, TResult>(name: string, params: TParams): Promise<TResult> {
     const operation = this.get<TParams, TResult>(name);
     if (!operation) {
       throw new ValidationError(`Rule operation '${name}' not found`);

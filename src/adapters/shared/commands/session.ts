@@ -18,7 +18,7 @@ import {
 
 /**
  * Register the session commands in the shared command registry
- * 
+ *
  * ⚠️ DEPRECATED: This function is maintained for backward compatibility only.
  * New code should use ModularSessionCommandsManager directly.
  *

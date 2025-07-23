@@ -1,6 +1,6 @@
 /**
  * Task Specification Command
- * 
+ *
  * Command for retrieving task specifications.
  * Extracted from tasks.ts as part of modularization effort.
  */
@@ -59,5 +59,4 @@ export class TasksSpecCommand extends BaseTaskCommand {
 /**
  * Factory function for creating command instance
  */
-export const createTasksSpecCommand = (): TasksSpecCommand => 
-  new TasksSpecCommand();
+export const createTasksSpecCommand = (): TasksSpecCommand => new TasksSpecCommand();

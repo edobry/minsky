@@ -1,10 +1,14 @@
 /**
  * Git PR Operations
- * 
+ *
  * Operations for pull request related functionality.
  * Extracted from git.ts as part of modularization effort.
  */
-import { BaseGitOperation, type GitOperationDependencies, type BaseGitOperationParams } from "./base-git-operation";
+import {
+  BaseGitOperation,
+  type GitOperationDependencies,
+  type BaseGitOperationParams,
+} from "./base-git-operation";
 import { type GitServiceInterface } from "../types";
 import { type PreparePrResult, type MergePrResult } from "../types";
 

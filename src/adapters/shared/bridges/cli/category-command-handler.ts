@@ -1,16 +1,16 @@
 /**
  * CLI Category Command Handler
- * 
+ *
  * Handles generation of category commands and nested command structures.
  * Extracted from cli-bridge.ts as part of modularization effort.
  */
 import { Command } from "commander";
 import { log } from "../../../../utils/logger";
+import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import {
-  sharedCommandRegistry,
-  CommandCategory,
-} from "../../command-registry";
-import { type CommandCustomizationManager, type CategoryCommandOptions } from "./command-customization-manager";
+  type CommandCustomizationManager,
+  type CategoryCommandOptions,
+} from "./command-customization-manager";
 import { type CommandGeneratorCore } from "./command-generator-core";
 
 /**
@@ -233,7 +233,9 @@ export class CategoryCommandHandler {
       if (cmd.category) {
         categories.add(cmd.category);
       } else {
-        log.error(`[Category Command Handler] Command '${cmd.id}' has undefined category, skipping`);
+        log.error(
+          `[Category Command Handler] Command '${cmd.id}' has undefined category, skipping`
+        );
       }
     });
     return categories;

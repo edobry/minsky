@@ -1,9 +1,9 @@
 /**
  * Mock Spies and Property Utilities
- * 
+ *
  * Provides utilities for creating spies and mocking properties for advanced testing scenarios.
  * This module includes spy creation, readonly property mocking, and method tracking.
- * 
+ *
  * @module spies/mock-spies
  */
 import { mock } from "bun:test";

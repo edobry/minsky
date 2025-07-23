@@ -1,12 +1,23 @@
 /**
  * Core Rule Operations
- * 
+ *
  * Main rule operations (list, get, create, update, search).
  * Extracted from rules.ts as part of modularization effort.
  */
 import { BaseRuleOperation, type RuleOperationDependencies } from "./base-rule-operation";
-import { ReadRuleFileOperation, WriteRuleFileOperation, ListRulesDirectoryOperation } from "./file-operations";
-import { type Rule, type RuleMeta, type RuleOptions, type CreateRuleOptions, type UpdateRuleOptions, type SearchRuleOptions } from "../types";
+import {
+  ReadRuleFileOperation,
+  WriteRuleFileOperation,
+  ListRulesDirectoryOperation,
+} from "./file-operations";
+import {
+  type Rule,
+  type RuleMeta,
+  type RuleOptions,
+  type CreateRuleOptions,
+  type UpdateRuleOptions,
+  type SearchRuleOptions,
+} from "../types";
 
 /**
  * List Rules Operation
@@ -60,7 +71,10 @@ export class ListRulesOperation extends BaseRuleOperation<RuleOptions, Rule[]> {
 /**
  * Get Rule Operation
  */
-export class GetRuleOperation extends BaseRuleOperation<{ id: string; options?: RuleOptions }, Rule> {
+export class GetRuleOperation extends BaseRuleOperation<
+  { id: string; options?: RuleOptions },
+  Rule
+> {
   private readFileOp: ReadRuleFileOperation;
 
   constructor(deps: RuleOperationDependencies) {
@@ -72,7 +86,13 @@ export class GetRuleOperation extends BaseRuleOperation<{ id: string; options?: 
     return "get rule";
   }
 
-  async executeOperation({ id, options = {} }: { id: string; options?: RuleOptions }): Promise<Rule> {
+  async executeOperation({
+    id,
+    options = {},
+  }: {
+    id: string;
+    options?: RuleOptions;
+  }): Promise<Rule> {
     const bareId = this.normalizeRuleId(id);
     const formats = this.getFormatsToSearch(options.format);
 
@@ -97,7 +117,7 @@ export class GetRuleOperation extends BaseRuleOperation<{ id: string; options?: 
     }
 
     // Rule not found in any format
-    const errorMessage = options.format 
+    const errorMessage = options.format
       ? `Rule '${id}' not found in '${options.format}' format or any other available format`
       : `Rule not found: ${id}`;
     throw new Error(errorMessage);
@@ -107,12 +127,15 @@ export class GetRuleOperation extends BaseRuleOperation<{ id: string; options?: 
 /**
  * Create Rule Operation
  */
-export class CreateRuleOperation extends BaseRuleOperation<{
-  id: string;
-  content: string;
-  meta: RuleMeta;
-  options?: CreateRuleOptions;
-}, Rule> {
+export class CreateRuleOperation extends BaseRuleOperation<
+  {
+    id: string;
+    content: string;
+    meta: RuleMeta;
+    options?: CreateRuleOptions;
+  },
+  Rule
+> {
   private writeFileOp: WriteRuleFileOperation;
 
   constructor(deps: RuleOperationDependencies) {
@@ -142,11 +165,14 @@ export class CreateRuleOperation extends BaseRuleOperation<{
 /**
  * Update Rule Operation
  */
-export class UpdateRuleOperation extends BaseRuleOperation<{
-  id: string;
-  options: UpdateRuleOptions;
-  ruleOptions?: RuleOptions;
-}, Rule> {
+export class UpdateRuleOperation extends BaseRuleOperation<
+  {
+    id: string;
+    options: UpdateRuleOptions;
+    ruleOptions?: RuleOptions;
+  },
+  Rule
+> {
   private getRuleOp: GetRuleOperation;
   private writeFileOp: WriteRuleFileOperation;
 
@@ -201,7 +227,10 @@ export class UpdateRuleOperation extends BaseRuleOperation<{
     });
 
     // Re-fetch to get updated rule
-    return await this.getRuleOp.execute({ id, options: { format: rule.format, debug: ruleOptions.debug } });
+    return await this.getRuleOp.execute({
+      id,
+      options: { format: rule.format, debug: ruleOptions.debug },
+    });
   }
 }
 

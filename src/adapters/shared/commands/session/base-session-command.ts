@@ -1,6 +1,6 @@
 /**
  * Base Session Command
- * 
+ *
  * Abstract base class providing common functionality for all session commands.
  * Extracted from session.ts as part of modularization effort.
  */
@@ -38,9 +38,7 @@ export interface BaseSessionCommandParams {
  * Abstract base class for session commands
  */
 export abstract class BaseSessionCommand<TParams, TResult> {
-  constructor(
-    protected deps: SessionCommandDependencies = defaultSessionCommandDependencies
-  ) {}
+  constructor(protected deps: SessionCommandDependencies = defaultSessionCommandDependencies) {}
 
   /**
    * Get the Zod schema for validating parameters
@@ -177,10 +175,7 @@ export class SessionCommandRegistry {
   /**
    * Register a session command
    */
-  register<TParams, TResult>(
-    id: string,
-    command: BaseSessionCommand<TParams, TResult>
-  ): void {
+  register<TParams, TResult>(id: string, command: BaseSessionCommand<TParams, TResult>): void {
     this.commands.set(id, command);
   }
 

@@ -40,7 +40,7 @@ export class ModularSessionCommandsManager {
   registerSessionCommands(): void {
     // Get all commands from the registry
     const allCommands = this.commandRegistry.getAllCommands();
-    
+
     // Register each command in the shared registry
     allCommands.forEach(({ id, registrationData }) => {
       sharedCommandRegistry.registerCommand(registrationData);

@@ -1,6 +1,6 @@
 /**
  * Base Git Operation
- * 
+ *
  * Abstract base class providing common functionality for all git operations.
  * Extracted from git.ts as part of modularization effort.
  */
@@ -30,9 +30,7 @@ export interface BaseGitOperationParams {
  * Abstract base class for git operations
  */
 export abstract class BaseGitOperation<TParams, TResult> {
-  constructor(
-    protected deps: GitOperationDependencies
-  ) {}
+  constructor(protected deps: GitOperationDependencies) {}
 
   /**
    * Get the Zod schema for validating parameters (optional, can return null for no validation)
@@ -67,7 +65,7 @@ export abstract class BaseGitOperation<TParams, TResult> {
     } catch (error) {
       // Enhanced error logging with operation context
       this.logError(params, error);
-      
+
       if (error instanceof z.ZodError) {
         throw new ValidationError(
           `Invalid parameters for ${this.getOperationName()}`,
@@ -160,10 +158,7 @@ export class GitOperationRegistry {
   /**
    * Register a git operation
    */
-  register<TParams, TResult>(
-    name: string,
-    operation: BaseGitOperation<TParams, TResult>
-  ): void {
+  register<TParams, TResult>(name: string, operation: BaseGitOperation<TParams, TResult>): void {
     this.operations.set(name, operation);
   }
 

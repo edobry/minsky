@@ -1,6 +1,6 @@
 /**
  * CLI Command Customization Manager
- * 
+ *
  * Manages customization options for CLI commands and categories.
  * Extracted from cli-bridge.ts as part of modularization effort.
  */

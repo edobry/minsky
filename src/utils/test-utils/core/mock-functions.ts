@@ -1,9 +1,9 @@
 /**
  * Core Mock Functions
- * 
+ *
  * Provides basic mock creation and function mocking utilities for consistent test patterns.
  * This module contains the fundamental building blocks for all mocking operations.
- * 
+ *
  * @module core/mock-functions
  */
 import { mock } from "bun:test";
@@ -38,7 +38,9 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  * const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
  * const _result = mockGreet("World"); // TypeScript knows this returns string
  */
-export function mockFunction<T extends (...args: unknown[]) => any>(implementation?: T): MockFunction<ReturnType<T>, Parameters<T>> & T {
+export function mockFunction<T extends (...args: unknown[]) => any>(
+  implementation?: T
+): MockFunction<ReturnType<T>, Parameters<T>> & T {
   // Cast through unknown to ensure proper type mapping
   return createMock(implementation) as MockFunction<ReturnType<T>, Parameters<T>> & T;
 }

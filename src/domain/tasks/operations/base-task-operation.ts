@@ -1,6 +1,6 @@
 /**
  * Base Task Operation
- * 
+ *
  * Abstract base class providing common functionality for all task operations.
  * Extracted from taskCommands.ts as part of modularization effort.
  */
@@ -10,11 +10,7 @@ import { resolveMainWorkspacePath } from "../../workspace";
 import { ValidationError, ResourceNotFoundError } from "../../../errors/index";
 import { normalizeTaskId } from "../taskFunctions";
 import { createTaskIdParsingErrorMessage } from "../../../errors/enhanced-error-templates";
-import {
-  createConfiguredTaskService,
-  TaskService,
-  TaskServiceOptions,
-} from "../taskService";
+import { createConfiguredTaskService, TaskService, TaskServiceOptions } from "../taskService";
 
 /**
  * Common dependencies for task operations
@@ -49,9 +45,7 @@ export interface BaseTaskOperationParams {
  * Abstract base class for task operations
  */
 export abstract class BaseTaskOperation<TParams, TResult> {
-  constructor(
-    protected deps: TaskOperationDependencies = defaultTaskOperationDependencies
-  ) {}
+  constructor(protected deps: TaskOperationDependencies = defaultTaskOperationDependencies) {}
 
   /**
    * Get the Zod schema for validating parameters
@@ -100,16 +94,13 @@ export abstract class BaseTaskOperation<TParams, TResult> {
       if (baseParams.taskId) {
         const normalizedTaskId = normalizeTaskId(baseParams.taskId);
         if (!normalizedTaskId) {
-          const errorMessage = createTaskIdParsingErrorMessage(
-            baseParams.taskId,
-            [
-              { label: "Operation", value: this.getOperationName() },
-              { label: "Input", value: baseParams.taskId }
-            ]
-          );
+          const errorMessage = createTaskIdParsingErrorMessage(baseParams.taskId, [
+            { label: "Operation", value: this.getOperationName() },
+            { label: "Input", value: baseParams.taskId },
+          ]);
           throw new ValidationError(errorMessage);
         }
-        
+
         // Replace with normalized ID
         const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
         return this.getSchema().parse(paramsWithNormalizedId);
@@ -143,18 +134,11 @@ export abstract class BaseTaskOperation<TParams, TResult> {
   /**
    * Get a task and verify it exists
    */
-  protected async getTaskAndVerifyExists(
-    taskService: TaskService,
-    taskId: string
-  ): Promise<any> {
+  protected async getTaskAndVerifyExists(taskService: TaskService, taskId: string): Promise<any> {
     const task = await taskService.getTask(taskId);
 
     if (!task) {
-      throw new ResourceNotFoundError(
-        `Task ${taskId} not found`,
-        "task",
-        taskId
-      );
+      throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
     }
 
     return task;
@@ -198,10 +182,7 @@ export class TaskOperationRegistry {
   /**
    * Register a task operation
    */
-  register<TParams, TResult>(
-    name: string,
-    operation: BaseTaskOperation<TParams, TResult>
-  ): void {
+  register<TParams, TResult>(name: string, operation: BaseTaskOperation<TParams, TResult>): void {
     this.operations.set(name, operation);
   }
 

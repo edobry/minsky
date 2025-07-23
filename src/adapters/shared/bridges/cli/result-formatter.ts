@@ -1,6 +1,6 @@
 /**
  * CLI Result Formatter
- * 
+ *
  * Handles output formatting for different command types and results.
  * Extracted from cli-bridge.ts as part of modularization effort.
  */
@@ -74,9 +74,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         // For objects in arrays, try to display meaningful information
         if (item.id && item.title) {
           // Looks like a task or similar entity
-          log.cli(
-            `- ${item.id}: ${item.title}${item.status ? ` [${item.status}]` : ""}`
-          );
+          log.cli(`- ${item.id}: ${item.title}${item.status ? ` [${item.status}]` : ""}`);
         } else {
           // Generic object display
           log.cli(`${index + 1}. ${JSON.stringify(item)}`);
@@ -248,18 +246,20 @@ export class EnhancedCommandResultFormatter extends DefaultCommandResultFormatte
    */
   private canUseTableFormat(result: any[]): boolean {
     if (result.length === 0) return false;
-    
+
     const firstItem = result[0];
     if (typeof firstItem !== "object" || firstItem === null) return false;
-    
+
     const firstKeys = Object.keys(firstItem).sort();
-    
+
     // Check if all items have the same keys
-    return result.every(item => {
+    return result.every((item) => {
       if (typeof item !== "object" || item === null) return false;
       const itemKeys = Object.keys(item).sort();
-      return firstKeys.length === itemKeys.length && 
-             firstKeys.every((key, index) => key === itemKeys[index]);
+      return (
+        firstKeys.length === itemKeys.length &&
+        firstKeys.every((key, index) => key === itemKeys[index])
+      );
     });
   }
 
@@ -268,16 +268,16 @@ export class EnhancedCommandResultFormatter extends DefaultCommandResultFormatte
    */
   private formatAsTable(result: any[]): void {
     if (result.length === 0) return;
-    
+
     const keys = Object.keys(result[0]);
-    
+
     // Print header
     log.cli(keys.join("\t"));
     log.cli(keys.map(() => "---").join("\t"));
-    
+
     // Print rows
-    result.forEach(item => {
-      const values = keys.map(key => {
+    result.forEach((item) => {
+      const values = keys.map((key) => {
         const value = item[key];
         if (value === null || value === undefined) return "";
         return String(value);
