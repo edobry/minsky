@@ -80,23 +80,26 @@ function generateCliSyntax(commandId: string, parameters: CommandParameter[]): s
  * Generates the MCP syntax for a command
  */
 function generateMcpSyntax(commandId: string, parameters: CommandParameter[]): string {
-  const mcpCommand = commandId; // MCP uses dot notation as-is
+  const mcpCommandName = `mcp_minsky-server_${commandId.replace(/\./g, "_")}`;
   
-  // Build parameter object
-  const paramEntries = parameters.map(param => {
+  if (parameters.length === 0) {
+    return `<function_calls>
+<invoke name="${mcpCommandName}">
+</invoke>
+</function_calls>`;
+  }
+  
+  const parameterLines = parameters.map(param => {
     const name = param.mcpName || param.name;
-    if (param.required) {
-      return `"${name}": <value>`;
-    } else {
-      return `"${name}": <optional value>`;
-    }
+    const valueHint = param.required ? `required ${param.name} value` : `optional ${param.name} value`;
+    return `<parameter name="${name}">${valueHint}</parameter>`;
   });
   
-  const paramString = paramEntries.length > 0 
-    ? `{\n    ${paramEntries.join(",\n    ")}\n  }`
-    : "{}";
-  
-  return `mcp_minsky_server_${mcpCommand}(${paramString})`;
+  return `<function_calls>
+<invoke name="${mcpCommandName}">
+${parameterLines.join('\n')}
+</invoke>
+</function_calls>`;
 }
 
 /**
@@ -257,4 +260,4 @@ export class CommandGeneratorService {
  */
 export function createCommandGeneratorService(config: CommandGenerationConfig): CommandGeneratorService {
   return new CommandGeneratorService(config);
-} 
+}

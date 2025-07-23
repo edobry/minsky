@@ -1,135 +1,162 @@
 /**
  * Default Rule Templates
- * 
- * This module contains template definitions for the default rules that were
- * previously generated statically in init.ts. These templates can now generate
- * CLI, MCP, or hybrid versions based on configuration.
+ *
+ * This module exports the default rule templates used by the template system.
  */
 
-import type { TemplateContext } from "./template-system";
-import type { RuleTemplate } from "./rule-template-service";
+import { type RuleTemplate } from "./rule-template-service";
 
-// ============================================================================
-// Minsky Workflow Template
-// ============================================================================
-
-export const minskyWorkflowTemplate: RuleTemplate = {
+/**
+ * Template for the main Minsky workflow rule
+ */
+const MINSKY_WORKFLOW_TEMPLATE: RuleTemplate = {
   id: "minsky-workflow",
   name: "Minsky Workflow",
-  description: "Defines the complete workflow for working with tasks and sessions",
-  alwaysApply: true,
+  description: "Core workflow orchestration guide for Minsky",
   tags: ["workflow", "core"],
-  generateContent: (context: TemplateContext): string => {
+  generateContent: (context) => {
     const { helpers } = context;
-    
+    const isCliMode = context.config.interface === "cli";
+    const isMcpMode = context.config.interface === "mcp";
+    const isHybridMode = context.config.interface === "hybrid";
+
     return `# Minsky Workflow
 
-⛔️ **STOP - READ THIS FIRST**
+This rule defines the complete workflow for working with tasks and sessions in Minsky.
 
-## Mandatory Session Creation
+## Core Workflow Steps
 
-**NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
-
-Before implementing ANY task or making ANY code changes, you MUST:
-
+### 1. Task Management
+${helpers.conditionalSection(isCliMode || isHybridMode, `
+**List Available Tasks**
 \`\`\`bash
-# 1. Check task status
-${helpers.codeBlock("tasks.status.get", "'#XXX'")}
-
-# 2. Create or verify session exists
-${helpers.codeBlock("session.start", "--task XXX")}
-
-# 3. Enter session directory
-cd $(${helpers.codeBlock("session.dir", "task#XXX")})
+${helpers.command("tasks.list")}
 \`\`\`
+`, "")}
+${helpers.conditionalSection(isMcpMode || isHybridMode, `
+**List Available Tasks (MCP)**
+\`\`\`
+${helpers.command("tasks.list")}
+\`\`\`
+`, "")}
 
-❌ If these steps are not completed:
-- DO NOT make any code changes
-- DO NOT commit any files
-- DO NOT proceed with implementation
+**Get Task Details**
+${helpers.conditionalSection(isCliMode || isHybridMode, `
+\`\`\`bash
+${helpers.command("tasks.get")}
+\`\`\`
+`, "")}
+${helpers.conditionalSection(isMcpMode || isHybridMode, `
+\`\`\`
+${helpers.command("tasks.get")}
+\`\`\`
+`, "")}
 
-✅ These activities are allowed without a session:
-- Reading code
-- Searching the codebase
-- Investigating issues
-- Planning implementation
-- Creating new task specifications
+**Check Task Status**
+${helpers.conditionalSection(isCliMode || isHybridMode, `
+\`\`\`bash
+${helpers.command("tasks.status.get")}
+\`\`\`
+`, "")}
+${helpers.conditionalSection(isMcpMode || isHybridMode, `
+\`\`\`
+${helpers.command("tasks.status.get")}
+\`\`\`
+`, "")}
 
-This is a HARD REQUIREMENT for all implementation work. There are NO EXCEPTIONS.
+### 2. Session Management
 
-⚠️ **CRITICAL: ALL TASK AND SESSION QUERIES MUST USE THE MINSKY CLI**
-⚠️ **CRITICAL: ALL COMMITS MUST BE PUSHED IMMEDIATELY**
+**Start New Session**
+${helpers.conditionalSection(isCliMode || isHybridMode, `
+\`\`\`bash
+${helpers.command("session.start")}
+\`\`\`
+`, "")}
+${helpers.conditionalSection(isMcpMode || isHybridMode, `
+\`\`\`
+${helpers.command("session.start")}
+\`\`\`
+`, "")}
 
-## Core Principles
+**Get Session Directory**
+${helpers.conditionalSection(isCliMode || isHybridMode, `
+\`\`\`bash
+${helpers.command("session.dir")}
+\`\`\`
+`, "")}
+${helpers.conditionalSection(isMcpMode || isHybridMode, `
+\`\`\`
+${helpers.command("session.dir")}
+\`\`\`
+`, "")}
 
-1. **Always Use Minsky CLI for Task/Session Data**
-   - NEVER use file listings or static documentation
-   - NEVER directly manipulate Minsky's state files or databases
-   - ALWAYS use appropriate commands:
-     \`\`\`bash
-     # For task queries
-     ${helpers.codeBlock("tasks.list")}          # List all tasks
-     ${helpers.codeBlock("tasks.get", "'#XXX' --json")}    # Get specific task details
-     ${helpers.codeBlock("tasks.status.get", "'#XXX'")}    # Get task status
+### 3. Implementation Process
 
-     # For session queries
-     ${helpers.codeBlock("session.list", "--json")}        # List all sessions
-     ${helpers.codeBlock("session.get", "<n>")}            # Get session details by name
-     ${helpers.codeBlock("session.get", "--task XXX")}     # Get session details by task ID
-     \`\`\`
+1. **Create Session**: Use session.start with task ID
+2. **Work in Session**: All code changes happen in the session directory
+3. **Regular Commits**: Commit changes frequently
+4. **Create PR**: Use session.pr when ready for review
+5. **Update Status**: Set task status to IN-REVIEW
 
-2. **Real-Time Data Over Static Files**
-   - Task information comes from the live system, not files
-   - Session state must be queried through CLI, not assumed
-   - File system should never be used as a primary data source
+### 4. Review & Completion
 
-## CRITICAL REQUIREMENT: SESSION-FIRST IMPLEMENTATION
+**Create Pull Request**
+${helpers.conditionalSection(isCliMode || isHybridMode, `
+\`\`\`bash
+${helpers.command("session.pr")}
+\`\`\`
+`, "")}
+${helpers.conditionalSection(isMcpMode || isHybridMode, `
+\`\`\`
+${helpers.command("session.pr")}
+\`\`\`
+`, "")}
 
-A session MUST be created and active before any code changes. Before examining or modifying any code, you MUST:
-1. ${helpers.workflowStep("Verify task status", "tasks.status.get", "check '#id'")}
-2. ${helpers.workflowStep("Create or identify an existing session", "session.start", "with --task id")}
-3. ${helpers.workflowStep("Enter the session directory", "session.dir", "for session-name")}
+**Update Task Status**
+${helpers.conditionalSection(isCliMode || isHybridMode, `
+\`\`\`bash
+${helpers.command("tasks.status.set")}
+\`\`\`
+`, "")}
+${helpers.conditionalSection(isMcpMode || isHybridMode, `
+\`\`\`
+${helpers.command("tasks.status.set")}
+\`\`\`
+`, "")}
 
-## Repository Isolation Warning
+## Best Practices
 
-**The session directory contains a COMPLETELY SEPARATE CLONE of the repository.**
+- Always work in sessions for code isolation
+- Use descriptive commit messages
+- Update task status at key milestones
+- Document any architectural decisions
+- Test changes before creating PRs
 
-- Changes made to files in the main workspace WILL NOT appear in the session branch
-- Changes made to files in the session directory DO NOT affect the main workspace
-- Always confirm your current working directory with \`pwd\` before making any changes
+## Command Parameters
 
-${helpers.conditionalSection(`
-## MCP Interface Notes
+${helpers.parameterDoc("tasks.list")}
 
-When using MCP tools instead of CLI commands:
-- ${helpers.command("tasks.list", "query available tasks")}
-- ${helpers.command("tasks.status.get", "check task status")}
-- ${helpers.command("session.start", "create new sessions")}
-- ${helpers.command("session.dir", "get session directory path")}
-`, ["mcp", "hybrid"])}
+${helpers.parameterDoc("session.start")}
 
-${helpers.conditionalSection(`
-## CLI Interface Notes
-
-Use the globally installed \`minsky\` CLI for all operations:
-- ${helpers.command("tasks.list", "query available tasks")}
-- ${helpers.command("tasks.status.get", "check task status")}
-- ${helpers.command("session.start", "create new sessions")}
-- ${helpers.command("session.dir", "get session directory path")}
-`, ["cli", "hybrid"])}`;
-  }
+${helpers.parameterDoc("session.pr")}
+`;
+  },
+  generateMeta: (context) => ({
+    name: "Minsky Workflow",
+    description: "Core workflow orchestration guide for Minsky",
+    tags: ["workflow", "core", "required"]
+  })
 };
 
-// ============================================================================
-// Rules Index Template
-// ============================================================================
-
-export const rulesIndexTemplate: RuleTemplate = {
-  id: "index", 
-  name: "Minsky Rules Index",
-  description: "Categorizes all available rules in the Minsky ecosystem",
-  tags: ["documentation", "index"],
-  generateContent: (context: TemplateContext): string => {
+/**
+ * Template for the rules index
+ */
+const INDEX_TEMPLATE: RuleTemplate = {
+  id: "index",
+  name: "Rules Index",
+  description: "Index of all available rules in the workspace",
+  tags: ["index", "navigation"],
+  generateContent: (context) => {
     const { helpers } = context;
     
     return `# Minsky Rules Index
@@ -198,30 +225,20 @@ These rules standardize the development environment:
 ## Command Reference Quick Guide
 
 ### Task Management Commands
-- **List tasks**: ${helpers.command("tasks.list", "query available tasks")}
-- **Get task details**: ${helpers.command("tasks.get", "retrieve task information")}
-- **Check status**: ${helpers.command("tasks.status.get", "check task status")}
-- **Update status**: ${helpers.command("tasks.status.set", "update task status")}
+- **List tasks**: ${helpers.command("tasks.list")} - query available tasks
+- **Get task details**: ${helpers.command("tasks.get")} - retrieve task information
+- **Check status**: ${helpers.command("tasks.status.get")} - check task status
+- **Update status**: ${helpers.command("tasks.status.set")} - update task status
 
 ### Session Management Commands  
-- **List sessions**: ${helpers.command("session.list", "view all sessions")}
-- **Start session**: ${helpers.command("session.start", "create new session")}
-- **Get session info**: ${helpers.command("session.get", "retrieve session details")}
-- **Get session directory**: ${helpers.command("session.dir", "get session path")}
+- **List sessions**: ${helpers.command("session.list")} - view all sessions
+- **Start session**: ${helpers.command("session.start")} - create new session
+- **Get session info**: ${helpers.command("session.get")} - retrieve session details
+- **Get session directory**: ${helpers.command("session.dir")} - get session path
 
-${helpers.conditionalSection(`
-### MCP Tools Reference
-- Use MCP tools for programmatic access to Minsky functionality
-- All commands available through structured tool calls
-- Parameters passed as objects rather than CLI flags
-`, ["mcp", "hybrid"])}
+${helpers.conditionalSection(context.config.interface === "mcp", "mcp,hybrid", "")}
 
-${helpers.conditionalSection(`
-### CLI Commands Reference
-- Use globally installed \`minsky\` CLI for all operations
-- Commands support \`--help\` for detailed usage information
-- JSON output available with \`--json\` flag for most commands
-`, ["cli", "hybrid"])}
+${helpers.conditionalSection(context.config.interface === "cli", "cli,hybrid", "")}
 
 ## Usage Scenarios & Applicable Rules
 
@@ -290,20 +307,24 @@ Some rules are closely related and often used together:
 - **pr-description-guidelines** and **changelog** both contribute to documentation of changes
 
 This index serves as a guide to help you understand which rules are relevant to different aspects of working with Minsky and how they interact with each other.`;
-  }
+  },
+  generateMeta: (context) => ({
+    name: "Rules Index",
+    description: "Index of all available rules in the workspace",
+    tags: ["index", "navigation", "overview"]
+  })
 };
 
-// ============================================================================
-// MCP Usage Template
-// ============================================================================
-
-export const mcpUsageTemplate: RuleTemplate = {
+/**
+ * Template for MCP usage rules
+ */
+const MCP_USAGE_TEMPLATE: RuleTemplate = {
   id: "mcp-usage",
   name: "MCP Usage",
-  description: "Guidelines for using the Minsky Control Protocol (MCP) for AI agent interaction",
-  tags: ["mcp", "integration"],
-  generateContent: (context: TemplateContext): string => {
-    const { config, helpers } = context;
+  description: "Guidelines for using the Minsky Control Protocol",
+  tags: ["mcp", "protocol"],
+  generateContent: (context) => {
+    const { helpers, config } = context;
     
     return `# MCP Usage
 
@@ -325,37 +346,37 @@ This rule outlines the usage of the Minsky Control Protocol (MCP) for AI agent i
 ## Available MCP Tools
 
 ### Task Management
-- ${helpers.command("tasks.list", "list all tasks")}
-- ${helpers.command("tasks.get", "get task by ID")}
-- ${helpers.command("tasks.status.get", "check task status")}
-- ${helpers.command("tasks.status.set", "update task status")}
-- ${helpers.command("tasks.create", "create new task")}
+- ${helpers.command("tasks.list")} - list all tasks
+- ${helpers.command("tasks.get")} - get task by ID
+- ${helpers.command("tasks.status.get")} - check task status
+- ${helpers.command("tasks.status.set")} - update task status
+- ${helpers.command("tasks.create")} - create new task
 
 ### Session Management
-- ${helpers.command("session.list", "list all sessions")}
-- ${helpers.command("session.get", "get session details")}
-- ${helpers.command("session.start", "create new session")}
-- ${helpers.command("session.dir", "get session directory")}
-- ${helpers.command("session.pr", "create pull request")}
+- ${helpers.command("session.list")} - list all sessions
+- ${helpers.command("session.get")} - get session details
+- ${helpers.command("session.start")} - create new session
+- ${helpers.command("session.dir")} - get session directory
+- ${helpers.command("session.pr")} - create pull request
 
 ### Rules Management
-- ${helpers.command("rules.list", "list all rules")}
-- ${helpers.command("rules.get", "get rule by ID")}
-- ${helpers.command("rules.create", "create new rule")}
-- ${helpers.command("rules.update", "update existing rule")}
+- ${helpers.command("rules.list")} - list all rules
+- ${helpers.command("rules.get")} - get rule by ID
+- ${helpers.command("rules.create")} - create new rule
+- ${helpers.command("rules.update")} - update existing rule
 
 ## Usage Examples
 
 ### Task Management Example
 \`\`\`
-${helpers.codeBlock("tasks.list")}
-${helpers.codeBlock("tasks.get", "taskId: \"#123\"")}
+${helpers.codeBlock(helpers.command("tasks.list"), "bash")}
+${helpers.codeBlock('taskId: "#123"\\n' + helpers.command("tasks.get"), "bash")}
 \`\`\`
 
 ### Session Management Example  
 \`\`\`
-${helpers.codeBlock("session.start", "task: \"#123\"")}
-${helpers.codeBlock("session.dir", "name: \"task#123\"")}
+${helpers.codeBlock('task: "#123"\\n' + helpers.command("session.start"), "bash")}
+${helpers.codeBlock('name: "task#123"\\n' + helpers.command("session.dir"), "bash")}
 \`\`\`
 
 ## Parameter Documentation
@@ -364,37 +385,22 @@ ${helpers.parameterDoc("tasks.list")}
 
 ${helpers.parameterDoc("session.start")}
 
-${helpers.conditionalSection(`
-## CLI Alternative
-
-When MCP is not available, use the CLI commands:
-- \`minsky tasks list --json\`
-- \`minsky session start --task 123\`
-- \`minsky session dir task#123\`
-`, ["hybrid"])}
+${helpers.conditionalSection(config.interface === "hybrid", "hybrid", "")}
 
 See README-MCP.md for detailed protocol specifications.`;
-  }
+  },
+  generateMeta: (context) => ({
+    name: "MCP Usage",
+    description: "Guidelines for using the Minsky Control Protocol",
+    tags: ["mcp", "protocol", "ai"]
+  })
 };
 
-// ============================================================================
-// Template Registry
-// ============================================================================
-
 /**
- * All default templates that replace the static content from init.ts
+ * All default templates available in the system
  */
 export const DEFAULT_TEMPLATES: RuleTemplate[] = [
-  minskyWorkflowTemplate,
-  rulesIndexTemplate,
-  mcpUsageTemplate
-];
-
-/**
- * Register all default templates with a RuleTemplateService
- */
-export function registerDefaultTemplates(service: { registerTemplate: (template: RuleTemplate) => void }): void {
-  DEFAULT_TEMPLATES.forEach(template => {
-    service.registerTemplate(template);
-  });
-} 
+  MINSKY_WORKFLOW_TEMPLATE,
+  INDEX_TEMPLATE,
+  MCP_USAGE_TEMPLATE
+]; 
