@@ -13,6 +13,12 @@
 
 ### Fixed
 
+- **Session Approve Consolidation**: Fixed architectural inconsistency from incomplete refactoring
+  - Removed old/broken `approve-command.ts` that incorrectly used session workspace
+  - Consolidated all session approve calls to use correct `approveSessionImpl`
+  - All session approve operations now correctly operate on main repository
+  - Eliminated duplicate implementations that caused confusion
+
 - **Session Approve Linter Output**: Improved error handling during automatic task status commits
   - Pre-commit hook linter errors now show clean summary instead of raw ESLint dump
   - Displays error/warning counts with helpful guidance on fixing issues
