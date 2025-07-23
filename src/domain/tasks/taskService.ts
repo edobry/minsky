@@ -760,14 +760,26 @@ export async function createConfiguredTaskService(
   }
 
   try {
-    // Use node-config to get the resolved backend
-    const resolvedBackend = get("backend") || "json-file";
+    // Only try configuration resolution if we have an initialized configuration system
+    let resolvedBackend = "json-file"; // safe fallback
 
-    log.debug("Resolved backend from configuration", {
-      workspacePath,
-      backend: resolvedBackend,
-      configSource: "node-config",
-    });
+    try {
+      // Use configuration system to get the resolved backend
+      resolvedBackend = get("backend") || "json-file";
+
+      log.debug("Resolved backend from configuration", {
+        workspacePath,
+        backend: resolvedBackend,
+        configSource: "custom-config",
+      });
+    } catch (configError) {
+      // Configuration system not initialized or failed - use fallback
+      log.debug("Configuration system not available, using fallback backend", {
+        workspacePath,
+        backend: resolvedBackend,
+        error: getErrorMessage(configError as any),
+      });
+    }
 
     return createTaskService({
       ...otherOptions,
@@ -775,7 +787,7 @@ export async function createConfiguredTaskService(
       backend: resolvedBackend,
     });
   } catch (error) {
-    // If configuration resolution fails, fall back to default backend
+    // If any error occurs, fall back to default backend
     log.warn("Failed to resolve configuration, using default backend", {
       workspacePath,
       error: getErrorMessage(error as any),

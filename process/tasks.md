@@ -542,7 +542,7 @@
 
 - [x] Migrate codebase from TaskBackendRouter to workspace-resolving backends [#306](process/tasks/306-migrate-codebase-from-taskbackendrouter-to-workspace-resolving-backends.md)
 
-- [+] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
+- [x] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
 
 - [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
 
@@ -569,3 +569,5 @@
 - [ ] AI-Powered Project Analysis for Enhanced Init Command [#321](process/tasks/321-ai-powered-project-analysis-for-enhanced-init-command.md)
 
 - [ ] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)
+
+- [ ] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)

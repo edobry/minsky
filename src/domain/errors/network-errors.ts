@@ -9,7 +9,7 @@ const ALTERNATIVE_HTTP_PORT = 8082;
 
 import { MinskyError } from "./base-errors";
 
-import { DEFAULT_DEV_PORT, BYTES_PER_KB } from "../utils/constants";
+import { DEFAULT_DEV_PORT, BYTES_PER_KB } from "../../utils/constants";
 /**
  * Error class for network-related errors
  */

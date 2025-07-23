@@ -13,24 +13,60 @@ import { getErrorMessage } from "../errors/index";
 export type PackageManager = "bun" | "npm" | "yarn" | "pnpm" | undefined;
 
 /**
+ * Dependencies interface for package manager operations
+ */
+export interface PackageManagerDependencies {
+  fs: {
+    existsSync: (path: string) => boolean;
+  };
+  process: {
+    execSync: (
+      command: string,
+      options?: { cwd?: string; stdio?: string | string[] }
+    ) => Buffer | null;
+  };
+  logger?: {
+    debug: (message: string) => void;
+    error: (message: string) => void;
+  };
+}
+
+/**
+ * Default dependencies using actual fs and child_process
+ */
+export const defaultPackageManagerDependencies: PackageManagerDependencies = {
+  fs: {
+    existsSync,
+  },
+  process: {
+    execSync,
+  },
+  logger: log,
+};
+
+/**
  * Detects the package manager used in a repository based on lock files
  * @param repoPath Path to the repository
+ * @param deps Dependencies for filesystem operations
  * @returns Detected package manager or undefined if not detected
  */
-export function detectPackageManager(repoPath: string): PackageManager {
-  if (existsSync(join(repoPath, "bun.lock"))) {
+export function detectPackageManager(
+  repoPath: string,
+  deps: PackageManagerDependencies = defaultPackageManagerDependencies
+): PackageManager {
+  if (deps.fs.existsSync(join(repoPath, "bun.lock"))) {
     return "bun";
   }
-  if (existsSync(join(repoPath, "yarn.lock"))) {
+  if (deps.fs.existsSync(join(repoPath, "yarn.lock"))) {
     return "yarn";
   }
-  if (existsSync(join(repoPath, "pnpm-lock.yaml"))) {
+  if (deps.fs.existsSync(join(repoPath, "pnpm-lock.yaml"))) {
     return "pnpm";
   }
-  if (existsSync(join(repoPath, "package-lock.json"))) {
+  if (deps.fs.existsSync(join(repoPath, "package-lock.json"))) {
     return "npm";
   }
-  if (existsSync(join(repoPath, "package.json"))) {
+  if (deps.fs.existsSync(join(repoPath, "package.json"))) {
     return "npm"; // Default to npm if only package.json exists
   }
   return undefined; // Not a Node.js/Bun project
@@ -60,6 +96,7 @@ export function getInstallCommand(packageManager: PackageManager): string | unde
  * Installs dependencies in a repository
  * @param repoPath Path to the repository
  * @param options Configuration options
+ * @param deps Dependencies for filesystem and process operations
  * @returns Result object with success status and output/error messages
  */
 export async function installDependencies(
@@ -67,11 +104,12 @@ export async function installDependencies(
   options: {
     packageManager?: PackageManager;
     quiet?: boolean;
-  } = {}
+  } = {},
+  deps: PackageManagerDependencies = defaultPackageManagerDependencies
 ): Promise<{ success: boolean; output?: string; error?: string }> {
   try {
     // Detect or use provided package manager
-    const detectedPackageManager = options.packageManager || detectPackageManager(repoPath);
+    const detectedPackageManager = options.packageManager || detectPackageManager(repoPath, deps);
 
     if (!detectedPackageManager) {
       return {
@@ -90,12 +128,12 @@ export async function installDependencies(
     }
 
     // Log installation start unless quiet
-    if (!options.quiet) {
-      log.debug(`Installing dependencies using ${detectedPackageManager}...`);
+    if (!options.quiet && deps.logger) {
+      deps.logger.debug(`Installing dependencies using ${detectedPackageManager}...`);
     }
 
     // Execute the install command
-    const result = execSync(installCmd, {
+    const result = deps.process.execSync(installCmd, {
       cwd: repoPath,
       stdio: options.quiet ? "ignore" : "inherit",
     });
@@ -107,8 +145,8 @@ export async function installDependencies(
   } catch (error) {
     const errorMessage = getErrorMessage(error as any);
 
-    if (!options.quiet) {
-      log.error(`Failed to install dependencies: ${errorMessage}`);
+    if (!options.quiet && deps.logger) {
+      deps.logger.error(`Failed to install dependencies: ${errorMessage}`);
     }
 
     return {
