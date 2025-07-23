@@ -1483,9 +1483,9 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **MCP Tool Naming Consistency**: Standardized tool naming to use dots (MCP convention) instead of underscores
   - `session.read_file`, `session.write_file`, `session.edit_file`, etc.
   - Follows MCP namespacing best practices for better organization
-- **MCP Structured Content**: Implemented proper structured content responses per MCP 2025-06-18 specification
-  - Objects: Return both formatted text + structuredContent for optimal client integration
-  - Arrays: Return formatted text only (structuredContent expects objects)
+- **MCP Structured Content Efficiency**: Optimized structured content responses for context efficiency
+  - Objects: Return `structuredContent` with concise property summaries (no duplicate JSON)
+  - Arrays: Return formatted JSON only (structuredContent expects objects)
   - Strings: Return as simple text content
-  - Eliminates giant JSON string responses, now returns readable formatted output
+  - Eliminates wasteful context duplication while following MCP 2025-06-18 specification
   - Improves CLI tool usability and MCP client integration significantly
