@@ -1,6 +1,9 @@
 # Implement Task Backend Capabilities System and Enhanced Metadata Support
 
-## Status: ✅ COMPLETED
+## Status: ⚠️ PARTIALLY COMPLETED
+
+**Completed**: Backend capabilities, JSON metadata, migration command, SQLite implementation  
+**Missing**: True spec/metadata separation - backends are still monolithic
 
 ## Context
 
@@ -255,38 +258,127 @@ Focus on essential capabilities while preserving workflows:
 - **Automatic tracking**: createdAt, updatedAt, status stored transparently
 - **Future-ready foundation**: Infrastructure for Tasks #238 (subtasks) and #239 (dependencies)
 
-## ✅ Success Criteria (ALL COMPLETED)
+## ⚠️ Success Criteria (PARTIAL COMPLETION)
 
-1. **✅ Clear Architecture**: Spec vs metadata storage distinction established
+1. **❌ Clear Architecture**: Spec vs metadata storage distinction NOT IMPLEMENTED
 2. **✅ Backend Capability Discovery**: Any code can query what a backend supports via `getCapabilities()`
-3. **✅ Essential Metadata Support**: Structural and provenance metadata working with JSON/SQLite backends
-4. **✅ Flexible Storage**: Users can choose between JSON (in-repo), SQLite (local), or PostgreSQL (team) patterns
+3. **⚠️ Essential Metadata Support**: Metadata works but NOT separated from specs
+4. **⚠️ Flexible Storage**: JSON backend stores BOTH specs and metadata together
 5. **✅ Migration Path**: `minsky tasks migrate` provides smooth transition from markdown backend
-6. **✅ Foundation Ready**: Tasks #238 and #239 can build on the metadata infrastructure
+6. **⚠️ Foundation Ready**: Infrastructure exists but with architectural limitations
 7. **✅ Default Integration**: JSON backend is now the default with seamless metadata tracking
 8. **✅ Special Workspace Support**: Full integration with Minsky's workspace management system
 
-## 🚀 Ready for Migration
+## ⚠️ ARCHITECTURAL GAP: Spec vs Metadata Separation Not Implemented
 
-The external task database infrastructure is complete and ready for production use:
+### What We Intended to Build
+The original design called for **true separation** of task specs from task metadata:
+
+1. **Task Specification Storage**: Where actual task content/specs are stored
+   - Markdown files, GitHub Issues, Linear tickets, etc.
+   
+2. **Task Metadata Storage**: Where metadata is stored separately
+   - SQLite database, PostgreSQL, or enhanced JSON
+   
+3. **Hybrid Backends**: Combining spec and metadata storage
+   - Example: GitHub Issues for specs + SQLite for metadata
+
+### What We Actually Built
+Instead of true separation, we built **monolithic backends** with optional metadata methods:
+
+1. **JSON Backend**: Stores EVERYTHING in one file (`tasks.json`)
+   - Task IDs, titles, descriptions, status, metadata - all mixed together
+   - No separation between spec content and metadata
+   
+2. **GitHub Backend**: No metadata support at all
+   - Would lose metadata during migration
+   - No hybrid storage implemented
+   
+3. **MetadataDatabase Interface**: Created but NOT USED
+   - SQLite implementation exists but isn't integrated
+   - No backend actually uses separate metadata storage
+
+### Why This Matters
+Without true spec/metadata separation:
+- **Migration limitations**: Can't migrate GitHub specs while keeping local metadata
+- **Performance issues**: Loading all task content just to query metadata
+- **Storage conflicts**: Can't use GitHub for collaboration + local DB for rich metadata
+- **Architectural debt**: Future features (subtasks, dependencies) will be harder
+
+## 🚧 Remaining Work for True Spec/Metadata Separation
+
+### Phase 5: Implement True Separation (NOT COMPLETED)
+
+To achieve the original architectural vision, we need:
+
+1. **Refactor Backend Architecture**
+   ```typescript
+   interface TaskBackend {
+     specStorage: TaskSpecStorage;      // Handles task content
+     metadataStorage?: MetadataStorage; // Handles metadata separately
+   }
+   ```
+
+2. **Implement Hybrid Backends**
+   - **GitHub + SQLite**: GitHub Issues for specs, local SQLite for metadata
+   - **Markdown + SQLite**: Markdown files for specs, SQLite for metadata
+   - **GitHub + JSON**: GitHub Issues for specs, JSON file for metadata
+
+3. **Update Migration System**
+   - Support migrating specs and metadata independently
+   - Allow GitHub spec migration while preserving local metadata
+   - Enable spec backend changes without metadata loss
+
+4. **Integrate MetadataDatabase**
+   - Wire up the SQLite implementation we built
+   - Make backends use MetadataDatabase interface
+   - Ensure proper transaction boundaries
+
+### Benefits of Completing This Work
+
+1. **True Hybrid Workflows**: Use GitHub for collaboration + local DB for performance
+2. **Better Performance**: Query metadata without loading full task specs
+3. **Migration Flexibility**: Change spec backends without losing metadata
+4. **Clean Architecture**: Proper separation of concerns for future features
+
+## 🔧 Current State: Working but Monolithic
+
+The current implementation is **functional but architecturally limited**:
 
 ```bash
-# Preview migration from markdown to JSON backend
-minsky tasks migrate --to json-file --dry-run
-
-# Migrate with backup (recommended)
+# This works but stores everything together
 minsky tasks migrate --to json-file --backup
 
-# Existing workflows work unchanged
-minsky tasks list           # Automatically uses JSON backend with metadata
-minsky tasks status set #123 DONE  # Metadata tracked transparently
+# Metadata is tracked but not separated
+minsky tasks list           # JSON backend with integrated metadata
+minsky tasks status set #123 DONE  # Updates both spec and metadata together
+```
+
+### Migration to GitHub Issues: ⚠️ Metadata Loss
+```bash
+# WARNING: This works but LOSES all metadata
+minsky tasks migrate --to github-issues
+# createdAt, updatedAt, future subtasks/dependencies - all lost!
 ```
 
 ## Next Steps After This Task
 
-1. **Task #238**: Implement subtasks using the metadata infrastructure
-2. **Task #239**: Implement dependencies using the relationship support
-3. **Task #235**: ✅ **CLOSE** (architecture folded into this task)
+### Option 1: Complete Architectural Separation First (Recommended)
+1. **NEW TASK**: Implement true spec/metadata separation
+   - Refactor backends to use separate storage
+   - Integrate MetadataDatabase implementations
+   - Enable hybrid backend patterns
+   
+2. **Then Task #238**: Implement subtasks with proper architecture
+3. **Then Task #239**: Implement dependencies with proper architecture
+
+### Option 2: Build on Current Architecture (Faster but Limited)
+1. **Task #238**: Implement subtasks within JSON backend limitations
+2. **Task #239**: Implement dependencies within JSON backend limitations
+3. **Accept that**: GitHub migration will lose subtasks/dependencies
+
+### Already Completed
+- **Task #235**: ✅ **CLOSED** (architecture decisions folded into this task)
 
 ## Database Technology Selection
 

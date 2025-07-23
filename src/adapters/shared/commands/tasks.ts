@@ -804,7 +804,7 @@ const tasksMigrateRegistration = {
 
       if (["markdown", "json-file"].includes(to)) {
         targetService = await TaskService.createWithEnhancedBackend({
-          backend: to as "markdown" | "json-file", 
+          backend: to as "markdown" | "json-file",
           backendConfig: { workspacePath: currentWorkspacePath },
         });
       } else {
