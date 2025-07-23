@@ -993,7 +993,7 @@ export class GitService implements GitServiceInterface {
 
 /**
  * Interface-agnostic function to create a pull request
- * This implements the interface agnostic command architecture pattern
+ * MODULARIZED: Delegates to modular operation
  */
 export async function createPullRequestFromParams(params: {
   session?: string;
@@ -1003,33 +1003,13 @@ export async function createPullRequestFromParams(params: {
   debug?: boolean;
   noStatusUpdate?: boolean;
 }): Promise<{ markdown: string; statusUpdateResult?: any }> {
-  try {
-    const git = new GitService();
-    const result = await git.pr({
-      session: params.session,
-      repoPath: params.repo,
-      branch: params.branch,
-      taskId: params.taskId,
-      debug: params.debug,
-      noStatusUpdate: params.noStatusUpdate,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error creating pull request", {
-      session: params.session,
-      repo: params.repo,
-      branch: params.branch,
-      taskId: params.taskId,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.createPullRequestFromParams(params);
 }
 
 /**
  * Interface-agnostic function to commit changes
- * This implements the interface agnostic command architecture pattern
+ * MODULARIZED: Delegates to modular operation
  */
 export async function commitChangesFromParams(params: {
   message: string;
@@ -1039,43 +1019,13 @@ export async function commitChangesFromParams(params: {
   amend?: boolean;
   noStage?: boolean;
 }): Promise<{ commitHash: string; message: string }> {
-  try {
-    const git = new GitService();
-
-    if (!params.noStage) {
-      if (params.all) {
-        await git.stageAll(params.repo);
-      } else {
-        await git.stageModified(params.repo);
-      }
-    }
-
-    const commitHash = await git.commit(
-      params.message,
-      params.repo,
-      params.amend
-    );
-
-    return {
-      commitHash,
-      message: params.message,
-    };
-  } catch (error) {
-    log.error("Error committing changes", {
-      session: params.session,
-      repo: params.repo,
-      message: params.message,
-      all: params.all,
-      amend: params.amend,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.commitChangesFromParams(params);
 }
 
 /**
  * Interface-agnostic function to prepare a PR branch
+ * MODULARIZED: Delegates to modular operation
  */
 export async function preparePrFromParams(params: {
   session?: string;
@@ -1086,16 +1036,8 @@ export async function preparePrFromParams(params: {
   branchName?: string;
   debug?: boolean;
 }): Promise<PreparePrResult> {
-  const git = new GitService();
-  return await git.preparePr({
-    session: params.session,
-    repoPath: params.repo,
-    baseBranch: params.baseBranch,
-    title: params.title,
-    body: params.body,
-    branchName: params.branchName,
-    debug: params.debug,
-  });
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.preparePrFromParams(params);
 }
 
 /**
@@ -1131,6 +1073,7 @@ export async function mergePrFromParams(params: {
 
 /**
  * Interface-agnostic function to clone a repository
+ * MODULARIZED: Delegates to modular operation
  */
 export async function cloneFromParams(params: {
   url: string;
@@ -1138,25 +1081,8 @@ export async function cloneFromParams(params: {
   session?: string;
   branch?: string;
 }): Promise<CloneResult> {
-  try {
-    const git = new GitService();
-    const result = await git.clone({
-      repoUrl: params.url,
-      workdir: params.workdir,
-      session: params.session,
-      branch: params.branch,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error cloning repository", {
-      url: params.url,
-      session: params.session,
-      branch: params.branch,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.cloneFromParams(params);
 }
 
 /**
@@ -1186,6 +1112,7 @@ export async function branchFromParams(params: {
 
 /**
  * Interface-agnostic function to push changes to a remote repository
+ * MODULARIZED: Delegates to modular operation
  */
 export async function pushFromParams(params: {
   session?: string;
@@ -1194,27 +1121,8 @@ export async function pushFromParams(params: {
   force?: boolean;
   debug?: boolean;
 }): Promise<PushResult> {
-  try {
-    const git = new GitService();
-    const result = await git.push({
-      session: params.session,
-      repoPath: params.repo,
-      remote: params.remote,
-      force: params.force,
-      debug: params.debug,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error pushing changes", {
-      session: params.session,
-      repo: params.repo,
-      remote: params.remote,
-      force: params.force,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.pushFromParams(params);
 }
 
 /**
