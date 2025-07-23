@@ -56,26 +56,28 @@ import {
  */
 export async function listTasksFromParams(
   params: TaskListParams,
-  deps: {
+  deps?: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
-  } = {
+  }
+): Promise<any[]> {
+  // If deps not provided, use the default implementations
+  const actualDeps = deps || {
     resolveRepoPath,
     resolveTaskWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
-  }
-): Promise<any[]> {
+  };
   try {
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
     // Get intelligent workspace path based on backend requirements
     const backend = validParams.backend || "markdown";
-    const workspacePath = await deps.resolveTaskWorkspacePath({ backend });
+    const workspacePath = await actualDeps.resolveTaskWorkspacePath({ backend });
 
     // Create task service with explicit backend to avoid configuration issues
-    const taskService = await deps.createTaskService({
+    const taskService = await actualDeps.createTaskService({
       workspacePath,
       backend,
     });
@@ -116,16 +118,18 @@ export async function listTasksFromParams(
  */
 export async function getTaskFromParams(
   params: TaskGetParams,
-  deps: {
+  deps?: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveTaskWorkspacePath: typeof resolveTaskWorkspacePath;
     createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
-  } = {
+  }
+): Promise<any> {
+  // If deps not provided, use the default implementations
+  const actualDeps = deps || {
     resolveRepoPath,
     resolveTaskWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
-  }
-): Promise<any> {
+  };
   try {
     // Normalize the taskId before validation
     const normalizedTaskId = normalizeTaskId(params.taskId);
@@ -142,19 +146,19 @@ export async function getTaskFromParams(
     const validParams = taskGetParamsSchema.parse(paramsWithNormalizedId);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({
+    const repoPath = await actualDeps.resolveRepoPath({
       session: validParams.session,
       repo: validParams.repo,
     });
 
     // Then get the workspace path using backend-aware resolution
-    const workspacePath = await deps.resolveTaskWorkspacePath({
+    const workspacePath = await actualDeps.resolveTaskWorkspacePath({
       backend: validParams.backend || "markdown",
       repoUrl: repoPath,
     });
 
     // Create task service with explicit backend to avoid configuration issues
-    const taskService = await deps.createTaskService({
+    const taskService = await actualDeps.createTaskService({
       workspacePath,
       backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
     });
