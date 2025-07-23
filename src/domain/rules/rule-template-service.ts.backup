@@ -1,0 +1,133 @@
+/**
+ * Rule Template Service
+ *
+ * Extends the RuleService with template-based rule generation.
+ */
+
+import * as fs from "fs";
+import * as path from "path";
+import { RuleService, type RuleMeta as RuleMetadata } from "../rules";
+import { createTemplateContext, type RuleGenerationConfig } from "./template-system";
+import * as grayMatterNamespace from "gray-matter";
+import * as jsYaml from "js-yaml";
+
+const matter = grayMatterNamespace.default || grayMatterNamespace;
+
+/**
+ * Add YAML frontmatter to content
+ */
+function addFrontmatter(content: string, meta: RuleMetadata): string {
+  // Use js-yaml's dump function with options to control quoting behavior
+  let yamlStr = jsYaml.dump(meta, {
+    lineWidth: -1, // Don't wrap lines
+    noCompatMode: true, // Use YAML 1.2
+    quotingType: "\"", // Use double quotes when necessary
+    forceQuotes: false, // Don't force quotes on all strings
+  });
+
+  // Post-process to ensure descriptions with special characters use double quotes
+  // Replace single-quoted descriptions with double-quoted ones
+  yamlStr = yamlStr.replace(/^description: '(.+)'$/gm, (match, description) => {
+    // Check if description contains special characters that warrant quoting
+    if (description.includes(":") || description.includes("!") || description.includes("?")) {
+      return `description: "${description}"`;
+    }
+    return match;
+  });
+
+  return `---\n${yamlStr}---\n${content}`;
+}
+
+/**
+ * Type for rule format
+ */
+export type RuleFormat = "cursor" | "openai";
+
+/**
+ * Template for generating rule content and metadata
+ */
+export interface RuleTemplate {
+  /** Unique identifier for the template */
+  id: string;
+  
+  /** Human-readable name */
+  name: string;
+  
+  /** Description of the template */
+  description: string;
+  
+  /** Tags for categorization */
+  tags?: string[];
+  
+  /**
+   * Generate content for the rule
+   * @param context Template context with configuration and helpers
+   * @returns Generated content as a string
+   */
+  generateContent: (context: any) => string;
+  
+  /**
+   * Generate metadata for the rule (optional)
+   * @param context Template context with configuration and helpers
+   * @returns Rule metadata object
+   */
+  generateMeta?: (context: any) => RuleMetadata;
+}
+
+/**
+ * Options for rule generation
+ */
+export interface GenerateRulesOptions {
+  /** Configuration for rule generation */
+  config: RuleGenerationConfig;
+  
+  /** Templates to use (if not specified, uses all registered templates) */
+  selectedRules?: string[];
+  
+  /** Whether to overwrite existing files */
+  overwrite?: boolean;
+  
+  /** Whether to perform a dry run (don't write files) */
+  dryRun?: boolean;
+}
+
+/**
+ * Result of rule generation
+ */
+export interface GenerateRulesResult {
+  /** Whether the generation was successful */
+  success: boolean;
+  
+  /** Generated rules info */
+  rules: Array<{
+    id: string;
+    path: string;
+    content: string;
+    meta: RuleMetadata | null;
+  }>;
+  
+  /** Any errors that occurred during generation */
+  errors: string[];
+}
+
+/**
+ * Rule Template Service
+ *
+ * Manages templates for generating rule content and metadata.
+ */
+export class RuleTemplateService {
+  private ruleService: RuleService;
+  private templateRegistry: Map<string, RuleTemplate> = new Map();
+  private workspacePath: string;
+  
+  /**
+   * Create a new RuleTemplateService
+   * @param workspacePath Path to the workspace
+   */
+  constructor(workspacePath: string) {
+    this.workspacePath = workspacePath;
+    this.ruleService = new RuleService(workspacePath);
+    
+    // Load default templates
+    this.registerInitTemplates();
+  }
