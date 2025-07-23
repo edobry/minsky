@@ -110,7 +110,25 @@ export abstract class BaseTaskCommand {
       // Return structured data for programmatic use
       return result;
     } else {
-      // Return simple message for user-friendly output
+      // Handle special case for task lists - display actual tasks
+      if (typeof result === "object" && result.tasks && Array.isArray(result.tasks)) {
+        // Import formatTaskIdForDisplay locally to avoid circular dependencies
+        const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
+
+        if (result.tasks.length === 0) {
+          return "No tasks found.";
+        }
+
+        // Format each task for display
+        const taskList = result.tasks.map((task: any) => {
+          const displayId = formatTaskIdForDisplay(task.id);
+          return `${displayId}: ${task.title} [${task.status}]`;
+        }).join('\n');
+
+        return `${result.message}\n\n${taskList}`;
+      }
+
+      // Return simple message for other results
       if (typeof result === "object" && result.message) {
         return result.message;
       }
