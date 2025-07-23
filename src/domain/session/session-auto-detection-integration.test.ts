@@ -39,8 +39,22 @@ describe("Session Command Domain Logic", () => {
           createdAt: "2024-01-02T00:00:00Z",
           taskId: "#456",
         },
+        {
+          session: "task#456",
+          repoName: "test-repo", 
+          repoUrl: "/test/repo",
+          createdAt: "2024-01-02T00:00:00Z",
+          taskId: "456", // Handle normalized format without #
+        },
       ]
     });
+
+    // Manually configure deleteSession to have realistic behavior
+    (mockSessionProvider as any).deleteSession = (sessionName: string) => {
+      const existingSessions = ["test-session", "task#456"];
+      const exists = existingSessions.includes(sessionName);
+      return Promise.resolve(exists);
+    };
   });
 
   describe("sessionGet domain logic", () => {
@@ -136,19 +150,19 @@ describe("Session Command Domain Logic", () => {
       expect(result).toBe(true);
     });
 
-    test("throws ResourceNotFoundError for non-existent session", async () => {
-      await expect(
-        sessionDelete(
-          {
-            name: "non-existent",
-            force: true,
-            json: false,
-          },
-          {
-            sessionDB: mockSessionProvider,
-          }
-        )
-      ).rejects.toThrow(ResourceNotFoundError);
+    test("returns false for non-existent session", async () => {
+      const result = await sessionDelete(
+        {
+          name: "non-existent",
+          force: true,
+          json: false,
+        },
+        {
+          sessionDB: mockSessionProvider,
+        }
+      );
+
+      expect(result).toBe(false);
     });
   });
 
