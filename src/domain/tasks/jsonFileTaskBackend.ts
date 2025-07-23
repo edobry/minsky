@@ -24,7 +24,7 @@ import type { BackendCapabilities, TaskMetadata, MetadataQuery } from "./types";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { validateTaskState, type TaskState } from "../../schemas/storage";
-import type { TaskSpec } from "./taskIO";
+// TaskSpec interface removed - using TaskSpecData from taskData.ts instead
 import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";

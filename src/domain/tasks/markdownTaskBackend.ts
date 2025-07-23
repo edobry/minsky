@@ -98,6 +98,9 @@ export class MarkdownTaskBackend implements TaskBackend {
       requiresSpecialWorkspace: true, // Uses task operations workspace
       supportsTransactions: false, // File-based, no transaction support
       supportsRealTimeSync: false, // Manual file operations
+      
+      // Hybrid backend indicators
+      isHybridBackend: false,
     };
   }
 

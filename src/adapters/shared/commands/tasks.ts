@@ -772,65 +772,62 @@ async function createBackendForMigration(
 
   switch (backendType) {
     case "github-sqlite-hybrid": {
-      // Import hybrid backend
-      const { createGitHubSqliteHybridBackend } = await import(
-        "../../../domain/tasks/githubSqliteHybridBackend"
-      );
-
-      // Create octokit instance (this would need proper configuration)
-      const { Octokit } = await import("@octokit/rest");
-      const octokit = new Octokit({
-        auth: process.env.GITHUB_TOKEN,
+      // Create GitHub backend first
+      const githubService = new TaskService({
+        workspacePath,
+        backend: "github-issues",
       });
 
-      // Parse repo info from environment or config
-      const [owner, repo] = (process.env.GITHUB_REPOSITORY || "").split("/");
-      if (!owner || !repo) {
-        throw new Error(
-          "GitHub repository not configured. Set GITHUB_REPOSITORY environment variable."
-        );
-      }
+      const githubBackend = (githubService as any).currentBackend;
 
-      const hybridBackend = createGitHubSqliteHybridBackend({
-        octokit,
-        owner,
-        repo,
-        workspacePath,
-        metadataDatabasePath: sqliteDbPath,
+      // Wrap with metadata capabilities
+      const { createHybridBackend } = await import("../../../domain/tasks/hybridBackendWrapper");
+      const hybridBackend = createHybridBackend(githubBackend, {
+        databasePath: sqliteDbPath,
       });
 
       await hybridBackend.initialize();
 
-      // Return a wrapper that implements TaskService interface
       return {
         getAllTasks: () => hybridBackend.listTasks(),
         getTask: (id: string) => hybridBackend.getTask(id),
-        createTask: (title: string, description?: string) =>
-          hybridBackend.createTask({ id: "", title, description }),
+        createTask: async (title: string, description?: string) => {
+          // Create a spec file first (GitHub backend expects this)
+          const tempSpecPath = `/tmp/task-${Date.now()}.md`;
+          return hybridBackend.createTask(tempSpecPath);
+        },
         updateTaskStatus: (id: string, status: string) => hybridBackend.setTaskStatus(id, status),
         getBackend: () => hybridBackend,
       };
     }
 
     case "markdown-sqlite-hybrid": {
-      const { createMarkdownSqliteHybridBackend } = await import(
-        "../../../domain/tasks/markdownSqliteHybridBackend"
-      );
-
-      const mdHybridBackend = createMarkdownSqliteHybridBackend({
-        workspacePath,
-        metadataDatabasePath: sqliteDbPath,
+      // Create Markdown backend first
+      const markdownService = await TaskService.createWithEnhancedBackend({
+        backend: "markdown",
+        backendConfig: { workspacePath },
       });
 
-      await mdHybridBackend.initialize();
+      const markdownBackend = (markdownService as any).currentBackend;
+
+      // Wrap with metadata capabilities
+      const { createHybridBackend } = await import("../../../domain/tasks/hybridBackendWrapper");
+      const hybridBackend = createHybridBackend(markdownBackend, {
+        databasePath: sqliteDbPath,
+      });
+
+      await hybridBackend.initialize();
 
       return {
-        getAllTasks: () => mdHybridBackend.listTasks(),
-        getTask: (id: string) => mdHybridBackend.getTask(id),
-        createTask: (title: string, description?: string) =>
-          mdHybridBackend.createTask({ id: "", title, description }),
-        updateTaskStatus: (id: string, status: string) => mdHybridBackend.setTaskStatus(id, status),
-        getBackend: () => mdHybridBackend,
+        getAllTasks: () => hybridBackend.listTasks(),
+        getTask: (id: string) => hybridBackend.getTask(id),
+        createTask: async (title: string, description?: string) => {
+          // Create a spec file first (Markdown backend expects this)
+          const tempSpecPath = `/tmp/task-${Date.now()}.md`;
+          return hybridBackend.createTask(tempSpecPath);
+        },
+        updateTaskStatus: (id: string, status: string) => hybridBackend.setTaskStatus(id, status),
+        getBackend: () => hybridBackend,
       };
     }
 

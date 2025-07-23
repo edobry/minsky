@@ -179,6 +179,9 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       requiresSpecialWorkspace: false, // Direct API operations
       supportsTransactions: false, // GitHub API doesn't support transactions
       supportsRealTimeSync: true, // Real-time via API calls
+      
+      // Hybrid backend indicators
+      isHybridBackend: false,
     };
   }
 
