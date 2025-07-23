@@ -41,7 +41,7 @@ function generateMockMcpSyntax(commandId: string, parameters: CommandParameter[]
   
   return `<function_calls>
 <invoke name="${mcpCommandName}">
-${parameterLines.join('\n')}
+${parameterLines.join("\n")}
 </invoke>
 </function_calls>`;
 }
@@ -225,10 +225,10 @@ describe("CommandGenerator XML Format Tests", () => {
       // Check XML structure
       expect(xml).toMatch(/^<function_calls>/);
       expect(xml).toMatch(/<\/function_calls>$/);
-      expect(xml).toContain('<invoke name="mcp_minsky-server_tasks_list">');
-      expect(xml).toContain('</invoke>');
-      expect(xml).toContain('<parameter name="filter">');
-      expect(xml).toContain('</parameter>');
+      expect(xml).toContain("<invoke name=\"mcp_minsky-server_tasks_list\">");
+      expect(xml).toContain("</invoke>");
+      expect(xml).toContain("<parameter name=\"filter\">");
+      expect(xml).toContain("</parameter>");
     });
     
     test("should properly escape parameter names in XML attributes", () => {
@@ -237,8 +237,8 @@ describe("CommandGenerator XML Format Tests", () => {
       ]);
       
       // Parameter names should be properly included in XML attributes
-      expect(xml).toContain('name="param-name"');
-      expect(xml).toContain('>required param-name value<');
+      expect(xml).toContain("name=\"param-name\"");
+      expect(xml).toContain(">required param-name value<");
     });
     
     test("should generate different value hints for required vs optional parameters", () => {
@@ -247,25 +247,25 @@ describe("CommandGenerator XML Format Tests", () => {
         { name: "optional-param", required: false }
       ]);
       
-      expect(xml).toContain('>required required-param value<');
-      expect(xml).toContain('>optional optional-param value<');
+      expect(xml).toContain(">required required-param value<");
+      expect(xml).toContain(">optional optional-param value<");
     });
   });
 
   describe("Command ID to MCP Name Conversion", () => {
     test("should convert single dot correctly", () => {
       const xml = generateMockMcpSyntax("tasks.list", []);
-      expect(xml).toContain('name="mcp_minsky-server_tasks_list"');
+      expect(xml).toContain("name=\"mcp_minsky-server_tasks_list\"");
     });
     
     test("should convert multiple dots correctly", () => {
       const xml = generateMockMcpSyntax("tasks.status.get", []);
-      expect(xml).toContain('name="mcp_minsky-server_tasks_status_get"');
+      expect(xml).toContain("name=\"mcp_minsky-server_tasks_status_get\"");
     });
     
     test("should handle no dots correctly", () => {
       const xml = generateMockMcpSyntax("list", []);
-      expect(xml).toContain('name="mcp_minsky-server_list"');
+      expect(xml).toContain("name=\"mcp_minsky-server_list\"");
     });
   });
 });

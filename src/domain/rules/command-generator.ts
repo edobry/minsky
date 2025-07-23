@@ -97,7 +97,7 @@ function generateMcpSyntax(commandId: string, parameters: CommandParameter[]): s
   
   return `<function_calls>
 <invoke name="${mcpCommandName}">
-${parameterLines.join('\n')}
+${parameterLines.join("\n")}
 </invoke>
 </function_calls>`;
 }

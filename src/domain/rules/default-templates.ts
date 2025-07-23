@@ -370,13 +370,13 @@ This rule outlines the usage of the Minsky Control Protocol (MCP) for AI agent i
 ### Task Management Example
 \`\`\`
 ${helpers.codeBlock(helpers.command("tasks.list"), "bash")}
-${helpers.codeBlock('taskId: "#123"\\n' + helpers.command("tasks.get"), "bash")}
+${helpers.codeBlock(`taskId: "#123"\\n${  helpers.command("tasks.get")}`, "bash")}
 \`\`\`
 
 ### Session Management Example  
 \`\`\`
-${helpers.codeBlock('task: "#123"\\n' + helpers.command("session.start"), "bash")}
-${helpers.codeBlock('name: "task#123"\\n' + helpers.command("session.dir"), "bash")}
+${helpers.codeBlock(`task: "#123"\\n${  helpers.command("session.start")}`, "bash")}
+${helpers.codeBlock(`name: "task#123"\\n${  helpers.command("session.dir")}`, "bash")}
 \`\`\`
 
 ## Parameter Documentation
