@@ -2,6 +2,13 @@ import { describe, test, expect, mock } from "bun:test";
 import { approveSessionImpl } from "./session-approve-operations";
 import { createMockGitService, createMockSessionProvider, createMockTaskService } from "../../utils/test-utils/dependencies";
 
+// Mock git utilities that are called directly (not through GitService)
+mock.module("../../utils/git-exec", () => ({
+  gitFetchWithTimeout: mock(() => Promise.resolve()),
+  gitPushWithTimeout: mock(() => Promise.resolve()),
+  execGitWithTimeout: mock(() => Promise.resolve("mock-output")),
+}));
+
 // Mock logger to avoid console noise in tests
 const mockLog = {
   debug: mock(() => {}),
