@@ -167,7 +167,19 @@ describe("Session Approve - Bug Regression Tests", () => {
 
       const mockTaskService = createMockTaskService({
         setTaskStatus: mock(() => Promise.resolve()),
-        getTaskStatus: () => Promise.resolve("TODO")
+        getTaskStatus: () => Promise.resolve("TODO"),
+        mockGetTask: (taskId: string) => {
+          if (taskId === "123" || taskId === "#123") {
+            return Promise.resolve({
+              id: "#123",
+              title: "Test Task 123",
+              description: "Test task for regression test",
+              status: "TODO",
+              specPath: "process/tasks/123.md"
+            });
+          }
+          return Promise.resolve(null);
+        }
       });
 
       // Act & Assert: Command should throw error and NOT continue to task status update
@@ -263,23 +275,27 @@ describe("Session Approve - Bug Regression Tests", () => {
     });
 
     test("should restore stash even when merge fails", async () => {
-      // Arrange: Set up scenario with stashed changes and merge failure
+      // Arrange: Set up scenario where merge fails but stash should still be restored
       const mockGitService = createMockGitService({
-        stashChanges: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
-        popStash: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
+        stashChanges: mock(() => Promise.resolve({ workdir: "/test/repo", stashed: true })),
+        popStash: mock(() => Promise.resolve({ workdir: "/test/repo", stashed: true })),
         execInRepository: mock((workdir, command) => {
           if (command.includes("git show-ref")) {
-            return Promise.resolve("");
+            return Promise.resolve(""); // PR branch exists
           }
           if (command.includes("git rev-parse")) {
             return Promise.resolve("abc123");
           }
           if (command.includes("git merge --ff-only")) {
-            throw new Error("Merge conflict detected");
+            // Simulate merge failure
+            throw new Error("Merge failed");
           }
           return Promise.resolve("");
         })
       });
+
+      // Mock hasUncommittedChanges separately to trigger stashing behavior
+      mockGitService.hasUncommittedChanges = mock(() => Promise.resolve(true));
 
       const mockSessionDB = createMockSessionProvider({
         getSessionByTaskId: () => Promise.resolve({
@@ -298,13 +314,29 @@ describe("Session Approve - Bug Regression Tests", () => {
         })
       });
 
+      const mockTaskService = createMockTaskService({
+        mockGetTask: (taskId: string) => {
+          if (taskId === "123" || taskId === "#123") {
+            return Promise.resolve({
+              id: "#123",
+              title: "Test Task 123",
+              description: "Test task for regression test",
+              status: "TODO",
+              specPath: "process/tasks/123.md"
+            });
+          }
+          return Promise.resolve(null);
+        }
+      });
+
       // Act: Command should fail but still restore stash
       try {
         await approveSessionImpl(
           { task: "123", repo: "/test/repo" },
           {
             sessionDB: mockSessionDB,
-            gitService: mockGitService
+            gitService: mockGitService,
+            taskService: mockTaskService
           }
         );
       } catch (error) {
