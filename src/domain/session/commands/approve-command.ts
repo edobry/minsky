@@ -141,18 +141,39 @@ export async function sessionApprove(
               `git commit -m "chore(${taskId}): update task status to DONE"`
             );
             log.info(`Task status commit for ${taskId} created successfully`);
-          } catch (commitError) {
-            // Handle pre-commit hook failures gracefully
-            const errorMsg = getErrorMessage(commitError as Error);
-            if (errorMsg.includes("pre-commit") || errorMsg.includes("lint")) {
-              log.warn("⚠️  Pre-commit linting detected issues during task status commit");
-              log.warn("📝 Task status was updated but commit had linting issues");
-              log.warn("💡 The task is marked as DONE - you can fix linting issues separately");
-              log.warn("Task status commit failed due to pre-commit checks", {
-                taskId,
-                error: errorMsg,
-              });
-              // Don't re-throw - the task status update succeeded, just the commit had linting issues
+                     } catch (commitError) {
+             // Handle pre-commit hook failures gracefully
+             const errorMsg = getErrorMessage(commitError as Error);
+             if (errorMsg.includes("pre-commit") || errorMsg.includes("lint")) {
+               // Parse linter output to show clean summary
+               const errorCount = (errorMsg.match(/error/g) || []).length;
+               const warningCount = (errorMsg.match(/warning/g) || []).length;
+
+               log.warn("⚠️  Pre-commit linting detected issues during task status commit");
+               log.warn("📝 Task status was updated but commit had linting issues");
+
+               if (errorCount > 0) {
+                 log.warn(`📋 Found ${errorCount} linting errors`);
+               }
+               if (warningCount > 0) {
+                 log.warn(`📋 Found ${warningCount} linting warnings`);
+               }
+
+               log.warn("");
+               log.warn("💡 To fix issues:");
+               log.warn("  • Run 'bun run lint' to see detailed errors");
+               log.warn("  • Run 'bun run lint:fix' to auto-fix what's possible");
+               log.warn("");
+
+               log.warn("Task status commit failed due to pre-commit checks", {
+                 taskId,
+                 errors: errorCount,
+                 warnings: warningCount,
+               });
+               // Re-throw to fail the command - linting issues should block session approval
+               throw new MinskyError(
+                 `Session approval failed due to linting issues (${errorCount} errors, ${warningCount} warnings)`
+               );
             } else {
               // Re-throw for other types of commit errors
               throw commitError;

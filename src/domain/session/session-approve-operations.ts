@@ -500,16 +500,37 @@ The task exists but has no associated session to approve.
                 // Handle pre-commit hook failures gracefully
                 const errorMsg = getErrorMessage(commitError as Error);
                 if (errorMsg.includes("pre-commit") || errorMsg.includes("lint")) {
+                  // Parse linter output to show clean summary
+                  const errorCount = (errorMsg.match(/error/g) || []).length;
+                  const warningCount = (errorMsg.match(/warning/g) || []).length;
+
                   if (!params.json) {
                     log.cli("⚠️  Pre-commit linting detected issues during task status commit");
                     log.cli("📝 Task status was updated but commit had linting issues");
-                    log.cli("💡 The task is marked as DONE - you can fix linting issues separately");
+
+                    if (errorCount > 0) {
+                      log.cli(`📋 Found ${errorCount} linting errors`);
+                    }
+                    if (warningCount > 0) {
+                      log.cli(`📋 Found ${warningCount} linting warnings`);
+                    }
+
+                    log.cli("");
+                    log.cli("💡 To fix issues:");
+                    log.cli("  • Run 'bun run lint' to see detailed errors");
+                    log.cli("  • Run 'bun run lint:fix' to auto-fix what's possible");
+                    log.cli("");
+                    log.cli("✅ The task is marked as DONE - you can fix linting issues separately");
                   }
                   log.warn("Task status commit failed due to pre-commit checks", {
                     taskId,
-                    error: errorMsg,
+                    errors: errorCount,
+                    warnings: warningCount,
                   });
-                  // Don't re-throw - the task status update succeeded, just the commit had linting issues
+                  // Re-throw to fail the command - linting issues should block session approval
+                  throw new MinskyError(
+                    `Session approval failed due to linting issues (${errorCount} errors, ${warningCount} warnings)`
+                  );
                 } else {
                   // Re-throw for other types of commit errors
                   throw commitError;
