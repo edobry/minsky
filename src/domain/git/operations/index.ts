@@ -39,6 +39,16 @@ export {
   createCommitOperation,
 } from "./basic-operations";
 
+// Advanced operations
+export {
+  MergeOperation,
+  CheckoutOperation,
+  RebaseOperation,
+  createMergeOperation,
+  createCheckoutOperation,
+  createRebaseOperation,
+} from "./advanced-operations";
+
 // Factory for creating all operations
 export function createAllGitOperations(deps?: GitOperationDependencies) {
   return {
@@ -52,6 +62,11 @@ export function createAllGitOperations(deps?: GitOperationDependencies) {
     createPullRequest: createCreatePullRequestOperation(deps),
     preparePr: createPreparePrOperation(deps),
     mergePr: createMergePrOperation(deps),
+    
+    // Advanced operations
+    merge: createMergeOperation(deps),
+    checkout: createCheckoutOperation(deps),
+    rebase: createRebaseOperation(deps),
   };
 }
 
@@ -68,6 +83,9 @@ export function setupGitOperationRegistry(deps?: GitOperationDependencies): GitO
   registry.register("createPullRequest", operations.createPullRequest);
   registry.register("preparePr", operations.preparePr);
   registry.register("mergePr", operations.mergePr);
+  registry.register("merge", operations.merge);
+  registry.register("checkout", operations.checkout);
+  registry.register("rebase", operations.rebase);
   
   return registry;
 }

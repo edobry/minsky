@@ -125,6 +125,50 @@ export class ModularGitCommandsManager {
   }
 
   /**
+   * Merge branches using the provided parameters
+   */
+  async mergeFromParams(params: {
+    sourceBranch: string;
+    targetBranch?: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
+  }): Promise<any> {
+    return await this.operations.merge.execute(params);
+  }
+
+  /**
+   * Checkout branch using the provided parameters
+   */
+  async checkoutFromParams(params: {
+    branch: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
+  }): Promise<any> {
+    return await this.operations.checkout.execute(params);
+  }
+
+  /**
+   * Rebase branch using the provided parameters
+   */
+  async rebaseFromParams(params: {
+    baseBranch: string;
+    featureBranch?: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
+  }): Promise<any> {
+    return await this.operations.rebase.execute(params);
+  }
+
+  /**
    * Execute operation by name (registry-based execution)
    */
   async executeOperation<TParams, TResult>(
@@ -244,6 +288,20 @@ export async function mergePrFromParams(
 }
 
 /**
+ * Create branch using the provided parameters (backward compatibility)
+ */
+export async function branchFromParams(
+  params: {
+    session: string;
+    name: string;
+  },
+  deps?: GitOperationDependencies
+): Promise<any> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.branchFromParams(params);
+}
+
+/**
  * Clone repository using the provided parameters (backward compatibility)
  */
 export async function cloneFromParams(
@@ -288,6 +346,62 @@ export async function pushFromParams(
 ): Promise<any> {
   const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
   return await manager.pushFromParams(params);
+}
+
+/**
+ * Merge branches using the provided parameters (backward compatibility)
+ */
+export async function mergeFromParams(
+  params: {
+    sourceBranch: string;
+    targetBranch?: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
+  },
+  deps?: GitOperationDependencies
+): Promise<any> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.mergeFromParams(params);
+}
+
+/**
+ * Checkout branch using the provided parameters (backward compatibility)
+ */
+export async function checkoutFromParams(
+  params: {
+    branch: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
+  },
+  deps?: GitOperationDependencies
+): Promise<any> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.checkoutFromParams(params);
+}
+
+/**
+ * Rebase branch using the provided parameters (backward compatibility)
+ */
+export async function rebaseFromParams(
+  params: {
+    baseBranch: string;
+    featureBranch?: string;
+    session?: string;
+    repo?: string;
+    preview?: boolean;
+    autoResolve?: boolean;
+    conflictStrategy?: string;
+  },
+  deps?: GitOperationDependencies
+): Promise<any> {
+  const manager = deps ? createModularGitCommandsManager(deps) : modularGitCommandsManager;
+  return await manager.rebaseFromParams(params);
 }
 
 // Export all operation components for direct access

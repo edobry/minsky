@@ -1042,6 +1042,7 @@ export async function preparePrFromParams(params: {
 
 /**
  * Interface-agnostic function to merge a PR branch
+ * MODULARIZED: Delegates to modular operation
  */
 export async function mergePrFromParams(params: {
   prBranch: string;
@@ -1049,26 +1050,8 @@ export async function mergePrFromParams(params: {
   baseBranch?: string;
   session?: string;
 }): Promise<MergePrResult> {
-  try {
-    const git = new GitService();
-    const result = await git.mergePr({
-      prBranch: params.prBranch,
-      repoPath: params.repo,
-      baseBranch: params.baseBranch,
-      session: params.session,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error merging PR branch", {
-      prBranch: params.prBranch,
-      baseBranch: params.baseBranch,
-      session: params.session,
-      repo: params.repo,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.mergePrFromParams(params);
 }
 
 /**
@@ -1087,27 +1070,14 @@ export async function cloneFromParams(params: {
 
 /**
  * Interface-agnostic function to create a branch
+ * MODULARIZED: Delegates to modular operation
  */
 export async function branchFromParams(params: {
   session: string;
   name: string;
 }): Promise<BranchResult> {
-  try {
-    const git = new GitService();
-    const result = await git.branch({
-      session: params.session,
-      branch: params.name,
-    });
-    return result;
-  } catch (error) {
-    log.error("Error creating branch", {
-      session: params.session,
-      name: params.name,
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.branchFromParams(params);
 }
 
 /**
@@ -1138,6 +1108,7 @@ export function createGitService(options?: { baseDir?: string }): GitServiceInte
 
 /**
  * Interface-agnostic function to merge branches with conflict detection
+ * MODULARIZED: Delegates to modular operation
  */
 export async function mergeFromParams(params: {
   sourceBranch: string;
@@ -1148,38 +1119,13 @@ export async function mergeFromParams(params: {
   autoResolve?: boolean;
   conflictStrategy?: string;
 }): Promise<EnhancedMergeResult> {
-  try {
-    const git = new GitService();
-    const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
-    const targetBranch = params.targetBranch || "HEAD";
-
-    const result = await git.mergeWithConflictPrevention(
-      repoPath,
-      params.sourceBranch,
-      targetBranch,
-      {
-        dryRun: params.preview,
-        autoResolveDeleteConflicts: params.autoResolve,
-        skipConflictCheck: false,
-      }
-    );
-
-    return result;
-  } catch (error) {
-    log.error("Error merging branches", {
-      sourceBranch: params.sourceBranch,
-      targetBranch: params.targetBranch,
-      session: params.session,
-      repo: params.repo,
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.mergeFromParams(params);
 }
 
 /**
  * Interface-agnostic function to checkout/switch branches with conflict detection
+ * MODULARIZED: Delegates to modular operation
  */
 export async function checkoutFromParams(params: {
   branch: string;
@@ -1195,55 +1141,13 @@ export async function checkoutFromParams(params: {
   conflictDetails?: string;
   warning?: { wouldLoseChanges: boolean; recommendedAction: string };
 }> {
-  try {
-    const git = new GitService();
-    const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
-
-    // Use ConflictDetectionService to check for branch switch conflicts
-    const { ConflictDetectionService } = await import("./git/conflict-detection");
-
-    if (params.preview) {
-      // Just preview the operation
-      const warning = await ConflictDetectionService.checkBranchSwitchConflicts(
-        repoPath,
-        params.branch
-      );
-      return {
-        workdir: repoPath,
-        switched: false,
-        conflicts: warning.wouldLoseChanges,
-        conflictDetails: warning.wouldLoseChanges
-          ? `Switching to ${params.branch} would lose uncommitted changes. ${warning.recommendedAction}`
-          : undefined,
-        warning: {
-          wouldLoseChanges: warning.wouldLoseChanges,
-          recommendedAction: warning.recommendedAction,
-        },
-      };
-    }
-
-    // Perform actual checkout
-    await git.execInRepository(repoPath, `checkout ${params.branch}`);
-
-    return {
-      workdir: repoPath,
-      switched: true,
-      conflicts: false,
-    };
-  } catch (error) {
-    log.error("Error checking out branch", {
-      branch: params.branch,
-      session: params.session,
-      repo: params.repo,
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.checkoutFromParams(params);
 }
 
 /**
  * Interface-agnostic function to rebase branches with conflict detection
+ * MODULARIZED: Delegates to modular operation
  */
 export async function rebaseFromParams(params: {
   baseBranch: string;
@@ -1264,71 +1168,6 @@ export async function rebaseFromParams(params: {
     overallComplexity: string;
   };
 }> {
-  try {
-    const git = new GitService();
-    const repoPath = params.repo || git.getSessionWorkdir(params.session || "");
-    const featureBranch = params.featureBranch || "HEAD";
-
-    // Use ConflictDetectionService to predict rebase conflicts
-    const { ConflictDetectionService } = await import("./git/conflict-detection");
-
-    const prediction = await ConflictDetectionService.predictRebaseConflicts(
-      repoPath,
-      params.baseBranch,
-      featureBranch
-    );
-
-    if (params.preview) {
-      // Just preview the operation
-      return {
-        workdir: repoPath,
-        rebased: false,
-        conflicts: !prediction.canAutoResolve,
-        conflictDetails: prediction.recommendations.join("\n"),
-        prediction: {
-          canAutoResolve: prediction.canAutoResolve,
-          recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity,
-        },
-      };
-    }
-
-    // Perform actual rebase if no conflicts or auto-resolve enabled
-    if (prediction.canAutoResolve || params.autoResolve) {
-      await git.execInRepository(repoPath, `rebase ${params.baseBranch}`);
-      return {
-        workdir: repoPath,
-        rebased: true,
-        conflicts: false,
-        prediction: {
-          canAutoResolve: prediction.canAutoResolve,
-          recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity,
-        },
-      };
-    } else {
-      return {
-        workdir: repoPath,
-        rebased: false,
-        conflicts: true,
-        conflictDetails:
-          "Rebase would create conflicts. Use --preview to see details or --auto-resolve to attempt automatic resolution.",
-        prediction: {
-          canAutoResolve: prediction.canAutoResolve,
-          recommendations: prediction.recommendations,
-          overallComplexity: prediction.overallComplexity,
-        },
-      };
-    }
-  } catch (error) {
-    log.error("Error rebasing branch", {
-      baseBranch: params.baseBranch,
-      featureBranch: params.featureBranch,
-      session: params.session,
-      repo: params.repo,
-      error: getErrorMessage(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    throw error;
-  }
+  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
+  return await modularGitCommandsManager.rebaseFromParams(params);
 }
