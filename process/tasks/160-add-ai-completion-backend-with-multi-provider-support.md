@@ -7,7 +7,7 @@
 
 ## Overview
 
-Implement a general AI backend that supports multiple model providers (OpenAI, Anthropic, OpenRouter, LiteLLM, Ollama, etc.) with reasoning, tool use, and prompt caching capabilities. This backend will serve as the foundation for AI-powered features across Minsky including rules processing, context management, tools, and future agent implementation.
+Implement a general AI backend that supports multiple model providers (OpenAI, Anthropic, Google, OpenRouter, Ollama, etc.) with reasoning, tool use, and prompt caching capabilities. This backend will serve as the foundation for AI-powered features across Minsky including rules processing, context management, tools, and future agent implementation.
 
 ## **CORRECTED Status Assessment**
 
@@ -19,6 +19,7 @@ The task spec previously claimed "Phase 1 Complete" but investigation reveals:
 - Configuration system with AI provider support
 - TypeScript interfaces and schemas (`src/domain/ai/types.ts`, `src/domain/ai/config-service.ts`)
 - Environment variable mappings for provider API keys
+- Hard-coded capability maps for providers (needs dynamic replacement)
 
 **❌ NOT Implemented (claimed as "complete"):**
 - `src/domain/ai/completion-service.ts` - **DOES NOT EXIST**
@@ -32,21 +33,55 @@ The task spec previously claimed "Phase 1 Complete" but investigation reveals:
 
 ## **AI SDK Choice Confirmed: Vercel AI SDK**
 
-After researching alternatives (LiteLLM, direct SDKs, LangChain, AI Gateways), **Vercel AI SDK remains the best choice** for Minsky:
+After comprehensive research of alternatives (LiteLLM, llm-exe, direct SDKs, Simon Willison's llm, Mozilla's any-llm), **Vercel AI SDK is confirmed as the best choice** for Minsky:
 
-### **Why Not LiteLLM?**
-- **High latency overhead**: Benchmarks show significant performance degradation
-- **Production concerns**: Bug-prone at scale, no enterprise support/SLAs
-- **Limited functionality**: Mainly API proxying, lacks advanced features
-- **Deployment complexity**: Difficult to operationalize in enterprise environments
+### **Why Not Other Options?**
 
-### **Why Vercel AI SDK?**
-- **Performance**: Lower latency than LiteLLM proxy approaches
-- **Developer Experience**: Excellent TypeScript support, React integration
-- **Active Development**: Regular updates, good documentation
-- **Multi-modal Ready**: Built-in support for text, images, structured outputs
-- **Streaming Optimized**: Perfect for real-time UI interactions
-- **Tool Calling**: Native support for function calling across providers
+**LiteLLM:**
+- High latency overhead and production stability issues
+- Bug-prone at scale, no enterprise support/SLAs
+- Mainly API proxying, lacks advanced features
+
+**llm-exe:**
+- Application framework for building LLM apps, not a multi-provider SDK
+- Over-engineered for Minsky's simple completion needs
+- Would add unnecessary abstraction layers
+
+**Simon Willison's llm:**
+- Python-based CLI tool, not a TypeScript SDK
+- Different scope (command-line usage vs programmatic integration)
+
+**Direct Provider SDKs:**
+- Would require maintaining multiple SDK integrations
+- Inconsistent APIs and response formats across providers
+
+### **Why Vercel AI SDK is Optimal for Minsky:**
+
+✅ **CLI-Focused Performance**: Lower latency than proxy approaches
+✅ **TypeScript Native**: Excellent typing for Minsky's codebase
+✅ **Multi-Provider Support**: 20+ providers with unified interface
+✅ **No Web Dependencies**: Despite name, works perfectly for CLI/Node.js use
+✅ **Active Maintenance**: Well-maintained by Vercel team
+✅ **Tool Calling**: Unified function calling across providers
+✅ **Streaming Support**: Important for future interactive CLI features
+✅ **Direct Provider Communication**: No proxy/gateway servers required
+
+## **Corrected Implementation Scope**
+
+This implementation is for **Minsky's CLI-based AI agent collaboration tool**, not a web application.
+
+### **Key Features for CLI Environment:**
+- AI-powered task analysis and code generation
+- Context-aware repository understanding
+- Agent-to-agent communication via pull requests
+- Command-line tool calling and automation
+- Rule processing and workflow optimization
+
+### **Non-Requirements (Previously Incorrect):**
+- ❌ Web UI components or React integration
+- ❌ Edge runtime optimization
+- ❌ Browser-based deployment
+- ❌ Real-time web streaming interfaces
 
 ## Requirements
 
@@ -163,43 +198,49 @@ interface ProviderAdapter {
 
 ## Dependencies
 
-- ✅ **Vercel AI SDK**: Primary abstraction layer
+- ✅ **Vercel AI SDK**: Primary abstraction layer (`ai`, `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`)
 - ✅ **Existing configuration system**: `src/domain/configuration/`
 - ✅ **Error handling patterns**: `src/errors/`
-- ✅ **CLI framework**: `src/cli.ts` structure
+- ✅ **CLI framework**: `src/cli.ts`
 - ⏳ **Provider API keys**: For testing and development
 
 ## Acceptance Criteria
 
-### **Phase 1 (Actual Implementation)**
+### **Phase 1: Core Implementation**
 
-- [ ] Multi-provider AI backend with clean abstraction layer
-- [ ] Configuration system integration for API tokens and provider selection
-- [ ] Support for OpenAI, Anthropic, and Google as initial providers
-- [ ] Basic CLI integration with `minsky ai` command
-- [ ] Comprehensive error handling integrated with Minsky patterns
-- [ ] Type-safe interfaces using Zod schemas throughout
-- [ ] Unit tests for core functionality
+- [ ] **Multi-provider completion service** using Vercel AI SDK
+- [ ] **Provider support** for OpenAI, Anthropic, and Google
+- [ ] **CLI command** `minsky ai` with chat and completion subcommands
+- [ ] **Configuration integration** with existing Minsky config system
+- [ ] **Error handling** following Minsky error patterns
+- [ ] **Unit tests** with comprehensive provider mocking
+- [ ] **TypeScript types** for all AI operations
 
 ### **Definition of Done**
 
-- [ ] All tests pass
+- [ ] All tests pass including edge cases and error scenarios
 - [ ] Code follows Minsky patterns and conventions
-- [ ] Documentation updated
-- [ ] CLI help text is comprehensive
-- [ ] Provider switching works without code changes
-- [ ] Error messages are user-friendly
-- [ ] Performance is acceptable (baseline measurements taken)
+- [ ] CLI help documentation is complete and accurate
+- [ ] Provider switching works seamlessly without code changes
+- [ ] Error messages are user-friendly and actionable
+- [ ] Performance benchmarks establish acceptable response times
+- [ ] Integration with existing configuration system is seamless
+
+### **Task #323 Integration**
+
+- [ ] **Optional enhancement**: If Task #323 (provider model fetching) is completed, integrate dynamic model discovery
+- [ ] **Fallback**: Use static model lists if dynamic fetching unavailable
 
 ---
 
 **Estimated Effort:** Medium (2-3 weeks for Phase 1)
-**Risk Level:** Low (well-defined scope, proven technology)
-**Blocking:** None identified
+**Risk Level:** Low (proven technology, well-defined scope)
+**Blocking Dependencies:** None identified
+**Optional Enhancement:** Task #323 (dynamic model fetching)
 
-**Next Actions:**
-1. Create session for task #160
+**Immediate Next Actions:**
+1. Create development session for task #160
 2. Install Vercel AI SDK and provider packages
-3. Implement basic `AICompletionService` with OpenAI provider
-4. Add CLI command structure
-5. Write unit tests for core functionality
+3. Implement `AICompletionService` with OpenAI provider
+4. Add basic CLI command structure
+5. Write comprehensive unit tests
