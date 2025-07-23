@@ -364,38 +364,11 @@ export class RuleTemplateService {
   }
   
   /**
-   * Register the default rule templates
-   * Note: This should be called after creating a RuleTemplateService
+   * Register default templates
+   * These are the core templates used for standard rule generation
    */
   async registerDefaultTemplates(): Promise<void> {
-    try {
-      // Dynamic import to avoid circular dependencies
-      const { DEFAULT_TEMPLATES } = await import("./default-templates");
-      
-      // Register each template
-      for (const template of DEFAULT_TEMPLATES) {
-        this.registerTemplate(template);
-      }
-    } catch (error) {
-      console.error("Error registering default templates:", error);
-      // Register a test template
-      this.registerTemplate({
-        id: "test-template",
-        name: "Test Template",
-        description: "A test template",
-        tags: ["test"],
-        generateContent: (context) => {
-          return `# Test Template\n\nThis is a test template generated with interface: ${context.config.interface}.`;
-        },
-        generateMeta: (context) => {
-          return {
-            name: "Test Template",
-            description: "A test template",
-            tags: ["test"]
-          };
-        }
-      });
-    }
+    this.registerInitTemplates(); // Init templates are a subset of default templates
   }
   
   /**

@@ -442,49 +442,49 @@ export function registerRulesCommands(): void {
       const typedParams = params as RulesGenerateParams;
 
       try {
-                 // Resolve workspace path
-         const workspacePath = await resolveWorkspacePath({});
-         const ruleTemplateService = createRuleTemplateService(workspacePath);
+        // Resolve workspace path
+        const workspacePath = await resolveWorkspacePath({});
+        const ruleTemplateService = createRuleTemplateService(workspacePath);
          
-         // Register templates
-         await ruleTemplateService.registerDefaultTemplates();
+        // Register templates
+        await ruleTemplateService.registerDefaultTemplates();
 
-         // Convert parameters to RuleGenerationConfig
-         const config: RuleGenerationConfig = {
-           interface: (typedParams.interface || "cli") as "cli" | "mcp" | "hybrid",
-           mcpEnabled: typedParams.interface === "mcp" || typedParams.interface === "hybrid",
-           mcpTransport: (typedParams.mcpTransport || "stdio") as "stdio" | "http",
-           preferMcp: typedParams.preferMcp || false,
-           ruleFormat: (typedParams.format || "cursor") as "cursor" | "openai",
-           outputDir: typedParams.outputDir || (typedParams.format === "cursor" ? ".cursor/rules" : ".ai/rules"),
-         };
+        // Convert parameters to RuleGenerationConfig
+        const config: RuleGenerationConfig = {
+          interface: (typedParams.interface || "cli") as "cli" | "mcp" | "hybrid",
+          mcpEnabled: typedParams.interface === "mcp" || typedParams.interface === "hybrid",
+          mcpTransport: (typedParams.mcpTransport || "stdio") as "stdio" | "http",
+          preferMcp: typedParams.preferMcp || false,
+          ruleFormat: (typedParams.format || "cursor") as "cursor" | "openai",
+          outputDir: typedParams.outputDir || (typedParams.format === "cursor" ? ".cursor/rules" : ".ai/rules"),
+        };
 
-         const selectedRules = typedParams.rules ? typedParams.rules.split(",").map(t => t.trim()) : undefined;
-         const dryRun = typedParams.dryRun || false;
-         const overwrite = typedParams.overwrite || false;
+        const selectedRules = typedParams.rules ? typedParams.rules.split(",").map(t => t.trim()) : undefined;
+        const dryRun = typedParams.dryRun || false;
+        const overwrite = typedParams.overwrite || false;
 
-         // Call domain function
-         const result = await ruleTemplateService.generateRules({
-           config,
-           selectedRules,
-           dryRun,
-           overwrite,
-         });
+        // Call domain function
+        const result = await ruleTemplateService.generateRules({
+          config,
+          selectedRules,
+          dryRun,
+          overwrite,
+        });
 
-                 return {
-           success: result.success,
-           rules: result.rules,
-           errors: result.errors,
-           generated: result.rules.length,
-         };
+        return {
+          success: result.success,
+          rules: result.rules,
+          errors: result.errors,
+          generated: result.rules.length,
+        };
       } catch (error) {
-                 log.error("Failed to generate rules", {
-           error: getErrorMessage(error),
-           interface: typedParams.interface,
-           selectedRules: typedParams.rules,
-           dryRun: typedParams.dryRun,
-           overwrite: typedParams.overwrite,
-         });
+        log.error("Failed to generate rules", {
+          error: getErrorMessage(error),
+          interface: typedParams.interface,
+          selectedRules: typedParams.rules,
+          dryRun: typedParams.dryRun,
+          overwrite: typedParams.overwrite,
+        });
         throw error;
       }
     },
