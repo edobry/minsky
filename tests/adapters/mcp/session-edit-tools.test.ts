@@ -9,11 +9,16 @@ import { readFile, writeFile } from "fs/promises";
 // Set up automatic mock cleanup
 setupTestMocks();
 
-// Mock fs operations
-let mockReadFile = createMock() as any;
-let mockWriteFile = createMock() as any;
-const mockMkdir = createMock() as any;
-const mockStat = createMock() as any;
+// Mock fs operations - use dynamic mocks that can be reconfigured
+let mockReadFileImpl = () => Promise.resolve("default content");
+let mockWriteFileImpl = () => Promise.resolve(undefined);
+const mockMkdirImpl = () => Promise.resolve(undefined);
+const mockStatImpl = () => Promise.resolve({ isFile: () => true });
+
+const mockReadFile = mock(() => mockReadFileImpl());
+const mockWriteFile = mock(() => mockWriteFileImpl());
+const mockMkdir = mock(() => mockMkdirImpl());
+const mockStat = mock(() => mockStatImpl());
 
 mockModule("fs/promises", () => ({
   readFile: mockReadFile,
@@ -105,8 +110,8 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session_edit_file"].handler;
 
       // Mock file doesn't exist
-      mockReadFile = mock(() => Promise.reject(new Error("ENOENT: no such file or directory")));
-      mockWriteFile = mock(() => Promise.resolve(undefined));
+      mockReadFileImpl = () => Promise.reject(new Error("ENOENT: no such file or directory"));
+      mockWriteFileImpl = () => Promise.resolve(undefined);
 
       const result = await handler({
         session: "test-session",
@@ -163,9 +168,9 @@ describe("Session Edit Tools", () => {
     test("should replace single occurrence successfully", async () => {
       const handler = registeredTools["session_search_replace"].handler;
 
-      // Configure the module-level mock to return content as a string, not wrapped in toString()
-      mockReadFile = mock(() => Promise.resolve("This is oldText in the file"));
-      mockWriteFile = mock(() => Promise.resolve(undefined));
+      // Configure the implementation function to return content as a string
+      mockReadFileImpl = () => Promise.resolve("This is oldText in the file");
+      mockWriteFileImpl = () => Promise.resolve(undefined);
 
       // Mock path resolver - use module-level mocks
       mockResolvePath = mock(() => Promise.resolve("/session/path/test.ts"));
@@ -190,8 +195,8 @@ describe("Session Edit Tools", () => {
     test("should error when text not found", async () => {
       const handler = registeredTools["session_search_replace"].handler;
 
-      // Configure the module-level mock to return content without the target text
-      mockReadFile = mock(() => Promise.resolve("This is some text in the file"));
+      // Configure the implementation function to return content without the target text
+      mockReadFileImpl = () => Promise.resolve("This is some text in the file");
 
       // Mock path resolver - use module-level mocks
       mockResolvePath = mock(() => Promise.resolve("/session/path/test.ts"));
@@ -211,8 +216,8 @@ describe("Session Edit Tools", () => {
     test("should error when multiple occurrences found", async () => {
       const handler = registeredTools["session_search_replace"].handler;
 
-      // Configure the module-level mock to return content with multiple occurrences
-      mockReadFile = mock(() => Promise.resolve("This is oldText and oldText again"));
+      // Configure the implementation function to return content with multiple occurrences
+      mockReadFileImpl = () => Promise.resolve("This is oldText and oldText again");
 
       // Mock path resolver - use module-level mocks
       mockResolvePath = mock(() => Promise.resolve("/session/path/test.ts"));
