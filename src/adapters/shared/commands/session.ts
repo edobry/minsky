@@ -37,7 +37,7 @@ export {
 } from "./session-modular";
 
 // Export all modular session command components for full access
-export * from "./session";
+export * from "./session/";
 
 // Export for backward compatibility
 export { ModularSessionCommandsManager as SessionCommandsManager };
