@@ -1,5 +1,3 @@
-# feat(#313): Implement session_move_file and session_rename_file MCP tools
-
 ## Summary
 
 This PR implements two new MCP tools for efficient file operations within session workspaces: `session_move_file` and `session_rename_file`. These tools address the inefficiency of requiring two separate operations (write + delete) for moving/renaming files by providing atomic operations that are safer and more efficient.
