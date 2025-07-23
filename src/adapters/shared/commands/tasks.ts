@@ -751,7 +751,17 @@ const tasksMigrateRegistration = {
       const { writeFileSync, readFileSync, existsSync, mkdirSync } = await import("fs");
       const { join, dirname } = await import("path");
 
-      const currentWorkspacePath = workspacePath || (process as any).cwd();
+      // Use special workspace-aware resolution for task operations
+      let currentWorkspacePath: string;
+      if (workspacePath) {
+        currentWorkspacePath = workspacePath;
+      } else {
+        // Use workspace resolver for special workspace awareness
+        const { resolveTaskWorkspacePath } = await import("../../../utils/workspace-resolver");
+        currentWorkspacePath = await resolveTaskWorkspacePath({
+          backend: to, // Use target backend for workspace resolution
+        });
+      }
 
       // Detect source backend if not specified
       let sourceBackend = from;
@@ -775,16 +785,34 @@ const tasksMigrateRegistration = {
 
       log.info(`Migrating tasks from ${sourceBackend} to ${to} backend`);
 
-      // Create source and target task services
-      const sourceService = new TaskService({
-        workspacePath: currentWorkspacePath,
-        backend: sourceBackend,
-      });
+      // Create source and target task services with special workspace awareness
+      let sourceService: TaskService;
+      let targetService: TaskService;
 
-      const targetService = new TaskService({
-        workspacePath: currentWorkspacePath,
-        backend: to,
-      });
+      // For in-tree backends (markdown, json-file), use enhanced backend creation
+      if (["markdown", "json-file"].includes(sourceBackend)) {
+        sourceService = await TaskService.createWithEnhancedBackend({
+          backend: sourceBackend as "markdown" | "json-file",
+          backendConfig: { workspacePath: currentWorkspacePath },
+        });
+      } else {
+        sourceService = new TaskService({
+          workspacePath: currentWorkspacePath,
+          backend: sourceBackend,
+        });
+      }
+
+      if (["markdown", "json-file"].includes(to)) {
+        targetService = await TaskService.createWithEnhancedBackend({
+          backend: to as "markdown" | "json-file", 
+          backendConfig: { workspacePath: currentWorkspacePath },
+        });
+      } else {
+        targetService = new TaskService({
+          workspacePath: currentWorkspacePath,
+          backend: to,
+        });
+      }
 
       // Get all tasks from source backend
       const sourceTasks = await sourceService.getAllTasks();
@@ -801,7 +829,7 @@ const tasksMigrateRegistration = {
           sourceBackend,
           targetBackend: to,
           sourceCount,
-          tasks: sourceTasks.map(task => ({
+          tasks: sourceTasks.map((task) => ({
             id: task.id,
             title: task.title,
             status: task.status,
@@ -818,11 +846,18 @@ const tasksMigrateRegistration = {
         if (!existsSync(backupDir)) {
           mkdirSync(backupDir, { recursive: true });
         }
-        writeFileSync(backupPath, JSON.stringify({
-          backend: sourceBackend,
-          timestamp: new Date().toISOString(),
-          tasks: sourceTasks,
-        }, null, 2));
+        writeFileSync(
+          backupPath,
+          JSON.stringify(
+            {
+              backend: sourceBackend,
+              timestamp: new Date().toISOString(),
+              tasks: sourceTasks,
+            },
+            null,
+            2
+          )
+        );
         log.info(`Backup created: ${backupPath}`);
       }
 
@@ -853,7 +888,7 @@ const tasksMigrateRegistration = {
           // For JSON backend, set enhanced metadata if available
           if (to === "json-file") {
             const jsonBackend = (targetService as any).currentBackend;
-            
+
             // Check if backend has metadata capabilities
             if (jsonBackend.setTaskMetadata) {
               await jsonBackend.setTaskMetadata(createdTask.id, {
