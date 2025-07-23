@@ -1,9 +1,9 @@
 /**
  * Mock Filesystem Utilities
- * 
+ *
  * Provides utilities for creating mock filesystems for testing without touching the real filesystem.
  * This module includes in-memory filesystem implementations and filesystem operation mocks.
- * 
+ *
  * @module filesystem/mock-filesystem
  */
 import { createMock } from "../core/mock-functions";
@@ -108,21 +108,24 @@ export function createMockFilesystem(
     readdirSync: createMock((path: unknown) => {
       const dirPath = path as string;
       const contents: string[] = [];
-      
+
       // Find files in this directory
       for (const [filepath] of files) {
-        if (filepath.startsWith(`${dirPath}/`) && !filepath.slice(dirPath.length + 1).includes("/")) {
+        if (
+          filepath.startsWith(`${dirPath}/`) &&
+          !filepath.slice(dirPath.length + 1).includes("/")
+        ) {
           contents.push(filepath.slice(dirPath.length + 1));
         }
       }
-      
+
       // Find subdirectories
       for (const dirName of directories) {
         if (dirName.startsWith(`${dirPath}/`) && !dirName.slice(dirPath.length + 1).includes("/")) {
           contents.push(dirName.slice(dirPath.length + 1));
         }
       }
-      
+
       return contents;
     }),
 
@@ -160,3 +163,9 @@ export function createMockFilesystem(
 
   return mockFs;
 }
+
+/**
+ * Helper function to create common filesystem operation mocks
+ * @deprecated Use createMockFilesystem instead
+ */
+export const mockFsOperations = createMockFilesystem;
