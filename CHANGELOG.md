@@ -2,6 +2,11 @@
 
 ### Enhanced
 
+- **ESLint Rule**: Added `no-tests-directories` rule to warn against using `__tests__` directories and encourage co-located test files
+  - Warns when test files are found in `__tests__` directories
+  - Suggests moving tests to be co-located with their modules (e.g., `module.test.ts` next to `module.ts`)
+  - Follows Task #270's test architecture improvements promoting co-location over separate test directories
+
 - **Task #312: Enhanced session_read_file tool with line range support**
   - Added support for line range parameters matching Cursor's read_file interface
   - Added `start_line_one_indexed`, `end_line_one_indexed_inclusive`, `should_read_entire_file`, and `explanation` parameters
