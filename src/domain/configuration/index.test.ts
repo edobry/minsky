@@ -21,13 +21,31 @@ import {
 
 describe("Custom Configuration System", () => {
   let provider: ConfigurationProvider;
+  let originalGlobalProvider: any;
 
   beforeEach(async () => {
-    provider = await createTestProvider({});
+    // Store original global state
+    try {
+      originalGlobalProvider = getConfiguration();
+    } catch {
+      originalGlobalProvider = null;
+    }
+
+    // Create provider with the expected overrides for the test suite
+    provider = await createTestProvider({
+      backend: "json-file",
+      sessiondb: {
+        backend: "sqlite",
+        dbPath: "/tmp/test.db"
+      }
+    });
   });
 
-  afterEach(() => {
-    // Reset global configuration state if needed
+  afterEach(async () => {
+    // Reset global configuration state to prevent test pollution
+    if (originalGlobalProvider) {
+      await initializeConfiguration(new CustomConfigFactory());
+    }
   });
 
   describe("CustomConfigurationProvider", () => {
@@ -100,11 +118,11 @@ describe("Custom Configuration System", () => {
     test("should support configuration overrides", async () => {
       const factory = new CustomConfigFactory();
       await initializeConfiguration(factory, {
-        overrides: { backend: "custom-override" }
+        overrides: { backend: "github-issues" }
       });
 
       const config = getConfiguration();
-      expect(config.backend).toBe("custom-override");
+      expect(config.backend).toBe("github-issues");
     });
   });
 
@@ -168,12 +186,12 @@ describe("Custom Configuration System", () => {
     test("should create provider with custom options", async () => {
       const factory = new CustomConfigFactory();
       const provider = await factory.createProvider({
-        overrides: { backend: "test-backend" },
+        overrides: { backend: "markdown" },
         enableCache: false
       });
 
       const config = provider.getConfig();
-      expect(config.backend).toBe("test-backend");
+      expect(config.backend).toBe("markdown");
     });
   });
 });
