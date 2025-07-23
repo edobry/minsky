@@ -137,34 +137,18 @@ function getSafeAlternative(gitCommand) {
 }
 
 function generateAutoFix(fixer, node, gitCommand, originalCommand) {
-  const safeFunction = getSafeAlternative(gitCommand);
+  // Extract workdir from git -C option
+  const workdirMatch = originalCommand.match(/git\s+-C\s+(\S+)/);
+  const workdir = workdirMatch ? workdirMatch[1] : null;
   
-  // Extract git arguments for conversion
-  const gitMatch = originalCommand.match(/git\s+(-C\s+(\S+)\s+)?(.+)/);
-  if (!gitMatch) return null;
+  // Create options object
+  const options = workdir ? `{ workdir: "${workdir}" }` : "{}";
   
-  const workdir = gitMatch[2];
-  const args = gitMatch[3];
-  
-  if (safeFunction === "execGitWithTimeout") {
-    // For execGitWithTimeout: execGitWithTimeout("operation", "command", { workdir })
-    const operation = gitCommand;
-    const command = args;
-    const options = workdir ? `{ workdir: "${workdir}" }` : "{}";
-    
-    return fixer.replaceText(
-      node,
-      `execGitWithTimeout("${operation}", "${command}", ${options})`
-    );
-  } else {
-    // For specific timeout functions: gitPushWithTimeout("origin", "branch", { workdir })
-    const options = workdir ? `{ workdir: "${workdir}" }` : "{}";
-    
-    return fixer.replaceText(
-      node,
-      `${safeFunction}("origin", undefined, ${options})`
-    );
-  }
+  // For all cases, use execGitWithTimeout consistently
+  return fixer.replaceText(
+    node,
+    `await execGitWithTimeout("${gitCommand}", "${originalCommand}", ${options})`
+  );
 }
 
 function getTemplateLiteralValue(node) {
