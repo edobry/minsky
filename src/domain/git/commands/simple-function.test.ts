@@ -1,3 +1,21 @@
+/**
+ * GIT COMMANDS SIMPLE FUNCTION TESTS
+ *
+ * What this file tests:
+ * - Basic git command function definitions and signatures
+ * - Simple git operations without complex dependencies
+ * - Git function parameter structures and return types
+ * - Basic git command functionality verification
+ *
+ * Key functionality tested:
+ * - Function signature validation for git commands
+ * - Basic parameter handling and return value structures
+ * - Simple git operations (clone, branch, commit, push)
+ * - Function callability and basic behavior
+ *
+ * NOTE: This tests simple functions, not complex integration (see integration.test.ts)
+ */
+
 import { describe, test, expect } from "bun:test";
 
 describe("Git Commands Function Tests", () => {

@@ -1,3 +1,21 @@
+/**
+ * GIT COMMANDS IMPORT TESTS
+ *
+ * What this file tests:
+ * - Git command module imports and exports
+ * - Verification that all git command functions are properly exposed
+ * - Basic import/export integrity of git command architecture
+ * - Module structure and API surface validation
+ *
+ * Key functionality tested:
+ * - Main git commands index file exports
+ * - Individual command file imports
+ * - Git types module imports
+ * - Subcommand module structure
+ *
+ * NOTE: This tests module structure, not command functionality (see integration.test.ts)
+ */
+
 import { describe, test, expect } from "bun:test";
 
 describe("Git Commands Import Tests", () => {
