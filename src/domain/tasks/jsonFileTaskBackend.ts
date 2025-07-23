@@ -20,6 +20,7 @@ import type {
   CreateTaskOptions,
   DeleteTaskOptions,
 } from "../tasks";
+import type { BackendCapabilities, TaskMetadata, MetadataQuery } from "./types";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { validateTaskState, type TaskState } from "../../schemas/storage";
@@ -600,6 +601,195 @@ ${description}
    */
   isInTreeBackend(): boolean {
     return true;
+  }
+
+  // ---- Enhanced Metadata Operations (Task #315) ----
+
+  /**
+   * Get task metadata by ID
+   * @param id Task ID
+   * @returns Promise resolving to task metadata or null if not found
+   */
+  async getTaskMetadata(id: string): Promise<TaskMetadata | null> {
+    try {
+      await this.storage.initialize();
+      const result = await this.storage.readState();
+      
+      if (!result.success || !result.data) {
+        return null;
+      }
+
+      // Look for metadata in the storage state
+      const metadata = result.data.metadata?.tasks?.[normalizeTaskIdForStorage(id)];
+      return metadata || null;
+    } catch (error) {
+      log.error("Failed to get task metadata", {
+        id,
+        error: getErrorMessage(error as any),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Set task metadata by ID
+   * @param id Task ID
+   * @param metadata Task metadata to set
+   * @returns Promise that resolves when metadata is saved
+   */
+  async setTaskMetadata(id: string, metadata: TaskMetadata): Promise<void> {
+    try {
+      await this.storage.initialize();
+      const result = await this.storage.readState();
+      
+      if (!result.success) {
+        throw new Error(`Failed to read current state: ${result.error?.message}`);
+      }
+
+      const currentState = result.data || { tasks: [], metadata: {} };
+      
+      // Ensure metadata structure exists
+      if (!currentState.metadata) {
+        currentState.metadata = {};
+      }
+      if (!currentState.metadata.tasks) {
+        currentState.metadata.tasks = {};
+      }
+
+      // Set the task metadata with timestamp
+      const normalizedId = normalizeTaskIdForStorage(id);
+      currentState.metadata.tasks[normalizedId] = {
+        ...metadata,
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Save the updated state
+      const saveResult = await this.storage.writeState(currentState);
+      if (!saveResult.success) {
+        throw new Error(`Failed to save metadata: ${saveResult.error?.message}`);
+      }
+
+      log.debug("Task metadata saved successfully", { id: normalizedId });
+    } catch (error) {
+      log.error("Failed to set task metadata", {
+        id,
+        error: getErrorMessage(error as any),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Query tasks by metadata criteria
+   * @param query Metadata query criteria
+   * @returns Promise resolving to array of tasks matching the query
+   */
+  async queryTasksByMetadata(query: MetadataQuery): Promise<Task[]> {
+    try {
+      await this.storage.initialize();
+      const result = await this.storage.readState();
+      
+      if (!result.success || !result.data) {
+        return [];
+      }
+
+      const state = result.data;
+      const tasks = state.tasks || [];
+      const taskMetadata = state.metadata?.tasks || {};
+
+      // Convert TaskData to Task objects first
+      const allTasks: Task[] = tasks.map(taskData => ({
+        id: taskData.id,
+        title: taskData.title,
+        description: taskData.description,
+        status: taskData.status,
+        specPath: taskData.specPath,
+        workspacePath: this.workspacePath,
+      }));
+
+      // Filter tasks based on query criteria
+      let filteredTasks = allTasks;
+
+      // Filter by task IDs
+      if (query.taskIds && query.taskIds.length > 0) {
+        const normalizedIds = query.taskIds.map(id => normalizeTaskIdForStorage(id));
+        filteredTasks = filteredTasks.filter(task => 
+          normalizedIds.includes(normalizeTaskIdForStorage(task.id))
+        );
+      }
+
+      // Filter by status
+      if (query.status && query.status.length > 0) {
+        filteredTasks = filteredTasks.filter(task => 
+          query.status!.includes(task.status)
+        );
+      }
+
+      // Filter by structural metadata
+      if (query.hasParent !== undefined) {
+        filteredTasks = filteredTasks.filter(task => {
+          const metadata = taskMetadata[normalizeTaskIdForStorage(task.id)];
+          const hasParent = metadata?.parentTask !== undefined;
+          return hasParent === query.hasParent;
+        });
+      }
+
+      if (query.parentTask) {
+        const normalizedParentId = normalizeTaskIdForStorage(query.parentTask);
+        filteredTasks = filteredTasks.filter(task => {
+          const metadata = taskMetadata[normalizeTaskIdForStorage(task.id)];
+          return metadata?.parentTask === normalizedParentId;
+        });
+      }
+
+      // Apply sorting if specified
+      if (query.sortBy) {
+        filteredTasks.sort((a, b) => {
+          let aValue: any;
+          let bValue: any;
+
+          if (query.sortBy === 'id') {
+            aValue = a.id;
+            bValue = b.id;
+          } else if (query.sortBy === 'title') {
+            aValue = a.title;
+            bValue = b.title;
+          } else if (query.sortBy === 'status') {
+            aValue = a.status;
+            bValue = b.status;
+          } else if (query.sortBy === 'createdAt' || query.sortBy === 'updatedAt') {
+            const aMetadata = taskMetadata[normalizeTaskIdForStorage(a.id)];
+            const bMetadata = taskMetadata[normalizeTaskIdForStorage(b.id)];
+            aValue = query.sortBy === 'createdAt' ? aMetadata?.createdAt : aMetadata?.updatedAt;
+            bValue = query.sortBy === 'createdAt' ? bMetadata?.createdAt : bMetadata?.updatedAt;
+          } else {
+            return 0; // Unknown sort field
+          }
+
+          if (aValue === bValue) return 0;
+          if (aValue === undefined) return 1;
+          if (bValue === undefined) return -1;
+
+          const comparison = aValue < bValue ? -1 : 1;
+          return query.sortOrder === 'desc' ? -comparison : comparison;
+        });
+      }
+
+      // Apply pagination
+      if (query.offset || query.limit) {
+        const offset = query.offset || 0;
+        const limit = query.limit || filteredTasks.length;
+        filteredTasks = filteredTasks.slice(offset, offset + limit);
+      }
+
+      return filteredTasks;
+    } catch (error) {
+      log.error("Failed to query tasks by metadata", {
+        query,
+        error: getErrorMessage(error as any),
+      });
+      throw error;
+    }
   }
 
   // ---- Private helper methods ----

@@ -5,6 +5,7 @@
 
 import type { TaskData, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData";
 import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
+import type { BackendCapabilities } from "./types";
 
 /**
  * TaskBackend interface defines operations for task management
@@ -69,7 +70,7 @@ export interface TaskBackend {
    * @param content Formatted tasks content
    * @returns Promise resolving to operation result
    */
-  saveTasksData(content: string): Promise<TaskWriteOperationResult>;
+  saveTasksData(content: string): Promise<TaskWriteOperationResult>
 
   /**
    * Save task specification data
@@ -109,6 +110,14 @@ export interface TaskBackend {
    * @returns Promise resolving to true if deleted, false otherwise
    */
   deleteTask(id: string, options?: { force?: boolean }): Promise<boolean>;
+
+  // ---- Capability Discovery ----
+
+  /**
+   * Get backend capabilities
+   * @returns Backend capabilities object describing what this backend supports
+   */
+  getCapabilities(): BackendCapabilities;
 }
 
 /**
