@@ -3,12 +3,20 @@
  * Provides session-scoped workspace tools that enforce workspace isolation
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
-import { z } from "zod";
 import { readFile, writeFile, mkdir, access, readdir, unlink, stat } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
 import { createSessionProvider, type SessionProviderInterface } from "../../domain/session";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
+import {
+  SessionFileOperationSchema,
+  SessionFileWriteSchema,
+  SessionDirectoryListSchema,
+  SessionFileExistsSchema,
+  SessionFileDeleteSchema,
+  SessionDirectoryCreateSchema,
+  SessionGrepSearchSchema,
+} from "./shared-schemas";
 
 /**
  * Session path resolver class for enforcing workspace boundaries
@@ -95,19 +103,16 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.read_file",
     description: "Read a file within a session workspace with optional line range support",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file within the session workspace"),
-    }),
+    parameters: SessionFileOperationSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionNameName, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
         await pathResolver.validatePathExists(resolvedPath);
 
         const content = await readFile(resolvedPath, "utf8");
 
         log.debug("Session file read successful", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           resolvedPath,
           contentLength: content.length,
@@ -117,16 +122,16 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           success: true,
           content,
           path: args.path,
-          session: args.sessionNameName,
+          session: args.sessionName,
           resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionNameName),
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
             resolvedPath
           ),
         };
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file read failed", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           error: errorMessage,
         });
@@ -135,7 +140,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           success: false,
           error: errorMessage,
           path: args.path,
-          session: args.sessionNameName,
+          session: args.sessionName,
         };
       }
     },
@@ -145,19 +150,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.write_file",
     description: "Write content to a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file within the session workspace"),
-      content: z.string().describe("Content to write to the file"),
-      createDirs: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-    }),
+    parameters: SessionFileWriteSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionNameName, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
         // Create parent directories if requested and they don't exist
         if (args.createDirs) {
@@ -168,7 +164,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         await writeFile(resolvedPath, args.content, "utf8");
 
         log.debug("Session file write successful", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           resolvedPath,
           contentLength: args.content.length,
@@ -178,9 +174,9 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         return {
           success: true,
           path: args.path,
-          session: args.sessionNameName,
+          session: args.sessionName,
           resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionNameName),
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
             resolvedPath
           ),
           bytesWritten: args.content.length,
@@ -188,7 +184,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file write failed", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           error: errorMessage,
         });
@@ -197,7 +193,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           success: false,
           error: errorMessage,
           path: args.path,
-          session: args.sessionNameName,
+          session: args.sessionName,
         };
       }
     },
@@ -207,19 +203,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.list_directory",
     description: "List contents of a directory within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z
-        .string()
-        .optional()
-        .default(".")
-        .describe("Path to the directory within the session workspace"),
-      showHidden: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe("Include hidden files (starting with .)"),
-    }),
+    parameters: SessionDirectoryListSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -285,10 +269,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.file_exists",
     description: "Check if a file or directory exists within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to check within the session workspace"),
-    }),
+    parameters: SessionFileExistsSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -353,10 +334,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.delete_file",
     description: "Delete a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file to delete within the session workspace"),
-    }),
+    parameters: SessionFileDeleteSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -410,15 +388,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.create_directory",
     description: "Create a directory within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the directory to create within the session workspace"),
-      recursive: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-    }),
+    parameters: SessionDirectoryCreateSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -465,20 +435,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.grep_search",
     description: "Search for patterns in files within a session workspace using regex",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      query: z.string().describe("Regex pattern to search for"),
-      case_sensitive: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe("Whether the search should be case sensitive"),
-      include_pattern: z
-        .string()
-        .optional()
-        .describe("Glob pattern for files to include (e.g. '*.ts' for TypeScript files)"),
-      exclude_pattern: z.string().optional().describe("Glob pattern for files to exclude"),
-    }),
+    parameters: SessionGrepSearchSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(args.sessionName);

@@ -4,13 +4,27 @@
  */
 import { readFile, writeFile, mkdir, access, readdir, unlink, stat, rename } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
-import { z } from "zod";
 import { createSessionProvider, type SessionProviderInterface } from "../../domain/session";
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import { SemanticErrorClassifier, ErrorContext } from "../../utils/semantic-error-classifier";
 import { FileOperationResponse } from "../../types/semantic-errors";
+import {
+  SessionFileReadSchema,
+  SessionFileWriteSchema,
+  SessionDirectoryListSchema,
+  SessionFileExistsSchema,
+  SessionFileDeleteSchema,
+  SessionFileMoveSchema,
+  SessionFileRenameSchema,
+  SessionDirectoryCreateSchema,
+  SessionGrepSearchSchema,
+  type SessionFileRead,
+  type SessionFileWrite,
+  type SessionDirectoryList,
+  type FileOperationResponse as SharedFileOperationResponse,
+} from "./shared-schemas";
 
 /**
  * Utility function to process file content with line range support
@@ -195,29 +209,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session.read_file",
     description: "Read a file within a session workspace with optional line range support",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file within the session workspace"),
-      start_line_one_indexed: z
-        .number()
-        .min(1)
-        .optional()
-        .describe("The one-indexed line number to start reading from (inclusive)"),
-      end_line_one_indexed_inclusive: z
-        .number()
-        .min(1)
-        .optional()
-        .describe("The one-indexed line number to end reading at (inclusive)"),
-      should_read_entire_file: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe("Whether to read the entire file"),
-      explanation: z
-        .string()
-        .optional()
-        .describe("One sentence explanation of why this tool is being used"),
-    }),
+    parameters: SessionFileReadSchema,
     handler: async (args): Promise<FileOperationResponse> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -309,16 +301,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session.write_file",
     description: "Write content to a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file within the session workspace"),
-      content: z.string().describe("Content to write to the file"),
-      createDirs: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-    }),
+    parameters: SessionFileWriteSchema,
     handler: async (args): Promise<FileOperationResponse> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -372,19 +355,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session.list_directory",
     description: "List contents of a directory within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z
-        .string()
-        .optional()
-        .default(".")
-        .describe("Path to the directory within the session workspace"),
-      showHidden: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe("Include hidden files (starting with .)"),
-    }),
+    parameters: SessionDirectoryListSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -451,10 +422,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session_file_exists",
     description: "Check if a file or directory exists within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to check within the session workspace"),
-    }),
+    parameters: SessionFileExistsSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -520,10 +488,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session_delete_file",
     description: "Delete a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file to delete within the session workspace"),
-    }),
+    parameters: SessionFileDeleteSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -578,15 +543,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session_create_directory",
     description: "Create a directory within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the directory to create within the session workspace"),
-      recursive: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-    }),
+    parameters: SessionDirectoryCreateSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -634,17 +591,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session_move_file",
     description: "Move a file from one location to another within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      sourcePath: z.string().describe("Current file path within the session workspace"),
-      targetPath: z.string().describe("New file path within the session workspace"),
-      createDirs: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-      overwrite: z.boolean().optional().default(false).describe("Overwrite target if it exists"),
-    }),
+    parameters: SessionFileMoveSchema,
     handler: async (args): Promise<FileOperationResponse> => {
       try {
         const sourceResolvedPath = await pathResolver.resolvePath(
@@ -704,6 +651,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
 
         return {
           success: true,
+          path: args.targetPath, // For compatibility with FileOperationResponse
           sourcePath: args.sourcePath,
           targetPath: args.targetPath,
           session: args.sessionName,
@@ -742,12 +690,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session_rename_file",
     description: "Rename a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Current file path within the session workspace"),
-      newName: z.string().describe("New filename (not full path)"),
-      overwrite: z.boolean().optional().default(false).describe("Overwrite target if it exists"),
-    }),
+    parameters: SessionFileRenameSchema,
     handler: async (args): Promise<FileOperationResponse> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -800,6 +743,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
 
         return {
           success: true,
+          path: targetPath, // For compatibility with FileOperationResponse
           originalPath: args.path,
           newPath: targetPath,
           newName: args.newName,
