@@ -135,15 +135,40 @@ export async function sessionApprove(
           await deps.gitService.execInRepository(workdir, "git add process/tasks.md");
 
           // Commit the task status update
-          await deps.gitService.execInRepository(
-            workdir,
-            `git commit -m "chore(${taskId}): update task status to DONE"`
-          );
+          try {
+            await deps.gitService.execInRepository(
+              workdir,
+              `git commit -m "chore(${taskId}): update task status to DONE"`
+            );
+            log.info(`Task status commit for ${taskId} created successfully`);
+          } catch (commitError) {
+            // Handle pre-commit hook failures gracefully
+            const errorMsg = getErrorMessage(commitError as Error);
+            if (errorMsg.includes("pre-commit") || errorMsg.includes("lint")) {
+              log.warn("⚠️  Pre-commit linting detected issues during task status commit");
+              log.warn("📝 Task status was updated but commit had linting issues");
+              log.warn("💡 The task is marked as DONE - you can fix linting issues separately");
+              log.warn("Task status commit failed due to pre-commit checks", {
+                taskId,
+                error: errorMsg,
+              });
+              // Don't re-throw - the task status update succeeded, just the commit had linting issues
+            } else {
+              // Re-throw for other types of commit errors
+              throw commitError;
+            }
+          }
 
-          // Push the commit
-          await gitPushWithTimeout("origin", undefined, { workdir });
-
-          log.info(`Task status commit for ${taskId} pushed successfully`);
+          // Try to push the commit if it succeeded
+          try {
+            await gitPushWithTimeout("origin", undefined, { workdir });
+            log.info(`Task status commit for ${taskId} pushed successfully`);
+          } catch (pushError) {
+            log.warn("Failed to push task status commit", {
+              taskId,
+              error: getErrorMessage(pushError),
+            });
+          }
         }
       } catch (error) {
         log.debug("Could not update task status", { error });
