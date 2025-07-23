@@ -2,10 +2,11 @@
  * Workspace resolution using TaskService with hanging prevention
  * Eliminates TaskBackendRouter complexity and provides workspace resolution with timeouts
  */
-import { TaskService } from "../domain/tasks/taskService";
-import { resolveRepoPath } from "../domain/repo-utils";
-import { log } from "./logger";
 import { performance } from "perf_hooks";
+import { TaskService } from "../domain/tasks/taskService";
+import { log } from "./logger";
+import { getErrorMessage } from "../errors/index";
+import { join } from "path";
 
 /**
  * Options for workspace resolution
@@ -24,19 +25,22 @@ export interface WorkspaceResolverOptions {
 }
 
 /**
- * Workspace resolution with hanging prevention
+ * Resolve the appropriate workspace path for task operations
  *
- * Uses aggressive timeouts to prevent the 10+ second hangs that were occurring
- * in task operations due to special workspace initialization delays.
+ * CRITICAL: ALL task operations should use the special workspace, not local directories.
+ * This ensures consistency between CLI and MCP interfaces.
+ *
+ * @param options Workspace resolution options
+ * @returns Promise resolving to workspace path
  */
 export async function resolveTaskWorkspacePath(
   options: WorkspaceResolverOptions = {}
 ): Promise<string> {
   const {
     backend = "markdown",
-    repoUrl,
-    maxResolutionTime = 2000, // 2 second default timeout
+    repoUrl = process.env.MINSKY_REPO_URL,
     emergencyMode = false,
+    maxResolutionTime = 10000,
     disableSpecialWorkspace = false,
   } = options;
 
@@ -48,95 +52,96 @@ export async function resolveTaskWorkspacePath(
     return process.cwd();
   }
 
-  // For non-markdown backends, use current directory immediately
-  if (backend !== "markdown") {
-    return process.cwd();
-  }
-
-  // If special workspace is disabled, use current directory
+  // If special workspace is explicitly disabled, use current directory
   if (disableSpecialWorkspace) {
     log.debug("Special workspace disabled, using current directory");
     return process.cwd();
   }
 
-  // For markdown backend, try special workspace with aggressive timeouts
-  if (repoUrl) {
+  // CRITICAL FIX: ALL task operations MUST use special workspace
+  // NO fallback to local workspace allowed
+
+  let resolvedRepoUrl = repoUrl;
+
+  if (!resolvedRepoUrl) {
+    // Try to get repository URL from git config in current directory
     try {
-      // Create aggressive timeout for special workspace operations
-      const timeout = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("Workspace resolution timeout")), maxResolutionTime);
+      const { execAsync } = await import("./exec");
+      const { stdout } = await execAsync("git config --get remote.origin.url", {
+        cwd: process.cwd(),
+        timeout: 2000,
       });
-
-      const taskServicePromise = TaskService.createMarkdownWithRepo({ repoUrl });
-      const taskService = await Promise.race([taskServicePromise, timeout]);
-
-      const workspacePath = taskService.getWorkspacePath();
-
-      log.debug("Workspace resolution completed", {
-        method: "repo-based",
-        duration: `${(performance.now() - startTime).toFixed(2)}ms`,
-        workspacePath,
-      });
-
-      return workspacePath;
+      resolvedRepoUrl = stdout.trim();
+      log.debug("Resolved repository URL from git config", { repoUrl: resolvedRepoUrl });
     } catch (error) {
-      log.warn("Repo-based workspace resolution failed, using fallback", {
-        error: error instanceof Error ? error.message : String(error),
-        repoUrl,
-        timeElapsed: `${(performance.now() - startTime).toFixed(2)}ms`,
+      log.warn("Could not resolve repository URL from git config", {
+        error: getErrorMessage(error),
+        cwd: process.cwd(),
       });
     }
   }
 
-  // Fallback: Try auto-detection with remaining time budget
-  const remainingTime = maxResolutionTime - (performance.now() - startTime);
-  if (remainingTime > 200) {
-    // Only try if we have at least 200ms left
+  // If we have a repository URL, use it for special workspace
+  if (resolvedRepoUrl) {
     try {
-      const timeout = new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error("Auto-detection timeout")),
-          Math.min(remainingTime, 1000)
-        );
-      });
-
-      const taskServicePromise = TaskService.createMarkdownWithAutoDetection();
-      const taskService = await Promise.race([taskServicePromise, timeout]);
+      const taskServicePromise = TaskService.createMarkdownWithRepo({ repoUrl: resolvedRepoUrl });
+      const taskService = await taskServicePromise; // No timeout - let it complete
 
       const workspacePath = taskService.getWorkspacePath();
 
-      log.debug("Workspace resolution completed", {
-        method: "auto-detection",
+      log.debug("Task workspace resolution completed using repository-specific special workspace", {
+        method: "repo-based-special-workspace",
         duration: `${(performance.now() - startTime).toFixed(2)}ms`,
         workspacePath,
+        repoUrl: resolvedRepoUrl,
       });
 
       return workspacePath;
     } catch (error) {
-      log.warn("Auto-detection workspace resolution failed, using current directory", {
-        error: error instanceof Error ? error.message : String(error),
-        timeElapsed: `${(performance.now() - startTime).toFixed(2)}ms`,
+      log.error("Repository-specific special workspace failed", {
+        error: getErrorMessage(error),
+        repoUrl: resolvedRepoUrl,
+        duration: `${(performance.now() - startTime).toFixed(2)}ms`,
       });
+      // Don't fall back - task operations MUST use special workspace
+      throw new Error(
+        `Task operations require special workspace. Failed to initialize with repo: ${resolvedRepoUrl}. Error: ${getErrorMessage(error)}`
+      );
     }
   }
 
-  // Ultimate fallback: current directory
-  const result = process.cwd();
+  // If no repository URL available, use the existing task-operations workspace
+  try {
+    log.debug("No repository URL available, checking for existing task-operations workspace");
 
-  log.debug("Workspace resolution completed", {
-    method: "current-directory-fallback",
-    duration: `${(performance.now() - startTime).toFixed(2)}ms`,
-    workspacePath: result,
-  });
+    const { createSpecialWorkspaceManager } = await import(
+      "../domain/workspace/special-workspace-manager"
+    );
+    const os = await import("os");
 
-  // Warn if resolution took longer than expected
-  const totalTime = performance.now() - startTime;
-  if (totalTime > 1000) {
-    log.warn("Slow workspace resolution detected", {
-      duration: `${totalTime.toFixed(2)}ms`,
-      suggestion: "Consider using emergencyMode: true for faster operations",
+    // Check if task-operations workspace already exists
+    const taskOperationsPath = join(os.homedir(), ".local", "state", "minsky", "task-operations");
+
+    if (require("fs").existsSync(taskOperationsPath)) {
+      log.debug("Using existing task-operations workspace", {
+        workspacePath: taskOperationsPath,
+        method: "existing-special-workspace",
+      });
+      return taskOperationsPath;
+    }
+
+    // No existing workspace - this means no tasks have been created yet
+    // Fail rather than create a new workspace without proper repository context
+    throw new Error(
+      "No task-operations workspace exists and no repository URL provided. Task operations require special workspace initialization."
+    );
+  } catch (error) {
+    log.error("Failed to resolve task workspace", {
+      error: getErrorMessage(error),
+      duration: `${(performance.now() - startTime).toFixed(2)}ms`,
     });
-  }
 
-  return result;
+    // Task operations CANNOT fall back to local workspace
+    throw new Error(`Task operations require special workspace. ${getErrorMessage(error)}`);
+  }
 }

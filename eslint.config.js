@@ -118,8 +118,8 @@ export default [
         "error",
         {
           allowInTests: false,
-          allowedLocalOperations: []
-        }
+          allowedLocalOperations: [],
+        },
       ], // Prevents ALL git operations without timeout protection - enhanced after task #301 audit
       // === TYPE SAFETY RULES ===
       "custom/no-excessive-as-unknown": [

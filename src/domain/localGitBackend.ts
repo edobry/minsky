@@ -65,8 +65,8 @@ export class LocalGitBackend implements RepositoryBackend {
     const operation = `local-backend-${args[0] || "unknown"}`;
     const gitCommand = args.join(" ");
     try {
-      const { stdout, stderr } = await execGitWithTimeout(operation, gitCommand, { 
-        workdir: cwd || this.localPath 
+      const { stdout, stderr } = await execGitWithTimeout(operation, gitCommand, {
+        workdir: cwd || this.localPath,
       });
       if (stderr) {
         log.debug("Git _command produced stderr", {
@@ -212,8 +212,8 @@ export class LocalGitBackend implements RepositoryBackend {
 
     // Check if it's a Git repository
     try {
-      await execGitWithTimeout("validate-git-dir", "rev-parse --git-dir", { 
-        workdir: this.config.path 
+      await execGitWithTimeout("validate-git-dir", "rev-parse --git-dir", {
+        workdir: this.config.path,
       });
     } catch (error) {
       issues.push(`Not a valid Git repository: ${this.config.path}`);
