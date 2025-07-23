@@ -519,8 +519,17 @@ Minsky now supports the Model Context Protocol (MCP), which enables AI assistant
 # Start the MCP server with default settings (stdio transport)
 minsky mcp start
 
-# Start with SSE transport on a specific port
-minsky mcp start --sse --port 8080
+# Start with the MCP inspector for debugging
+minsky mcp start --with-inspector
+
+# List all available MCP tools
+minsky mcp tools
+
+# Call a specific MCP tool
+minsky mcp call tasks.list --arg filter=TODO
+
+# Advanced MCP inspection
+minsky mcp inspect --method tools/list
 ```
 
 MCP allows AI agents to:
@@ -530,6 +539,8 @@ MCP allows AI agents to:
 - Perform git operations
 - Initialize new projects with Minsky
 - Access structured responses in a consistent format
+
+The new CLI commands provide convenient wrappers around the MCP Inspector's CLI mode, making it easy to interact with your MCP server directly from the command line.
 
 For detailed documentation on using MCP with Minsky, see [README-MCP.md](./README-MCP.md).
 
