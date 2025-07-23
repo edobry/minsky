@@ -1,15 +1,13 @@
 /**
  * Session Lint Command
  *
- * Configurable linting command that reads lint configuration from project config
+ * Simple linting command that works with common project setups
  */
 
 import { execAsync } from "../../utils/exec";
 import { log } from "../../utils/logger";
-import { MinskyError } from "../../errors";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { ProjectConfigReader } from "../project";
 
 export interface SessionLintParams {
   fix?: boolean;
@@ -28,7 +26,7 @@ export interface SessionLintResult {
 }
 
 /**
- * Run configured lint command in the given workspace directory
+ * Run lint command in the given workspace directory
  */
 export async function sessionLint(
   workspaceDir: string,
@@ -39,9 +37,8 @@ export async function sessionLint(
   log.debug("Running session lint", { workspaceDir, params });
 
   try {
-    // Load project configuration to get lint command
-    const configReader = new ProjectConfigReader(workspaceDir);
-    const baseLintCommand = await configReader.getLintCommand();
+    // Determine the best lint command to use
+    const baseLintCommand = await determineLintCommand(workspaceDir);
 
     // Build full command with parameters
     const fullCommand = buildLintCommand(baseLintCommand, params);
@@ -110,6 +107,44 @@ export async function sessionLint(
 }
 
 /**
+ * Determine the best lint command for the project
+ */
+async function determineLintCommand(workspaceDir: string): Promise<string> {
+  // First, check if package.json has a lint script
+  const packageJsonPath = join(workspaceDir, "package.json");
+  if (existsSync(packageJsonPath)) {
+    try {
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+
+      // Check for common lint script names
+      if (packageJson.scripts?.lint) {
+        return "bun run lint";
+      }
+      if (packageJson.scripts?.["lint:check"]) {
+        return "bun run lint:check";
+      }
+      if (packageJson.scripts?.eslint) {
+        return "bun run eslint";
+      }
+
+      // Check if ESLint is available as a dependency
+      const hasDeps = packageJson.dependencies || {};
+      const hasDevDeps = packageJson.devDependencies || {};
+
+      if (hasDevDeps.eslint || hasDeps.eslint) {
+        // Project has ESLint, use it directly
+        return "bunx eslint .";
+      }
+    } catch (error) {
+      log.debug("Failed to parse package.json", { error });
+    }
+  }
+
+  // Fallback: try common lint commands
+  return "bunx eslint .";
+}
+
+/**
  * Build full lint command with parameters
  */
 function buildLintCommand(baseLintCommand: string, params: SessionLintParams): string {
@@ -129,7 +164,7 @@ function buildLintCommand(baseLintCommand: string, params: SessionLintParams): s
       command += " --quiet";
     }
   } else {
-    // For direct commands (like "eslint ."), append flags directly
+    // For direct commands (like "eslint ." or "bunx eslint ."), append flags directly
     if (params.fix) {
       command += " --fix";
     }

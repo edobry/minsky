@@ -1,11 +1,11 @@
 /**
  * Project Domain Module
  *
- * Handles project configuration and analysis
- * Initial implementation for task #307 session lint configuration
- * Will be extended for full task #321 AI-powered project analysis
+ * This module is reserved for future task #321 AI-powered project analysis.
+ *
+ * Previous project configuration functionality has been simplified
+ * and integrated directly into the session lint command.
  */
 
-export type { ProjectConfiguration, ProjectWorkflows, ProjectConfigSource } from "./types";
-
-export { ProjectConfigReader } from "./config-reader";
+// This module is currently empty but reserved for task #321
+// AI-powered project analysis functionality will be implemented here
