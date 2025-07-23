@@ -1,10 +1,12 @@
 # AI-Powered Project Analysis for Enhanced Init Command
 
+## Context
+
 **Status:** TODO
 **Priority:** HIGH
 **Category:** FEATURE
 **Tags:** ai, init, project-analysis, configuration, automation
-**Dependencies:** #160 (AI Completion Backend), #190 (Containerized Session Architecture)
+**Dependencies:** #160 (AI Completion Backend)
 
 ## Overview
 
@@ -12,7 +14,7 @@ Enhance the `minsky init` command with AI-powered analysis of project documentat
 
 ## Background
 
-The current init command requires users to manually configure project settings. By leveraging AI analysis of project documentation and the upcoming containerization support, we can:
+The current init command requires users to manually configure project settings. By leveraging AI analysis of project documentation, we can:
 
 1. **Automatically detect** project language, platform, and tooling
 2. **Extract workflow information** from READMEs and documentation
@@ -186,11 +188,11 @@ interface ProjectConfiguration {
 - Implement prompt engineering for consistent project analysis
 - Handle rate limiting and error scenarios gracefully
 
-**Containerized Session Architecture Integration** (Task #190):
-- Detect containerization capabilities automatically
-- Configure session workspace containers based on project requirements
-- Integrate with Docker/Kubernetes deployment detection
+**Future Containerized Session Architecture Integration**:
+- Design configuration to support containerized sessions when available
+- Plan for automatic container configuration based on project requirements
 - Support dev container and multi-stage build analysis
+- Prepare for Docker/Kubernetes deployment detection
 
 **Existing Init Command Enhancement**:
 - Extend current init prompts with AI-generated suggestions
@@ -200,7 +202,7 @@ interface ProjectConfiguration {
 
 ## Implementation Phases
 
-### Phase 1: Foundation (Weeks 1-2)
+### Phase 1: Foundation
 
 **Core Analysis Engine**:
 - [ ] Document discovery and parsing utilities
@@ -213,7 +215,7 @@ interface ProjectConfiguration {
 - [ ] Integrate with AI completion service
 - [ ] Basic configuration storage and retrieval
 
-### Phase 2: Enhanced Analysis (Weeks 3-4)
+### Phase 2: Enhanced Analysis
 
 **Advanced Detection**:
 - [ ] Container configuration analysis (Dockerfile, docker-compose)
@@ -227,13 +229,13 @@ interface ProjectConfiguration {
 - [ ] Smart prompting for missing information
 - [ ] Configuration diff and update capabilities
 
-### Phase 3: Integration & Polish (Weeks 5-6)
+### Phase 3: Integration & Polish
 
 **System Integration**:
-- [ ] Full integration with containerized session architecture
 - [ ] Advanced AI prompting for complex project structures
 - [ ] Support for monorepos and complex project layouts
 - [ ] Performance optimization and caching
+- [ ] Integration with containerized session architecture (when available)
 
 **Documentation & Testing**:
 - [ ] Comprehensive test suite with diverse project types
@@ -309,14 +311,14 @@ interface MinskyConfig {
 - [ ] **Comprehensive Coverage**: Support for 10+ programming languages and major frameworks
 - [ ] **Container Integration**: Automatic detection and configuration of Docker/K8s projects
 - [ ] **User Experience**: Intuitive validation interface with smart prompting
-- [ ] **Performance**: Analysis completes within 30 seconds for typical projects
+- [ ] **Performance**: Analysis completes within reasonable time for typical projects
 
 ### Integration Requirements
 
 - [ ] **AI Backend**: Seamless integration with multi-provider AI completion service
 - [ ] **Init Command**: Enhanced init workflow with optional AI analysis
 - [ ] **Configuration System**: Proper integration with existing Minsky config schema
-- [ ] **Session Architecture**: Compatibility with containerized session workspaces
+- [ ] **Future Session Architecture**: Ready for containerized session workspace integration
 
 ### Quality Requirements
 
@@ -377,13 +379,17 @@ interface MinskyConfig {
 
 ---
 
-**Estimated Effort:** Large (6 weeks)
+**Estimated Effort:** Large
 **Risk Level:** Medium (AI accuracy, diverse project types, integration complexity)
-**Dependencies:** Task #160 (AI Completion Backend), Task #190 (Containerized Session Architecture)
+**Dependencies:** Task #160 (AI Completion Backend)
 
 **Next Steps:**
-1. Wait for Task #160 completion (AI backend infrastructure)
-2. Begin project configuration schema design
-3. Implement basic document discovery and parsing
-4. Develop AI analysis prompts for common project types
-5. Create interactive validation interface
+1. Begin project configuration schema design
+2. Implement basic document discovery and parsing
+3. Develop AI analysis prompts for common project types
+4. Create interactive validation interface
+5. Integrate with AI completion backend once available
+
+## Solution
+
+## Notes
