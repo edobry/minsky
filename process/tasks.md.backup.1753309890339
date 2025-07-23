@@ -324,7 +324,7 @@
 
 - [x] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
-- [x] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
+- [+] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
 - [+] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
@@ -478,7 +478,7 @@
 
 - [x] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
 
-- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/273-resolve-workspace-architecture-inconsistencies-and-utilize-special-workspace-system.md)
+- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#325](process/tasks/325-resolve-workspace-architecture-inconsistencies.md)
 
 - [x] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
 
@@ -514,7 +514,7 @@
 
 - [+] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
 
-- [-] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
+- [+] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
 
 - [ ] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/290-convert-cursor-rules-to-mcp-only-tool-references.md)
 
