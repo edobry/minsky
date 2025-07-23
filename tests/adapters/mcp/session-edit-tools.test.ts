@@ -69,17 +69,18 @@ describe("Session Edit Tools", () => {
     mockValidatePath.mockReset();
     mockValidatePathExists.mockReset();
 
-    // Reset all mocks to default behavior
-    // Note: Using direct reset since the mocks are already configured with defaults
+    // Set up default successful behavior for most tests
+    mockReadFile.mockImplementation(() => Promise.resolve("original content with oldText"));
+    mockWriteFile.mockImplementation(() => Promise.resolve(undefined));
+    mockResolvePath.mockImplementation(() => Promise.resolve("/mock/session/path/file.txt"));
+    mockValidatePath.mockImplementation(() => true);
+    mockValidatePathExists.mockImplementation(() => Promise.resolve(undefined));
 
     // Create mock command mapper
-    commandMapper = {
-      addCommand: createMock(),
-    };
     registeredTools = {};
 
-    // Mock addTool to capture registered tools
-    commandMapper.addCommand = mock(
+    // Mock addCommand to capture registered tools
+    const mockAddCommand = mock(
       (command: { name: string; description: string; parameters?: any; handler: any }) => {
         registeredTools[command.name] = {
           name: command.name,
@@ -90,24 +91,26 @@ describe("Session Edit Tools", () => {
       }
     );
 
+    commandMapper = {
+      addCommand: mockAddCommand,
+    };
+
     // Register the tools
     registerSessionEditTools(commandMapper);
   });
 
   describe("session_edit_file", () => {
     test("should be registered with correct schema", () => {
-      expect(registeredTools["session_edit_file"]).toBeDefined();
-      expect(registeredTools["session_edit_file"].name).toBe("session_edit_file");
-      expect(registeredTools["session_edit_file"].description).toContain("Edit a file");
+      expect(registeredTools["session.edit_file"]).toBeDefined();
+      expect(registeredTools["session.edit_file"].name).toBe("session.edit_file");
+      expect(registeredTools["session.edit_file"].description).toContain("Edit a file");
     });
 
     test("should create new file when it doesn't exist", async () => {
-      const handler = registeredTools["session_edit_file"].handler;
-
-      // Note: Test runs with default mocks that simulate file operations
+      const handler = registeredTools["session.edit_file"].handler;
 
       const result = await handler({
-        session: "test-session",
+        sessionName: "test-session",
         path: "new-file.txt",
         instructions: "Create new file",
         content: "console.log('Hello, world!');",
@@ -119,13 +122,13 @@ describe("Session Edit Tools", () => {
     });
 
     test("should handle edit operations with mock setup", async () => {
-      const handler = registeredTools["session_edit_file"].handler;
+      const handler = registeredTools["session.edit_file"].handler;
 
       const result = await handler({
-        session: "test-session",
+        sessionName: "test-session",
         path: "test-file.ts",
         instructions: "Add content",
-        content: "malicious content",
+        content: "console.log('test');",
         createDirs: false,
       });
 
@@ -137,16 +140,16 @@ describe("Session Edit Tools", () => {
 
   describe("session_search_replace", () => {
     test("should be registered with correct schema", () => {
-      expect(registeredTools["session_search_replace"]).toBeDefined();
-      expect(registeredTools["session_search_replace"].name).toBe("session_search_replace");
-      expect(registeredTools["session_search_replace"].description).toContain(
+      expect(registeredTools["session.search_replace"]).toBeDefined();
+      expect(registeredTools["session.search_replace"].name).toBe("session.search_replace");
+      expect(registeredTools["session.search_replace"].description).toContain(
         "Replace a single occurrence"
       );
 
       // Validate schema
-      const schema = registeredTools["session_search_replace"].schema;
+      const schema = registeredTools["session.search_replace"].schema;
       const testData = {
-        session: "test-session",
+        sessionName: "test-session",
         path: "test.ts",
         search: "oldText",
         replace: "newText",
@@ -157,51 +160,56 @@ describe("Session Edit Tools", () => {
     });
 
     test("should replace single occurrence successfully", async () => {
-      const handler = registeredTools["session_search_replace"].handler;
+      const handler = registeredTools["session.search_replace"].handler;
 
-      // Note: Using default mocks that simulate successful file operations
       const result = await handler({
-        session: "test-session",
+        sessionName: "test-session",
         path: "test.ts",
         search: "oldText",
         replace: "newText",
       });
 
-      // With simplified mocks, just verify the handler completes
-      expect(result).toBeDefined();
-      expect(typeof result.success).toBe("boolean");
+      expect(result.success).toBe(true);
+      expect(result.replaced).toBe(true);
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        "/mock/session/path/file.txt",
+        "original content with newText",
+        "utf8"
+      );
     });
 
     test("should error when text not found", async () => {
-      const handler = registeredTools["session_search_replace"].handler;
+      const handler = registeredTools["session.search_replace"].handler;
 
-      // Note: Test verifies error handling with default mock setup
+      // Mock file content that doesn't contain search text
+      mockReadFile.mockImplementation(() => Promise.resolve("content without target"));
+
       const result = await handler({
-        session: "test-session",
+        sessionName: "test-session",
         path: "test.ts",
         search: "notFound",
         replace: "newText",
       });
 
-      // With simplified mocks, just verify the handler completes
-      expect(result).toBeDefined();
-      expect(typeof result.success).toBe("boolean");
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Search text not found");
     });
 
     test("should error when multiple occurrences found", async () => {
-      const handler = registeredTools["session_search_replace"].handler;
+      const handler = registeredTools["session.search_replace"].handler;
 
-      // Note: Test verifies multiple occurrence error handling
+      // Mock file content with multiple occurrences
+      mockReadFile.mockImplementation(() => Promise.resolve("oldText and oldText again"));
+
       const result = await handler({
-        session: "test-session",
+        sessionName: "test-session",
         path: "test.ts",
         search: "oldText",
         replace: "newText",
       });
 
-      // With simplified mocks, just verify the handler completes
-      expect(result).toBeDefined();
-      expect(typeof result.success).toBe("boolean");
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("found 2 times");
     });
   });
 });

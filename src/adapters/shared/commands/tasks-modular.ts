@@ -25,13 +25,39 @@ export class ModularTasksCommandManager {
    * Register all task commands in the shared command registry
    */
   registerAllCommands(): void {
-    // For now, return empty registrations to avoid circular dependencies
-    // This will be improved once the circular dependency issue is resolved
-    const registrations: any[] = [];
+    // Register a basic tasks command using require to avoid circular dependencies
+    try {
+      const { createTasksListCommand } = require("./tasks/crud-commands");
+      const { createTasksGetCommand } = require("./tasks/crud-commands");
 
-    registrations.forEach((registration) => {
-      sharedCommandRegistry.registerCommand(registration);
-    });
+      // Register basic list command
+      sharedCommandRegistry.registerCommand({
+        command: "tasks",
+        description: "Task management commands",
+        subcommands: {
+          list: {
+            description: "List tasks",
+            parameters: {},
+            handler: async (params: any, context: any) => {
+              const command = createTasksListCommand();
+              return await command.execute(params, context);
+            },
+          },
+          get: {
+            description: "Get task details",
+            parameters: {
+              taskId: { type: "string", required: true, description: "Task ID" },
+            },
+            handler: async (params: any, context: any) => {
+              const command = createTasksGetCommand();
+              return await command.execute(params, context);
+            },
+          },
+        },
+      });
+    } catch (error) {
+      console.warn("Failed to register task commands:", error);
+    }
   }
 
   /**

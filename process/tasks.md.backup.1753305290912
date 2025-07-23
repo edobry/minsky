@@ -306,7 +306,7 @@
 
 - [ ] Implement Comprehensive ESLint Configuration [#159](process/tasks/159-implement-comprehensive-eslint-configuration.md)
 
-- [+] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
+- [ ] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
 
 - [ ] Add GitHub PR Workflow as Alternative to Prepared Merge Commits [#161](process/tasks/161-add-github-pr-workflow-as-alternative-to-prepared-merge-commits.md)
 
@@ -542,7 +542,7 @@
 
 - [x] Migrate codebase from TaskBackendRouter to workspace-resolving backends [#306](process/tasks/306-migrate-codebase-from-taskbackendrouter-to-workspace-resolving-backends.md)
 
-- [x] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
+- [+] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
 
 - [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
 

@@ -27,7 +27,7 @@ export function createAllTaskCommands() {
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
   const { createTasksSpecCommand } = require("./spec-command");
-    const {
+  const {
     createTasksListCommand,
     createTasksGetCommand,
     createTasksCreateCommand,

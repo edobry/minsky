@@ -85,27 +85,29 @@ module.exports = {
           // Check template literals with git commands
           if (firstArg && firstArg.type === "TemplateLiteral") {
             // Check all template parts for git commands
-            const hasGitCommand = firstArg.quasis.some(quasi => 
-              quasi.value.cooked && quasi.value.cooked.includes("git ")
+            const hasGitCommand = firstArg.quasis.some(
+              (quasi) => quasi.value.cooked && quasi.value.cooked.includes("git ")
             );
-            
+
             if (hasGitCommand) {
               // Find which specific unsafe command is in the template
               let foundCommand = null;
-              
+
               // Get all text parts from the template
-              const allTextParts = firstArg.quasis.map(q => q.value.cooked || "").join(" ");
-              
+              const allTextParts = firstArg.quasis.map((q) => q.value.cooked || "").join(" ");
+
               for (const unsafeCmd of UNSAFE_GIT_COMMANDS) {
                 // Check if the command appears anywhere in the template
-                if (allTextParts.includes(` ${unsafeCmd} `) || 
-                    allTextParts.includes(`git ${unsafeCmd}`) ||
-                    allTextParts.match(new RegExp(`\\b${unsafeCmd}\\b`))) {
+                if (
+                  allTextParts.includes(` ${unsafeCmd} `) ||
+                  allTextParts.includes(`git ${unsafeCmd}`) ||
+                  allTextParts.match(new RegExp(`\\b${unsafeCmd}\\b`))
+                ) {
                   foundCommand = unsafeCmd;
                   break;
                 }
               }
-              
+
               if (foundCommand) {
                 const suggestion = getSafeAlternative(foundCommand);
 
@@ -178,10 +180,10 @@ function generateAutoFix(fixer, node, gitCommand, originalCommand) {
   // Check if we need to preserve the await
   const parent = node.parent;
   const isAwaited = parent && parent.type === "AwaitExpression";
-  
+
   // Build the replacement text
   const replacementText = `execGitWithTimeout("${operation}", "${command}", ${options})`;
-  
+
   if (isAwaited) {
     // Replace the entire await expression with our new await expression
     return fixer.replaceText(parent, `await ${replacementText}`);

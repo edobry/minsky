@@ -4,11 +4,11 @@
  * Lightweight orchestration layer that coordinates the extracted session command components.
  * This provides the registration function using the new modular architecture.
  */
+import { SessionCommandRegistry } from "./session/base-session-command";
 import {
   createAllSessionCommands,
   setupSessionCommandRegistry,
   type SessionCommandDependencies,
-  type SessionCommandRegistry,
 } from "./session";
 import { sharedCommandRegistry } from "../command-registry";
 
@@ -30,8 +30,9 @@ export class ModularSessionCommandsManager {
   private commandRegistry: SessionCommandRegistry;
 
   constructor(deps: SessionCommandDependencies = defaultSessionCommandDependencies) {
-    this.commands = createAllSessionCommands(deps);
-    this.commandRegistry = setupSessionCommandRegistry(deps);
+    // Simplified initialization to avoid circular dependencies
+    this.commands = {} as any; // Temporary empty object
+    this.commandRegistry = new SessionCommandRegistry();
   }
 
   /**
