@@ -14,6 +14,12 @@ Enhance the `minsky init` command with AI-powered analysis of project documentat
 
 ## Background
 
+**Initial Implementation Status:** A basic version of the project configuration system has been implemented in task #307 for the session lint command. This includes:
+- Basic `ProjectConfiguration` interface with workflow commands
+- `ProjectConfigReader` that loads from `minsky.json` or `package.json` scripts
+- Configuration priority: `minsky.json` > `package.json` > defaults
+- Working implementation for the `lint` workflow command
+
 The current init command requires users to manually configure project settings. By leveraging AI analysis of project documentation, we can:
 
 1. **Automatically detect** project language, platform, and tooling
@@ -43,6 +49,8 @@ This creates a more intelligent, context-aware initialization process that adapt
 - **Development Environment**: IDE configurations, environment variables, prerequisites
 
 ### 2. Structured Project Configuration Schema
+
+**Note:** A basic version of this schema has been implemented in `src/domain/project/types.ts` (task #307). The full schema below extends this initial implementation.
 
 Design a comprehensive schema to capture project characteristics:
 
