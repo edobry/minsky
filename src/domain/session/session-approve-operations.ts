@@ -520,7 +520,9 @@ The task exists but has no associated session to approve.
                     log.cli("  • Run 'bun run lint' to see detailed errors");
                     log.cli("  • Run 'bun run lint:fix' to auto-fix what's possible");
                     log.cli("");
-                    log.cli("✅ The task is marked as DONE - you can fix linting issues separately");
+                    log.cli(
+                      "✅ The task is marked as DONE - you can fix linting issues separately"
+                    );
                   }
                   log.warn("Task status commit failed due to pre-commit checks", {
                     taskId,
