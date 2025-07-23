@@ -11,6 +11,12 @@ import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import { SemanticErrorClassifier, ErrorContext } from "../../utils/semantic-error-classifier";
 import { FileOperationResponse } from "../../types/semantic-errors";
+import {
+  withStandardizedMcpErrorHandling,
+  convertFileOperationResponseToMcp,
+  classifyErrorForMcp,
+} from "../../utils/semantic-error-bridge";
+import { type McpResponse } from "../../schemas/mcp-error-responses";
 
 /**
  * Utility function to process file content with line range support
@@ -218,91 +224,75 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         .optional()
         .describe("One sentence explanation of why this tool is being used"),
     }),
-    handler: async (args): Promise<FileOperationResponse> => {
-      try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
-        await pathResolver.validatePathExists(resolvedPath);
+    handler: withStandardizedMcpErrorHandling("session.read_file", async (args) => {
+      const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
+      await pathResolver.validatePathExists(resolvedPath);
 
-        const content = await readFile(resolvedPath, "utf8");
+      const content = await readFile(resolvedPath, "utf8");
 
-        // Process content with line range support
-        const processed = processFileContentWithLineRange(content, {
-          startLine: args.start_line_one_indexed,
-          endLine: args.end_line_one_indexed_inclusive,
-          shouldReadEntireFile: args.should_read_entire_file,
-          filePath: args.path,
-        });
+      // Process content with line range support
+      const processed = processFileContentWithLineRange(content, {
+        startLine: args.start_line_one_indexed,
+        endLine: args.end_line_one_indexed_inclusive,
+        shouldReadEntireFile: args.should_read_entire_file,
+        filePath: args.path,
+      });
 
-        log.debug("Session file read successful", {
-          session: args.sessionName,
-          path: args.path,
-          resolvedPath,
-          totalLines: processed.totalLines,
-          linesShown: processed.linesShown,
-          contentLength: processed.content.length,
-        });
+      log.debug("Session file read successful", {
+        session: args.sessionName,
+        path: args.path,
+        resolvedPath,
+        totalLines: processed.totalLines,
+        linesShown: processed.linesShown,
+        contentLength: processed.content.length,
+      });
 
-        // Build response content with header like Cursor does
-        let responseContent = `Contents of ${args.path}, lines ${processed.linesShown}`;
-        if (processed.totalLines > 0) {
-          responseContent += ` (total ${processed.totalLines} lines)`;
-        }
-        responseContent += `:\n${processed.content}`;
-
-        // Add summary if content was truncated
-        if (processed.summary) {
-          responseContent += `\n\n${processed.summary}`;
-        }
-
-        // Enhanced response format matching the specification
-        const response: any = {
-          success: true,
-          content: responseContent,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          totalLines: processed.totalLines,
-        };
-
-        // Add line range metadata if applicable
-        if (
-          processed.linesShown !== "(entire file)" &&
-          !processed.linesShown.includes("entire file")
-        ) {
-          const [start, end] = processed.linesShown.split("-").map(Number);
-          response.linesRead = {
-            start: start || Number(processed.linesShown),
-            end: end || Number(processed.linesShown),
-          };
-        }
-
-        // Add omitted content information if content was truncated
-        if (processed.summary) {
-          response.omittedContent = {
-            summary: processed.summary,
-          };
-        }
-
-        return response;
-      } catch (error) {
-        const errorContext: ErrorContext = {
-          operation: "read_file",
-          path: args.path,
-          session: args.sessionName,
-        };
-
-        log.error("Session file read failed", {
-          session: args.sessionName,
-          path: args.path,
-          error: getErrorMessage(error),
-        });
-
-        return SemanticErrorClassifier.classifyError(error, errorContext);
+      // Build response content with header like Cursor does
+      let responseContent = `Contents of ${args.path}, lines ${processed.linesShown}`;
+      if (processed.totalLines > 0) {
+        responseContent += ` (total ${processed.totalLines} lines)`;
       }
-    },
+      responseContent += `:\n${processed.content}`;
+
+      // Add summary if content was truncated
+      if (processed.summary) {
+        responseContent += `\n\n${processed.summary}`;
+      }
+
+      // Enhanced response format matching the specification
+      const response: any = {
+        success: true,
+        content: responseContent,
+        path: args.path,
+        session: args.sessionName,
+        resolvedPath: relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          resolvedPath
+        ),
+        totalLines: processed.totalLines,
+      };
+
+      // Add line range metadata if applicable
+      if (
+        processed.linesShown !== "(entire file)" &&
+        !processed.linesShown.includes("entire file")
+      ) {
+        const [start, end] = processed.linesShown.split("-").map(Number);
+        response.linesRead = {
+          start: start || Number(processed.linesShown),
+          end: end || Number(processed.linesShown),
+        };
+      }
+
+      // Add omitted content information if content was truncated
+      if (processed.summary) {
+        response.omittedContent = {
+          summary: processed.summary,
+        };
+      }
+
+      return response;
+    }),
   });
 
   // Session write file tool

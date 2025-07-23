@@ -15,6 +15,14 @@ import {
 } from "../shared/command-registry";
 import { log } from "../../utils/logger";
 import { z } from "zod";
+import {
+  createMcpErrorResponse,
+  createMcpSuccessResponse,
+  errorToMcpErrorResponse,
+  MCP_ERROR_CODES,
+  type McpResponse,
+  type FieldValidationError,
+} from "../../schemas/mcp-error-responses";
 
 /**
  * Convert shared command parameters to a Zod schema that MCP can use
@@ -142,23 +150,111 @@ export function registerSharedCommandsWithMcp(
         name: command.id,
         description,
         parameters: convertParametersToZodSchema(command.parameters),
-        handler: async (args: any, projectContext?: any) => {
-          // Create execution context for shared command
-          const context: CommandExecutionContext = {
-            interface: "mcp",
-            debug: args?.debug || false,
-            format: "json", // MCP always returns JSON format
-          };
+        handler: async (args: any, projectContext?: any): Promise<McpResponse> => {
+          const startTime = Date.now();
+          const requestId = `mcp-${command.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-          // Convert MCP args to expected parameter format, filtering out the json parameter
-          // since MCP always returns JSON regardless of this parameter
-          const filteredArgs = { ...args };
-          delete filteredArgs.json; // Remove json parameter as it's not needed in MCP context
+          try {
+            // Create execution context for shared command
+            const context: CommandExecutionContext = {
+              interface: "mcp",
+              debug: args?.debug || config.debug || false,
+              format: "json", // MCP always returns JSON format
+            };
 
-          const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
+            // Convert MCP args to expected parameter format, filtering out the json parameter
+            // since MCP always returns JSON regardless of this parameter
+            const filteredArgs = { ...args };
+            delete filteredArgs.json; // Remove json parameter as it's not needed in MCP context
 
-          // Execute the shared command
-          return await command.execute(parameters, context);
+            // Validate parameters against schema before conversion
+            try {
+              const schema = convertParametersToZodSchema(command.parameters);
+              const validationResult = schema.safeParse(filteredArgs);
+
+              if (!validationResult.success) {
+                // Convert Zod validation errors to field-specific errors
+                const fieldErrors: FieldValidationError[] = validationResult.error.errors.map(
+                  (err) => ({
+                    field: err.path.join("."),
+                    message: err.message,
+                    code: err.code,
+                    value: err.path.reduce((obj, key) => obj?.[key], filteredArgs),
+                  })
+                );
+
+                return createMcpErrorResponse(
+                  "Parameter validation failed",
+                  MCP_ERROR_CODES.VALIDATION_ERROR,
+                  {
+                    fieldErrors,
+                    context: {
+                      operation: command.id,
+                      requestId,
+                    },
+                    suggestions: [
+                      "Check the parameter values and types",
+                      "Ensure all required parameters are provided",
+                      "Refer to the command documentation for parameter requirements",
+                    ],
+                    debug: context.debug,
+                  }
+                );
+              }
+            } catch (validationError) {
+              log.error(`Parameter validation error for command ${command.id}`, {
+                error: validationError,
+                args: filteredArgs,
+                requestId,
+              });
+
+              return errorToMcpErrorResponse(validationError, {
+                operation: command.id,
+                debug: context.debug,
+              });
+            }
+
+            const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
+
+            log.debug(`Executing shared command ${command.id} via MCP`, {
+              parameters: Object.keys(parameters),
+              context,
+              requestId,
+            });
+
+            // Execute the shared command
+            const result = await command.execute(parameters, context);
+            const duration = Date.now() - startTime;
+
+            log.debug(`Shared command ${command.id} completed successfully`, {
+              duration,
+              requestId,
+            });
+
+            // Return standardized success response
+            return createMcpSuccessResponse(result, {
+              operation: command.id,
+              requestId,
+              performance: {
+                duration,
+              },
+            });
+          } catch (error) {
+            const duration = Date.now() - startTime;
+
+            log.error(`Shared command ${command.id} execution failed`, {
+              error,
+              args,
+              duration,
+              requestId,
+            });
+
+            // Convert error to standardized MCP error response
+            return errorToMcpErrorResponse(error, {
+              operation: command.id,
+              debug: args?.debug || config.debug || false,
+            });
+          }
         },
       });
     });
