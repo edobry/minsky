@@ -1124,8 +1124,8 @@ export async function sessionPrFromParams(
     sessionPrParamsSchema.parse(params);
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") {
-      // Extract the validation error message
-      const zodError = error;
+      // Extract the validation error message from ZodError
+      const zodError = error as any; // ZodError type
       const message = zodError.errors?.[0]?.message || "Invalid parameters";
       throw new ValidationError(message);
     }
@@ -1139,14 +1139,14 @@ export async function sessionPrFromParams(
   const gitService = depsInput?.gitService || createGitService();
 
   // Handle body content - read from file if bodyPath is provided
-  let bodyContent = params.body;
+  let bodyContent: string | undefined = params.body;
   if (params.bodyPath) {
     try {
       // Resolve relative paths relative to current working directory
       const filePath = require("path").resolve(params.bodyPath);
-      bodyContent = await readFile(filePath, "utf-8");
+      bodyContent = (await readFile(filePath, "utf-8")) as string;
 
-      if (!bodyContent.trim()) {
+      if (!bodyContent?.trim()) {
         throw new ValidationError(`Body file is empty: ${params.bodyPath}`);
       }
 
@@ -1172,6 +1172,13 @@ export async function sessionPrFromParams(
 
   // STEP 3: Initialize session database
   const sessionDb = depsInput?.sessionDB || createSessionProvider();
+
+  // STEP 4: Get session workspace directory (needed for git operations)
+  const sessionWorkdir = await sessionDb.getSessionWorkdir(sessionName);
+  if (!sessionWorkdir) {
+    throw new MinskyError(`Session workspace directory not found for session: ${sessionName}`);
+  }
+  const currentDir: string = sessionWorkdir;
 
   log.debug(`Creating PR for session: ${sessionName}`, {
     session: sessionName,
