@@ -167,12 +167,12 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       supportsSubtasks: false, // GitHub doesn't have native subtask support
       supportsDependencies: false, // Could be implemented via issue references but not native
 
-      // Provenance metadata - can be stored in issue description or custom fields
-      supportsOriginalRequirements: true, // Can store in issue description/body
-      supportsAiEnhancementTracking: true, // Can track via comments or description
+      // Provenance metadata - NOT IMPLEMENTED (Task #315 metadata system not supported)
+      supportsOriginalRequirements: false, // Would require custom implementation
+      supportsAiEnhancementTracking: false, // Would require custom implementation
 
-      // Query capabilities - GitHub API provides robust search
-      supportsMetadataQuery: true, // GitHub API supports advanced search
+      // Query capabilities - Limited without Task #315 metadata system
+      supportsMetadataQuery: false, // GitHub backend doesn't implement metadata methods
       supportsFullTextSearch: true, // GitHub search includes issue content
 
       // Update mechanism - direct API calls
