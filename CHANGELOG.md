@@ -1534,3 +1534,12 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Reality: session.ts was 2,218 lines (not 464 as claimed), 56 files still over 400 lines
   - Rule now enforces: Never accept completion claims without direct verification
   - Requires evidence-based language instead of claim-based assertions
+
+- **Task Spec File Management**: Comprehensively resolved multiple task specification file duplications and mismatches
+  - **Task #295**: Resolved multiple spec files claiming same task number by removing duplicate and renaming MCP client registration to #324
+  - **Task #309**: Removed duplicate stub file, kept detailed spec referenced by tasks.md
+  - **Task #311/#316**: Removed duplicate #311, kept #316 (identical max-lines ESLint rule content)
+  - **File Reference Mismatches**: Updated tasks.md to reference correct file names for tasks #310, #318, #319
+  - **Missing Files Recovered**: Found and copied missing task #315 and #320 files from special workspace locations
+  - **Orphaned Files**: Added tasks #310b and #324 to tasks.md for existing spec files
+  - **Result**: All task spec files now properly correspond to tasks.md entries
