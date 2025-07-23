@@ -1,9 +1,9 @@
 /**
  * Test Cleanup Utilities
- * 
+ *
  * Provides test cleanup and setup utilities for consistent test environment management.
  * This module handles mock cleanup and registry resets between tests.
- * 
+ *
  * @module cleanup/test-cleanup
  */
 import { afterEach } from "bun:test";
@@ -33,7 +33,7 @@ export function setupTestMocksWithCleanup(): void {
 /**
  * Resets global test state and cleans up mocks.
  * This function can be called manually or is automatically called by setupTestMocksWithCleanup.
- * 
+ *
  * This includes:
  * - Resetting command registries
  * - Clearing CLI bridge customizations

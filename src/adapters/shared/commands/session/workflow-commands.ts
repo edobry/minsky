@@ -1,6 +1,6 @@
 /**
  * Session Workflow Commands
- * 
+ *
  * Commands for session workflow operations (approve, pr, inspect).
  * Extracted from session.ts as part of modularization effort.
  */
@@ -36,7 +36,7 @@ export class SessionApproveCommand extends BaseSessionCommand<any, any> {
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     const { approveSessionFromParams } = await import("../../../../domain/session");
-    
+
     const result = await approveSessionFromParams({
       session: params.name,
       task: params.task,
@@ -72,14 +72,16 @@ export class SessionPrCommand extends BaseSessionCommand<any, any> {
     // Conditional validation: require body/bodyPath only for new PRs
     if (!params.body && !params.bodyPath) {
       const canRefresh = await this.checkIfPrCanBeRefreshed(params);
-      
+
       if (!canRefresh) {
-        throw new Error(`PR description is required for meaningful pull requests.\nPlease provide one of:\n  --body <text>       Direct PR body text\n  --body-path <path>  Path to file containing PR body\n\nExample:\n  minsky session pr --title "feat: Add new feature" --body "This PR adds..."\n  minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md`);
+        throw new Error(
+          'PR description is required for meaningful pull requests.\nPlease provide one of:\n  --body <text>       Direct PR body text\n  --body-path <path>  Path to file containing PR body\n\nExample:\n  minsky session pr --title "feat: Add new feature" --body "This PR adds..."\n  minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md'
+        );
       }
     }
 
     const { sessionPrFromParams } = await import("../../../../domain/session");
-    
+
     try {
       const result = await sessionPrFromParams({
         title: params.title,
@@ -210,7 +212,7 @@ export class SessionInspectCommand extends BaseSessionCommand<any, any> {
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     const { inspectSessionFromParams } = await import("../../../../domain/session");
-    
+
     const result = await inspectSessionFromParams({
       json: params.json,
     });

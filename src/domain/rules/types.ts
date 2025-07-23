@@ -1,6 +1,6 @@
 /**
  * Rules Domain Types
- * 
+ *
  * Type definitions for the rules domain.
  * Extracted from rules.ts as part of modularization effort.
  */

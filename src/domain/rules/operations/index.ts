@@ -1,6 +1,6 @@
 /**
  * Rules Operations Module
- * 
+ *
  * Exports for all modularized rule operation components.
  * Part of the modularization effort from rules.ts.
  */
@@ -50,7 +50,7 @@ export function createAllRuleOperations(deps: RuleOperationDependencies) {
     create: createCreateRuleOperation(deps),
     update: createUpdateRuleOperation(deps),
     search: createSearchRulesOperation(deps),
-    
+
     // File operations
     readFile: createReadRuleFileOperation(deps),
     writeFile: createWriteRuleFileOperation(deps),
@@ -62,7 +62,7 @@ export function createAllRuleOperations(deps: RuleOperationDependencies) {
 export function setupRuleOperationRegistry(deps: RuleOperationDependencies): RuleOperationRegistry {
   const registry = new RuleOperationRegistry();
   const operations = createAllRuleOperations(deps);
-  
+
   // Register all operations
   registry.register("list", operations.list);
   registry.register("get", operations.get);
@@ -72,6 +72,6 @@ export function setupRuleOperationRegistry(deps: RuleOperationDependencies): Rul
   registry.register("readFile", operations.readFile);
   registry.register("writeFile", operations.writeFile);
   registry.register("listDirectory", operations.listDirectory);
-  
+
   return registry;
 }

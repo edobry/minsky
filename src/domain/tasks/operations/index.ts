@@ -1,6 +1,6 @@
 /**
  * Task Operations Module
- * 
+ *
  * Exports for all modularized task operation components.
  * Part of the modularization effort from taskCommands.ts.
  */
@@ -50,7 +50,7 @@ export function createAllTaskOperations(deps?: TaskOperationDependencies) {
     getTask: createGetTaskOperation(deps),
     getTaskStatus: createGetTaskStatusOperation(deps),
     getTaskSpecContent: createGetTaskSpecContentOperation(deps),
-    
+
     // Mutation operations
     setTaskStatus: createSetTaskStatusOperation(deps),
     createTask: createCreateTaskOperation(deps),
@@ -60,10 +60,12 @@ export function createAllTaskOperations(deps?: TaskOperationDependencies) {
 }
 
 // Registry setup function
-export function setupTaskOperationRegistry(deps?: TaskOperationDependencies): TaskOperationRegistry {
+export function setupTaskOperationRegistry(
+  deps?: TaskOperationDependencies
+): TaskOperationRegistry {
   const registry = new TaskOperationRegistry();
   const operations = createAllTaskOperations(deps);
-  
+
   // Register all operations
   registry.register("listTasks", operations.listTasks);
   registry.register("getTask", operations.getTask);
@@ -71,8 +73,11 @@ export function setupTaskOperationRegistry(deps?: TaskOperationDependencies): Ta
   registry.register("getTaskSpecContent", operations.getTaskSpecContent);
   registry.register("setTaskStatus", operations.setTaskStatus);
   registry.register("createTask", operations.createTask);
-  registry.register("createTaskFromTitleAndDescription", operations.createTaskFromTitleAndDescription);
+  registry.register(
+    "createTaskFromTitleAndDescription",
+    operations.createTaskFromTitleAndDescription
+  );
   registry.register("deleteTask", operations.deleteTask);
-  
+
   return registry;
 }

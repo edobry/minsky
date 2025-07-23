@@ -1,6 +1,6 @@
 /**
  * CLI Command Generator Core
- * 
+ *
  * Core logic for generating Commander.js commands from shared command definitions.
  * Extracted from cli-bridge.ts as part of modularization effort.
  */
@@ -109,10 +109,10 @@ export class CommandGeneratorCore {
     options: CliCommandOptions
   ): void {
     log.debug("Setting up command parameters");
-    
+
     // Use parameter processor to handle parameter setup
     this.deps.parameterProcessor.setupCommandParameters(command, commandDef, options);
-    
+
     log.debug("Command parameters setup complete");
   }
 
@@ -159,7 +159,6 @@ export class CommandGeneratorCore {
 
         // Handle output
         this.handleCommandOutput(result, commandDef, options, context);
-
       } catch (error) {
         // Handle any errors using the CLI error handler
         handleCliError(error);

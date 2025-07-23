@@ -1,32 +1,32 @@
 /**
  * CLI Bridge Components
- * 
+ *
  * Exports for all modularized CLI bridge components.
  * Part of the modularization effort from cli-bridge.ts.
  */
 
 // Core components
-export { CommandCustomizationManager, commandCustomizationManager } from "./command-customization-manager";
+export {
+  CommandCustomizationManager,
+  commandCustomizationManager,
+} from "./command-customization-manager";
 export { CommandGeneratorCore, createCommandGenerator } from "./command-generator-core";
 export { ParameterProcessor, parameterProcessor } from "./parameter-processor";
-export { 
-  DefaultCommandResultFormatter, 
+export {
+  DefaultCommandResultFormatter,
   EnhancedCommandResultFormatter,
   defaultResultFormatter,
-  enhancedResultFormatter
+  enhancedResultFormatter,
 } from "./result-formatter";
 export { CategoryCommandHandler, createCategoryCommandHandler } from "./category-command-handler";
 
 // Type exports
-export type { 
-  CliCommandOptions, 
+export type {
+  CliCommandOptions,
   CategoryCommandOptions,
-  ParameterMappingOptions 
+  ParameterMappingOptions,
 } from "./command-customization-manager";
-export type { 
-  CliExecutionContext, 
-  CommandGeneratorDependencies 
-} from "./command-generator-core";
+export type { CliExecutionContext, CommandGeneratorDependencies } from "./command-generator-core";
 export type { CommandResultFormatter } from "./result-formatter";
 export type { CategoryCommandHandlerDependencies } from "./category-command-handler";
 

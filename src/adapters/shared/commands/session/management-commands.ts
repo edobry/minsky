@@ -1,15 +1,12 @@
 /**
  * Session Management Commands
- * 
+ *
  * Commands for session management operations (delete, update).
  * Extracted from session.ts as part of modularization effort.
  */
 import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
-import {
-  sessionDeleteCommandParams,
-  sessionUpdateCommandParams,
-} from "./session-parameters";
+import { sessionDeleteCommandParams, sessionUpdateCommandParams } from "./session-parameters";
 
 /**
  * Session Delete Command
@@ -33,7 +30,7 @@ export class SessionDeleteCommand extends BaseSessionCommand<any, any> {
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     const { deleteSessionFromParams } = await import("../../../../domain/session");
-    
+
     const deleted = await deleteSessionFromParams({
       name: params.name,
       task: params.task,
@@ -71,7 +68,7 @@ export class SessionUpdateCommand extends BaseSessionCommand<any, any> {
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     const { updateSessionFromParams } = await import("../../../../domain/session");
-    
+
     await updateSessionFromParams({
       name: params.name,
       task: params.task,

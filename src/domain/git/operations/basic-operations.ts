@@ -1,11 +1,20 @@
 /**
  * Git Basic Operations
- * 
+ *
  * Operations for basic git functionality (clone, branch, push, commit).
  * Extracted from git.ts as part of modularization effort.
  */
-import { BaseGitOperation, type GitOperationDependencies, type BaseGitOperationParams } from "./base-git-operation";
-import { type GitServiceInterface, type CloneResult, type BranchResult, type PushResult } from "../types";
+import {
+  BaseGitOperation,
+  type GitOperationDependencies,
+  type BaseGitOperationParams,
+} from "./base-git-operation";
+import {
+  type GitServiceInterface,
+  type CloneResult,
+  type BranchResult,
+  type PushResult,
+} from "../types";
 
 /**
  * Parameters for clone operation
@@ -109,10 +118,7 @@ export class PushOperation extends BaseGitOperation<PushParams, PushResult> {
     return "push changes";
   }
 
-  async executeOperation(
-    params: PushParams,
-    gitService: GitServiceInterface
-  ): Promise<PushResult> {
+  async executeOperation(params: PushParams, gitService: GitServiceInterface): Promise<PushResult> {
     const result = await gitService.push({
       session: params.session,
       repoPath: params.repo,
@@ -156,11 +162,7 @@ export class CommitOperation extends BaseGitOperation<
     }
 
     // Commit changes
-    const commitHash = await gitService.commit(
-      params.message,
-      params.repo,
-      params.amend
-    );
+    const commitHash = await gitService.commit(params.message, params.repo, params.amend);
 
     return {
       commitHash,
@@ -181,14 +183,10 @@ export class CommitOperation extends BaseGitOperation<
 /**
  * Factory functions for creating basic operations
  */
-export const createCloneOperation = (deps?: GitOperationDependencies) =>
-  new CloneOperation(deps);
+export const createCloneOperation = (deps?: GitOperationDependencies) => new CloneOperation(deps);
 
-export const createBranchOperation = (deps?: GitOperationDependencies) =>
-  new BranchOperation(deps);
+export const createBranchOperation = (deps?: GitOperationDependencies) => new BranchOperation(deps);
 
-export const createPushOperation = (deps?: GitOperationDependencies) =>
-  new PushOperation(deps);
+export const createPushOperation = (deps?: GitOperationDependencies) => new PushOperation(deps);
 
-export const createCommitOperation = (deps?: GitOperationDependencies) =>
-  new CommitOperation(deps);
+export const createCommitOperation = (deps?: GitOperationDependencies) => new CommitOperation(deps);

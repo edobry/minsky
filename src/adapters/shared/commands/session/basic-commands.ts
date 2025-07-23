@@ -1,6 +1,6 @@
 /**
  * Basic Session Commands
- * 
+ *
  * Commands for basic session operations (list, get, start, dir).
  * Extracted from session.ts as part of modularization effort.
  */
@@ -35,7 +35,7 @@ export class SessionListCommand extends BaseSessionCommand<any, any> {
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     const { listSessionsFromParams } = await import("../../../../domain/session");
-    
+
     const sessions = await listSessionsFromParams({
       repo: params.repo,
       json: params.json,
@@ -67,7 +67,7 @@ export class SessionGetCommand extends BaseSessionCommand<any, any> {
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     const { getSessionFromParams } = await import("../../../../domain/session");
-    
+
     const session = await getSessionFromParams({
       name: params.name,
       task: params.task,
@@ -107,11 +107,13 @@ export class SessionStartCommand extends BaseSessionCommand<any, any> {
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     // Validate that task association is provided
     if (!params.task && !params.description) {
-      throw new Error(`Task association is required for proper tracking.\nPlease provide one of:\n  --task <id>           Associate with existing task\n  --description <text>  Create new task automatically\n\nExamples:\n  minsky session start --task 123\n  minsky session start --description "Fix login issue" my-session`);
+      throw new Error(
+        'Task association is required for proper tracking.\nPlease provide one of:\n  --task <id>           Associate with existing task\n  --description <text>  Create new task automatically\n\nExamples:\n  minsky session start --task 123\n  minsky session start --description "Fix login issue" my-session'
+      );
     }
 
     const { startSessionFromParams } = await import("../../../../domain/session");
-    
+
     const session = await startSessionFromParams({
       name: params.name,
       task: params.task,
@@ -152,7 +154,7 @@ export class SessionDirCommand extends BaseSessionCommand<any, any> {
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     const { getSessionDirFromParams } = await import("../../../../domain/session");
-    
+
     const directory = await getSessionDirFromParams({
       name: params.name,
       task: params.task,

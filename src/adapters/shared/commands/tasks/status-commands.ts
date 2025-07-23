@@ -1,6 +1,6 @@
 /**
  * Task Status Commands
- * 
+ *
  * Commands for getting and setting task status.
  * Extracted from tasks.ts as part of modularization effort.
  */
@@ -132,9 +132,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand {
     ];
 
     // Find the index of the current status to pre-select it
-    const currentStatusIndex = statusOptions.findIndex(
-      (option) => option?.value === currentStatus
-    );
+    const currentStatusIndex = statusOptions.findIndex((option) => option?.value === currentStatus);
     const initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0;
 
     // Prompt for status selection
@@ -157,8 +155,6 @@ export class TasksStatusSetCommand extends BaseTaskCommand {
 /**
  * Factory functions for creating command instances
  */
-export const createTasksStatusGetCommand = (): TasksStatusGetCommand => 
-  new TasksStatusGetCommand();
+export const createTasksStatusGetCommand = (): TasksStatusGetCommand => new TasksStatusGetCommand();
 
-export const createTasksStatusSetCommand = (): TasksStatusSetCommand => 
-  new TasksStatusSetCommand();
+export const createTasksStatusSetCommand = (): TasksStatusSetCommand => new TasksStatusSetCommand();

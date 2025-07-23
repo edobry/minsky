@@ -1,6 +1,6 @@
 /**
  * Task CRUD Commands
- * 
+ *
  * Commands for creating, reading, updating, and deleting tasks.
  * Extracted from tasks.ts as part of modularization effort.
  */
@@ -246,14 +246,10 @@ export class TasksDeleteCommand extends BaseTaskCommand {
 /**
  * Factory functions for creating command instances
  */
-export const createTasksListCommand = (): TasksListCommand => 
-  new TasksListCommand();
+export const createTasksListCommand = (): TasksListCommand => new TasksListCommand();
 
-export const createTasksGetCommand = (): TasksGetCommand => 
-  new TasksGetCommand();
+export const createTasksGetCommand = (): TasksGetCommand => new TasksGetCommand();
 
-export const createTasksCreateCommand = (): TasksCreateCommand => 
-  new TasksCreateCommand();
+export const createTasksCreateCommand = (): TasksCreateCommand => new TasksCreateCommand();
 
-export const createTasksDeleteCommand = (): TasksDeleteCommand => 
-  new TasksDeleteCommand();
+export const createTasksDeleteCommand = (): TasksDeleteCommand => new TasksDeleteCommand();

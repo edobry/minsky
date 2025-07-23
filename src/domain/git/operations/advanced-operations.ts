@@ -1,10 +1,14 @@
 /**
  * Git Advanced Operations
- * 
+ *
  * Operations for advanced git functionality (merge, checkout, rebase).
  * Extracted from git.ts as part of modularization effort.
  */
-import { BaseGitOperation, type GitOperationDependencies, type BaseGitOperationParams } from "./base-git-operation";
+import {
+  BaseGitOperation,
+  type GitOperationDependencies,
+  type BaseGitOperationParams,
+} from "./base-git-operation";
 import { type GitServiceInterface } from "../types";
 import { getErrorMessage } from "../../../errors/index";
 
@@ -48,10 +52,7 @@ export class MergeOperation extends BaseGitOperation<MergeParams, any> {
     return "merge branches";
   }
 
-  async executeOperation(
-    params: MergeParams,
-    gitService: GitServiceInterface
-  ): Promise<any> {
+  async executeOperation(params: MergeParams, gitService: GitServiceInterface): Promise<any> {
     const repoPath = params.repo || gitService.getSessionWorkdir(params.session || "");
     const targetBranch = params.targetBranch || "HEAD";
 
@@ -88,10 +89,7 @@ export class CheckoutOperation extends BaseGitOperation<CheckoutParams, any> {
     return "checkout branch";
   }
 
-  async executeOperation(
-    params: CheckoutParams,
-    gitService: GitServiceInterface
-  ): Promise<any> {
+  async executeOperation(params: CheckoutParams, gitService: GitServiceInterface): Promise<any> {
     const repoPath = params.repo || gitService.getSessionWorkdir(params.session || "");
 
     // Use ConflictDetectionService to check for branch switch conflicts
@@ -145,10 +143,7 @@ export class RebaseOperation extends BaseGitOperation<RebaseParams, any> {
     return "rebase branch";
   }
 
-  async executeOperation(
-    params: RebaseParams,
-    gitService: GitServiceInterface
-  ): Promise<any> {
+  async executeOperation(params: RebaseParams, gitService: GitServiceInterface): Promise<any> {
     const repoPath = params.repo || gitService.getSessionWorkdir(params.session || "");
     const featureBranch = params.featureBranch || "HEAD";
 
@@ -219,11 +214,9 @@ export class RebaseOperation extends BaseGitOperation<RebaseParams, any> {
 /**
  * Factory functions for creating advanced operations
  */
-export const createMergeOperation = (deps?: GitOperationDependencies) =>
-  new MergeOperation(deps);
+export const createMergeOperation = (deps?: GitOperationDependencies) => new MergeOperation(deps);
 
 export const createCheckoutOperation = (deps?: GitOperationDependencies) =>
   new CheckoutOperation(deps);
 
-export const createRebaseOperation = (deps?: GitOperationDependencies) =>
-  new RebaseOperation(deps);
+export const createRebaseOperation = (deps?: GitOperationDependencies) => new RebaseOperation(deps);

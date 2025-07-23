@@ -3,7 +3,7 @@
  *
  * This module provides backward compatibility for the original git interface
  * while delegating key *FromParams functions to the new modular architecture.
- * 
+ *
  * MIGRATION IN PROGRESS: Key functions extracted to modular operations
  * GitService class preserved to avoid massive refactoring
  */
@@ -37,11 +37,7 @@ export {
 };
 
 // Export modular components for migration path
-export {
-  ModularGitCommandsManager,
-  modularGitCommandsManager,
-  createModularGitCommandsManager,
-};
+export { ModularGitCommandsManager, modularGitCommandsManager, createModularGitCommandsManager };
 
 // Export all modular git operation components for full access
 export * from "./git/operations";

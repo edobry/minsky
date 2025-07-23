@@ -1,6 +1,6 @@
 /**
  * Task Query Operations
- * 
+ *
  * Operations for querying tasks (list, get, status, spec).
  * Extracted from taskCommands.ts as part of modularization effort.
  */
@@ -43,8 +43,8 @@ export class ListTasksOperation extends BaseTaskOperation<TaskListParams, any[]>
     } else {
       // Unless "all" is provided, filter out DONE and CLOSED tasks
       if (!params.all) {
-        tasks = tasks.filter((task: any) =>
-          task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
+        tasks = tasks.filter(
+          (task: any) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
         );
       }
     }

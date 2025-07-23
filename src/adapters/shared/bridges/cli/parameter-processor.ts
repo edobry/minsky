@@ -1,6 +1,6 @@
 /**
  * CLI Parameter Processor
- * 
+ *
  * Handles parameter mapping, extraction, and command setup for CLI commands.
  * Extracted from cli-bridge.ts as part of modularization effort.
  */
@@ -48,17 +48,12 @@ export class ParameterProcessor {
     commandDef: SharedCommand,
     options: CliCommandOptions
   ): ParameterMapping[] {
-    const mappings = createParameterMappings(
-      commandDef.parameters || {},
-      options.parameters || {}
-    );
+    const mappings = createParameterMappings(commandDef.parameters || {}, options.parameters || {});
 
     // If automatic argument generation is enabled
     if (options.useFirstRequiredParamAsArgument && !options.forceOptions) {
       // Find the first required parameter to use as an argument
-      const firstRequiredIndex = mappings.findIndex(
-        (mapping) => mapping.paramDef.required
-      );
+      const firstRequiredIndex = mappings.findIndex((mapping) => mapping.paramDef.required);
 
       if (firstRequiredIndex >= 0 && mappings[firstRequiredIndex]) {
         // Mark it as an argument
@@ -185,11 +180,12 @@ export class ParameterProcessor {
 
     Object.entries(paramDefs).forEach(([name, paramDef]) => {
       const requiredText = paramDef.required ? " (required)" : "";
-      const defaultText = paramDef.defaultValue !== undefined 
-        ? ` (default: ${paramDef.defaultValue})` 
-        : "";
-      
-      helpLines.push(`  ${name}: ${paramDef.description || "No description"}${requiredText}${defaultText}`);
+      const defaultText =
+        paramDef.defaultValue !== undefined ? ` (default: ${paramDef.defaultValue})` : "";
+
+      helpLines.push(
+        `  ${name}: ${paramDef.description || "No description"}${requiredText}${defaultText}`
+      );
     });
 
     return helpLines;

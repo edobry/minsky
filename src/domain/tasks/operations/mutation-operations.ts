@@ -1,6 +1,6 @@
 /**
  * Task Mutation Operations
- * 
+ *
  * Operations for modifying tasks (create, update status, delete).
  * Extracted from taskCommands.ts as part of modularization effort.
  */
@@ -152,8 +152,9 @@ export const createSetTaskStatusOperation = (deps?: TaskOperationDependencies) =
 export const createCreateTaskOperation = (deps?: TaskOperationDependencies) =>
   new CreateTaskOperation(deps);
 
-export const createCreateTaskFromTitleAndDescriptionOperation = (deps?: TaskOperationDependencies) =>
-  new CreateTaskFromTitleAndDescriptionOperation(deps);
+export const createCreateTaskFromTitleAndDescriptionOperation = (
+  deps?: TaskOperationDependencies
+) => new CreateTaskFromTitleAndDescriptionOperation(deps);
 
 export const createDeleteTaskOperation = (deps?: TaskOperationDependencies) =>
   new DeleteTaskOperation(deps);

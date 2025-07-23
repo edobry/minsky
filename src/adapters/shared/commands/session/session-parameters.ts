@@ -1,6 +1,6 @@
 /**
  * Session Command Parameters
- * 
+ *
  * Consolidated parameter definitions for all session commands.
  * Extracted from session.ts as part of modularization effort.
  */

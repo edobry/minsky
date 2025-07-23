@@ -1,6 +1,6 @@
 /**
  * Base Task Command
- * 
+ *
  * Abstract base class providing common functionality for all task commands.
  * Extracted from tasks.ts as part of modularization effort.
  */
@@ -201,7 +201,7 @@ export class TaskCommandRegistry {
    * Get all command registrations
    */
   getAllRegistrations() {
-    return this.getAll().map(cmd => cmd.getRegistration());
+    return this.getAll().map((cmd) => cmd.getRegistration());
   }
 
   /**
