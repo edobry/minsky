@@ -15,8 +15,36 @@ import {
 } from "../tasks";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { expectToBeInstanceOf } from "../../utils/test-utils/assertions";
-import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
+import { createMock, setupTestMocks, mockModule } from "../../utils/test-utils/mocking";
 import { createMockTaskService } from "../../utils/test-utils/dependencies";
+
+// Mock the configuration system at module level to prevent infinite loops
+mockModule("../configuration/index", () => ({
+  get: () => "json-file", // Return default backend
+  has: () => true,
+  getConfiguration: () => ({ backend: "json-file" }),
+  getConfigurationProvider: () => ({
+    get: () => "json-file",
+    has: () => true,
+    getConfig: () => ({ backend: "json-file" }),
+  }),
+}));
+
+// Mock the task service creation to prevent it from trying to access real backend
+mockModule("../tasks/taskService", () => ({
+  createConfiguredTaskService: () => Promise.resolve({
+    listTasks: () => Promise.resolve([]),
+    getTask: () => Promise.resolve(null),
+    getTaskStatus: () => Promise.resolve("TODO"),
+    setTaskStatus: () => Promise.resolve(),
+  }),
+  TaskService: class MockTaskService {
+    listTasks = () => Promise.resolve([]);
+    getTask = () => Promise.resolve(null);
+    getTaskStatus = () => Promise.resolve("TODO");
+    setTaskStatus = () => Promise.resolve();
+  },
+}));
 
 const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
 
@@ -46,15 +74,14 @@ const mockTaskService = createMockTaskService({
 });
 
 const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
-const mockResolveMainWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
-const mockCreateTaskService = createMock(() => mockTaskService);
+const mockResolveTaskWorkspacePath = createMock(() => Promise.resolve("/mock/task/workspace/path"));
+const mockCreateTaskService = createMock(() => Promise.resolve(mockTaskService));
 
 // Type assertion for mock dependencies
 const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
-  resolveMainWorkspacePath: mockResolveMainWorkspacePath,
+  resolveTaskWorkspacePath: mockResolveTaskWorkspacePath,
   createTaskService: mockCreateTaskService,
-  resolveTaskWorkspacePath: createMock(() => Promise.resolve("/mock/task/workspace/path"))
 } as any; // Cast to any to avoid TypeScript errors with the deps parameter
 
 describe("interface-agnostic task functions", () => {
