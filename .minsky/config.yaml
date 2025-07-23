@@ -1,4 +1,27 @@
+# Minsky Project Configuration
+# This file defines project-wide settings that are shared across the team
+
 version: 1
-backend: markdown
+
+# Workflow Commands - Consistent across team
+workflows:
+  lint: "bun run lint"
+  lint:fix: "bun run lint --fix"
+  test: "bun test"
+  test:watch: "bun test --watch"
+  build: "bun run build"
+  format: "prettier --write '**/*.{ts,js,json,md}'"
+  format:check: "prettier --check '**/*.{ts,js,json,md}'"
+
+# SessionDB Configuration
 sessiondb:
-  backend: sqlite
+  backend: "sqlite"
+  baseDir: ".minsky/sessions"
+
+# Logger Configuration
+logger:
+  mode: "auto"
+  level: "info"
+
+# Backend Configuration
+backend: "markdown"

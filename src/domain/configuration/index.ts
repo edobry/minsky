@@ -271,96 +271,84 @@ export async function initializeConfiguration(
 }
 
 /**
- * Get the global configuration provider
+ * Get the current configuration
  *
- * @throws Error if configuration hasn't been initialized
- */
-export function getConfigurationProvider(): ConfigurationProvider {
-  if (!globalProvider) {
-    throw new Error("Configuration not initialized. Call initializeConfiguration() first.");
-  }
-  return globalProvider;
-}
-
-/**
- * Get the complete configuration object
- *
- * Convenience method for accessing the full configuration.
+ * This function returns the currently loaded configuration. If no configuration
+ * has been loaded yet, it will attempt to load it automatically.
  */
 export function getConfiguration(): Configuration {
-  return getConfigurationProvider().getConfig();
-}
+  if (!globalProvider) {
+    // Auto-initialize with default factory if not already initialized
+    const { CustomConfigFactory } = require("./index");
+    const factory = new CustomConfigFactory();
 
-/**
- * Get a configuration value by path
- *
- * @param path - Dot-separated path to the configuration value
- * @returns The configuration value
- * @throws Error if path doesn't exist
- */
-export function get<T = any>(path: string): T {
-  return getConfigurationProvider().get<T>(path);
-}
+    // This is a synchronous function, so we can't await here
+    // Instead, we'll create a provider synchronously and cache it
+    if (!globalProvider) {
+      // For backward compatibility, create a simple provider that loads config
+      // This will be replaced with proper async initialization in the future
+      try {
+        const { loadConfiguration } = require("./loader");
+        const result = loadConfiguration({ workingDirectory: process.cwd() });
 
-/**
- * Check if a configuration path exists
- *
- * @param path - Dot-separated path to check
- * @returns true if the path exists
- */
-export function has(path: string): boolean {
-  return getConfigurationProvider().has(path);
-}
+        if (result && typeof result.then === "function") {
+          // If it's a promise, we can't handle it synchronously
+          throw new Error(
+            "Configuration must be initialized asynchronously. Call initializeConfiguration() first."
+          );
+        }
 
-/**
- * Reload configuration from sources
- *
- * @throws Error if configuration hasn't been initialized
- */
-export async function reloadConfiguration(): Promise<void> {
-  await getConfigurationProvider().reload();
-}
+        // Create a simple provider with the loaded config
+        globalProvider = {
+          getConfig: () => result.config,
+          get: function <T>(path: string): T {
+            const config = this.getConfig();
+            return path.split(".").reduce((current, key) => current?.[key], config) as T;
+          },
+          has: function (path: string): boolean {
+            try {
+              const config = this.getConfig();
+              return path.split(".").reduce((current, key) => current?.[key], config) !== undefined;
+            } catch {
+              return false;
+            }
+          },
+          reload: async () => {},
+          getMetadata: () => ({ sources: [], loadedAt: new Date(), version: "fallback" }),
+          validate: () => ({ valid: true, errors: [] }),
+        };
+      } catch (error) {
+        // Fallback to empty configuration
+        const emptyConfig = {
+          backend: "markdown" as const,
+          backendConfig: {},
+          detectionRules: [],
+          sessiondb: { backend: "sqlite" as const },
+          github: {},
+          ai: {},
+          logger: { mode: "auto" as const, level: "info" as const },
+          workflows: {},
+        };
 
-/**
- * Get configuration metadata for debugging
- *
- * @returns Configuration metadata including source information
- */
-export function getConfigurationMetadata(): ConfigurationMetadata {
-  return getConfigurationProvider().getMetadata();
-}
+        globalProvider = {
+          getConfig: () => emptyConfig,
+          get: function <T>(path: string): T {
+            return path.split(".").reduce((current, key) => current?.[key], emptyConfig) as T;
+          },
+          has: function (path: string): boolean {
+            return (
+              path.split(".").reduce((current, key) => current?.[key], emptyConfig) !== undefined
+            );
+          },
+          reload: async () => {},
+          getMetadata: () => ({ sources: [], loadedAt: new Date(), version: "fallback" }),
+          validate: () => ({ valid: true, errors: [] }),
+        };
+      }
+    }
+  }
 
-/**
- * Validate current configuration
- *
- * @returns Validation result with any errors
- */
-export function validateConfiguration(): ValidationResult {
-  return getConfigurationProvider().validate();
-}
-
-/**
- * Configuration provider type for testing
- */
-export type TestProviderType = "custom";
-
-/**
- * Create a configuration provider for testing
- *
- * @param overrides - Configuration overrides for testing
- * @param providerType - Which provider implementation to use
- * @returns A configuration provider with test overrides
- */
-export async function createTestProvider(
-  overrides: ConfigurationOverrides = {},
-  providerType: TestProviderType = "custom"
-): Promise<ConfigurationProvider> {
-  const factory = new CustomConfigFactory();
-  return factory.createProvider({
-    overrides,
-    skipValidation: false,
-    enableCache: false,
-  });
+  return globalProvider!.getConfig();
 }
 
 // Convenience exports for common configuration sections
@@ -412,6 +400,13 @@ export const config = {
    */
   get logger() {
     return getConfiguration().logger;
+  },
+
+  /**
+   * Get workflow commands configuration
+   */
+  get workflows() {
+    return getConfiguration().workflows;
   },
 } as const;
 

@@ -3,7 +3,7 @@ import * as winston from "winston";
 const { format, transports } = winston;
 import type {} from "logform";
 
-import { has, get } from "../domain/configuration/index";
+import { config } from "../domain/configuration/index";
 
 // Logger configuration interface
 interface LoggerConfig {
@@ -49,9 +49,9 @@ function getLoggerConfig(): LoggerConfig {
 
   try {
     // Try to get configuration from the config system
-    const configMode = has("logger.mode") ? get("logger.mode") : null;
-    const configLevel = has("logger.level") ? get("logger.level") : null;
-    const configAgentLogs = has("logger.enableAgentLogs") ? get("logger.enableAgentLogs") : null;
+    const configMode = config.logger?.mode || null;
+    const configLevel = config.logger?.level || null;
+    const configAgentLogs = config.logger?.enableAgentLogs || null;
 
     loggerConfig = {
       mode: (typeof configMode === "string" ? configMode : envMode || "auto") as

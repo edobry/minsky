@@ -1,11 +1,13 @@
 /**
  * Session Lint Command
  *
- * Simple linting command that works with common project setups
+ * Runs linting commands in session workspaces using the project's configured
+ * workflow commands with proper fallback detection.
  */
 
 import { execAsync } from "../../utils/exec";
 import { log } from "../../utils/logger";
+import { config } from "../configuration";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
@@ -38,7 +40,7 @@ export async function sessionLint(
 
   try {
     // Determine the best lint command to use
-    const baseLintCommand = await determineLintCommand(workspaceDir);
+    const baseLintCommand = await determineLintCommand(workspaceDir, params);
 
     // Build full command with parameters
     const fullCommand = buildLintCommand(baseLintCommand, params);
@@ -107,14 +109,52 @@ export async function sessionLint(
 }
 
 /**
- * Determine the best lint command for the project
+ * Determine the best lint command for the project using configuration hierarchy
  */
-async function determineLintCommand(workspaceDir: string): Promise<string> {
-  // First, check if package.json has a lint script
+async function determineLintCommand(
+  workspaceDir: string,
+  params: SessionLintParams
+): Promise<string> {
+  // 1. Try configuration system first (project > user > defaults)
+  try {
+    const workflows = config.workflows;
+
+    // Check for fix-specific command first if --fix is requested
+    if (params.fix) {
+      if (workflows?.["lint:fix"]) {
+        return workflows["lint:fix"];
+      }
+      // If we have a regular lint command, we'll add --fix to it later
+      if (workflows?.lint) {
+        return workflows.lint;
+      }
+    }
+
+    // Check for regular lint command
+    if (workflows?.lint) {
+      return workflows.lint;
+    }
+
+    // Check for check-specific lint command
+    if (workflows?.["lint:check"]) {
+      return workflows["lint:check"];
+    }
+  } catch (error) {
+    log.debug("Configuration system not available, falling back to detection", { error });
+  }
+
+  // 2. Fallback to package.json script detection
   const packageJsonPath = join(workspaceDir, "package.json");
   if (existsSync(packageJsonPath)) {
     try {
       const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
+
+      // Check for fix-specific scripts first if --fix is requested
+      if (params.fix) {
+        if (packageJson.scripts?.["lint:fix"]) {
+          return "bun run lint:fix";
+        }
+      }
 
       // Check for common lint script names
       if (packageJson.scripts?.lint) {
@@ -140,7 +180,7 @@ async function determineLintCommand(workspaceDir: string): Promise<string> {
     }
   }
 
-  // Fallback: try common lint commands
+  // 3. Final fallback: try common lint commands
   return "bunx eslint .";
 }
 
@@ -150,6 +190,9 @@ async function determineLintCommand(workspaceDir: string): Promise<string> {
 function buildLintCommand(baseLintCommand: string, params: SessionLintParams): string {
   let command = baseLintCommand;
 
+  // Don't add flags if this is already a fix command
+  const isFixCommand = command.includes("lint:fix") || command.includes("--fix");
+
   // Handle different command formats
   if (
     command.startsWith("bun run ") ||
@@ -157,7 +200,7 @@ function buildLintCommand(baseLintCommand: string, params: SessionLintParams): s
     command.startsWith("yarn ")
   ) {
     // For npm/bun/yarn scripts, append flags after the script name
-    if (params.fix) {
+    if (params.fix && !isFixCommand) {
       command += " --fix";
     }
     if (params.quiet) {
@@ -165,7 +208,7 @@ function buildLintCommand(baseLintCommand: string, params: SessionLintParams): s
     }
   } else {
     // For direct commands (like "eslint ." or "bunx eslint ."), append flags directly
-    if (params.fix) {
+    if (params.fix && !isFixCommand) {
       command += " --fix";
     }
     if (params.quiet) {

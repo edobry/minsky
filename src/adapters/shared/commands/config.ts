@@ -14,7 +14,7 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
-import { has, get, getConfiguration } from "../../../domain/configuration/index";
+import { config, getConfiguration } from "../../../domain/configuration/index";
 import { log } from "../../../utils/logger";
 
 /**
