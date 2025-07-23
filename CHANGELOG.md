@@ -18,6 +18,14 @@
 
 ### Fixed
 
+- **Task Commands Circular Dependency**: Resolved circular dependency issues causing `minsky tasks list` command to fail
+  - Fixed circular export paths in `tasks.ts` and `session.ts` modules (`.../tasks` → `.../tasks/`)
+  - Simplified `ModularTasksCommandManager` to avoid initialization circular dependencies
+  - Removed dynamic imports in favor of static imports per no-dynamic-imports rule
+  - Added proper registry setup with lazy initialization to break dependency cycles
+  - Task commands now load without "setupTaskCommandRegistry not found" errors
+  - Session commands still require similar fixes but task command structure is working
+
 - **Session Commands Consolidation**: Fixed architectural inconsistencies from incomplete Task #171 refactoring
   - **Session Approve**: Removed old/broken `approve-command.ts` that incorrectly used session workspace
   - **Import Fixes**: Added missing export aliases for `updateSession` and `deleteSession` in command files
