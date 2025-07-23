@@ -66,9 +66,9 @@ export async function resolveTaskWorkspacePath(
   if (!resolvedRepoUrl) {
     // Try to get repository URL from git config in current directory
     try {
-      const { execAsync } = await import("./exec");
-      const { stdout } = await execAsync("git config --get remote.origin.url", {
-        cwd: process.cwd(),
+      const { execGitWithTimeout } = await import("./git-exec");
+      const { stdout } = await execGitWithTimeout("config", "config --get remote.origin.url", {
+        workdir: process.cwd(),
         timeout: 2000,
       });
       resolvedRepoUrl = stdout.trim();

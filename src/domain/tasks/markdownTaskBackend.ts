@@ -17,6 +17,7 @@ import type {
   CreateTaskOptions,
   DeleteTaskOptions,
 } from "../tasks";
+import type { BackendCapabilities } from "./types";
 import type {
   TaskData,
   TaskSpecData,
@@ -67,6 +68,37 @@ export class MarkdownTaskBackend implements TaskBackend {
     this.workspacePath = config.workspacePath;
     this.tasksFilePath = getTasksFilePath(this.workspacePath);
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
+  }
+
+  // ---- Capability Discovery ----
+
+  getCapabilities(): BackendCapabilities {
+    return {
+      // Core operations - markdown backend supports basic CRUD
+      supportsTaskCreation: true,
+      supportsTaskUpdate: true,
+      supportsTaskDeletion: true,
+
+      // Essential metadata support
+      supportsStatus: true, // Stored in tasks.md with checkboxes
+
+      // Structural metadata - not yet implemented but possible
+      supportsSubtasks: false, // TODO: Future enhancement for Task #238
+      supportsDependencies: false, // TODO: Future enhancement for Task #239
+
+      // Provenance metadata - not yet implemented
+      supportsOriginalRequirements: false, // TODO: Could store in frontmatter
+      supportsAiEnhancementTracking: false, // TODO: Could store in frontmatter
+
+      // Query capabilities - limited in markdown format
+      supportsMetadataQuery: false, // Would require parsing all files
+      supportsFullTextSearch: true, // Can grep through markdown files
+
+      // Update mechanism - markdown backend requires special workspace
+      requiresSpecialWorkspace: true, // Uses task operations workspace
+      supportsTransactions: false, // File-based, no transaction support
+      supportsRealTimeSync: false, // Manual file operations
+    };
   }
 
   // ---- Required TaskBackend Interface Methods ----
