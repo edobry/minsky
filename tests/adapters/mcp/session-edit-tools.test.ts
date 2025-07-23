@@ -10,10 +10,10 @@ import { readFile, writeFile } from "fs/promises";
 setupTestMocks();
 
 // Mock fs operations - use dynamic mocks that can be reconfigured
-const mockReadFile = mock(() => Promise.resolve("default content"));
-const mockWriteFile = mock(() => Promise.resolve(undefined));
-const mockMkdir = mock(() => Promise.resolve(undefined));
-const mockStat = mock(() => Promise.resolve({ isFile: () => true }));
+let mockReadFile = mock(() => Promise.resolve("default content"));
+let mockWriteFile = mock(() => Promise.resolve(undefined));
+let mockMkdir = mock(() => Promise.resolve(undefined));
+let mockStat = mock(() => Promise.resolve({ isFile: () => true }));
 
 mockModule("fs/promises", () => ({
   readFile: mockReadFile,
@@ -70,11 +70,11 @@ describe("Session Edit Tools", () => {
     mockValidatePathExists.mockReset();
 
     // Set up default successful behavior for most tests
-    mockReadFile.mockImplementation(() => Promise.resolve("original content with oldText"));
-    mockWriteFile.mockImplementation(() => Promise.resolve(undefined));
-    mockResolvePath.mockImplementation(() => Promise.resolve("/mock/session/path/file.txt"));
-    mockValidatePath.mockImplementation(() => true);
-    mockValidatePathExists.mockImplementation(() => Promise.resolve(undefined));
+    mockReadFile = mock(() => Promise.resolve("original content with oldText"));
+    mockWriteFile = mock(() => Promise.resolve(undefined));
+    mockResolvePath = mock(() => Promise.resolve("/mock/session/path/file.txt"));
+    mockValidatePath = mock(() => true);
+    mockValidatePathExists = mock(() => Promise.resolve(undefined));
 
     // Create mock command mapper
     registeredTools = {};
@@ -182,7 +182,7 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session.search_replace"].handler;
 
       // Mock file content that doesn't contain search text
-      mockReadFile.mockImplementation(() => Promise.resolve("content without target"));
+      mockReadFile = mock(() => Promise.resolve("content without target"));
 
       const result = await handler({
         sessionName: "test-session",
@@ -199,7 +199,7 @@ describe("Session Edit Tools", () => {
       const handler = registeredTools["session.search_replace"].handler;
 
       // Mock file content with multiple occurrences
-      mockReadFile.mockImplementation(() => Promise.resolve("oldText and oldText again"));
+      mockReadFile = mock(() => Promise.resolve("oldText and oldText again"));
 
       const result = await handler({
         sessionName: "test-session",

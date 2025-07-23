@@ -120,12 +120,14 @@ export abstract class BaseTaskCommand {
         }
 
         // Format each task for display
-        const taskList = result.tasks.map((task: any) => {
-          const displayId = formatTaskIdForDisplay(task.id);
-          return `${displayId}: ${task.title} [${task.status}]`;
-        }).join('\n');
+        const taskList = result.tasks
+          .map((task: any) => {
+            const displayId = formatTaskIdForDisplay(task.id);
+            return `${displayId}: ${task.title} [${task.status}]`;
+          })
+          .join("\n");
 
-        return `${result.message}\n\n${taskList}`;
+        return taskList;
       }
 
       // Return simple message for other results
