@@ -1,4 +1,4 @@
-const COMMIT_HASH_SHORT_LENGTH = 7;
+const _COMMIT_HASH_SHORT_LENGTH = 7;
 
 /**
  * Task I/O operations module
@@ -21,7 +21,7 @@ import type {
  */
 export async function readTasksFile(filePath: string): Promise<TaskReadOperationResult> {
   try {
-    const content = (String(await fs.readFile(filePath, "utf-8"))) as string;
+    const content = String(await fs.readFile(filePath, "utf-8")) as string;
     return {
       success: true,
       filePath,
@@ -72,7 +72,7 @@ export async function writeTasksFile(
  */
 export async function readTaskSpecFile(filePath: string): Promise<TaskReadOperationResult> {
   try {
-    const content = (String(await fs.readFile(filePath, "utf-8"))) as string;
+    const content = String(await fs.readFile(filePath, "utf-8")) as string;
     return {
       success: true,
       filePath,
@@ -224,12 +224,8 @@ export function getTaskSpecsDirectoryPath(workspacePath: string): string {
  * @param workspacePath Workspace path
  * @returns Path to the task spec file
  */
-export function getTaskSpecFilePath(
-  taskId: string,
-  title: string,
-  workspacePath: string
-): string {
-  const taskIdNum = taskId!.startsWith("#") ? (taskId as unknown)!.slice(1) : taskId;
+export function getTaskSpecFilePath(taskId: string, title: string, workspacePath: string): string {
+  const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
   const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
 }
@@ -245,7 +241,7 @@ export function getTaskSpecFilePath(
 export function getTaskSpecRelativePath(
   taskId: string,
   title: string,
-  workspacePath: string
+  _workspacePath: string
 ): string {
   const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
   const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");

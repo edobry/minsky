@@ -1,12 +1,12 @@
 /**
- * minsky config list command
- *
- * Lists all configuration values from all sources to show where each value comes from
+ * Config List Command
  */
 
+import { z } from "zod";
 import { Command } from "commander";
-import config from "config";
+import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
+import { getConfigurationProvider } from "../../domain/configuration";
 
 interface ListOptions {
   json?: boolean;
@@ -15,56 +15,74 @@ interface ListOptions {
 export function createConfigListCommand(): Command {
   return new Command("list")
     .description("List all configuration values and their sources")
-    .option("--json", "Output in JSON format", false).action(async (options: ListOptions) => {
+    .option("--json", "Output in JSON format", false)
+    .action(async (options: ListOptions) => {
       try {
-      // Use node-config directly - it provides source information via config.util.getConfigSources()
-        const sources = config.util.getConfigSources();
+        // Use new configuration system with metadata support
+        const provider = getConfigurationProvider();
+        const config = provider.getConfig();
+        const metadata = provider.getMetadata();
+
         const resolved = {
-          backend: config.get("backend"),
-          backendConfig: config.get("backendConfig"),
-          credentials: config.get("credentials"),
-          sessiondb: config.get("sessiondb"),
-          ai: config.has("ai") ? config.get("ai") : undefined,
+          backend: config.backend,
+          backendConfig: config.backendConfig,
+          sessiondb: config.sessiondb,
+          ai: config.ai,
+          github: config.github,
+          logger: config.logger,
         };
 
         if (options.json) {
           const output = {
             resolved,
-            sources: sources.map(source => ({
-              name: source.name,
-              original: source.original,
-              parsed: source.parsed
-            }))
+            metadata,
+            sources: metadata.sources || [],
           };
-          await Bun.write(Bun.stdout, `${JSON.stringify(output as unknown, undefined, 2)}\n`);
+          await Bun.write(Bun.stdout, `${JSON.stringify(output, undefined, 2)}\n`);
         } else {
-          await displayConfigurationSources(resolved, sources);
+          await displayConfigurationSources(resolved, metadata);
         }
       } catch (error) {
         await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
         exit(1);
       }
-    }) as unknown;
+    });
 }
 
-async function displayConfigurationSources(resolved: any, sources: any[]) {
+async function displayConfigurationSources(resolved: any, metadata: any) {
   await Bun.write(Bun.stdout, "CONFIGURATION SOURCES\n");
   await Bun.write(Bun.stdout, `${"=".repeat(40)}\n`);
 
   // Show source precedence
-  await Bun.write(Bun.stdout, "Source Precedence (highest to lowest):\n");
-  for (const source of sources) {
-    await Bun.write(Bun.stdout, `  ${sources.indexOf(source) + 1}. ${source.name}\n`);
-  };
+  if (metadata.sources && metadata.sources.length > 0) {
+    await Bun.write(Bun.stdout, "Source Precedence (highest to lowest):\n");
+    for (let i = 0; i < metadata.sources.length; i++) {
+      const source = metadata.sources[i];
+      await Bun.write(Bun.stdout, `  ${i + 1}. ${source.name || source.type || "Unknown"}\n`);
+    }
+  } else {
+    await Bun.write(Bun.stdout, "Source information not available\n");
+  }
 
   await Bun.write(Bun.stdout, "\nResolved Configuration:\n");
   await Bun.write(Bun.stdout, `Backend: ${resolved.backend}\n`);
-  
+
   if (resolved.sessiondb) {
     await Bun.write(Bun.stdout, `SessionDB Backend: ${resolved.sessiondb.backend}\n`);
   }
 
-  // Backend detection is now handled directly in code (no configuration needed)
+  if (resolved.github && resolved.github.token) {
+    await Bun.write(Bun.stdout, "GitHub: Configured\n");
+  }
+
+  if (resolved.ai && resolved.ai.providers) {
+    const configuredProviders = Object.keys(resolved.ai.providers).filter(
+      (provider) => resolved.ai.providers[provider].apiKey
+    );
+    if (configuredProviders.length > 0) {
+      await Bun.write(Bun.stdout, `AI Providers: ${configuredProviders.join(", ")}\n`);
+    }
+  }
 
   await Bun.write(Bun.stdout, "\nFor detailed configuration values, use: minsky config show\n");
 }

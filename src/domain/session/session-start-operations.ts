@@ -1,5 +1,8 @@
 import { existsSync, rmSync } from "fs";
-import { getMinskyStateDir, getSessionDir } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/paths";
+import {
+  getMinskyStateDir,
+  getSessionDir,
+} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/paths";
 import {
   MinskyError,
   ResourceNotFoundError,
@@ -7,19 +10,26 @@ import {
   getErrorMessage,
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/errors/index";
 import { taskIdSchema } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/common";
-import type {
-  SessionStartParams,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/session";
+import type { SessionStartParams } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/session";
 import { log } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/logger";
-import { installDependencies } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/package-manager";
+import { installDependencies } from "../../utils/package-manager";
 import { type GitServiceInterface } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/git";
-import { normalizeRepoName, resolveRepoPath } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/repo-utils";
-import { TASK_STATUS, type TaskServiceInterface } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/tasks";
 import {
-  type WorkspaceUtilsInterface,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/workspace";
+  normalizeRepoName,
+  resolveRepoPath,
+} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/repo-utils";
+import {
+  TASK_STATUS,
+  type TaskServiceInterface,
+} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/tasks";
+import { type WorkspaceUtilsInterface } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/workspace";
 import { createTaskFromDescription } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/templates/session-templates";
-import type { SessionProviderInterface, SessionRecord, Session } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
+import type {
+  SessionProviderInterface,
+  SessionRecord,
+  Session,
+} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
+import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
 
 /**
  * Implementation of session start functionality
@@ -36,8 +46,18 @@ export async function startSessionImpl(
   }
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, description, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
-    params;
+  const {
+    name,
+    repo,
+    task,
+    description,
+    branch,
+    noStatusUpdate,
+    quiet,
+    json,
+    skipInstall,
+    packageManager,
+  } = params;
 
   try {
     log.debug("Starting session with params", {
@@ -137,14 +157,13 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     if (taskId) {
       const existingSessions = await deps.sessionDB.listSessions();
       const taskSession = existingSessions.find((s: SessionRecord) => {
-        const normalizedSessionTaskId = s.taskId?.startsWith("#") ? s.taskId : `#${s.taskId}`;
-        const normalizedInputTaskId = taskId?.startsWith("#") ? taskId : `#${taskId}`;
-        return normalizedSessionTaskId === normalizedInputTaskId;
+        // Both taskId (from schema normalization) and s.taskId should be in plain format
+        return s.taskId === taskId;
       });
 
       if (taskSession) {
         throw new MinskyError(
-          `A session for task ${taskId} already exists: '${taskSession.session}'`
+          `A session for task ${formatTaskIdForDisplay(taskId)} already exists: '${taskSession.session}'`
         );
       }
     }
@@ -222,8 +241,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
           log.error("Failed to cleanup session record after git error", {
             sessionName,
             gitError: getErrorMessage(gitError),
-            cleanupError:
-              getErrorMessage(cleanupError),
+            cleanupError: getErrorMessage(cleanupError),
           });
         }
       }
@@ -236,8 +254,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
           log.error("Failed to cleanup session directory after git error", {
             sessionDir,
             gitError: getErrorMessage(gitError),
-            cleanupError:
-              getErrorMessage(cleanupError),
+            cleanupError: getErrorMessage(cleanupError),
           });
         }
       }
@@ -299,10 +316,7 @@ Error: ${getErrorMessage(installError)}`
     if (error instanceof MinskyError) {
       throw error;
     } else {
-      throw new MinskyError(
-        `Failed to start session: ${getErrorMessage(error)}`,
-        error
-      );
+      throw new MinskyError(`Failed to start session: ${getErrorMessage(error)}`, error);
     }
   }
-} 
+}

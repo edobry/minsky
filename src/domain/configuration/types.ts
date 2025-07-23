@@ -177,11 +177,7 @@ export type CredentialSource = "environment" | "file" | "prompt";
 
 export interface CredentialManager {
   getCredential(_service: "github"): Promise<string | undefined>;
-  setGlobalCredential(
-    _service: "github",
-    source: CredentialSource,
-    _value?: string
-  ): Promise<void>;
+  setGlobalCredential(_service: "github", source: CredentialSource, _value?: string): Promise<void>;
   promptForCredential(_service: "github"): Promise<string>;
 }
 
@@ -192,7 +188,7 @@ export interface BackendDetector {
 }
 
 // Default configuration values
-export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
+export const _DEFAULT_CONFIG: Partial<ResolvedConfig> = {
   backend: "json-file",
   backendConfig: {},
   detectionRules: [
@@ -214,13 +210,13 @@ export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
 };
 
 // Configuration file paths
-export const CONFIG_PATHS = {
+export const _CONFIG_PATHS = {
   REPOSITORY: ".minsky/config.yaml",
   GLOBAL_USER: "~/.config/minsky/config.yaml",
 } as const;
 
 // Environment variable names
-export const ENV_VARS = {
+export const _ENV_VARS = {
   BACKEND: "MINSKY_BACKEND",
   GITHUB_TOKEN: "GITHUB_TOKEN",
   // AI provider credentials are now handled automatically by node-config

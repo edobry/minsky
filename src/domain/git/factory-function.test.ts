@@ -16,7 +16,7 @@ describe("createGitService Factory Function", () => {
 
   test("should handle null options parameter without throwing runtime error", () => {
     expect(() => {
-      createGitService(null as unknown as { baseDir?: string });
+      createGitService(undefined);
     }).not.toThrow();
   });
 
@@ -36,4 +36,4 @@ describe("createGitService Factory Function", () => {
     const gitService = createGitService();
     expect(gitService).toBeDefined();
   });
-}); 
+});

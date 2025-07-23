@@ -15,33 +15,32 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
   registerSessionCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      // MCP-specific optimizations
       "session.list": {
-        description: "List all sessions (MCP optimized)",
+        description: "List all sessions",
       },
       "session.get": {
-        description: "Get a specific session by name or task ID (MCP optimized)",
+        description: "Get a specific session by name or task ID",
       },
       "session.start": {
-        description: "Start a new session (MCP optimized)",
+        description: "Start a new session",
       },
       "session.delete": {
-        description: "Delete a session (MCP optimized)",
+        description: "Delete a session",
       },
       "session.dir": {
-        description: "Get the directory path for a session (MCP optimized)",
+        description: "Get the directory path for a session",
       },
       "session.update": {
-        description: "Update a session with the latest changes (MCP optimized)",
+        description: "Update a session with the latest changes",
       },
       "session.approve": {
-        description: "Approve a session pull request (MCP optimized)",
+        description: "Approve a session pull request",
       },
       "session.pr": {
-        description: "Create a pull request for a session (MCP optimized)",
+        description: "Create a pull request for a session",
       },
       "session.inspect": {
-        description: "Inspect the current session (MCP optimized)",
+        hidden: true, // Hide from MCP - no "current session" context in remote calls
       },
     },
   });

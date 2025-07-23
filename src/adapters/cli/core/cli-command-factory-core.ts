@@ -35,7 +35,7 @@ export interface CliFactoryConfig {
 export class CliCommandFactory {
   private initialized = false;
   private config: CliFactoryConfig = {
-    enableDevWarnings: process.env.NODE_ENV !== "production" as unknown,
+    enableDevWarnings: process.env.NODE_ENV !== "production",
     strictValidation: true,
   };
   private cliBridge: CliCommandBridge;
@@ -127,4 +127,4 @@ export const cliFactory = new CliCommandFactory();
 /**
  * Export types for external use
  */
-export type { ValidCommandId }; 
+export type { ValidCommandId };

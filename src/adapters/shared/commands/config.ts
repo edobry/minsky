@@ -14,7 +14,7 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
-import config from "config";
+import { has, get, getConfiguration } from "../../../domain/configuration/index";
 import { log } from "../../../utils/logger";
 
 /**
@@ -80,23 +80,29 @@ const configListRegistration = {
   parameters: configListParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
     try {
-      // Use node-config directly to get configuration
-      const sources = config.util.getConfigSources();
+      // Use custom configuration system to get configuration
+      const { getConfigurationProvider } = await import("../../../domain/configuration/index");
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+      const metadata = provider.getMetadata();
+
       const resolved = {
-        backend: config.get("backend"),
-        backendConfig: config.get("backendConfig"),
-        credentials: config.has("credentials") ? config.get("credentials") : {},
-        sessiondb: config.get("sessiondb"),
-        ai: config.has("ai") ? config.get("ai") : undefined,
+        backend: config.backend,
+        backendConfig: config.backendConfig,
+        sessiondb: config.sessiondb,
+        ai: config.ai,
+        github: config.github,
       };
 
       return {
         success: true,
         json: params.json || false,
-        sources: sources.map((source) => ({
+        sources: metadata.sources.map((source) => ({
           name: source.name,
-          original: source.original,
-          parsed: source.parsed,
+          priority: source.priority,
+          loaded: source.loaded,
+          path: source.path,
+          error: source.error,
         })),
         resolved,
         showSources: params.sources || false,
@@ -126,13 +132,14 @@ const configShowRegistration = {
   parameters: configShowParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
     try {
-      // Use node-config directly to get resolved configuration
+      // Use custom configuration system to get resolved configuration
+      const config = getConfiguration();
       const resolved = {
-        backend: config.get("backend"),
-        backendConfig: config.get("backendConfig"),
-        credentials: config.has("credentials") ? config.get("credentials") : {},
-        sessiondb: config.get("sessiondb"),
-        ai: config.has("ai") ? config.get("ai") : undefined,
+        backend: config.backend,
+        backendConfig: config.backendConfig,
+        sessiondb: config.sessiondb,
+        ai: config.ai,
+        github: config.github,
       };
 
       return {
@@ -141,11 +148,9 @@ const configShowRegistration = {
         configuration: resolved,
         showSources: params.sources || false,
         ...(params.sources && {
-          sources: config.util.getConfigSources().map((source) => ({
-            name: source.name,
-            original: source.original,
-            parsed: source.parsed,
-          })),
+          sources: [
+            { name: "custom-config", original: "Custom Configuration System", parsed: resolved },
+          ],
         }),
       };
     } catch (error) {

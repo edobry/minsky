@@ -1,25 +1,24 @@
 /**
  * Integration tests for ConflictDetectionService
- * 
+ *
  * Tests basic functionality without extensive mocking to verify
  * the service works correctly in practice.
  */
 
 import { describe, it, expect } from "bun:test";
-import { 
-  ConflictDetectionService, 
-  ConflictType, 
-  ConflictSeverity, 
-  FileConflictStatus 
+import {
+  ConflictDetectionService,
+  ConflictType,
+  ConflictSeverity,
+  FileConflictStatus,
 } from "./conflict-detection";
 
 describe("ConflictDetectionService Integration", () => {
-  
   it("should handle basic service instantiation and static methods", () => {
     // Test that the service can be instantiated
     const service = new ConflictDetectionService();
     expect(service).toBeInstanceOf(ConflictDetectionService);
-    
+
     // Test that static methods exist
     expect(typeof ConflictDetectionService.predictConflicts).toBe("function");
     expect(typeof ConflictDetectionService.analyzeBranchDivergence).toBe("function");
@@ -35,14 +34,14 @@ describe("ConflictDetectionService Integration", () => {
     expect(ConflictType.RENAME_CONFLICT).toBe(ConflictType.RENAME_CONFLICT);
     expect(ConflictType.MODE_CONFLICT).toBe(ConflictType.MODE_CONFLICT);
     expect(ConflictType.ALREADY_MERGED).toBe(ConflictType.ALREADY_MERGED);
-    
+
     // Test ConflictSeverity enum
     expect(ConflictSeverity.NONE).toBe(ConflictSeverity.NONE);
     expect(ConflictSeverity.AUTO_RESOLVABLE).toBe(ConflictSeverity.AUTO_RESOLVABLE);
     expect(ConflictSeverity.MANUAL_SIMPLE).toBe(ConflictSeverity.MANUAL_SIMPLE);
     expect(ConflictSeverity.MANUAL_COMPLEX).toBe(ConflictSeverity.MANUAL_COMPLEX);
     expect(ConflictSeverity.BLOCKING).toBe(ConflictSeverity.BLOCKING);
-    
+
     // Test FileConflictStatus enum
     expect(FileConflictStatus.CLEAN).toBe(FileConflictStatus.CLEAN);
     expect(FileConflictStatus.MODIFIED_BOTH).toBe(FileConflictStatus.MODIFIED_BOTH);
@@ -62,9 +61,9 @@ describe("ConflictDetectionService Integration", () => {
       affectedFiles: [],
       resolutionStrategies: [],
       userGuidance: "Test guidance",
-      recoveryCommands: []
+      recoveryCommands: [],
     };
-    
+
     expect(mockPrediction.hasConflicts).toBe(false);
     expect(mockPrediction.conflictType).toBe(ConflictType.NONE);
     expect(mockPrediction.severity).toBe(ConflictSeverity.NONE);
@@ -84,9 +83,9 @@ describe("ConflictDetectionService Integration", () => {
       lastCommonCommit: "abc123",
       sessionChangesInBase: false,
       divergenceType: "none" as const,
-      recommendedAction: "none" as const
+      recommendedAction: "none" as const,
     };
-    
+
     expect(typeof mockAnalysis.sessionBranch).toBe("string");
     expect(typeof mockAnalysis.baseBranch).toBe("string");
     expect(typeof mockAnalysis.aheadCommits).toBe("number");
@@ -104,13 +103,13 @@ describe("ConflictDetectionService Integration", () => {
       merged: false,
       conflicts: false,
       conflictDetails: "No conflicts",
-      prediction: undefined
+      prediction: undefined,
     };
-    
+
     expect(typeof mockMergeResult.workdir).toBe("string");
     expect(typeof mockMergeResult.merged).toBe("boolean");
     expect(typeof mockMergeResult.conflicts).toBe("boolean");
-    
+
     // Test SmartUpdateResult structure
     const mockUpdateResult = {
       workdir: "/test/repo",
@@ -118,9 +117,9 @@ describe("ConflictDetectionService Integration", () => {
       skipped: true,
       reason: "Already up to date",
       conflictDetails: undefined,
-      divergenceAnalysis: undefined
+      divergenceAnalysis: undefined,
     };
-    
+
     expect(typeof mockUpdateResult.workdir).toBe("string");
     expect(typeof mockUpdateResult.updated).toBe("boolean");
     expect(typeof mockUpdateResult.skipped).toBe("boolean");
@@ -133,12 +132,14 @@ describe("ConflictDetectionService Integration", () => {
     const testRepoPath = "/tmp/test-conflict-detection";
     const sessionBranch = "test-session";
     const baseBranch = "main";
-    
+
     const result = await ConflictDetectionService.predictConflicts(
-      testRepoPath, sessionBranch, baseBranch
+      testRepoPath,
+      sessionBranch,
+      baseBranch
     );
-    
+
     expect(result).toBeDefined();
     expect(typeof result.hasConflicts).toBe("boolean");
   });
-}); 
+});

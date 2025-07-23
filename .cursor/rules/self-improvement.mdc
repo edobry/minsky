@@ -312,6 +312,40 @@ When user signals PR creation error with phrases like:
 3. **RECREATE PR using proper CLI approach** with correct title/body separation
 4. **UPDATE RULES** to prevent this specific pattern
 
+## ⚠️ Critical MCP Interface Bypass Protocol
+
+**Addresses bypassing dedicated MCP commands for resource access**
+
+### Documented Interface Bypass Pattern
+
+**Pattern**: Using `read_file` for task specifications instead of `mcp_minsky-server_tasks_spec`
+- **Error**: Bypassing the intended resource management interface
+- **User Signal**: "see how you didnt use the `task_spec` command but instead read the spec file directly?"
+- **Root Cause**: Tool Error - misused available tools/functions, bypassed dedicated interfaces
+- **Correct Approach**: Always use `mcp_minsky-server_tasks_spec` for task specification access
+
+### Enhanced Error Detection for Interface Bypass
+
+When user signals interface bypass error with phrases like:
+- "you didnt use the `[command]` command"
+- "instead read the [resource] file directly"
+- "how we can improve a rule or documentation"
+
+**Immediate Response Protocol:**
+1. **IDENTIFY available MCP commands** using `mcp_minsky-server_debug_listMethods`
+2. **VERIFY proper interface exists** for the resource type being accessed
+3. **UPDATE resource-management-protocol rule** with specific examples
+4. **DOCUMENT the pattern** to prevent future occurrences
+
+### Mandatory Verification for Resource Access
+
+Before accessing any project resource:
+- [ ] Checked for dedicated MCP command using `debug_listMethods`?
+- [ ] Verified no resource-specific command exists (e.g., `tasks_spec`, `session_get`, `rules_get`)?
+- [ ] Applied resource-management-protocol requirements?
+
+**CRITICAL**: Any interface bypass requires immediate protocol updates and rule enhancements.
+
 ## ⚠️ Critical Variable Naming Protocol
 
 **This pattern has been identified as a critical, recurring failure that must be eliminated.**
@@ -351,3 +385,53 @@ Before any variable name change:
 - [ ] Confirmed approach follows zero-tolerance enforcement?
 
 **CRITICAL**: Any variable naming violation requires immediate rule system updates.
+
+## ⚠️ Critical Investigation and Initiative Protocol
+
+**Addresses failures to take initiative in understanding user requirements**
+
+### Documented Investigation Failure Pattern
+
+**Pattern**: Making assumptions about requirements instead of taking initiative to investigate
+- **Error**: Starting work based on incomplete information (e.g., task title only)
+- **User Signal**: "you should always take more initiative to understand exactly what i meant and not make assumptions"
+- **Root Cause**: Assumption Error - failed to investigate thoroughly before proceeding
+- **Correct Approach**: Take initiative to find complete requirements, investigate architectural context, understand user meaning
+
+### Enhanced Error Detection for Investigation Failures
+
+When user signals investigation failure with phrases like:
+- "take more initiative to understand exactly what i meant"
+- "not make assumptions"
+- "figure it the fuck out yourself"
+- "you have documentation, code, task specs etc"
+
+**Immediate Response Protocol:**
+1. **STOP ALL ASSUMPTION-BASED WORK** immediately
+2. **INVESTIGATE THOROUGHLY** using all available tools and documentation
+3. **FIND COMPLETE CONTEXT** before proceeding with any implementation
+4. **ASK CLARIFYING QUESTIONS** only after exhausting investigation options
+
+### Mandatory Investigation Verification
+
+Before starting any work based on user requests:
+- [ ] Located and read ALL relevant specifications/documentation?
+- [ ] Investigated architectural context and dependencies?
+- [ ] Used search tools to understand user references (e.g., "special workspace")?
+- [ ] Confirmed complete understanding rather than making assumptions?
+
+**CRITICAL**: Any assumption-based work requires immediate investigation protocol and rule updates.
+
+### Examples
+
+// AVOID
+```
+User: "312 @Start Task"
+Assistant: [starts work based only on database title without finding task specification]
+```
+
+// PREFER
+```
+User: "312 @Start Task"
+Assistant: [searches for task specification, finds it in special workspace, investigates architectural context, understands complete requirements before starting]
+```

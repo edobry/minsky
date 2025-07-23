@@ -1,6 +1,6 @@
 /**
  * Test Cleanup Patterns Utility
- * 
+ *
  * Comprehensive cleanup patterns for test isolation to eliminate global state
  * interference and ensure tests pass individually and in full suite.
  */
@@ -12,7 +12,7 @@ import { randomUUID } from "crypto";
 
 /**
  * Working Directory Cleanup Pattern
- * 
+ *
  * Manages process.cwd() isolation for tests that depend on or modify the current working directory.
  * Prevents working directory changes from affecting other tests.
  */
@@ -89,7 +89,7 @@ export class WorkingDirectoryCleanup {
 
 /**
  * File System Cleanup Pattern
- * 
+ *
  * Creates and manages temporary directories for tests with automatic cleanup.
  * Prevents file system state pollution between tests.
  */
@@ -105,7 +105,7 @@ export class FileSystemTestCleanup {
     const uuid = randomUUID();
     const uniqueId = `${prefix}-${timestamp}-${uuid}`;
     const tempDir = join(tmpdir(), uniqueId);
-    
+
     mkdirSync(tempDir, { recursive: true });
     this.testDirs.push(tempDir);
     return tempDir;
@@ -117,11 +117,11 @@ export class FileSystemTestCleanup {
   createTempFile(filename: string, content: string = "", basePath?: string): string {
     const dir = basePath || this.createTempDir("file-test");
     const filePath = join(dir, filename);
-    
+
     // Ensure parent directory exists
     mkdirSync(dirname(filePath), { recursive: true });
     writeFileSync(filePath, content);
-    
+
     this.testFiles.push(filePath);
     return filePath;
   }
@@ -159,7 +159,7 @@ export class FileSystemTestCleanup {
 
 /**
  * Configuration Override Pattern
- * 
+ *
  * Provides configuration overrides for dependency injection instead of
  * modifying global state like process.env.
  */
@@ -167,11 +167,14 @@ export class ConfigurationTestOverrides {
   /**
    * Create sessiondb configuration override for testing
    */
-  static createSessionDbOverride(backend: "json" | "sqlite" | "postgres", options: {
-    dbPath?: string;
-    connectionString?: string;
-    baseDir?: string;
-  } = {}): any {
+  static createSessionDbOverride(
+    backend: "json" | "sqlite" | "postgres",
+    options: {
+      dbPath?: string;
+      connectionString?: string;
+      baseDir?: string;
+    } = {}
+  ): any {
     const override: any = {
       sessiondb: {
         backend,
@@ -216,7 +219,7 @@ export class ConfigurationTestOverrides {
 
 /**
  * Database Test Cleanup Pattern
- * 
+ *
  * Manages database creation and cleanup for tests that need databases.
  */
 export class DatabaseTestCleanup {
@@ -239,7 +242,10 @@ export class DatabaseTestCleanup {
   /**
    * Create a temporary JSON database file for testing
    */
-  createJsonDb(filename: string = "test.json", initialData: any = { sessions: [], baseDir: "/test" }): string {
+  createJsonDb(
+    filename: string = "test.json",
+    initialData: any = { sessions: [], baseDir: "/test" }
+  ): string {
     const content = JSON.stringify(initialData, null, 2);
     const dbPath = this.fileCleanup.createTempFile(filename, content);
     this.databases.push(dbPath);
@@ -257,7 +263,7 @@ export class DatabaseTestCleanup {
 
 /**
  * Comprehensive Test Isolation Manager
- * 
+ *
  * Combines all cleanup patterns into a single, easy-to-use interface.
  */
 export class TestIsolationManager {
@@ -272,10 +278,18 @@ export class TestIsolationManager {
   }
 
   // Expose individual cleanup utilities
-  get fileSystem() { return this.fileCleanup; }
-  get database() { return this.dbCleanup; }
-  get config() { return ConfigurationTestOverrides; }
-  get cwd() { return this.cwdCleanup; }
+  get fileSystem() {
+    return this.fileCleanup;
+  }
+  get database() {
+    return this.dbCleanup;
+  }
+  get config() {
+    return ConfigurationTestOverrides;
+  }
+  get cwd() {
+    return this.cwdCleanup;
+  }
 
   /**
    * Complete cleanup - call this in afterEach
@@ -296,7 +310,7 @@ export class TestIsolationManager {
  */
 export function withFileSystemCleanup() {
   const manager = new TestIsolationManager();
-  
+
   return {
     manager,
     beforeEach: () => {
@@ -325,7 +339,7 @@ export function withConfigOverrides<T>(baseConfig: T) {
  */
 export function withTestIsolation() {
   const manager = new TestIsolationManager();
-  
+
   return {
     manager,
     beforeEach: () => {
@@ -342,7 +356,7 @@ export function withTestIsolation() {
  */
 export function withDirectoryIsolation() {
   const cwdCleanup = new WorkingDirectoryCleanup();
-  
+
   return {
     cwd: cwdCleanup,
     beforeEach: () => {
@@ -352,4 +366,4 @@ export function withDirectoryIsolation() {
       cwdCleanup.cleanup();
     },
   };
-} 
+}

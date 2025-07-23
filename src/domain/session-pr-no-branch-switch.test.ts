@@ -47,13 +47,14 @@ describe("Session PR Command Branch Behavior", () => {
 
     // Mock session database
     const mockSessionDb = {
-      getSession: createMock((): Promise<any> =>
-        Promise.resolve({
-          session: "task#228",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "#228",
-        })
+      getSession: createMock(
+        (): Promise<any> =>
+          Promise.resolve({
+            session: "task#228",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            taskId: "#228",
+          })
       ),
     };
 
@@ -76,46 +77,40 @@ describe("Session PR Command Branch Behavior", () => {
     });
 
     // Verify the correct sequence of git commands
-    const relevantCommands = gitCommands.filter(cmd => 
-      cmd.includes("branch ") || 
-      cmd.includes("switch ") || 
-      cmd.includes("checkout ")
+    const relevantCommands = gitCommands.filter(
+      (cmd) => cmd.includes("branch ") || cmd.includes("switch ") || cmd.includes("checkout ")
     );
 
     console.log("Git branch/switch commands executed:", relevantCommands);
 
     // CRITICAL ASSERTIONS: Verify proper branch handling
-    
+
     // 1. PR branch should be created without checking it out
-    const createPrBranchCommand = gitCommands.find(cmd => 
-      cmd.includes(`branch ${prBranch}`) && !cmd.includes("switch")
+    const createPrBranchCommand = gitCommands.find(
+      (cmd) => cmd.includes(`branch ${prBranch}`) && !cmd.includes("switch")
     );
     expect(createPrBranchCommand).toBeTruthy();
     expect(createPrBranchCommand).toContain(`branch ${prBranch}`);
 
     // 2. Should temporarily switch to PR branch ONLY for merge operation
-    const switchToPrCommand = gitCommands.find(cmd => 
-      cmd.includes(`switch ${prBranch}`)
-    );
+    const switchToPrCommand = gitCommands.find((cmd) => cmd.includes(`switch ${prBranch}`));
     expect(switchToPrCommand).toBeTruthy();
-    
+
     // 3. Should switch back to session branch after merge
-    const switchBackCommand = gitCommands.find(cmd => 
-      cmd.includes(`switch ${sessionBranch}`)
-    );
+    const switchBackCommand = gitCommands.find((cmd) => cmd.includes(`switch ${sessionBranch}`));
     expect(switchBackCommand).toBeTruthy();
 
     // 4. CRITICAL: Verify order - switch to PR, then merge, then switch back
     const switchToPrIndex = gitCommands.indexOf(switchToPrCommand!);
-    const mergeCommandIndex = gitCommands.findIndex(cmd => cmd.includes("merge --no-ff"));
+    const mergeCommandIndex = gitCommands.findIndex((cmd) => cmd.includes("merge --no-ff"));
     const switchBackIndex = gitCommands.indexOf(switchBackCommand!);
 
     expect(switchToPrIndex).toBeLessThan(mergeCommandIndex);
     expect(mergeCommandIndex).toBeLessThan(switchBackIndex);
 
     // 5. Should NOT use `git switch -C` which creates and checks out simultaneously
-    const badCreateAndSwitchCommand = gitCommands.find(cmd => 
-      cmd.includes("switch -C") || cmd.includes("checkout -b")
+    const badCreateAndSwitchCommand = gitCommands.find(
+      (cmd) => cmd.includes("switch -C") || cmd.includes("checkout -b")
     );
     expect(badCreateAndSwitchCommand).toBeFalsy();
   });
@@ -160,7 +155,7 @@ describe("Session PR Command Branch Behavior", () => {
       await preparePrFromParams({
         session: "task#228",
         title: "Test PR",
-        body: "Test body",  
+        body: "Test body",
         baseBranch: "main",
       });
     }).toThrow(/Failed to switch back to session branch/);
@@ -178,10 +173,10 @@ describe("Session PR Command Branch Behavior", () => {
     const newBehavior = {
       description: "Create PR branch without checking out, only switch temporarily for merge",
       commands: [
-        "git branch pr/session-name origin/main",  // Create without checkout
-        "git switch pr/session-name",              // Temporary switch for merge
-        "git merge --no-ff session-name",          // Perform merge
-        "git switch session-name",                 // CRITICAL: Switch back
+        "git branch pr/session-name origin/main", // Create without checkout
+        "git switch pr/session-name", // Temporary switch for merge
+        "git merge --no-ff session-name", // Perform merge
+        "git switch session-name", // CRITICAL: Switch back
       ],
       benefit: "User always stays on session branch, PR branch only used programmatically",
     };
@@ -193,4 +188,4 @@ describe("Session PR Command Branch Behavior", () => {
     expect(newBehavior.commands[0]).toContain("branch pr/");
     expect(newBehavior.commands[3]).toContain("switch session-name");
   });
-}); 
+});

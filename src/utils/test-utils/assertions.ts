@@ -105,8 +105,8 @@ export function expectToHaveProperty(object: unknown, propertyPath: string, valu
   for (const part of parts) {
     expect(current).toBeDefined();
     expect(typeof current === "object" || Array.isArray(current)).toBeTruthy();
-    expect(part in (current as unknown)).toBeTruthy();
-    current = (current as unknown)[part];
+    expect(part in current).toBeTruthy();
+    current = current[part];
   }
 
   if (value !== undefined) {
@@ -120,11 +120,7 @@ export function expectToHaveProperty(object: unknown, propertyPath: string, valu
  * @param expected The expected value
  * @param precision The number of decimal places to check (default: 2)
  */
-export function expectToBeCloseTo(
-  received: number,
-  expected: number,
-  precision: number = 2
-): void {
+export function expectToBeCloseTo(received: number, expected: number, precision: number = 2): void {
   const factor = Math.pow(10, precision);
   const receivedRounded = Math.round(received * factor);
   const expectedRounded = Math.round(expected * factor);
@@ -156,8 +152,8 @@ export function expectToContainEqual(received: unknown[], expected: any): void {
  * @returns A wrapped test function with enhanced assertions
  */
 export function withEnhancedAssertions<T extends (...args: unknown[]) => any>(testFn: T): T {
-  return function (this: unknown, ...args: unknown[]) {
+  return function (_this: unknown, ...args: unknown[]) {
     // Could potentially extend expect with custom matchers here in the future
     return testFn.apply(this, args);
-  } as unknown;
+  };
 }

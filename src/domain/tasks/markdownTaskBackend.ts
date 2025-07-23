@@ -3,7 +3,8 @@
  * Uses functional patterns with clear separation of concerns
  */
 
-import { join } from "path";
+import { join, dirname } from "path";
+import { promises as fs } from "fs";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 // @ts-ignore - matter is a third-party library
@@ -16,6 +17,7 @@ import type {
   CreateTaskOptions,
   DeleteTaskOptions,
 } from "../tasks";
+import type { BackendCapabilities } from "./types";
 import type {
   TaskData,
   TaskSpecData,
@@ -43,6 +45,12 @@ import {
   getTaskSpecRelativePath,
 } from "./taskIO";
 
+import {
+  normalizeTaskIdForStorage,
+  formatTaskIdForDisplay,
+  getTaskIdNumber,
+} from "./task-id-utils";
+
 // Helper import to avoid promise conversion issues
 import { readdir } from "fs/promises";
 
@@ -60,6 +68,37 @@ export class MarkdownTaskBackend implements TaskBackend {
     this.workspacePath = config.workspacePath;
     this.tasksFilePath = getTasksFilePath(this.workspacePath);
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
+  }
+
+  // ---- Capability Discovery ----
+
+  getCapabilities(): BackendCapabilities {
+    return {
+      // Core operations - markdown backend supports basic CRUD
+      supportsTaskCreation: true,
+      supportsTaskUpdate: true,
+      supportsTaskDeletion: true,
+
+      // Essential metadata support
+      supportsStatus: true, // Stored in tasks.md with checkboxes
+
+      // Structural metadata - not yet implemented but possible
+      supportsSubtasks: false, // TODO: Future enhancement for Task #238
+      supportsDependencies: false, // TODO: Future enhancement for Task #239
+
+      // Provenance metadata - not yet implemented
+      supportsOriginalRequirements: false, // TODO: Could store in frontmatter
+      supportsAiEnhancementTracking: false, // TODO: Could store in frontmatter
+
+      // Query capabilities - limited in markdown format
+      supportsMetadataQuery: false, // Would require parsing all files
+      supportsFullTextSearch: true, // Can grep through markdown files
+
+      // Update mechanism - markdown backend requires special workspace
+      requiresSpecialWorkspace: true, // Uses task operations workspace
+      supportsTransactions: false, // File-based, no transaction support
+      supportsRealTimeSync: false, // Manual file operations
+    };
   }
 
   // ---- Required TaskBackend Interface Methods ----
@@ -90,13 +129,18 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
+    console.error("DEBUG markdownTaskBackend setTaskStatus called with:", { id, status });
+
     const result = await this.getTasksData();
     if (!result.success || !result.content) {
       throw new Error("Failed to read tasks data");
     }
 
     const tasks = this.parseTasks(result.content);
+    console.error("DEBUG stored task IDs:", tasks.map((t) => t.id).slice(0, 5));
+
     const taskIndex = tasks.findIndex((task) => task.id === id);
+    console.error("DEBUG findIndex result:", { searchId: id, taskIndex, found: taskIndex !== -1 });
 
     if (taskIndex === -1) {
       throw new Error(`Task with id ${id} not found`);
@@ -119,7 +163,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
   }
 
-  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+  async createTask(specPath: string, _options?: CreateTaskOptions): Promise<Task> {
     // Read and parse the spec file
     const specResult = await this.getTaskSpecData(specPath);
     if (!specResult.success || !specResult.content) {
@@ -136,18 +180,52 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     const existingTasks = this.parseTasks(existingTasksResult.content);
     const maxId = existingTasks.reduce((max, task) => {
-      const id = parseInt(task.id.slice(1), 10);
-      return id > max ? id : max;
+      // Use the new utility to extract numeric value from any format
+      const id = getTaskIdNumber(task.id);
+      return id !== null && id > max ? id : max;
     }, 0);
 
-    const newId = `#${maxId + 1}`;
+    // TASK 283: Generate plain ID format for storage (e.g., "285" instead of "#285")
+    const newId = String(maxId + 1); // Plain format for storage
+
+    // Generate proper spec path and move the temporary file
+    // Use display format for spec path generation since filenames use display format
+    const displayId = formatTaskIdForDisplay(newId);
+    const properSpecPath = getTaskSpecRelativePath(displayId, spec.title, this.workspacePath);
+    const fullProperPath = join(this.workspacePath, properSpecPath);
+
+    // Ensure the tasks directory exists
+    const tasksDir = dirname(fullProperPath);
+    try {
+      await fs.mkdir(tasksDir, { recursive: true });
+    } catch (error) {
+      // Directory already exists, continue
+    }
+
+    // Move the temporary file to the proper location
+    try {
+      // Read the spec file content
+      const specContent = await fs.readFile(specPath, "utf-8");
+      // Write to the proper location
+      await fs.writeFile(fullProperPath, specContent, "utf-8");
+      // Delete the temporary file
+      try {
+        await fs.unlink(specPath);
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+    } catch (error) {
+      throw new Error(
+        `Failed to move spec file from ${specPath} to ${properSpecPath}: ${getErrorMessage(error)}`
+      );
+    }
 
     const newTaskData: TaskData = {
       id: newId,
       title: spec.title,
       description: spec.description,
       status: "TODO" as TaskStatus,
-      specPath,
+      specPath: properSpecPath,
     };
 
     // Add the new task to the list
@@ -171,7 +249,78 @@ export class MarkdownTaskBackend implements TaskBackend {
     return newTask;
   }
 
-  async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
+  /**
+   * Create a new task from title and description
+   * @param title Title of the task
+   * @param description Description of the task
+   * @param options Options for creating the task
+   * @returns Promise resolving to the created task
+   */
+  async createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options: CreateTaskOptions = {}
+  ): Promise<Task> {
+    // Generate a task specification file content
+    const taskSpecContent = this.generateTaskSpecification(title, description);
+
+    // Create a temporary file path for the spec
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const os = await import("os");
+
+    const tempDir = os.tmpdir();
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
+
+    try {
+      // Write the spec content to the temporary file
+      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
+
+      // Use the existing createTask method
+      const task = await this.createTask(tempSpecPath, options);
+
+      // Clean up the temporary file
+      try {
+        await fs.unlink(tempSpecPath);
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+
+      return task;
+    } catch (error) {
+      // Clean up the temporary file on error
+      try {
+        await fs.unlink(tempSpecPath);
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a task specification file content from title and description
+   * @param title Title of the task
+   * @param description Description of the task
+   * @returns The generated task specification content
+   */
+  private generateTaskSpecification(title: string, description: string): string {
+    return `# ${title}
+
+## Context
+
+${description}
+
+## Requirements
+
+## Solution
+
+## Notes
+`;
+  }
+
+  async deleteTask(id: string, _options?: DeleteTaskOptions): Promise<boolean> {
     try {
       // Get all tasks first
       const tasksResult = await this.getTasksData();
@@ -182,10 +331,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Parse tasks and find the one to delete
       const tasks = this.parseTasks(tasksResult.content);
       const taskToDelete = tasks.find(
-        (task) =>
-          task.id === id ||
-          task.id === `#${id}` ||
-          task.id.slice(1) === id
+        (task) => task.id === id || task.id === `#${id}` || task.id.slice(1) === id
       );
 
       if (!taskToDelete) {
@@ -202,7 +348,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
       if (!saveResult.success) {
         log.error(`Failed to save tasks after deleting ${id}:`, {
-          error: saveResult.error.message,
+          error: saveResult.error?.message || "Unknown error",
         });
         return false;
       }
@@ -241,9 +387,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = specPath.startsWith("/")
-      ? specPath
-      : join(this.workspacePath, specPath);
+    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
     return readTaskSpecFile(fullPath);
   }
 
@@ -301,9 +445,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
-    const fullPath = specPath.startsWith("/")
-      ? specPath
-      : join(this.workspacePath, specPath);
+    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
     return writeTaskSpecFile(fullPath, content);
   }
 
@@ -341,8 +483,8 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   /**
-   * Indicates this backend stores data in repository files
-   * @returns true because Markdown backend stores data in filesystem within the repo
+   * Markdown backend always requires special workspace for task operations
+   * All markdown task operations must be performed in the dedicated special workspace
    */
   isInTreeBackend(): boolean {
     return true;

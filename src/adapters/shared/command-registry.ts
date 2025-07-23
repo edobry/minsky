@@ -99,10 +99,7 @@ export interface CommandDefinition<
 /**
  * Shared command interface that preserves type information
  */
-export interface SharedCommand<
-  T extends CommandParameterMap = CommandParameterMap,
-  R = any,
-> {
+export interface SharedCommand<T extends CommandParameterMap = CommandParameterMap, R = any> {
   id: string;
   category: CommandCategory;
   name: string;
@@ -197,7 +194,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @returns Array of command definitions
    */
   getCommandsByCategory(category: CommandCategory): SharedCommand[] {
-    return Array.from(this.commands.values()).filter(cmd => cmd.category === category);
+    return Array.from(this.commands.values()).filter((cmd) => cmd.category === category);
   }
 
   /**
@@ -252,4 +249,10 @@ export function createSharedCommandRegistry(): SharedCommandRegistry {
  *
  * @deprecated Use createSharedCommandRegistry() and dependency injection instead
  */
-export const sharedCommandRegistry = createSharedCommandRegistry(); 
+export const _sharedCommandRegistry = createSharedCommandRegistry();
+
+/**
+ * Default command registry instance (non-underscore version)
+ * Used by files that follow variable-naming-protocol
+ */
+export const sharedCommandRegistry = _sharedCommandRegistry;

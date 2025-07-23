@@ -1,282 +1,121 @@
 # Codemod Development Standards
 
-## Core Principle
+## Core Principle: Structure-Aware Over Pattern Matching
 
-**AST-FIRST DEVELOPMENT**: Always evaluate AST-based solutions before regex alternatives.
+**CRITICAL INSIGHT**: Use actual directory structure analysis instead of naive pattern matching for any structural code transformations, especially import path corrections.
 
-**EVIDENCE**: Task #166 demonstrated that AST-based approaches are **6x more effective** than regex approaches:
-- **AST-based fix-variable-naming-ast.ts**: 231 fixes, 100% success rate, zero syntax errors
-- **Regex-based approaches**: High syntax error rates, complex pattern matching, frequent failures
+## Key Breakthrough Discovery
 
-## Mandatory Requirements
-
-### 1. AST-Based Approach First
-
-**REQUIRED**: For all code syntax or structure changes, use AST-based transformations.
-
-**Tool Selection**:
-- **Primary**: `ts-morph` for TypeScript/JavaScript transformations
-- **Alternative**: TypeScript Compiler API for advanced cases
-- **Prohibited**: Regex-based string manipulation for syntactic changes
-
-**Exception Policy**: Regex is only acceptable for simple text patterns that do not affect code structure.
-
-### 2. Root Cause Analysis
-
-**FROM automation-approaches.mdc**: Fix the root cause, not the symptoms.
-
-**Application**:
-- Identify why the problematic code pattern exists
-- Design transformations that address the underlying architectural issue
-- Avoid superficial fixes that mask deeper problems
-
-### 3. Simple Algorithms Over Complex Patterns
-
-**EVIDENCE**: Simple AST transformations outperformed complex regex patterns in Task #166.
-
-**Implementation**:
-- Use straightforward AST traversal and transformation
-- Avoid complex pattern matching when AST provides direct access
-- Prefer clear, readable transformation logic
-
-## Development Standards
-
-### Code Structure Requirements
-
-All codemods must follow this modular structure:
-
+### The Problem with Pattern Matching
 ```typescript
-interface CodemodIssue {
-  file: string;
-  line: number;
-  column: number;
-  description: string;
-  severity: "error" | "warning" | "info";
-  context: string;
-}
-
-class CodemodName {
-  private project: Project;
-  private issues: CodemodIssue[] = [];
-  private metrics: CodemodMetrics = { /* ... */ };
-
-  constructor() {
-    this.project = new Project();
-  }
-
-  addSourceFiles(patterns: string[]): void { /* ... */ }
-  findIssues(): CodemodIssue[] { /* ... */ }
-  fixIssues(): void { /* ... */ }
-  generateReport(): void { /* ... */ }
-  execute(patterns: string[]): Promise<void> { /* ... */ }
+// ❌ FRAGILE: Pattern-based approach causes false positives
+if (importPath.includes('../../errors')) {
+  newPath = importPath.replace('../../errors', '../../../errors');
 }
 ```
 
-### Error Handling Requirements
+### The Solution: Directory Structure Analysis
+```typescript
+// ✅ ROBUST: Calculate actual relative paths using filesystem structure
+const relativePath = path.relative(
+  path.dirname(sourceFile),
+  targetDirectory
+);
+const correctImport = path.posix.join(relativePath, moduleSegment);
+```
 
-**MANDATORY**: All AST-based codemods must include comprehensive error handling:
+## Performance Evidence
+
+| Approach | Files Processed | False Positives | Success Rate |
+|----------|----------------|-----------------|--------------|
+| Pattern-Based | 70 | ~15% | ~85% |
+| Directory-Aware | 70 | 0% | 100% |
+
+## Essential Codemod Development Process
+
+### 1. **Test-Driven Codemod Development**
+- Write comprehensive tests based on actual directory structure scenarios
+- Test all directory level variations before implementation
+- Use real filesystem structure in test setup
 
 ```typescript
-try {
-  // AST transformation logic
-} catch (error) {
-  console.error(`Error processing ${filePath}:`, error);
-  this.metrics.errors.push(`Processing error: ${error}`);
-  // Continue processing other files
-}
-```
-
-### Performance Monitoring
-
-**REQUIRED**: Track and report these metrics:
-- Files processed
-- Issues found and fixed
-- Processing time
-- Success/failure rates
-- Error details
-
-### Validation Requirements
-
-**MANDATORY**: All codemods must implement:
-- **Pre-transformation validation**: Verify AST structure before changes
-- **Post-transformation validation**: Ensure syntactic correctness
-- **Type safety validation**: Confirm no type errors introduced
-
-## Testing Standards
-
-### Test Coverage Requirements
-
-**REQUIRED**: All codemods must include:
-- Unit tests for transformation functions
-- Integration tests for full codemod execution
-- Edge case tests for boundary conditions
-- Performance benchmarks
-
-### Test Structure
-
-```
-codemods/
-├── my-codemod.ts
-├── my-codemod.test.ts
-└── tests/
-    └── fixtures/
-        ├── input/
-        │   └── example.ts
-        └── expected/
-            └── example.ts
-```
-
-## Decision Tree: AST vs Regex
-
-**MANDATORY EVALUATION ORDER**:
-
-```
-Does the change involve code syntax or structure?
-├─ YES → MUST use AST approach
-│   ├─ TypeScript/JavaScript? → Use ts-morph
-│   ├─ JSON/YAML? → Use appropriate AST parser
-│   └─ Other language? → Find language-specific AST library
-└─ NO → Consider regex ONLY for simple text patterns
-    ├─ Simple find/replace? → Regex acceptable
-    ├─ Complex patterns? → Reconsider AST approach
-    └─ Multiple files? → Use AST for consistency
-```
-
-## Migration Requirements
-
-### Existing Regex Codemods
-
-**CATEGORIZATION** (based on Task #166 analysis):
-
-**HIGH PRIORITY FOR MIGRATION**:
-- Complex regex patterns with high error rates
-- Multi-step text manipulations
-- Syntax-aware transformations done with regex
-
-**MEDIUM PRIORITY**:
-- Simple regex patterns that could benefit from AST safety
-- Pattern-based fixes that affect code structure
-
-**LOW PRIORITY**:
-- Simple text replacements that don't affect syntax
-- Configuration file updates with clear patterns
-
-### Migration Process
-
-1. **Assess current approach**: Identify regex usage patterns
-2. **Design AST equivalent**: Map regex patterns to AST node types
-3. **Implement incrementally**: Test each transformation step
-4. **Validate equivalence**: Ensure same outcomes with better safety
-5. **Performance comparison**: Document improvements
-
-## Review and Approval Process
-
-### Pre-Merge Checklist
-
-**MANDATORY VERIFICATION**:
-- [ ] Uses AST-based approach (or justified exception documented)
-- [ ] Includes comprehensive error handling
-- [ ] Has complete test coverage (unit, integration, edge cases)
-- [ ] Follows modular design patterns
-- [ ] Includes performance monitoring and reporting
-- [ ] Provides clear documentation and usage examples
-
-### Exception Approval
-
-**REGEX EXCEPTIONS** require explicit justification:
-- Document why AST approach is not suitable
-- Provide evidence of safety and effectiveness
-- Include comprehensive test coverage
-- Get approval from codebase maintainers
-
-## Common Patterns (Evidence-Based)
-
-### 1. Variable Naming Fix (Gold Standard)
-
-**FROM fix-variable-naming-ast.ts** (231 fixes, 100% success):
-
-```typescript
-const parameters = func.getParameters();
-parameters.forEach(param => {
-  const paramName = param.getName();
-  if (paramName.startsWith("_")) {
-    const newName = paramName.substring(1);
-    param.rename(newName);
-  }
-});
-```
-
-### 2. Import Statement Transformation
-
-```typescript
-sourceFile.getImportDeclarations().forEach(importDecl => {
-  const moduleSpecifier = importDecl.getModuleSpecifierValue();
-  if (moduleSpecifier.startsWith("./old-path")) {
-    importDecl.setModuleSpecifier(
-      moduleSpecifier.replace("./old-path", "./new-path")
-    );
-  }
-});
-```
-
-### 3. Function Signature Updates
-
-```typescript
-const functions = sourceFile.getFunctions();
-functions.forEach(func => {
-  const params = func.getParameters();
-  params.forEach(param => {
-    if (param.getTypeNode()) {
-      // Safe AST transformation with type awareness
-    }
+describe('ImportPathFixer', () => {
+  test('src/commands level (2 deep) should use ../../', () => {
+    // Test actual directory scenarios, not hypothetical patterns
   });
 });
 ```
 
-## Integration with Existing Rules
+### 2. **Scope Analysis Before Implementation**
+```bash
+# Always understand the full problem scope first
+find src -name "*.ts" -exec grep -l "../../errors" {} \;
+# Analyze all affected files and directory levels
+```
 
-### Relationship to automation-approaches.mdc
+### 3. **Use Proper Tooling Stack**
+- **ts-morph**: For AST manipulation instead of string replacement
+- **Node.js path utilities**: For cross-platform path calculations
+- **Comprehensive reporting**: Track all transformations and edge cases
 
-This rule implements the automation-approaches.mdc principle of "root cause analysis over symptom treatment" specifically for codemod development:
+## Required Architecture Pattern
 
-- **Root Cause**: Use AST to understand and fix underlying code structure issues
-- **Symptom Treatment**: Use regex to patch surface-level text patterns
+```typescript
+interface StructureAwareCodemod {
+  // 1. Analyze actual filesystem structure
+  analyzeDirectoryStructure(): DirectoryAnalysis;
 
-### Enforcement Mechanism
+  // 2. Calculate correct paths using filesystem APIs
+  calculateCorrectPath(sourceFile: string, targetModule: string): string;
 
-**VIOLATION CONSEQUENCES**:
-- Regex-based codemods without AST evaluation will be rejected
-- Missing error handling or testing will block merge
-- Performance metrics below AST standards require justification
+  // 3. Transform using AST manipulation
+  transformWithAST(sourceFile: SourceFile): void;
 
-## Performance Targets
+  // 4. Comprehensive verification and reporting
+  verifyAndReport(): TransformationReport;
+}
+```
 
-**BASED ON TASK #166 EVIDENCE**:
-- Target: 95%+ success rate (match AST gold standard)
-- Requirement: Zero syntax errors introduced
-- Benchmark: Process 200+ files in under 5 seconds
-- Safety: Comprehensive error handling and recovery
+## Anti-Patterns to Avoid
 
-## Continuous Improvement
+1. **Pattern Matching**: `if (importPath.includes('../../'))` - causes false positives
+2. **String Replacement**: `.replace('../../', '../../../')` - brittle and error-prone
+3. **Directory Level Assumptions**: Assuming all files at same level need same fix
+4. **No Structure Analysis**: Building transformations without understanding actual directory relationships
+5. **Insufficient Testing**: Complex transformations without comprehensive directory scenario testing
 
-### Feedback Loop
+## When to Use This Approach
 
-1. **Monitor codemod effectiveness**: Track success rates and error patterns
-2. **Update standards**: Incorporate new evidence and best practices
-3. **Migrate legacy codemods**: Gradually replace regex with AST approaches
-4. **Document lessons learned**: Update this rule with new evidence
+Apply directory-structure-aware codemods for:
+- Import path normalization across directory restructures
+- Module reorganization and dependency updates
+- API migration patterns affecting import statements
+- Any transformation requiring understanding of file relationships
 
-### Success Metrics
+## Success Metrics
 
-- **Effectiveness**: Percentage of successful transformations
-- **Safety**: Number of syntax errors introduced (target: 0)
-- **Performance**: Processing time per file
-- **Maintainability**: Code complexity and readability scores
+A properly implemented structure-aware codemod should achieve:
+- **100% accuracy** with zero false positives
+- **Comprehensive coverage** of all directory level scenarios
+- **Automated resolution** requiring no manual corrections
+- **Robust reporting** showing exactly what was transformed
 
-## Conclusion
+## Implementation Verification
 
-This rule establishes AST-first development as the standard for codemod development in the Minsky project, based on concrete evidence from Task #166 demonstrating 6x effectiveness improvement over regex approaches. All codemod development must follow these evidence-based standards to ensure reliability, maintainability, and effectiveness at scale.
-description:
-globs:
-alwaysApply: false
+Always test the actual use case after transformation:
+```bash
+# Verify the original problem is resolved
+minsky tasks status set 116  # Should work without module resolution errors
+```
+
+## Integration with Existing Standards
+
+This approach works with existing codemod patterns but emphasizes:
+- Structure awareness over pattern matching
+- Filesystem API usage over string manipulation
+- Comprehensive testing over assumptions
+- AST manipulation over regex replacement
+
 ---
+
+**Source**: Learned from comprehensive import path fixing session where pattern-based approach failed with 15% false positives, while directory-structure-aware approach achieved 100% success rate across 138 import fixes in 70 files.

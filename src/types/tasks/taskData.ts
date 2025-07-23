@@ -12,8 +12,12 @@ export { TaskStatus as TaskStatusType } from "../../domain/tasks/taskConstants";
 /**
  * TaskData represents the pure data representation of a task
  * It contains only the essential data without methods or side effects
+ *
+ * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
+ * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
  */
 export interface TaskData {
+  /** Task ID in storage format (plain number string, e.g., "283") */
   id: string;
   title: string;
   description?: string;
@@ -100,10 +104,10 @@ export interface TaskWriteOperationResult extends TaskFileOperationResult {
  */
 export function toTaskData(task: any): TaskData {
   return {
-    id: (task as unknown)!.id,
-    title: (task as unknown)!.title,
-    description: (task as unknown)!.description,
-    status: (task as unknown)!.status,
+    id: task!.id,
+    title: task!.title,
+    description: task!.description,
+    status: task!.status,
     specPath: task!.specPath,
     worklog: task!.worklog,
     mergeInfo: task!.mergeInfo,
@@ -117,10 +121,10 @@ export function toTaskData(task: any): TaskData {
  */
 export function fromTaskData(taskData: TaskData): any {
   return {
-    id: (taskData as unknown)!.id,
-    title: (taskData as unknown)!.title,
-    description: (taskData as unknown)!.description,
-    status: (taskData as unknown)!.status,
+    id: taskData!.id,
+    title: taskData!.title,
+    description: taskData!.description,
+    status: taskData!.status,
     specPath: taskData!.specPath,
     worklog: taskData!.worklog,
     mergeInfo: taskData!.mergeInfo,

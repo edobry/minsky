@@ -1,18 +1,18 @@
 /**
  * Tests for task command functions
- * 
+ *
  * Comprehensive tests for interface-agnostic command functions that contain
  * real business logic: parameter validation, ID normalization, workspace resolution, etc.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { 
+import {
   getTaskStatusFromParams,
   getTaskFromParams,
   listTasksFromParams,
   setTaskStatusFromParams,
   createTaskFromParams,
-  deleteTaskFromParams 
+  deleteTaskFromParams,
 } from "./taskCommands";
 import { TASK_STATUS } from "./taskConstants";
 import type { TaskService } from "./taskService";
@@ -22,25 +22,26 @@ import fs from "fs/promises";
 describe("Interface-Agnostic Task Command Functions", () => {
   const testWorkspacePath = "/tmp/test-minsky-workspace";
   const testTasksFile = path.join(testWorkspacePath, "process", "tasks.md");
-  
+
   // Helper function to create a complete mock TaskService
-  const createMockTaskService = (mockGetTask: (taskId: string) => Promise<any>) => ({
-    getTask: mockGetTask,
-    backends: [],
-    currentBackend: "test",
-    listTasks: async () => [],
-    getTaskStatus: async () => null,
-    setTaskStatus: async () => {},
-    createTask: async () => ({}),
-    deleteTask: async () => false,
-    getWorkspacePath: () => testWorkspacePath,
-    createTaskFromTitleAndDescription: async () => ({}),
-  } as any);
+  const createMockTaskService = (mockGetTask: (taskId: string) => Promise<any>) =>
+    ({
+      getTask: mockGetTask,
+      backends: [],
+      currentBackend: "test",
+      listTasks: async () => [],
+      getTaskStatus: async () => null,
+      setTaskStatus: async () => {},
+      createTask: async () => ({}),
+      deleteTask: async () => false,
+      getWorkspacePath: () => testWorkspacePath,
+      createTaskFromTitleAndDescription: async () => ({}),
+    }) as any;
 
   beforeEach(async () => {
     // Create test workspace structure
     await fs.mkdir(path.join(testWorkspacePath, "process"), { recursive: true });
-    
+
     // Create a test tasks.md file with task 155 having BLOCKED status
     const tasksContent = `# Tasks
 
@@ -51,7 +52,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 - [+] In progress task [#157](process/tasks/157-in-progress.md)
 - [x] Done task [#158](process/tasks/158-done-task.md)
 `;
-    
+
     await fs.writeFile(testTasksFile, tasksContent, "utf8");
   });
 
@@ -72,15 +73,16 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        if (taskId === "#155") {
-          return { id: "#155", status: TASK_STATUS.BLOCKED };
+        // Task 283: Use storage format for task ID comparison
+        if (taskId === "155") {
+          return { id: "155", status: TASK_STATUS.BLOCKED };
         }
         return null;
       });
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -95,15 +97,16 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        if (taskId === "#156") {
-          return { id: "#156", status: TASK_STATUS.TODO };
+        // Task 283: Use storage format for task ID comparison
+        if (taskId === "156") {
+          return { id: "156", status: TASK_STATUS.TODO };
         }
         return null;
       });
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -118,15 +121,16 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        if (taskId === "#157") {
-          return { id: "#157", status: TASK_STATUS.IN_PROGRESS };
+        // Task 283: Use storage format for task ID comparison
+        if (taskId === "157") {
+          return { id: "157", status: TASK_STATUS.IN_PROGRESS };
         }
         return null;
       });
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -141,15 +145,16 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        if (taskId === "#158") {
-          return { id: "#158", status: TASK_STATUS.DONE };
+        // Task 283: Use storage format for task ID comparison
+        if (taskId === "158") {
+          return { id: "158", status: TASK_STATUS.DONE };
         }
         return null;
       });
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -167,11 +172,13 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
-      await expect(getTaskStatusFromParams(params, mockDeps)).rejects.toThrow("Task #999 not found or has no status");
+      await expect(getTaskStatusFromParams(params, mockDeps)).rejects.toThrow(
+        "Task 999 not found or has no status"
+      );
     });
 
     test("should handle task ID normalization", async () => {
@@ -181,15 +188,16 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        if (taskId === "#155") {
-          return { id: "#155", status: TASK_STATUS.BLOCKED };
+        // Task 283: Use storage format for task ID comparison
+        if (taskId === "155") {
+          return { id: "155", status: TASK_STATUS.BLOCKED };
         }
         return null;
       });
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -205,15 +213,16 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        if (taskId === "#155") {
-          return { id: "#155", status: TASK_STATUS.BLOCKED };
+        // Task 283: Use storage format for task ID comparison
+        if (taskId === "155") {
+          return { id: "155", status: TASK_STATUS.BLOCKED };
         }
         return null;
       });
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => options.repo || testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -230,14 +239,15 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTask = {
-        id: "#155",
+        id: "155", // Task 283: Use storage format
         title: "Add BLOCKED Status Support",
         status: TASK_STATUS.BLOCKED,
         description: "This is a test task",
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        if (taskId === "#155") {
+        // Task 283: Use storage format for task ID comparison
+        if (taskId === "155") {
           return mockTask;
         }
         return null;
@@ -245,7 +255,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -263,11 +273,11 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
-      await expect(getTaskFromParams(params, mockDeps)).rejects.toThrow("Task #999 not found");
+      await expect(getTaskFromParams(params, mockDeps)).rejects.toThrow("Task 999 not found");
     });
 
     test("should handle task ID normalization", async () => {
@@ -277,13 +287,14 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTask = {
-        id: "#155",
+        id: "155", // Task 283: Use storage format
         title: "Add BLOCKED Status Support",
         status: TASK_STATUS.BLOCKED,
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        if (taskId === "#155") {
+        // Task 283: Use storage format for task ID comparison
+        if (taskId === "155") {
           return mockTask;
         }
         return null;
@@ -291,7 +302,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -307,13 +318,14 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTask = {
-        id: "#155",
+        id: "155", // Task 283: Use storage format
         title: "Add BLOCKED Status Support",
         status: TASK_STATUS.BLOCKED,
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        if (taskId === "#155") {
+        // Task 283: Use storage format for task ID comparison
+        if (taskId === "155") {
           return mockTask;
         }
         return null;
@@ -321,7 +333,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => options.repo || testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -351,7 +363,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -379,7 +391,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -406,7 +418,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
@@ -424,7 +436,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTask = {
-        id: "#155",
+        id: "155", // Task 283: Use storage format
         title: "Add BLOCKED Status Support",
         status: TASK_STATUS.BLOCKED,
       };
@@ -433,7 +445,8 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockTaskService = {
         ...createMockTaskService(async (taskId) => {
-          if (taskId === "#155") {
+          // Task 283: Use storage format for task ID comparison
+          if (taskId === "155") {
             return mockTask;
           }
           return null;
@@ -445,7 +458,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService as any,
       };
 
@@ -464,11 +477,11 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService,
       };
 
-      await expect(setTaskStatusFromParams(params, mockDeps)).rejects.toThrow("Task #999 not found");
+      await expect(setTaskStatusFromParams(params, mockDeps)).rejects.toThrow("Task 999 not found");
     });
 
     test("should handle task ID normalization", async () => {
@@ -479,7 +492,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTask = {
-        id: "#155",
+        id: "155", // Task 283: Use storage format
         title: "Add BLOCKED Status Support",
         status: TASK_STATUS.BLOCKED,
       };
@@ -488,7 +501,8 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockTaskService = {
         ...createMockTaskService(async (taskId) => {
-          if (taskId === "#155") {
+          // Task 283: Use storage format for task ID comparison
+          if (taskId === "155") {
             return mockTask;
           }
           return null;
@@ -500,7 +514,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => mockTaskService as any,
       };
 
@@ -518,7 +532,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => createMockTaskService(async () => null),
       };
 
@@ -533,7 +547,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => createMockTaskService(async () => null),
       };
 
@@ -548,13 +562,14 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTask = {
-        id: "#155",
+        id: "155", // Task 283: Use storage format
         title: "Test Task",
         status: TASK_STATUS.TODO,
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        if (taskId === "#155") {
+        // Task 283: Use storage format for task ID comparison
+        if (taskId === "155") {
           return mockTask;
         }
         return null;
@@ -562,7 +577,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
-        resolveMainWorkspacePath: async () => testWorkspacePath,
+        resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         createTaskService: async (options: any) => {
           expect(options.backend).toBe("json-file");
           return mockTaskService;
@@ -573,4 +588,4 @@ describe("Interface-Agnostic Task Command Functions", () => {
       expect(result).toEqual(mockTask);
     });
   });
-}); 
+});

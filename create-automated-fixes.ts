@@ -17,19 +17,19 @@ class AsUnknownFixer {
 
   async fixCodebase(): Promise<void> {
     console.log("🔧 Starting automated as unknown fixes...");
-    
+
     // Find all TypeScript files
-    const files = await glob("src/**/*.ts", { 
+    const files = await glob("src/**/*.ts", {
       ignore: ["**/node_modules/**", "**/*.test.ts", "**/*.spec.ts"],
-      absolute: true 
+      absolute: true,
     });
-    
+
     console.log(`📁 Found ${files.length} TypeScript files to process`);
-    
+
     for (const file of files) {
       await this.fixFile(file);
     }
-    
+
     this.generateReport();
   }
 
@@ -37,17 +37,19 @@ class AsUnknownFixer {
     try {
       const originalContent = readFileSync(filepath, "utf-8");
       const originalCount = this.countAsUnknown(originalContent);
-      
+
       if (originalCount === 0) {
         return; // No work needed
       }
-      
-      console.log(`🔍 Processing ${path.relative(process.cwd(), filepath)} (${originalCount} assertions)`);
-      
+
+      console.log(
+        `🔍 Processing ${path.relative(process.cwd(), filepath)} (${originalCount} assertions)`
+      );
+
       let content = originalContent;
       const fixesApplied: string[] = [];
       const warnings: string[] = [];
-      
+
       // Apply fixes in order of safety (safest first)
       content = this.fixPropertyAccess(content, fixesApplied);
       content = this.fixArrayAccess(content, fixesApplied);
@@ -55,22 +57,23 @@ class AsUnknownFixer {
       content = this.fixReturnStatements(content, fixesApplied);
       content = this.fixThisContext(content, fixesApplied);
       content = this.fixNullUndefined(content, fixesApplied, warnings);
-      
+
       const newCount = this.countAsUnknown(content);
-      
+
       if (newCount < originalCount) {
         writeFileSync(filepath, content);
-        console.log(`✅ Fixed ${originalCount - newCount} assertions in ${path.basename(filepath)}`);
+        console.log(
+          `✅ Fixed ${originalCount - newCount} assertions in ${path.basename(filepath)}`
+        );
       }
-      
+
       this.results.push({
         file: path.relative(process.cwd(), filepath),
         originalCount,
         newCount,
         fixesApplied,
-        warnings
+        warnings,
       });
-      
     } catch (error) {
       console.error(`❌ Error processing ${filepath}:`, error);
     }
@@ -86,105 +89,105 @@ class AsUnknownFixer {
       {
         pattern: /\(state as unknown\)\.sessions/g,
         replacement: "state.sessions",
-        description: "Fixed state.sessions access"
+        description: "Fixed state.sessions access",
       },
       {
         pattern: /\(state\.sessions as unknown\)/g,
         replacement: "state.sessions",
-        description: "Fixed state.sessions wrapper"
+        description: "Fixed state.sessions wrapper",
       },
       {
         pattern: /\(s as unknown\)\.session/g,
         replacement: "s.session",
-        description: "Fixed session record access"
+        description: "Fixed session record access",
       },
       {
         pattern: /\(s as unknown\)\.taskId/g,
         replacement: "s.taskId",
-        description: "Fixed taskId access"
+        description: "Fixed taskId access",
       },
       {
         pattern: /\(session as unknown\)\.session/g,
         replacement: "session.session",
-        description: "Fixed session property access"
+        description: "Fixed session property access",
       },
       {
         pattern: /\(session as unknown\)\.taskId/g,
         replacement: "session.taskId",
-        description: "Fixed session taskId access"
+        description: "Fixed session taskId access",
       },
       {
         pattern: /\(workspace as unknown\)\.workspaceDir/g,
         replacement: "workspace.workspaceDir",
-        description: "Fixed workspace directory access"
+        description: "Fixed workspace directory access",
       },
       {
         pattern: /\(workspace as unknown\)\.sessionName/g,
         replacement: "workspace.sessionName",
-        description: "Fixed workspace session name access"
+        description: "Fixed workspace session name access",
       },
       // Config and environment access
       {
         pattern: /\(this\.config as unknown\)\.path/g,
         replacement: "this.config.path",
-        description: "Fixed config path access"
+        description: "Fixed config path access",
       },
       {
         pattern: /\(process\.env as unknown\)\.([A-Z_]+)/g,
         replacement: "process.env.$1",
-        description: "Fixed environment variable access"
+        description: "Fixed environment variable access",
       },
       // Array and object method access
       {
         pattern: /\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.length/g,
         replacement: "$1.length",
-        description: "Fixed array length access"
+        description: "Fixed array length access",
       },
       {
         pattern: /\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.push/g,
         replacement: "$1.push",
-        description: "Fixed array push access"
+        description: "Fixed array push access",
       },
       {
         pattern: /\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.find/g,
         replacement: "$1.find",
-        description: "Fixed array find access"
+        description: "Fixed array find access",
       },
       {
         pattern: /\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.findIndex/g,
         replacement: "$1.findIndex",
-        description: "Fixed array findIndex access"
+        description: "Fixed array findIndex access",
       },
       {
         pattern: /\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.splice/g,
         replacement: "$1.splice",
-        description: "Fixed array splice access"
+        description: "Fixed array splice access",
       },
       {
         pattern: /\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.filter/g,
         replacement: "$1.filter",
-        description: "Fixed array filter access"
+        description: "Fixed array filter access",
       },
       {
         pattern: /\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.map/g,
         replacement: "$1.map",
-        description: "Fixed array map access"
+        description: "Fixed array map access",
       },
       {
         pattern: /\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.split/g,
         replacement: "$1.split",
-        description: "Fixed string split access"
+        description: "Fixed string split access",
       },
       {
         pattern: /\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.trim/g,
         replacement: "$1.trim",
-        description: "Fixed string trim access"
+        description: "Fixed string trim access",
       },
       {
         pattern: /\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.replace/g,
         replacement: "$1.replace",
-        description: "Fixed string replace access"
-      }
+        description: "Fixed string replace access",
+      },
     ];
 
     for (const pattern of patterns) {
@@ -204,13 +207,13 @@ class AsUnknownFixer {
       {
         pattern: /\[\.\.\.\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\.([a-zA-Z_][a-zA-Z0-9_]*)\]/g,
         replacement: "[...$1.$2]",
-        description: "Fixed array spread with property access"
+        description: "Fixed array spread with property access",
       },
       {
         pattern: /\[\.\.\.\(([a-zA-Z_][a-zA-Z0-9_]*) as unknown\)\]/g,
         replacement: "[...$1]",
-        description: "Fixed array spread"
-      }
+        description: "Fixed array spread",
+      },
     ];
 
     for (const pattern of patterns) {
@@ -230,63 +233,63 @@ class AsUnknownFixer {
       {
         pattern: /\(this\.sessionProvider as unknown\)\.getSession/g,
         replacement: "this.sessionProvider.getSession",
-        description: "Fixed sessionProvider.getSession call"
+        description: "Fixed sessionProvider.getSession call",
       },
       {
         pattern: /\(this\.sessionProvider as unknown\)\.getSessionByTaskId/g,
         replacement: "this.sessionProvider.getSessionByTaskId",
-        description: "Fixed sessionProvider.getSessionByTaskId call"
+        description: "Fixed sessionProvider.getSessionByTaskId call",
       },
       {
         pattern: /\(this\.sessionProvider as unknown\)\.listSessions/g,
         replacement: "this.sessionProvider.listSessions",
-        description: "Fixed sessionProvider.listSessions call"
+        description: "Fixed sessionProvider.listSessions call",
       },
       {
         pattern: /\(this\.sessionProvider as unknown\)\.getSessionWorkdir/g,
         replacement: "this.sessionProvider.getSessionWorkdir",
-        description: "Fixed sessionProvider.getSessionWorkdir call"
+        description: "Fixed sessionProvider.getSessionWorkdir call",
       },
       {
         pattern: /\(this\.pathResolver as unknown\)\.getRelativePathFromSession/g,
         replacement: "this.pathResolver.getRelativePathFromSession",
-        description: "Fixed pathResolver.getRelativePathFromSession call"
+        description: "Fixed pathResolver.getRelativePathFromSession call",
       },
       {
         pattern: /\(this\.pathResolver as unknown\)\.validateAndResolvePath/g,
         replacement: "this.pathResolver.validateAndResolvePath",
-        description: "Fixed pathResolver.validateAndResolvePath call"
+        description: "Fixed pathResolver.validateAndResolvePath call",
       },
       {
         pattern: /\(this\.workspaceBackend as unknown\)\.readFile/g,
         replacement: "this.workspaceBackend.readFile",
-        description: "Fixed workspaceBackend.readFile call"
+        description: "Fixed workspaceBackend.readFile call",
       },
       {
         pattern: /\(this\.workspaceBackend as unknown\)\.writeFile/g,
         replacement: "this.workspaceBackend.writeFile",
-        description: "Fixed workspaceBackend.writeFile call"
+        description: "Fixed workspaceBackend.writeFile call",
       },
       {
         pattern: /\(this\.workspaceBackend as unknown\)\.deleteFile/g,
         replacement: "this.workspaceBackend.deleteFile",
-        description: "Fixed workspaceBackend.deleteFile call"
+        description: "Fixed workspaceBackend.deleteFile call",
       },
       {
         pattern: /\(this\.workspaceBackend as unknown\)\.listDirectory/g,
         replacement: "this.workspaceBackend.listDirectory",
-        description: "Fixed workspaceBackend.listDirectory call"
+        description: "Fixed workspaceBackend.listDirectory call",
       },
       {
         pattern: /\(this\.workspaceBackend as unknown\)\.exists/g,
         replacement: "this.workspaceBackend.exists",
-        description: "Fixed workspaceBackend.exists call"
+        description: "Fixed workspaceBackend.exists call",
       },
       {
         pattern: /\(this\.workspaceBackend as unknown\)\.createDirectory/g,
         replacement: "this.workspaceBackend.createDirectory",
-        description: "Fixed workspaceBackend.createDirectory call"
-      }
+        description: "Fixed workspaceBackend.createDirectory call",
+      },
     ];
 
     for (const pattern of patterns) {
@@ -306,13 +309,13 @@ class AsUnknownFixer {
       {
         pattern: /return null as unknown;/g,
         replacement: "return null;",
-        description: "Fixed return null statement"
+        description: "Fixed return null statement",
       },
       {
         pattern: /return undefined as unknown;/g,
         replacement: "return undefined;",
-        description: "Fixed return undefined statement"
-      }
+        description: "Fixed return undefined statement",
+      },
     ];
 
     for (const pattern of patterns) {
@@ -331,9 +334,9 @@ class AsUnknownFixer {
     const patterns = [
       {
         pattern: /\(this as unknown\)\.name = "([^"]+)";/g,
-        replacement: "this.name = \"$1\";",
-        description: "Fixed this.name assignment"
-      }
+        replacement: 'this.name = "$1";',
+        description: "Fixed this.name assignment",
+      },
     ];
 
     for (const pattern of patterns) {
@@ -353,18 +356,18 @@ class AsUnknownFixer {
       {
         pattern: /: undefined as unknown/g,
         replacement: ": undefined",
-        description: "Fixed undefined type annotation"
+        description: "Fixed undefined type annotation",
       },
       {
         pattern: /\? undefined as unknown/g,
         replacement: "? undefined",
-        description: "Fixed ternary undefined"
+        description: "Fixed ternary undefined",
       },
       {
         pattern: /undefined as unknown,/g,
         replacement: "undefined,",
-        description: "Fixed undefined in parameter list"
-      }
+        description: "Fixed undefined in parameter list",
+      },
     ];
 
     for (const pattern of patterns) {
@@ -376,10 +379,7 @@ class AsUnknownFixer {
     }
 
     // Track remaining dangerous patterns
-    const dangerousPatterns = [
-      /null as unknown/g,
-      /undefined as unknown/g
-    ];
+    const dangerousPatterns = [/null as unknown/g, /undefined as unknown/g];
 
     for (const pattern of dangerousPatterns) {
       const matches = content.match(pattern);
@@ -393,7 +393,7 @@ class AsUnknownFixer {
 
   private generateReport(): void {
     const totalFiles = this.results.length;
-    const filesWithFixes = this.results.filter(r => r.fixesApplied.length > 0).length;
+    const filesWithFixes = this.results.filter((r) => r.fixesApplied.length > 0).length;
     const totalOriginal = this.results.reduce((sum, r) => sum + r.originalCount, 0);
     const totalNew = this.results.reduce((sum, r) => sum + r.newCount, 0);
     const totalFixed = totalOriginal - totalNew;
@@ -407,11 +407,14 @@ class AsUnknownFixer {
     console.log(`Total fixed: ${totalFixed} (${((totalFixed / totalOriginal) * 100).toFixed(1)}%)`);
 
     console.log("\n🔧 Fixes Applied:");
-    const allFixes = this.results.flatMap(r => r.fixesApplied);
-    const fixCounts = allFixes.reduce((counts, fix) => {
-      counts[fix] = (counts[fix] || 0) + 1;
-      return counts;
-    }, {} as Record<string, number>);
+    const allFixes = this.results.flatMap((r) => r.fixesApplied);
+    const fixCounts = allFixes.reduce(
+      (counts, fix) => {
+        counts[fix] = (counts[fix] || 0) + 1;
+        return counts;
+      },
+      {} as Record<string, number>
+    );
 
     Object.entries(fixCounts)
       .sort(([, a], [, b]) => b - a)
@@ -420,9 +423,9 @@ class AsUnknownFixer {
       });
 
     console.log("\n⚠️  Warnings:");
-    const allWarnings = this.results.flatMap(r => r.warnings);
+    const allWarnings = this.results.flatMap((r) => r.warnings);
     if (allWarnings.length > 0) {
-      allWarnings.forEach(warning => console.log(`  ${warning}`));
+      allWarnings.forEach((warning) => console.log(`  ${warning}`));
     } else {
       console.log("  None");
     }
@@ -439,4 +442,4 @@ async function main() {
 
 if (import.meta.main) {
   main().catch(console.error);
-} 
+}

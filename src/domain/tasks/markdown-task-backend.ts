@@ -1,6 +1,6 @@
 /**
  * Markdown Task Backend
- * 
+ *
  * Implementation of TaskBackend for markdown-based task storage.
  * Extracted from tasks.ts to improve modularity and maintainability.
  */
@@ -13,12 +13,12 @@ import { ResourceNotFoundError, getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./taskConstants";
 import type { TaskStatus } from "./taskConstants";
 import { getTaskSpecRelativePath } from "./taskIO";
-import type { 
-  TaskBackend, 
-  Task, 
-  TaskListOptions, 
-  CreateTaskOptions, 
-  DeleteTaskOptions 
+import type {
+  TaskBackend,
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions,
 } from "./types";
 
 const matter = require("gray-matter");
@@ -72,12 +72,16 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
+    console.error("DEBUG backend setTaskStatus called with:", { id, status });
+
     if (!Object.values(TASK_STATUS).includes(status as TaskStatus)) {
       throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(", ")}`);
     }
 
     // First verify the task exists with our enhanced getTask method
     const task = await this.getTask(id);
+    console.error("DEBUG backend getTask result:", { id, found: !!task, taskId: task?.id });
+
     if (!task) {
       // Return silently if task doesn't exist
       return;
@@ -122,7 +126,11 @@ export class MarkdownTaskBackend implements TaskBackend {
         const files = await fs.readdir(taskDir);
         const matchingFile = files.find((f) => f.startsWith(`${taskIdNum}-`));
         if (matchingFile) {
-          return getTaskSpecRelativePath(taskId, matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""), this.workspacePath);
+          return getTaskSpecRelativePath(
+            taskId,
+            matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""),
+            this.workspacePath
+          );
         }
       } catch (err) {
         // Directory doesn't exist or can't be read
@@ -268,12 +276,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Skip if this looks like an old task format to avoid false positives
       if (title.startsWith("Task ")) {
         throw new Error(
-          "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
+          'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
         );
       }
     } else {
       throw new Error(
-        "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
+        'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
       );
     }
 
@@ -357,9 +365,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         }
       }
     } catch (error: any) {
-      throw new Error(
-        `Failed to rename or update spec file: ${getErrorMessage(error as any)}`
-      );
+      throw new Error(`Failed to rename or update spec file: ${getErrorMessage(error as any)}`);
     }
 
     // Create the task entry
@@ -415,7 +421,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       };
 
       // Serialize the updated frontmatter and content
-      const updatedContent = matter.stringify(parsed.content, data as unknown);
+      const updatedContent = matter.stringify(parsed.content, data);
 
       // Write back to the file
       await fs.writeFile(specFilePath, updatedContent, "utf-8");
@@ -427,9 +433,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         id,
         specFilePath,
       });
-      throw new Error(
-        `Failed to update task metadata: ${getErrorMessage(error as any)}`
-      );
+      throw new Error(`Failed to update task metadata: ${getErrorMessage(error as any)}`);
     }
   }
 
@@ -472,7 +476,10 @@ export class MarkdownTaskBackend implements TaskBackend {
       await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
 
       // Delete the task specification file if it exists
-      const specPath = join(this.workspacePath, getTaskSpecRelativePath(task.id, task.title, this.workspacePath));
+      const specPath = join(
+        this.workspacePath,
+        getTaskSpecRelativePath(task.id, task.title, this.workspacePath)
+      );
 
       try {
         await fs.unlink(specPath);
@@ -489,4 +496,4 @@ export class MarkdownTaskBackend implements TaskBackend {
       return false;
     }
   }
-} 
+}

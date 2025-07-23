@@ -7,10 +7,14 @@ import { TaskService } from "./taskService";
 import type { TaskData } from "../../types/tasks/taskData";
 
 describe("Real-World Workflow Testing", () => {
-  const testBaseDir = join(tmpdir(), "minsky-test", `real-world-test-${Date.now()}-${Math.random().toString(36).substring(7)}`);
+  const testBaseDir = join(
+    tmpdir(),
+    "minsky-test",
+    `real-world-test-${Date.now()}-${Math.random().toString(36).substring(7)}`
+  );
   const testProcessDir = join(testBaseDir, "process");
   const testJsonPath = join(testProcessDir, "tasks.json");
-  
+
   beforeEach(async () => {
     // Clean up and create test directory structure
     if (existsSync(testBaseDir)) {
@@ -32,11 +36,11 @@ describe("Real-World Workflow Testing", () => {
       const jsonBackend = createJsonFileTaskBackend({
         name: "json-file",
         workspacePath: testBaseDir,
-        dbFilePath: testJsonPath // Explicit special workspace location
+        dbFilePath: testJsonPath, // Explicit special workspace location
       });
 
       // 2. Verify the backend knows its storage location
-      expect((jsonBackend as unknown).getStorageLocation()).toBe(testJsonPath);
+      expect(jsonBackend.getStorageLocation()).toBe(testJsonPath);
 
       // 3. Create some test task data
       const testTasks: TaskData[] = [
@@ -44,14 +48,14 @@ describe("Real-World Workflow Testing", () => {
           id: "#001",
           title: "Test Task 1",
           status: "TODO",
-          specPath: "process/tasks/001-test-task-1.md"
+          specPath: "process/tasks/001-test-task-1.md",
         },
         {
-          id: "#002", 
+          id: "#002",
           title: "Test Task 2",
           status: "IN-PROGRESS",
-          specPath: "process/tasks/002-test-task-2.md"
-        }
+          specPath: "process/tasks/002-test-task-2.md",
+        },
       ];
 
       // 4. Format and save the data
@@ -68,7 +72,7 @@ describe("Real-World Workflow Testing", () => {
       // 7. Verify the file content is correct
       const fileContent = readFileSync(testJsonPath, "utf8");
       const parsedData = JSON.parse(fileContent);
-      
+
       expect(parsedData.tasks).toHaveLength(2);
       expect(parsedData.tasks[0].id).toBe("#001");
       expect(parsedData.tasks[1].id).toBe("#002");
@@ -78,7 +82,7 @@ describe("Real-World Workflow Testing", () => {
       // 8. Test reading the data back
       const readResult = await jsonBackend.getTasksData();
       expect(readResult.success).toBe(true);
-      
+
       const parsedTasks = jsonBackend.parseTasks(readResult.content!);
       expect(parsedTasks).toHaveLength(2);
       expect(parsedTasks[0].id).toBe("#001");
@@ -89,12 +93,12 @@ describe("Real-World Workflow Testing", () => {
       // Create backend without explicit dbFilePath
       const jsonBackend = createJsonFileTaskBackend({
         name: "json-file",
-        workspacePath: testBaseDir
+        workspacePath: testBaseDir,
       });
 
       // Should default to team-shareable location
       const expectedPath = join(testBaseDir, "process", "tasks.json");
-      expect((jsonBackend as unknown).getStorageLocation()).toBe(expectedPath);
+      expect(jsonBackend.getStorageLocation()).toBe(expectedPath);
     });
   });
 
@@ -104,13 +108,13 @@ describe("Real-World Workflow Testing", () => {
       const jsonBackend = createJsonFileTaskBackend({
         name: "json-file",
         workspacePath: testBaseDir,
-        dbFilePath: testJsonPath
+        dbFilePath: testJsonPath,
       });
 
       const taskService = new TaskService({
         workspacePath: testBaseDir,
         backend: "json-file",
-        customBackends: [jsonBackend]
+        customBackends: [jsonBackend],
       });
 
       // 2. Verify TaskService is using the correct workspace
@@ -126,8 +130,8 @@ describe("Real-World Workflow Testing", () => {
           id: "#100",
           title: "Test Task via Service",
           status: "TODO",
-          specPath: "process/tasks/100-test-task-via-service.md"
-        }
+          specPath: "process/tasks/100-test-task-via-service.md",
+        },
       ];
 
       const content = jsonBackend.formatTasks(testTasks);
@@ -164,16 +168,16 @@ describe("Real-World Workflow Testing", () => {
     it("should handle missing process directory gracefully", async () => {
       // Create backend pointing to non-existent directory
       const nonExistentPath = join(testBaseDir, "missing", "tasks.json");
-      
+
       const jsonBackend = createJsonFileTaskBackend({
         name: "json-file",
         workspacePath: testBaseDir,
-        dbFilePath: nonExistentPath
+        dbFilePath: nonExistentPath,
       });
 
       // Should still work - the storage layer should create directories
       const testTasks: TaskData[] = [
-        { id: "#001", title: "Test", status: "TODO", specPath: "test.md" }
+        { id: "#001", title: "Test", status: "TODO", specPath: "test.md" },
       ];
 
       const content = jsonBackend.formatTasks(testTasks);
@@ -184,4 +188,4 @@ describe("Real-World Workflow Testing", () => {
       expect(existsSync(nonExistentPath)).toBe(true);
     });
   });
-}); 
+});

@@ -165,7 +165,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       // Validate state before serialization to prevent circular references
       if (state === null || state === undefined) {
-        throw new Error("Cannot serialize null or undefined state" as unknown);
+        throw new Error("Cannot serialize null or undefined state");
       }
 
       // Serialize state to JSON with error handling for circular references
@@ -205,7 +205,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to the entity or null if not found
    */
-  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<T | null> {
+  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<T | null> {
     const result = await this.readState();
     if (!result.success || !result.data) {
       return null;
@@ -213,7 +213,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
     const state = result.data;
     const entities = this.getEntitiesFromState(state);
-    const entity = entities.find((e) => (e as unknown)[this.idField] === id);
+    const entity = entities.find((e) => (e as any)[this.idField] === id);
 
     return entity || null;
   }
@@ -238,8 +238,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
     // Filter entities based on query options
     return entities.filter((entity) => {
-      for (const [key, value] of Object.entries(options as unknown)) {
-        if ((entity as unknown)[key] !== value) {
+      for (const [key, value] of Object.entries(options)) {
+        if ((entity as any)[key] !== value) {
           return false;
         }
       }
@@ -265,8 +265,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Check if entity with this ID already exists
-      const id = (entity as unknown)[this.idField];
-      if (id && entities.some((e) => (e as unknown)[this.idField] === id)) {
+      const id = (entity as any)[this.idField];
+      if (id && entities.some((e) => (e as any)[this.idField] === id)) {
         throw new Error(`Entity with ID ${id} already exists`);
       }
 
@@ -305,7 +305,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
+      const index = entities.findIndex((e) => e[this.idField] === id);
       if (index === -1) {
         return null;
       }
@@ -345,7 +345,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = entities.findIndex((e) => (e as unknown)[this.idField] === id);
+      const index = entities.findIndex((e) => e[this.idField] === id);
       if (index === -1) {
         return false;
       }
@@ -402,22 +402,19 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       return true;
     } catch (error) {
-      log.error(
-        `Error initializing storage: ${getErrorMessage(error as any)}`
-      );
+      log.error(`Error initializing storage: ${getErrorMessage(error as any)}`);
       return false;
     }
   }
 
   /**
-   * Helper method to ensure directory exists
-   * @private
+   * Ensure the directory exists before writing
+   * Fixed: Removed TOCTOU race condition by eliminating existsSync check
+   * mkdirSync with recursive: true is idempotent and safe for concurrent calls
    */
   private ensureDirectory(): void {
     const dir = dirname(this.filePath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
+    mkdirSync(dir, { recursive: true });
   }
 
   /**
@@ -449,5 +446,5 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 export function createJsonFileStorage<T, S>(
   options: JsonFileStorageOptions<S>
 ): DatabaseStorage<T, S> {
-  return new JsonFileStorage<T, S>(options as unknown);
+  return new JsonFileStorage<T, S>(options);
 }

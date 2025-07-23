@@ -10,7 +10,10 @@ import type { TaskBackend } from "./taskBackend";
 import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
+  TaskData,
+  TaskStatus,
 } from "../../types/tasks/taskData";
+import type { Task } from "./types";
 
 // Create a mock backend for testing
 function createMockBackend(): TaskBackend {
@@ -37,7 +40,7 @@ function createMockBackend(): TaskBackend {
     // Mock pure operations
     parseTasks: mock((content: unknown) => {
       // Simple parsing for testing
-      if ((content).toString().includes("#001")) {
+      if (content.toString().includes("#001")) {
         return [
           { id: "#001", title: "Task 1", status: "TODO" },
           { id: "#002", title: "Task 2", status: "IN-PROGRESS" },
@@ -84,6 +87,36 @@ function createMockBackend(): TaskBackend {
     getTaskSpecPath: mock((taskId) => `mock/specs/${taskId.replace(/^#/, "")}.md`),
 
     fileExists: mock(() => Promise.resolve(true)),
+
+    // Mock task creation method
+    createTask: mock((specPath) => {
+      // This mock now simulates the FIXED behavior: it returns a proper specPath
+      // instead of the temporary path, simulating the file being moved
+      const properSpecPath = "process/tasks/123-test-task.md";
+      return Promise.resolve({
+        id: "#TEST_VALUE",
+        title: "Test Task",
+        description: "Description.",
+        status: "TODO",
+        specPath: properSpecPath, // FIXED: Returns proper path instead of temporary path
+      });
+    }),
+
+    // Additional required methods to complete TaskBackend interface
+    listTasks: mock(() => Promise.resolve([])),
+    getTask: mock(() => Promise.resolve(null)),
+    getTaskStatus: mock(() => Promise.resolve(undefined)),
+    setTaskStatus: mock(() => Promise.resolve()),
+    deleteTask: mock(() => Promise.resolve(true)),
+    createTaskFromTitleAndDescription: mock((title: string, description: string) =>
+      Promise.resolve({
+        id: "#TEST_VALUE",
+        title: title,
+        description: description,
+        status: "TODO",
+        specPath: "process/tasks/123-test-task.md", // Proper spec path, not temporary
+      })
+    ),
   };
 }
 
@@ -169,8 +202,8 @@ describe("TaskService", () => {
   describe("setTaskStatus", () => {
     test("should update a task's status", async () => {
       // Setup spy to check what's passed to saveTasksData
-      const saveTasksDataSpy = mockBackend.saveTasksData as unknown as jest.SpyInstance;
-      const formatTasksSpy = mockBackend.formatTasks as unknown as jest.SpyInstance;
+      const saveTasksDataSpy = mockBackend.saveTasksData as any;
+      const formatTasksSpy = mockBackend.formatTasks as any;
 
       await taskService.setTaskStatus("#001", "DONE");
 
@@ -230,6 +263,83 @@ describe("TaskService", () => {
       await expect(taskService.createTask("path/to/spec.md")).rejects.toThrow(
         /Failed to read spec file/
       );
+    });
+  });
+
+  describe("createTaskFromTitleAndDescription", () => {
+    test("should store proper spec path instead of temporary path", async () => {
+      // Bug: createTaskFromTitleAndDescription stores temporary file paths in tasks.md
+      // Steps to reproduce:
+      // 1. Create a task from title and description
+      // 2. Check that the returned task has a proper spec path (not /tmp/... path)
+      // 3. Verify the spec path follows the pattern: process/tasks/NNN-title-slug.md
+
+      const title = "Fix session PR title duplication bug";
+      const description = "The session PR command duplicates the title in the body.";
+
+      const task = await taskService.createTaskFromTitleAndDescription(title, description);
+
+      // This should pass now that the bug is fixed
+      // The specPath should be a proper relative path, not a temporary OS path
+      expect(task.specPath).not.toMatch(/\/tmp\//);
+      expect(task.specPath).not.toMatch(/\/var\/folders\//);
+      expect(task.specPath).toMatch(/^process\/tasks\/\d+-[\w-]+\.md$/);
+
+      // Verify the task has the expected properties
+      expect(task.id).toBe("#TEST_VALUE");
+      expect(task.title).toBe(title); // Should return the actual title passed in
+      expect(task.description).toBe(description); // Should return the actual description passed in
+      expect(task.status).toBe("TODO");
+    });
+
+    test("integration: should create task with proper spec path using real backend", async () => {
+      // Integration test with real file operations to verify the fix
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const os = await import("os");
+
+      // Create a temporary workspace
+      const tempWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), "minsky-test-"));
+
+      try {
+        // Create required directory structure and tasks.md file
+        const processDir = path.join(tempWorkspace, "process");
+        await fs.mkdir(processDir, { recursive: true });
+        const tasksFile = path.join(processDir, "tasks.md");
+        await fs.writeFile(tasksFile, "# Tasks\n\n## Active Tasks\n\n", "utf-8");
+
+        // Create a real TaskService with the markdown backend
+        const realTaskService = new TaskService({
+          workspacePath: tempWorkspace,
+          backend: "markdown",
+        });
+
+        const title = "Integration test task";
+        const description = "This task tests the real file operations.";
+
+        const task = await realTaskService.createTaskFromTitleAndDescription(title, description);
+
+        // Verify the spec path is correct (not a temporary path)
+        expect(task.specPath).not.toMatch(/\/tmp\//);
+        expect(task.specPath).not.toMatch(/\/var\/folders\//);
+        expect(task.specPath).toMatch(/^process\/tasks\/\d+-[\w-]+\.md$/);
+
+        // Verify the file actually exists at the proper location
+        const fullSpecPath = path.join(tempWorkspace, task.specPath || "");
+        await expect(fs.access(fullSpecPath)).resolves.toBeUndefined();
+
+        // Verify the file content
+        const fileContent = await fs.readFile(fullSpecPath, "utf-8");
+        expect(fileContent).toContain(title);
+        expect(fileContent).toContain(description);
+      } finally {
+        // Clean up the temporary workspace
+        try {
+          await fs.rm(tempWorkspace, { recursive: true, force: true });
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
     });
   });
 

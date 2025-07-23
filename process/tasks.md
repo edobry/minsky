@@ -16,9 +16,9 @@
 
 - [x] Add `git commit` Command to Stage and Commit Changes [#009](process/tasks/009-add-git-commit-command-to-stage-and-commit-changes.md)
 
-- [x] Enhance `git pr` Command to Create GitHub PRs and Update Task Status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
+- [x] ~~Enhance `git pr` Command to Create GitHub PRs and Update Task Status~~ (Command removed - functionality moved to `session pr`) [#010](process/tasks/010--enhance-git-pr-command-to-create-github-prs-and-update-task-status-command-removed-functionality-moved-to-session-pr-.md)
 
-- [x] Fix `git pr` Command and Add Proper Tests [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
+- [x] ~~Fix `git pr` Command and Add Proper Tests~~ (Command removed - functionality moved to `session pr`) [#011](process/tasks/011--fix-git-pr-command-and-add-proper-tests-command-removed-functionality-moved-to-session-pr-.md)
 
 - [x] Add `session update` Command [#012](process/tasks/012-add-session-update-command.md)
 
@@ -34,7 +34,7 @@
 
 - [x] Implement Test Suite Improvements [#019](process/tasks/019-implement-test-suite-improvements.md)
 
-- [x] Add `--task` option to `git pr` command [#020](process/tasks/020-add-task-option-to-git-pr-command.md)
+- [x] ~~Add `--task` option to `git pr` command~~ (Command removed - functionality moved to `session pr`) [#020](process/tasks/020--add-task-option-to-git-pr-command-command-removed-functionality-moved-to-session-pr-.md)
 
 - [x] Refactor Large Methods in GitService [#021](process/tasks/021-refactor-large-methods-in-gitservice.md)
 
@@ -114,7 +114,7 @@
 
 - [ ] Implement Automatic Test Linting [#060](process/tasks/060-implement-automatic-test-linting.md)
 
-- [+] Implement Test Fixture Factory Pattern [#061](process/tasks/061-implement-test-fixture-factory-pattern.md)
+- [x] Implement Test Fixture Factory Pattern [#061](process/tasks/061-implement-test-fixture-factory-pattern.md)
 
 - [x] Improve bun:test TypeScript Declarations [#062](process/tasks/062-improve-bun-test-typescript-declarations.md)
 
@@ -302,7 +302,7 @@
 
 - [x] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
 
-- [ ] Implement Session-Aware Versions of Cursor Built-in Tools [#158](process/tasks/158-implement-session-aware-versions-of-cursor-built-in-tools.md)
+- [x] Implement Session-Aware Versions of Cursor Built-in Tools [#158](process/tasks/158-implement-session-aware-versions-of-cursor-built-in-tools.md)
 
 - [ ] Implement Comprehensive ESLint Configuration [#159](process/tasks/159-implement-comprehensive-eslint-configuration.md)
 
@@ -332,7 +332,7 @@
 
 - [x] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
 
-- [+] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
+- [x] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
 
 - [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
 
@@ -416,7 +416,7 @@
 
 - [ ] Implement Dagger CI Pipeline with Hybrid Development Workflow [#234](process/tasks/234-implement-dagger-ci-pipeline-with-hybrid-development-workflow.md)
 
-- [ ] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
+- [x] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
 
 - [x] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
 
@@ -496,8 +496,74 @@
 
 - [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system-for-persistent-learning-and-knowledge-accumulation.md)
 
-- [ ] Cleanup excessive 'as unknown' assertions to improve TypeScript effectiveness [#280](process/tasks/280-cleanup-excessive-as-unknown-assertions-to-improve-typescript-effectiveness.md)
+- [x] Cleanup excessive 'as unknown' assertions to improve TypeScript effectiveness [#280](process/tasks/280-cleanup-excessive-as-unknown-assertions-to-improve-typescript-effectiveness.md)
 
 - [x] Fix systematic verification failures in AI responses [#281](process/tasks/281-fix-systematic-verification-failures-in-ai-responses.md)
 
-- [+] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)
+- [x] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)
+
+- [x] Separate Task ID Storage from Display Format [#283](process/tasks/283-separate-task-id-storage-from-display-format.md)
+
+- [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
+
+- [x] Fix session PR title duplication bug [#285](process/tasks/285-fix-session-pr-title-duplication-bug.md)
+
+- [x] Fix MCP Server and CLI Issues Post Task 282 [#286](process/tasks/286-fix-mcp-server-and-cli-issues-post-task-282.md)
+
+- [x] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
+
+- [ ] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
+
+- [+] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
+
+- [ ] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/290-convert-cursor-rules-to-mcp-only-tool-references.md)
+
+- [+] Analyze theoretical overlap between rules systems and policy DSLs (OPA, ESLint, cybernetics) [#291](process/tasks/291-analyze-theoretical-overlap-between-rules-systems-and-policy-dsls-opa-eslint-cybernetics-.md)
+
+- [x] Implement automatic git stash handling for merge conflicts in session approve [#292](process/tasks/292-implement-automatic-git-stash-handling-for-merge-conflicts-in-session-approve.md)
+
+- [ ] Add session chat interface context UI elements [#293](process/tasks/293-add-session-chat-interface-context-ui-elements.md)
+
+- [x] Audit codebase for git command timeout issues and create ESLint rule [#294](process/tasks/294-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
+
+- [x] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
+
+- [x] Implement Custom Type-Safe Configuration System [#295](process/tasks/295-implement-custom-type-safe-configuration-system.md)
+
+- [x] Audit codebase for git command timeout issues and create ESLint rule [#301](process/tasks/301-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
+
+- [ ] Explore Exposing Rules and Documentation as MCP Resources with Template Integration [#302](process/tasks/302-explore-exposing-rules-and-documentation-as-mcp-resources-with-template-integration.md)
+
+- [x] Improve Task Operations Workflow with Auto-Commit for Markdown Backend [#303](process/tasks/303-improve-task-operations-workflow-with-auto-commit-for-markdown-backend.md)
+
+- [x] Fix special workspace auto-commit sync issue [#304](process/tasks/304-fix-special-workspace-auto-commit-sync-issue.md)
+
+- [x] Systematic Jest Pattern Migration & ESLint Rule Re-enablement [#305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md)
+
+- [x] Migrate codebase from TaskBackendRouter to workspace-resolving backends [#306](process/tasks/306-migrate-codebase-from-taskbackendrouter-to-workspace-resolving-backends.md)
+
+- [+] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
+
+- [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
+
+- [ ] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
+
+- [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
+
+- [ ] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
+
+- [x] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
+
+- [ ] Implement External Task Database for Metadata Storage [#315](process/tasks/315-implement-external-task-database-for-metadata-storage.md)
+
+- [x] Enable max-lines ESLint rule with two-phase approach (400 warning, 1500 error) [#316](process/tasks/316-enable-max-lines-eslint-rule-with-two-phase-approach-400-warning-1500-error-.md)
+
+- [x] Investigate and fix task operations hanging issues [#317](process/tasks/317-investigate-and-fix-task-operations-hanging-issues.md)
+
+- [ ] Refactor CLI output formatters to use command-specific customizations instead of centralized bridge logic [#318](process/tasks/318-refactor-cli-output-formatters-to-use-command-specific-customizations-instead-of-centralized-bridge-logic.md)
+
+- [x] Test workspace sync fix [#319](process/tasks/319-test-workspace-sync-fix.md)
+
+- [ ] Fix all linter errors in codebase [#320](process/tasks/320-fix-all-linter-errors-in-codebase.md)
+
+- [ ] AI-Powered Project Analysis for Enhanced Init Command [#321](process/tasks/321-ai-powered-project-analysis-for-enhanced-init-command.md)

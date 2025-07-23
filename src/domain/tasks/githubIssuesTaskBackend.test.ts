@@ -50,11 +50,13 @@ describe("GitHubIssuesTaskBackend", () => {
     test("should parse GitHub issues into TaskData objects", () => {
       const issuesJson = JSON.stringify([
         {
+          id: 1,
           number: 1,
           title: "Test Issue #001",
           body: "Test description",
           state: "open",
-          labels: [{ name: "minsky:todo" }],
+          labels: [{ name: "minsky:todo", color: "d73a4a" }],
+          assignees: [],
           html_url: "https://github.com/test-owner/test-repo/issues/1",
           created_at: "2023-01-01T00:00:00Z",
           updated_at: "2023-01-01T00:00:00Z",
@@ -158,4 +160,4 @@ This is a test task description.
       expect(path).toBe("process/tasks/001-test-task-with-special-characters-.md");
     });
   });
-}); 
+});

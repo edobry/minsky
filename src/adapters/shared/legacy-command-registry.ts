@@ -164,11 +164,11 @@ export class SharedCommandRegistry implements CommandRegistry {
     T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
     R = any,
   >(commandDef: CommandDefinition<T, R>, options: { allowOverwrite?: boolean } = {}): void {
-    if (this.commands.has(commandDef.id) && !(options as unknown)!.allowOverwrite) {
+    if (this.commands.has(commandDef.id) && !options.allowOverwrite) {
       throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);
     }
 
-    this.commands.set(commandDef.id!, commandDef as unknown as SharedCommand);
+    this.commands.set(commandDef.id!, commandDef as SharedCommand);
   }
 
   /**
@@ -235,4 +235,4 @@ export function createSharedCommandRegistry(): SharedCommandRegistry {
  *
  * @deprecated Use createSharedCommandRegistry() and dependency injection instead
  */
-export const sharedCommandRegistry = createSharedCommandRegistry();
+export const _sharedCommandRegistry = createSharedCommandRegistry();

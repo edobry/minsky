@@ -9,17 +9,20 @@ Task #229 (Evaluate mandatory task-session association requirement) has been **s
 ## ✅ COMPLETED FEATURES
 
 ### 1. Core Implementation (Phase 1)
+
 - ✅ **`--description` parameter added** to session start command schema
 - ✅ **Auto-task creation functionality** implemented via `createTaskFromDescription` helper
 - ✅ **Task ID used as session name** when using `--description` (consistent with `--task` behavior)
 - ✅ **Mandatory task association** - validation requires either `--task` or `--description`
 
 ### 2. Supporting Infrastructure (Phase 1)
+
 - ✅ **Session templates module** (`src/domain/templates/session-templates.ts`) for task spec generation
 - ✅ **Comprehensive test coverage** - 3 integration tests covering auto-creation scenarios
 - ✅ **Schema validation** - Zod schema updated with proper `--description` parameter and validation
 
 ### 3. Migration and Cleanup (Phase 2)
+
 - ✅ **Migration script created** (`scripts/migrate-taskless-sessions.ts`)
 - ✅ **Production migration analysis** - Scanned 89 sessions, identified 13 taskless sessions
 - ✅ **Safe cleanup identification** - 5 sessions safe to auto-delete (empty directories)
@@ -29,13 +32,14 @@ Task #229 (Evaluate mandatory task-session association requirement) has been **s
 ## 🎯 WORKING FUNCTIONALITY
 
 ### Command Examples:
+
 ```bash
 # Auto-create task and session
 minsky session start --description "Fix authentication bug"
 # Creates task #001 and session "task#001"
 
 # Traditional task-based session (unchanged)
-minsky session start --task "#042" 
+minsky session start --task "#042"
 # Creates session "task#042"
 
 # Manual session name with description
@@ -44,6 +48,7 @@ minsky session start --description "Fix auth bug" --name "auth-fix"
 ```
 
 ### Migration Script:
+
 ```bash
 # Analyze existing taskless sessions
 bun scripts/migrate-taskless-sessions.ts --verbose
@@ -55,6 +60,7 @@ bun scripts/migrate-taskless-sessions.ts --auto-delete --no-dry-run
 ## 📋 REMAINING WORK (~5%)
 
 ### Final Validation Cleanup
+
 - ⏳ **Update error messages** - Remove remaining "either name or task" validation messages
 - ⏳ **Session consistency tests** - Fix any remaining test failures related to mandatory task requirement
 - ⏳ **Documentation updates** - Update CLI help text to reflect new mandatory requirement
@@ -77,6 +83,7 @@ bun scripts/migrate-taskless-sessions.ts --auto-delete --no-dry-run
 ## 📊 MIGRATION ANALYSIS RESULTS
 
 **Total Sessions Analyzed**: 89
+
 - **Taskless Sessions Found**: 13 (14.6%)
 - **Safe to Auto-Delete**: 5 (empty directories)
 - **Manual Review Required**: 8 (with unmerged work)
@@ -87,10 +94,10 @@ bun scripts/migrate-taskless-sessions.ts --auto-delete --no-dry-run
 ## ✅ VERIFICATION STATUS
 
 - **Schema validation**: ✅ Working
-- **Auto-task creation**: ✅ Working  
+- **Auto-task creation**: ✅ Working
 - **Session naming**: ✅ Working
 - **Integration tests**: ✅ All passing (3/3)
 - **Migration script**: ✅ Working (analyzed 89 sessions)
 - **CLI functionality**: ✅ Working
 
-**Task #229 is ready for final completion and PR submission.** 
+**Task #229 is ready for final completion and PR submission.**

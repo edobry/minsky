@@ -12,8 +12,10 @@ mock.module("../path/to/module", () => ({ ... }));
 
 // ✅ ALWAYS USE CENTRALIZED UTILITIES
 import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
+import { createMockLogger, clearLoggerMocks } from "../utils/test-utils/logger-mock";
 setupTestMocks();
 const mockFn = createMock();
+const mockLog = createMockLogger();
 mockModule("../../../src/path/to/module", () => ({ ... }));
 ```
 
@@ -22,6 +24,7 @@ The centralized utilities provide:
 2. Automatic mock cleanup in afterEach hooks
 3. Better type safety and error handling
 4. Additional helper methods for common testing scenarios
+5. **Centralized logger mocking** - Prevents "log.cli is not a function" errors
 
 ## Core Mocking Utilities
 
@@ -37,13 +40,7 @@ import {
   setupTestMocks,
   createMockFileSystem
 } from "../utils/test-utils/mocking";
-// OR
-import {
-  createMock,
-  mockModule,
-  setupTestMocks,
-  createMockFileSystem  
-} from "../utils/test-utils/mocking";
+import { createMockLogger } from "../utils/test-utils/logger-mock";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -87,6 +84,34 @@ mockModule("../../../src/domain/tasks", () => ({
 mockModule("../../../../src/adapters/shared/commands/tasks", () => ({
   registerTasksCommands: createMock()
 }));
+```
+
+### Logger Mocking
+
+**REQUIRED: Use createMockLogger() to prevent "log.cli is not a function" errors**
+
+```typescript
+// ❌ INCORRECT - Incomplete logger mock
+const mockLog = {
+  debug: jest.fn(),
+  info: jest.fn()
+  // Missing cli, agent, and other methods
+};
+
+// ✅ CORRECT - Using centralized logger mock
+import { createMockLogger } from "../utils/test-utils/logger-mock";
+
+const mockLog = createMockLogger();
+
+// Mock the logger module
+mockModule("../../../src/utils/logger", () => ({
+  log: mockLog
+}));
+
+// Now all logger methods are available
+expect(mockLog.cli).toHaveBeenCalledWith("CLI message");
+expect(mockLog.debug).toHaveBeenCalledWith("Debug message");
+expect(mockLog.agent).toHaveBeenCalledWith("Agent message");
 ```
 
 ### Filesystem Mocking
@@ -141,7 +166,7 @@ describe("Task Domain Commands", () => {
       const expectedTask = { id: "123", title: "Test Task" };
       mockTaskService.mockResolvedValue(expectedTask);
 
-      // Act  
+      // Act
       const result = await getTaskFromParams(params);
 
       // Assert
@@ -334,7 +359,7 @@ mockModule("./tasks", () => ({
 
 // CORRECT from src/adapters/cli/ (co-located):
 mockModule("../../domain/tasks", () => ({
-  // mocked exports  
+  // mocked exports
 }));
 ```
 

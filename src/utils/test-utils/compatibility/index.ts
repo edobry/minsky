@@ -1,4 +1,4 @@
-const TEST_VALUE = 123;
+const _TEST_VALUE = 123;
 
 /**
  * Jest/Vitest Test Compatibility Layer for Bun
@@ -49,7 +49,7 @@ export interface JestGlobal {
 }
 
 // Create a Jest-like global object
-export const jest: JestGlobal = createJestModuleMocking();
+export const _jest: JestGlobal = createJestModuleMocking();
 
 /**
  * Sets up the entire compatibility layer for a test file.
@@ -82,10 +82,10 @@ export function setupTestCompat(): void {
  *    setupTestCompat();
  *    ```
  *
- * 2. Replace jest.fn() with createCompatMock():
+ * 2. Replace mock() with createCompatMock():
  *    ```ts
  *    // Before:
- *    const mockFn = jest.fn();
+ *    const mockFn = mock();
  *
  *    // After:
  *    const mockFn = createCompatMock();
@@ -95,7 +95,7 @@ export function setupTestCompat(): void {
  *    ```ts
  *    // Before:
  *    jest.mock("../path/to/module", () => ({
- *      someFunction: jest.fn()
+ *      someFunction: mock()
  *    }));
  *
  *    // After:

@@ -14,12 +14,12 @@ import { log } from "./logger";
 const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
 
 // Mock filesystem operations for testing
-export function mockMkdirSync(path: string, _options?: { recursive?: boolean }): void {
+export function mockMkdirSync(path: string, options?: { recursive?: boolean }): void {
   log.debug(`[MOCK] Creating directory ${path}`);
   virtualFS.set(path, { isDirectory: true });
 
   // If recursive, create parent directories
-  if (_options?.recursive) {
+  if (options?.recursive) {
     let parent = dirname(path);
     while (parent && parent !== "." && parent !== "/") {
       virtualFS.set(parent, { isDirectory: true });
@@ -34,14 +34,12 @@ export function mockExistsSync(path: string): boolean {
   return exists;
 }
 
-export function mockRmSync(
-  path: string,
-  _options?: { recursive?: boolean; force?: boolean }
-): void {
+// Mock rmSync for testing (since rmSync is a newer Node.js API)
+export function mockRmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void {
   log.debug(`[MOCK] Removing ${path}`);
 
   // If recursive, remove all children first
-  if (_options?.recursive) {
+  if (options?.recursive) {
     const children = Array.from(virtualFS.keys()).filter((key) => key.startsWith(`${path}/`));
     for (const child of children) {
       virtualFS.delete(child);
@@ -82,7 +80,7 @@ type FS = {
 };
 
 // Setup to use real or mock filesystem based on environment
-const useVirtualFS = true; // Set to true to use virtual filesystem
+const _useVirtualFS = true; // Set to true to use virtual filesystem
 
 // Interface for test environment setup
 export interface MinskyTestEnv {
@@ -106,7 +104,7 @@ export function createUniqueTestDir(prefix: string): string {
  * @param baseDir The base test directory (ignored)
  * @returns Object containing paths to the various test directories
  */
-export function setupMinskyTestEnv(baseDir: string): MinskyTestEnv {
+export function setupMinskyTestEnv(_baseDir: string): MinskyTestEnv {
   // This is stubbed for test purposes - we'll return fixed paths
   // that don't rely on filesystem operations
   const basePath = "/virtual/test-dir";
@@ -161,7 +159,7 @@ export function standardSpawnOptions(): SpawnSyncOptionsWithStringEncoding {
 }
 
 // Export the mock functions for tests that need to use them directly
-export const mockFS = {
+export const _mockFS = {
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,
   rmSync: mockRmSync,
@@ -176,13 +174,13 @@ export const mockFS = {
  * @throws Error If command execution failed
  */
 export function ensureValidCommandResult(result: SpawnSyncReturns<string>): void {
-  if (!result || (result as unknown)!.status === null) {
+  if (!result || result.status === null) {
     log.error("Command execution failed or was killed");
     throw new Error("Command execution failed");
   }
 
-  if ((result as unknown)!.status !== 0) {
-    log.error(`Command failed with status ${(result as unknown)!.status}`);
-    log.error(`Stderr: ${(result as unknown)!.stderr}`);
+  if (result.status !== 0) {
+    log.error(`Command failed with status ${result.status}`);
+    log.error(`Stderr: ${result.stderr}`);
   }
 }

@@ -16,7 +16,9 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 ### High Redundancy Categories
 
 #### 1. Variable Naming Fixes (15+ codemods)
+
 **Redundant codemods that can be replaced by `VariableNamingCodemod`:**
+
 - `fix-variable-naming-ast.ts` ⭐ (Gold standard - can be replaced)
 - `comprehensive-underscore-fix.ts`
 - `simple-underscore-fix.ts`
@@ -32,15 +34,18 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 **Consolidation Impact**: 11 codemods → 1 utility-based codemod
 
 #### 2. Unused Code Cleanup (20+ codemods)
+
 **Redundant codemods that can be replaced by `UnusedImportCodemod` + `UnusedVariableCodemod`:**
 
 **Unused Imports:**
+
 - `remove-unused-imports.ts`
 - `remove-unused-imports.js`
 - `unused-imports-cleanup.ts`
 - `remove-obvious-unused-imports.ts`
 
 **Unused Variables:**
+
 - `unused-variables-codemod.ts`
 - `unused-parameters-fix.ts`
 - `smart-unused-vars-fix.ts`
@@ -62,9 +67,11 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 **Consolidation Impact**: 20 codemods → 2 utility-based codemods
 
 #### 3. TypeScript Error Fixes (25+ codemods)
+
 **Redundant codemods that can be replaced by specialized error fixers:**
 
 **TS2322 (Type Assignment Errors) - 12 codemods:**
+
 - `fix-ts2322-targeted.ts`
 - `fix-ts2322-type-assignment-errors.ts`
 - `fix-ts2322-type-assignments-enhanced.ts`
@@ -82,6 +89,7 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 - `fix-specific-ts2322-patterns.ts`
 
 **TS2345 (Argument Type Errors) - 6 codemods:**
+
 - `fix-ts2345-argument-types.ts`
 - `fix-ts2345-specific-patterns.ts`
 - `fix-ts2345-targeted.ts`
@@ -91,6 +99,7 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 - `conservative-ts2345-round2.ts`
 
 **Other TypeScript Errors:**
+
 - `fix-ts2339-property-not-exist.ts`
 - `fix-ts2352-name-resolution.ts`
 - `fix-ts2552-proper-resolution.ts`
@@ -103,7 +112,9 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 **Consolidation Impact**: 25 codemods → 3-4 specialized error fixers
 
 #### 4. Mock/Test Fixes (10+ codemods)
+
 **Redundant codemods:**
+
 - `fix-mocking-unknown-types.ts`
 - `fix-mocking-simple.ts`
 - `fix-mocking-unknown-ast.ts`
@@ -119,14 +130,17 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 ## Cleanup Recommendations
 
 ### Phase 1: Immediate Removal (Low Risk)
+
 **Codemods that are clearly redundant or superseded:**
 
 1. **Multiple versions of same fix:**
+
    - `fix-ts2322-*` (keep only `eliminate-ts2322-completely.ts`)
    - `fix-unused-vars-*` (remove all - replace with utility)
    - `fix-*-underscore-*` (remove all - replace with utility)
 
 2. **Temporary/experimental codemods:**
+
    - `multi-stage-fixer.ts`
    - `phase2-cleanup.ts`
    - `surgical-bulk-fixer.ts`
@@ -142,6 +156,7 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 **Removal Count**: ~25 codemods
 
 ### Phase 2: Consolidation (Medium Risk)
+
 **Replace with utility-based codemods:**
 
 1. **Variable naming category**: Remove 11 codemods, add 1 utility-based
@@ -152,14 +167,17 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 **Net Reduction**: ~61 codemods → ~7 utility-based codemods
 
 ### Phase 3: Specialized Analysis (High Value)
+
 **Keep and potentially enhance:**
 
 1. **High-value AST examples:**
+
    - `fix-variable-naming-ast.ts` ⭐ (Gold standard reference)
    - `eliminate-ts2322-completely.ts` ⭐ (Good AST patterns)
    - `eliminate-ts2345-completely.ts` ⭐ (Complex transformations)
 
 2. **Specialized domain fixes:**
+
    - `fix-bun-*` (Bun-specific compatibility)
    - `fix-postgres-storage-types.ts` (Database-specific)
    - `fix-command-registration-overloads.ts` (CLI-specific)
@@ -171,23 +189,27 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 ## Implementation Plan
 
 ### Step 1: Create Utility-Based Replacements
+
 - [x] `VariableNamingCodemod` - Replace 11 variable naming codemods
-- [x] `UnusedImportCodemod` - Replace 8 unused import codemods  
+- [x] `UnusedImportCodemod` - Replace 8 unused import codemods
 - [x] `UnusedVariableCodemod` - Replace 12 unused variable codemods
 - [ ] `TypeScriptErrorCodemod` - Replace 25 TypeScript error codemods
 - [ ] `MockFixingCodemod` - Replace 10 mock-related codemods
 
 ### Step 2: Validation Testing
+
 - [ ] Test each utility-based codemod against real codebase
 - [ ] Verify equivalent functionality to replaced codemods
 - [ ] Performance benchmarking against original implementations
 
 ### Step 3: Gradual Replacement
+
 - [ ] Replace one category at a time
 - [ ] Keep original codemods temporarily for comparison
 - [ ] Document migration path for each replaced codemod
 
 ### Step 4: Cleanup Execution
+
 - [ ] Remove redundant codemods after validation
 - [ ] Update documentation and references
 - [ ] Archive original codemods for future reference
@@ -195,12 +217,14 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 ## Expected Benefits
 
 ### Quantitative Improvements
+
 - **90+ codemods → ~15 codemods** (83% reduction)
 - **Maintenance overhead reduced by ~80%**
 - **Consistent error handling across all codemods**
 - **Standardized reporting and metrics**
 
 ### Qualitative Improvements
+
 - **Easier for agents to use** - Clear, documented interfaces
 - **Better error recovery** - Comprehensive error handling
 - **Consistent behavior** - All codemods follow same patterns
@@ -209,16 +233,19 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 ## Risk Assessment
 
 ### Low Risk (Safe to Remove)
+
 - Duplicate/redundant codemods
 - Temporary experimental fixes
 - File-specific obsolete fixes
 
 ### Medium Risk (Test Before Removing)
+
 - Codemods with slight behavioral differences
 - Edge case handling variations
 - Performance-optimized versions
 
 ### High Risk (Keep and Enhance)
+
 - Unique transformation logic
 - Complex domain-specific fixes
 - High-value reference implementations
@@ -235,4 +262,4 @@ This report analyzes all 90+ codemods in the `/codemods` directory to identify r
 
 The codemod utilities framework provides a clear path to reduce the 90+ codemods to a manageable set of ~15 high-quality, utility-based codemods. This represents a significant improvement in maintainability, usability, and consistency while preserving all the functionality of the original codemods.
 
-The next phase should focus on creating the remaining specialized utility classes and systematically replacing the redundant codemods with their utility-based equivalents. 
+The next phase should focus on creating the remaining specialized utility classes and systematically replacing the redundant codemods with their utility-based equivalents.

@@ -9,27 +9,15 @@ import { Octokit } from "@octokit/rest";
 import { join } from "path";
 import { execSync } from "child_process";
 import { getErrorMessage } from "../../errors/index";
-import type {
-  TaskData,
-  TaskSpecData,
-  TaskBackendConfig,
-} from "../../types/tasks/taskData";
-import type {
-  TaskReadOperationResult,
-  TaskWriteOperationResult,
-} from "../../types/tasks/taskData";
+import type { TaskData, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData";
+import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
 import { log } from "../../utils/logger";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { validateGitHubIssues, validateGitHubIssue, type GitHubIssue } from "../../schemas/storage";
 
 // Import additional types needed for interface implementation
-import type {
-  Task,
-  TaskListOptions,
-  CreateTaskOptions,
-  DeleteTaskOptions
-} from "../tasks";
+import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "../tasks";
 import { getTaskSpecRelativePath } from "./taskIO";
 
 /**
@@ -171,7 +159,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
       // Fetch all issues with Minsky labels
       const labelQueries = Object.values(this.statusLabels).join(",");
-      const response = await (this.octokit.rest.issues as unknown).listForRepo({
+      const response = await this.octokit.rest.issues.listForRepo({
         owner: this.owner,
         repo: this.repo,
         labels: labelQueries,
@@ -186,7 +174,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       });
 
       // Convert issues to a format that can be parsed by parseTasks
-      const issueData = JSON.stringify(issues) as unknown;
+      const issueData = JSON.stringify(issues);
 
       return {
         success: true,
@@ -224,12 +212,12 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       const taskId = `#${taskIdMatch[1]}`;
 
       // Try to find the corresponding GitHub issue
-      const response = await (this.octokit.rest.issues as unknown).listForRepo({
+      const response = await this.octokit.rest.issues.listForRepo({
         owner: this.owner,
         repo: this.repo,
-        labels: Object.values(this.statusLabels).join(",") as unknown,
+        labels: Object.values(this.statusLabels).join(","),
         state: "all",
-      }) as unknown;
+      });
 
       const issue = response.data.find((issue) => {
         // Look for issue with matching task ID in title or body
@@ -352,7 +340,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
 
     // Add GitHub-specific metadata if available
     if (metadata.githubIssue) {
-      const githubIssue = metadata.githubIssue as unknown;
+      const githubIssue = metadata.githubIssue;
       content += "## GitHub Issue\n";
       content += `- Issue: #${githubIssue.number}\n`;
       content += `- URL: ${githubIssue.html_url}\n`;
@@ -386,7 +374,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     }
   }
 
-  async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
+  async saveTaskSpecData(specPath: string, _content: string): Promise<TaskWriteOperationResult> {
     try {
       // For GitHub backend, we don't typically save spec files locally
       // The spec content is managed through GitHub issues
@@ -474,7 +462,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   }
 
   private getLabelsForTaskStatus(status: string): string[] {
-    return [(this.statusLabels as unknown)[status] || this.statusLabels.TODO];
+    return [this.statusLabels[status] || this.statusLabels.TODO];
   }
 
   private async syncTaskToGitHub(taskData: TaskData): Promise<void> {
@@ -484,7 +472,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   }
 
   // Implement required TaskBackend interface methods
-  async listTasks(options?: TaskListOptions): Promise<Task[]> {
+  async listTasks(_options?: TaskListOptions): Promise<Task[]> {
     try {
       const result = await this.getTasksData();
       if (!result.success || !result.content) {
@@ -492,12 +480,12 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
       }
 
       const taskDataList = this.parseTasks(result.content);
-      return taskDataList.map(taskData => ({
+      return taskDataList.map((taskData) => ({
         id: taskData.id,
         title: taskData.title,
         status: taskData.status,
         specPath: taskData.specPath,
-        description: taskData.description
+        description: taskData.description,
       }));
     } catch (error) {
       log.error("Failed to list tasks", {
@@ -510,7 +498,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   async getTask(id: string): Promise<Task | null> {
     try {
       const tasks = await this.listTasks();
-      return tasks.find(task => task.id === id) || null;
+      return tasks.find((task) => task.id === id) || null;
     } catch (error) {
       log.error("Failed to get task", {
         id,
@@ -570,7 +558,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     }
   }
 
-  async createTask(specPath: string, options?: CreateTaskOptions): Promise<Task> {
+  async createTask(specPath: string, _options?: CreateTaskOptions): Promise<Task> {
     try {
       // Read the spec file
       const result = await this.getTaskSpecData(specPath);
@@ -609,7 +597,78 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     }
   }
 
-  async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
+  /**
+   * Create a new task from title and description
+   * @param title Title of the task
+   * @param description Description of the task
+   * @param options Options for creating the task
+   * @returns Promise resolving to the created task
+   */
+  async createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options: CreateTaskOptions = {}
+  ): Promise<Task> {
+    // Generate a task specification file content
+    const taskSpecContent = this.generateTaskSpecification(title, description);
+
+    // Create a temporary file path for the spec
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const os = await import("os");
+
+    const tempDir = os.tmpdir();
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
+
+    try {
+      // Write the spec content to the temporary file
+      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
+
+      // Use the existing createTask method
+      const task = await this.createTask(tempSpecPath, options);
+
+      // Clean up the temporary file
+      try {
+        await fs.unlink(tempSpecPath);
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+
+      return task;
+    } catch (error) {
+      // Clean up the temporary file on error
+      try {
+        await fs.unlink(tempSpecPath);
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a task specification file content from title and description
+   * @param title Title of the task
+   * @param description Description of the task
+   * @returns The generated task specification content
+   */
+  private generateTaskSpecification(title: string, description: string): string {
+    return `# ${title}
+
+## Context
+
+${description}
+
+## Requirements
+
+## Solution
+
+## Notes
+`;
+  }
+
+  async deleteTask(id: string, _options?: DeleteTaskOptions): Promise<boolean> {
     try {
       // Extract issue number from task ID
       const issueNumber = this.extractIssueNumberFromTaskId(id);
@@ -655,5 +714,5 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
  * @returns GitHubIssuesTaskBackend instance
  */
 export function createGitHubIssuesTaskBackend(config: GitHubIssuesTaskBackendOptions): TaskBackend {
-  return new GitHubIssuesTaskBackend(config as unknown);
+  return new GitHubIssuesTaskBackend(config);
 }

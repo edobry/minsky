@@ -2,51 +2,51 @@
 
 /**
  * AS-UNKNOWN AST Codemod for Task #280
- * 
+ *
  * Systematically removes excessive 'as unknown' type assertions throughout the codebase
  * to improve TypeScript effectiveness and reduce technical debt.
- * 
+ *
  * PROBLEM STATEMENT:
  * The codebase contains 2,728 'as unknown' assertions, with 2,461 classified as high priority.
  * These assertions mask real type errors, reduce TypeScript effectiveness, and create technical debt.
- * 
+ *
  * ANALYSIS RESULTS:
  * - Total assertions: 2,728
  * - High priority (error-masking): 2,461 (90%)
  * - Medium priority: 156 (6%)
  * - Low priority: 111 (4%)
- * 
+ *
  * TRANSFORMATION PATTERNS:
- * 
+ *
  * 1. Property Access Patterns (HIGH PRIORITY)
  *    BEFORE: (state as unknown).sessions
  *    AFTER:  state.sessions
- *    
+ *
  *    BEFORE: (this.sessionProvider as unknown).getSession(name)
  *    AFTER:  this.sessionProvider.getSession(name)
- * 
+ *
  * 2. Array/Object Method Access (HIGH PRIORITY)
  *    BEFORE: (sessions as unknown).find(s => s.id === id)
  *    AFTER:  sessions.find(s => s.id === id)
- * 
+ *
  * 3. Return Statement Patterns (CRITICAL PRIORITY)
  *    BEFORE: return null as unknown;
  *    AFTER:  return null;
- * 
+ *
  * 4. Null/Undefined Patterns (CRITICAL PRIORITY)
  *    BEFORE: const result = undefined as unknown;
  *    AFTER:  const result = undefined;
- * 
+ *
  * 5. This Context Patterns (HIGH PRIORITY)
  *    BEFORE: (this as unknown).name = "ErrorName";
  *    AFTER:  this.name = "ErrorName";
- * 
+ *
  * RISK ASSESSMENT:
  * - Critical: Return statements, null/undefined masking, error handling
  * - High: Property access in domain files, service methods, array operations
  * - Medium: Configuration access, test utilities, parameter passing
  * - Low: Test mocking (may be legitimate), type bridging, documented uses
- * 
+ *
  * IMPLEMENTATION STRATEGY:
  * 1. Parse all TypeScript files using ts-morph AST
  * 2. Identify AsExpression nodes with 'unknown' type
@@ -54,25 +54,34 @@
  * 4. Apply safe transformations starting with critical patterns
  * 5. Skip patterns requiring manual review
  * 6. Validate TypeScript compilation after changes
- * 
+ *
  * SUCCESS METRICS:
  * - Target reduction: 50%+ (from 2,728 to <1,364)
  * - High priority elimination: 80%+ (from 2,461 to <492)
  * - Zero regressions: All tests must pass
  * - TypeScript compilation: Must continue to work
- * 
+ *
  * DEPENDENCIES:
  * - ts-morph: AST parsing and transformation
  * - glob: File pattern matching
  * - Codemod framework utilities
- * 
+ *
  * RELATED TASKS:
  * - Task #280: Cleanup excessive 'as unknown' assertions
  * - Task #276: Test suite optimization (identified the problem)
  * - Task #271: Risk-aware type cast fixing (similar patterns)
  */
 
-import { Project, Node, SyntaxKind, AsExpression, TypeAssertion, SourceFile, ParenthesizedExpression, PropertyAccessExpression } from "ts-morph";
+import {
+  Project,
+  Node,
+  SyntaxKind,
+  AsExpression,
+  TypeAssertion,
+  SourceFile,
+  ParenthesizedExpression,
+  PropertyAccessExpression,
+} from "ts-morph";
 
 // Copy the framework interfaces locally since we're in session workspace
 interface CodemodIssue {
@@ -115,9 +124,9 @@ abstract class CodemodBase {
     processingTime: 0,
     successRate: 0,
     errors: [],
-    fileChanges: new Map()
+    fileChanges: new Map(),
   };
-  
+
   protected options: CodemodOptions;
 
   constructor(options: CodemodOptions = {}) {
@@ -127,7 +136,7 @@ abstract class CodemodBase {
       excludePatterns: ["**/*.d.ts", "**/*.test.ts", "**/node_modules/**"],
       dryRun: false,
       verbose: false,
-      ...options
+      ...options,
     };
 
     this.project = new Project({
@@ -138,21 +147,20 @@ abstract class CodemodBase {
 
   async execute(): Promise<void> {
     const startTime = Date.now();
-    
+
     try {
       this.log("🚀 Starting codemod execution...");
-      
+
       this.addSourceFiles();
       this.findIssues();
-      
+
       if (!this.options.dryRun) {
         this.fixIssues();
         this.saveChanges();
       }
-      
+
       this.metrics.processingTime = Date.now() - startTime;
       this.generateReport();
-      
     } catch (error) {
       this.metrics.errors.push(`Fatal error: ${error}`);
       throw error;
@@ -161,14 +169,14 @@ abstract class CodemodBase {
 
   protected addSourceFiles(): void {
     this.log("📁 Adding source files...");
-    
+
     const { globSync } = require("glob");
-    const files = this.options.includePatterns!.flatMap(pattern => 
+    const files = this.options.includePatterns!.flatMap((pattern) =>
       globSync(pattern, { ignore: this.options.excludePatterns })
     );
-    
+
     this.log(`Found ${files.length} files to process`);
-    
+
     try {
       this.project.addSourceFilesAtPaths(files);
       this.log(`✅ Added ${files.length} source files`);
@@ -183,11 +191,11 @@ abstract class CodemodBase {
 
   protected saveChanges(): void {
     this.log("💾 Saving changes...");
-    
+
     const sourceFiles = this.project.getSourceFiles();
     let savedCount = 0;
-    
-    sourceFiles.forEach(sourceFile => {
+
+    sourceFiles.forEach((sourceFile) => {
       try {
         if (!sourceFile.isSaved()) {
           sourceFile.saveSync();
@@ -197,7 +205,7 @@ abstract class CodemodBase {
         this.metrics.errors.push(`Failed to save ${sourceFile.getFilePath()}: ${error}`);
       }
     });
-    
+
     this.log(`✅ Saved ${savedCount} modified files`);
   }
 
@@ -209,7 +217,7 @@ abstract class CodemodBase {
     this.log(`Issues Fixed: ${this.metrics.issuesFixed}`);
     this.log(`Success Rate: ${this.metrics.successRate.toFixed(1)}%`);
     this.log(`Processing Time: ${this.metrics.processingTime}ms`);
-    
+
     if (this.metrics.errors.length > 0) {
       this.log("\n❌ Errors Encountered:");
       this.metrics.errors.forEach((error, index) => {
@@ -218,10 +226,12 @@ abstract class CodemodBase {
     }
   }
 
-  protected addIssue(issue: Omit<CodemodIssue, "severity"> & { severity?: CodemodIssue["severity"] }): void {
+  protected addIssue(
+    issue: Omit<CodemodIssue, "severity"> & { severity?: CodemodIssue["severity"] }
+  ): void {
     this.issues.push({
       severity: "warning",
-      ...issue
+      ...issue,
     });
     this.metrics.issuesFound++;
   }
@@ -238,13 +248,13 @@ abstract class CodemodBase {
     const lineAndColumn = sourceFile.getLineAndColumnAtPos(pos);
     return {
       line: lineAndColumn.line,
-      column: lineAndColumn.column
+      column: lineAndColumn.column,
     };
   }
 
   protected getContext(node: Node, maxLength: number = 100): string {
     const text = node.getText();
-    return text.length > maxLength ? `${text.substring(0, maxLength)  }...` : text;
+    return text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
   }
 
   protected log(message: string): void {
@@ -257,7 +267,14 @@ abstract class CodemodBase {
 interface AsUnknownIssue extends CodemodIssue {
   riskLevel: "critical" | "high" | "medium" | "low";
   pattern: string;
-  transformationType: "property_access" | "service_method" | "array_operation" | "return_statement" | "null_undefined" | "this_context" | "other";
+  transformationType:
+    | "property_access"
+    | "service_method"
+    | "array_operation"
+    | "return_statement"
+    | "null_undefined"
+    | "this_context"
+    | "other";
   canAutoFix: boolean;
   suggestedFix: string;
 }
@@ -278,7 +295,7 @@ export class AsUnknownASTFixer extends CodemodBase {
     super({
       includePatterns: ["src/**/*.ts"],
       excludePatterns: ["**/*.d.ts", "**/*.test.ts", "**/node_modules/**"],
-      ...options
+      ...options,
     });
     this.initializeTransformationPatterns();
   }
@@ -292,10 +309,12 @@ export class AsUnknownASTFixer extends CodemodBase {
         riskLevel: "critical",
         detector: (node: AsExpression, context: string) => {
           const text = node.getText();
-          return context.includes("return") && 
-                 (text.includes("null as unknown") || text.includes("undefined as unknown"));
+          return (
+            context.includes("return") &&
+            (text.includes("null as unknown") || text.includes("undefined as unknown"))
+          );
         },
-        canAutoFix: true
+        canAutoFix: true,
       },
 
       // CRITICAL PRIORITY: Null/undefined assignments
@@ -307,7 +326,7 @@ export class AsUnknownASTFixer extends CodemodBase {
           const text = node.getText();
           return text === "null as unknown" || text === "undefined as unknown";
         },
-        canAutoFix: true
+        canAutoFix: true,
       },
 
       // HIGH PRIORITY: Property access on known objects
@@ -317,11 +336,13 @@ export class AsUnknownASTFixer extends CodemodBase {
         riskLevel: "high",
         detector: (node: AsExpression, context: string) => {
           const text = node.getText();
-          return text.includes("state as unknown") || 
-                 text.includes("session as unknown") ||
-                 text.includes("sessions as unknown");
+          return (
+            text.includes("state as unknown") ||
+            text.includes("session as unknown") ||
+            text.includes("sessions as unknown")
+          );
         },
-        canAutoFix: true
+        canAutoFix: true,
       },
 
       // HIGH PRIORITY: Service method calls
@@ -331,12 +352,22 @@ export class AsUnknownASTFixer extends CodemodBase {
         riskLevel: "high",
         detector: (node: AsExpression, context: string) => {
           const text = node.getText();
-          return text.includes("this.sessionProvider as unknown") ||
-                 text.includes("this.pathResolver as unknown") ||
-                 text.includes("this.workspaceBackend as unknown") ||
-                 text.includes("this.config as unknown");
+          // Be more conservative - only match simple service patterns, avoid complex imports
+          if (
+            text.includes("await import(") ||
+            text.includes("import(") ||
+            text.includes("require(")
+          ) {
+            return false;
+          }
+          return (
+            text.includes("this.sessionProvider as unknown") ||
+            text.includes("this.pathResolver as unknown") ||
+            text.includes("this.workspaceBackend as unknown") ||
+            text.includes("this.config as unknown")
+          );
         },
-        canAutoFix: true
+        canAutoFix: true,
       },
 
       // HIGH PRIORITY: Array/object method access
@@ -349,31 +380,32 @@ export class AsUnknownASTFixer extends CodemodBase {
           let parent = node.getParent();
           if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
             const nextParent = parent.getParent();
-            if (nextParent) {
-              parent = nextParent;
+            if (nextParent && nextParent.getKind() === SyntaxKind.PropertyAccessExpression) {
+              const text = node.getText();
+
+              // SAFETY CHECK: Skip complex expressions
+              if (
+                text.includes("await import(") ||
+                text.includes("import(") ||
+                text.includes("require(")
+              ) {
+                return false;
+              }
+
+              // Match patterns like (sessions as unknown).find(), (results as unknown).map()
+              return (
+                text.includes("sessions") ||
+                text.includes("results") ||
+                text.includes("items") ||
+                text.includes("data") ||
+                text.includes("array") ||
+                text.includes("list")
+              );
             }
           }
-          
-          if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
-            const propertyAccess = parent as PropertyAccessExpression;
-            const propertyName = propertyAccess.getName();
-            
-            // Check for array methods
-            const arrayMethods = ["find", "push", "length", "filter", "map", "splice", "findIndex"];
-            if (arrayMethods.includes(propertyName)) {
-              return true;
-            }
-            
-            // Check for Object methods
-            const objectMethods = ["keys", "values", "entries"];
-            if (objectMethods.includes(propertyName)) {
-              return true;
-            }
-          }
-          
           return false;
         },
-        canAutoFix: true
+        canAutoFix: true,
       },
 
       // HIGH PRIORITY: This context access
@@ -385,7 +417,7 @@ export class AsUnknownASTFixer extends CodemodBase {
           const text = node.getText();
           return text.includes("this as unknown");
         },
-        canAutoFix: true
+        canAutoFix: true,
       },
 
       // MEDIUM PRIORITY: Environment variables
@@ -397,7 +429,7 @@ export class AsUnknownASTFixer extends CodemodBase {
           const text = node.getText();
           return text.includes("process.env as unknown");
         },
-        canAutoFix: true
+        canAutoFix: true,
       },
 
       // HIGH PRIORITY: Method calls on external objects
@@ -414,17 +446,25 @@ export class AsUnknownASTFixer extends CodemodBase {
               parent = nextParent;
             }
           }
-          
+
           if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
             const text = node.getText();
             // Match patterns like (format as unknown).timestamp(), (z.string() as unknown).optional()
-            return text.includes("format") || text.includes("z.") || text.includes("Date") || 
-                   text.includes("Math") || text.includes("JSON") || text.includes("Object") ||
-                   text.includes("Array") || text.includes("console") || text.includes("Buffer");
+            return (
+              text.includes("format") ||
+              text.includes("z.") ||
+              text.includes("Date") ||
+              text.includes("Math") ||
+              text.includes("JSON") ||
+              text.includes("Object") ||
+              text.includes("Array") ||
+              text.includes("console") ||
+              text.includes("Buffer")
+            );
           }
           return false;
         },
-        canAutoFix: true
+        canAutoFix: true,
       },
 
       // HIGH PRIORITY: Property access on constants/objects
@@ -441,16 +481,21 @@ export class AsUnknownASTFixer extends CodemodBase {
               parent = nextParent;
             }
           }
-          
+
           if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
             const text = node.getText();
             // Match patterns like (descriptions as unknown).SESSION_DESCRIPTION
-            return text.includes("descriptions") || text.includes("constants") || 
-                   text.includes("config") || text.includes("options") || text.includes("params");
+            return (
+              text.includes("descriptions") ||
+              text.includes("constants") ||
+              text.includes("config") ||
+              text.includes("options") ||
+              text.includes("params")
+            );
           }
           return false;
         },
-        canAutoFix: true
+        canAutoFix: true,
       },
 
       // HIGH PRIORITY: Generic object property access
@@ -467,38 +512,40 @@ export class AsUnknownASTFixer extends CodemodBase {
               parent = nextParent;
             }
           }
-          
+
           if (parent && parent.getKind() === SyntaxKind.PropertyAccessExpression) {
             const text = node.getText();
             // Match patterns like (logInfo as unknown).message, (result as unknown).status
-            return !text.includes("process.env") && // Already handled above
-                   !text.includes("format") && // Already handled above
-                   !text.includes("z.") && // Already handled above
-                   !text.includes("state") && // Already handled by state/session pattern
-                   !text.includes("this."); // Already handled by service method pattern
+            return (
+              !text.includes("process.env") && // Already handled above
+              !text.includes("format") && // Already handled above
+              !text.includes("z.") && // Already handled above
+              !text.includes("state") && // Already handled by state/session pattern
+              !text.includes("this.")
+            ); // Already handled by service method pattern
           }
           return false;
         },
-        canAutoFix: true
-      }
+        canAutoFix: true,
+      },
     ];
   }
 
   protected findIssues(): void {
     this.log("🔍 Analyzing 'as unknown' assertions...");
-    
+
     const sourceFiles = this.project.getSourceFiles();
     this.metrics.filesProcessed = sourceFiles.length;
 
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
-      
+
       // Find all AsExpression nodes
       sourceFile.forEachDescendant((node: Node) => {
         if (node.getKind() === SyntaxKind.AsExpression) {
           const asExpression = node as AsExpression;
           const typeNode = asExpression.getType();
-          
+
           // Check if it's 'as unknown'
           if (asExpression.getText().includes("as unknown")) {
             this.analyzeAsUnknownExpression(asExpression, filePath);
@@ -515,10 +562,10 @@ export class AsUnknownASTFixer extends CodemodBase {
     const { line, column } = this.getLineAndColumn(node);
     const context = this.getContext(node, 200);
     const nodeText = node.getText();
-    
+
     // Find matching transformation pattern
-    const pattern = this.transformationPatterns.find(p => p.detector(node, context));
-    
+    const pattern = this.transformationPatterns.find((p) => p.detector(node, context));
+
     if (!pattern) {
       // No matching pattern - needs manual review
       this.addAsUnknownIssue({
@@ -532,7 +579,7 @@ export class AsUnknownASTFixer extends CodemodBase {
         pattern: nodeText,
         transformationType: "other",
         canAutoFix: false,
-        suggestedFix: "Manual review required"
+        suggestedFix: "Manual review required",
       });
       return;
     }
@@ -549,7 +596,7 @@ export class AsUnknownASTFixer extends CodemodBase {
       pattern: nodeText,
       transformationType: this.getTransformationType(pattern.name),
       canAutoFix: pattern.canAutoFix,
-      suggestedFix: "Extract expression from 'as unknown' assertion"
+      suggestedFix: "Extract expression from 'as unknown' assertion",
     });
   }
 
@@ -566,20 +613,20 @@ export class AsUnknownASTFixer extends CodemodBase {
   private addAsUnknownIssue(issue: Omit<AsUnknownIssue, "severity">): void {
     this.asUnknownIssues.push({
       severity: issue.riskLevel === "critical" ? "error" : "warning",
-      ...issue
+      ...issue,
     });
     this.addIssue(issue);
   }
 
   protected fixIssues(): void {
     this.log("🔧 Applying 'as unknown' transformations...");
-    
-    const autoFixableIssues = this.asUnknownIssues.filter(issue => issue.canAutoFix);
+
+    const autoFixableIssues = this.asUnknownIssues.filter((issue) => issue.canAutoFix);
     this.log(`📋 Found ${autoFixableIssues.length} auto-fixable issues`);
-    
+
     // Group by file for efficient processing
     const issuesByFile = new Map<string, AsUnknownIssue[]>();
-    autoFixableIssues.forEach(issue => {
+    autoFixableIssues.forEach((issue) => {
       if (!issuesByFile.has(issue.file)) {
         issuesByFile.set(issue.file, []);
       }
@@ -621,18 +668,20 @@ export class AsUnknownASTFixer extends CodemodBase {
   private applyTransformation(sourceFile: SourceFile, issue: AsUnknownIssue): boolean {
     // Find the specific node at the issue location
     const nodes = sourceFile.getDescendantsOfKind(SyntaxKind.AsExpression);
-    
+
     for (const node of nodes) {
       const { line, column } = this.getLineAndColumn(node);
       if (line === issue.line && column === issue.column) {
         // Apply the transformation using proper AST manipulation
-        const pattern = this.transformationPatterns.find(p => p.name === issue.description.split(":")[0]);
+        const pattern = this.transformationPatterns.find(
+          (p) => p.name === issue.description.split(":")[0]
+        );
         if (pattern) {
           return this.transformAsExpression(node, pattern);
         }
       }
     }
-    
+
     return false;
   }
 
@@ -641,16 +690,50 @@ export class AsUnknownASTFixer extends CodemodBase {
       // For 'as unknown' expressions, we want to extract the expression part
       // and replace the entire AsExpression with just the expression
       let expression = node.getExpression();
-      
+      const parent = node.getParent();
+
+      // SAFETY CHECK: Skip complex expressions that would create syntax errors
+      const expressionText = expression.getText();
+
+      // Skip dynamic imports and await expressions
+      if (
+        expressionText.includes("await import(") ||
+        expressionText.includes("import(") ||
+        expressionText.includes("require(") ||
+        expressionText.includes("process.") ||
+        expressionText.match(/^\d+$/)
+      ) {
+        // Skip numeric literals
+        return false;
+      }
+
+      // Skip numeric expressions with method calls that would create syntax errors
+      // e.g., (port + 3 as unknown).toString() would become port + 3.toString() which is invalid
+      if (
+        expressionText.includes(" + ") &&
+        parent &&
+        parent.getKind() === SyntaxKind.ParenthesizedExpression
+      ) {
+        const grandParent = parent.getParent();
+        if (grandParent && grandParent.getKind() === SyntaxKind.PropertyAccessExpression) {
+          return false;
+        }
+      }
+
       // If the expression is parenthesized, extract the inner expression
       // This handles cases like (state as unknown) -> state instead of (state)
       if (expression.getKind() === SyntaxKind.ParenthesizedExpression) {
         const parenthesizedExpr = expression as ParenthesizedExpression;
         expression = parenthesizedExpr.getExpression();
       }
-      
+
+      // ADDITIONAL SAFETY: Skip if extracting parentheses would create complex await/async issues
+      const innerText = expression.getText();
+      if (innerText.includes("await") || innerText.includes("import(")) {
+        return false;
+      }
+
       // Check if the AsExpression itself is parenthesized
-      const parent = node.getParent();
       if (parent && parent.getKind() === SyntaxKind.ParenthesizedExpression) {
         // Replace the entire parenthesized expression with just the inner expression
         parent.replaceWithText(expression.getText());
@@ -658,7 +741,7 @@ export class AsUnknownASTFixer extends CodemodBase {
         // Replace just the AsExpression with the inner expression
         node.replaceWithText(expression.getText());
       }
-      
+
       return true;
     } catch (error) {
       this.log(`⚠️  Error transforming node: ${error}`);
@@ -668,43 +751,49 @@ export class AsUnknownASTFixer extends CodemodBase {
 
   protected generateReport(): void {
     super.generateReport();
-    
+
     this.log("\n📊 AS-UNKNOWN TRANSFORMATION REPORT");
     this.log("=====================================");
-    
+
     // Risk level breakdown
-    const riskBreakdown = this.asUnknownIssues.reduce((acc, issue) => {
-      acc[issue.riskLevel] = (acc[issue.riskLevel] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
+    const riskBreakdown = this.asUnknownIssues.reduce(
+      (acc, issue) => {
+        acc[issue.riskLevel] = (acc[issue.riskLevel] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+
     this.log("🎯 By Risk Level:");
     Object.entries(riskBreakdown).forEach(([level, count]) => {
       this.log(`  ${level}: ${count}`);
     });
-    
+
     // Transformation type breakdown
-    const typeBreakdown = this.asUnknownIssues.reduce((acc, issue) => {
-      acc[issue.transformationType] = (acc[issue.transformationType] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
+    const typeBreakdown = this.asUnknownIssues.reduce(
+      (acc, issue) => {
+        acc[issue.transformationType] = (acc[issue.transformationType] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+
     this.log("🔧 By Transformation Type:");
     Object.entries(typeBreakdown).forEach(([type, count]) => {
       this.log(`  ${type}: ${count}`);
     });
-    
+
     // Auto-fix capability
-    const autoFixable = this.asUnknownIssues.filter(i => i.canAutoFix).length;
+    const autoFixable = this.asUnknownIssues.filter((i) => i.canAutoFix).length;
     const manualReview = this.asUnknownIssues.length - autoFixable;
-    
+
     this.log(`\n🤖 Auto-fixable: ${autoFixable}`);
     this.log(`👁️  Manual review: ${manualReview}`);
-    
+
     // Calculate success metrics
-    const reductionRate = this.metrics.issuesFixed / this.metrics.issuesFound * 100;
+    const reductionRate = (this.metrics.issuesFixed / this.metrics.issuesFound) * 100;
     this.log(`\n📈 Reduction Rate: ${reductionRate.toFixed(1)}%`);
-    
+
     if (reductionRate >= 50) {
       this.log("✅ SUCCESS: Target reduction of 50%+ achieved!");
     } else {
@@ -717,8 +806,8 @@ export class AsUnknownASTFixer extends CodemodBase {
 if (import.meta.main) {
   const fixer = new AsUnknownASTFixer({
     verbose: true,
-    dryRun: process.argv.includes("--dry-run")
+    dryRun: process.argv.includes("--dry-run"),
   });
-  
+
   fixer.execute().catch(console.error);
-} 
+}

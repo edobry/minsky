@@ -47,4 +47,4 @@ export function createSessionDB() {
 
 // For backward compatibility and convenience, export a default instance
 // However, tests should use createSessionDB() for isolation
-export const SessionDB = createSessionProviderInternal();
+export const _SessionDB = createSessionProviderInternal();

@@ -2,19 +2,20 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { RuleService } from "./rules";
 import * as fs from "fs";
 import * as path from "path";
+import { createCleanTempDir } from "../utils/test-utils/cleanup";
 
 describe("RuleService Format Compatibility", () => {
-  const testDir = path.join(process.cwd(), "test-rules-format-tmp");
-  const cursorRulesDir = path.join(testDir, ".cursor", "rules");
-  const genericRulesDir = path.join(testDir, ".ai", "rules");
+  let testDir: string;
+  let cursorRulesDir: string;
+  let genericRulesDir: string;
   let ruleService: RuleService;
 
   // Setup before each test
   beforeEach(() => {
-    // Remove any existing test directory
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    // Create a unique temporary directory for each test run
+    testDir = createCleanTempDir("minsky-rules-format-test-");
+    cursorRulesDir = path.join(testDir, ".cursor", "rules");
+    genericRulesDir = path.join(testDir, ".ai", "rules");
 
     // Create directories
     fs.mkdirSync(cursorRulesDir, { recursive: true });
@@ -73,12 +74,7 @@ This rule exists in both cursor and generic formats.
     ruleService = new RuleService(testDir);
   });
 
-  // Cleanup after each test
-  afterEach(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
-  });
+  // Cleanup handled automatically by createCleanTempDir
 
   test("should get a rule in its original format when requested", async () => {
     const cursorRule = await ruleService.getRule("cursor-only-rule", { format: "cursor" });

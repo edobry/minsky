@@ -1,11 +1,11 @@
 /**
- * Backend Detection Service for Node-Config Integration
+ * Backend Detection Service
  *
- * Provides backend detection functionality using node-config for configuration
+ * Provides backend detection functionality using the custom configuration system
  * while preserving existing detection logic and capabilities.
  */
 
-import config from "config";
+import { get } from "./index";
 import { existsSync } from "fs";
 import { join } from "path";
 
@@ -23,12 +23,12 @@ export interface BackendDetectionService {
 
 export class DefaultBackendDetectionService implements BackendDetectionService {
   /**
-   * Detect the most appropriate backend based on detection rules from node-config
+   * Detect the most appropriate backend based on detection rules from configuration
    */
   async detectBackend(workingDir: string): Promise<string> {
-    // Get detection rules from node-config
-    const rules: DetectionRule[] = config.get("detectionRules");
-    
+    // Get detection rules from configuration
+    const rules: DetectionRule[] = get("detectionRules");
+
     for (const rule of rules) {
       const matches = await this.checkCondition(workingDir, rule.condition);
       if (matches) {
@@ -45,14 +45,14 @@ export class DefaultBackendDetectionService implements BackendDetectionService {
    */
   private async checkCondition(workingDir: string, condition: string): Promise<boolean> {
     switch (condition) {
-    case "tasks_md_exists":
-      return this.tasksMdExists(workingDir);
-    case "json_file_exists":
-      return this.jsonFileExists(workingDir);
-    case "always":
-      return true;
-    default:
-      return false;
+      case "tasks_md_exists":
+        return this.tasksMdExists(workingDir);
+      case "json_file_exists":
+        return this.jsonFileExists(workingDir);
+      case "always":
+        return true;
+      default:
+        return false;
     }
   }
 
@@ -83,4 +83,4 @@ export class DefaultBackendDetectionService implements BackendDetectionService {
 }
 
 // Export singleton instance
-export const backendDetectionService = new DefaultBackendDetectionService(); 
+export const _backendDetectionService = new DefaultBackendDetectionService();

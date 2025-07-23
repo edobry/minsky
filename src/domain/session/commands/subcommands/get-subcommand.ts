@@ -3,7 +3,7 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
-import { getSessionFromParams } from "../get-command";
+import { sessionGet } from "../get-command";
 import { log } from "../../../../utils/logger";
 
 /**
@@ -37,12 +37,16 @@ export const sessionGetCommandParams: CommandParameterMap = {
  * Execute the session get command
  */
 export async function executeSessionGetCommand(
-  parameters: { [K in keyof typeof sessionGetCommandParams]: z.infer<typeof sessionGetCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof sessionGetCommandParams]: z.infer<
+      (typeof sessionGetCommandParams)[K]["schema"]
+    >;
+  },
   context: CommandExecutionContext
 ): Promise<any> {
   const { name, task, repo, json } = parameters;
 
-  const result = await getSessionFromParams({
+  const result = await sessionGet({
     name,
     task,
     repo,
@@ -54,4 +58,4 @@ export async function executeSessionGetCommand(
   }
 
   return result;
-} 
+}

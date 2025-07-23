@@ -5,11 +5,7 @@
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { GitService } from "../git";
-import {
-  createMock,
-  setupTestMocks,
-  mockModule,
-} from "../../utils/test-utils/mocking";
+import { createMock, setupTestMocks, mockModule } from "../../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -35,8 +31,8 @@ mockModule("../../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
 
-// Mock the git-exec-enhanced module to prevent real git execution
-mockModule("../../utils/git-exec-enhanced", () => ({
+// Mock the git-exec module to prevent real git execution
+mockModule("../../utils/git-exec", () => ({
   execGitWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
   gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
   gitMergeWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
@@ -112,10 +108,11 @@ describe("GitService", () => {
 
   test("execInRepository should propagate errors", async () => {
     // Override the mock implementation to simulate an error
-    const execInRepoMock = spyOn(GitService.prototype, "execInRepository");
-    execInRepoMock.mockImplementation(async (workdir, command) => {
-      throw new Error("Command execution failed");
-    });
+    const execInRepoMock = spyOn(GitService.prototype, "execInRepository").mockImplementation(
+      async (workdir, command) => {
+        throw new Error("Command execution failed");
+      }
+    );
 
     try {
       await gitService.execInRepository("/mock/repo/path", "rev-parse --abbrev-ref HEAD");
@@ -139,4 +136,4 @@ describe("GitService", () => {
     expect(workdir1.includes("sessions")).toBe(true);
     expect(workdir1.endsWith("sessions/test-session")).toBe(true);
   });
-}); 
+});

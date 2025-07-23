@@ -9,7 +9,7 @@ import { log } from "../../../utils/logger";
 import { StorageBackendFactory } from "../storage-backend-factory";
 import { SessionDbConfig } from "../../configuration/types";
 
-import config from "config";
+import { getConfiguration } from "../../configuration/index";
 import { getErrorMessage } from "../../../errors";
 
 export interface HealthStatus {
@@ -61,7 +61,8 @@ export class SessionDbHealthMonitor {
     try {
       // Load configuration if not provided
       if (!sessionDbConfig) {
-        sessionDbConfig = config.get("sessiondb") as SessionDbConfig;
+        const config = getConfiguration();
+        sessionDbConfig = config.sessiondb;
       }
 
       // Check backend health
@@ -136,7 +137,7 @@ export class SessionDbHealthMonitor {
 
     try {
       // Create storage backend with timeout
-      const storage = StorageBackendFactory.createFromConfig(config as unknown);
+      const storage = StorageBackendFactory.createFromConfig(config);
 
       // Test basic operations with timeout
       const testPromise = this.testBasicOperations(storage);
@@ -150,7 +151,7 @@ export class SessionDbHealthMonitor {
       status.responseTime = Date.now() - startTime;
 
       // Backend-specific health checks
-      await this.performBackendSpecificChecks(config as unknown, status);
+      await this.performBackendSpecificChecks(config, status);
     } catch (error) {
       status.healthy = false;
       status.responseTime = Date.now() - startTime;
@@ -193,15 +194,15 @@ export class SessionDbHealthMonitor {
     status: HealthStatus
   ): Promise<void> {
     switch (config.backend) {
-    case "json":
-      await this.checkJsonBackendHealth(config as unknown, status);
-      break;
-    case "sqlite":
-      await this.checkSqliteBackendHealth(config as unknown, status);
-      break;
-    case "postgres":
-      await this.checkPostgresBackendHealth(config as unknown, status);
-      break;
+      case "json":
+        await this.checkJsonBackendHealth(config, status);
+        break;
+      case "sqlite":
+        await this.checkSqliteBackendHealth(config, status);
+        break;
+      case "postgres":
+        await this.checkPostgresBackendHealth(config, status);
+        break;
     }
   }
 
@@ -240,9 +241,7 @@ export class SessionDbHealthMonitor {
         status.details!.directoryWritable = false;
       }
     } catch (error) {
-
       status.warnings?.push(`JSON health check warning: ${getErrorMessage(error as any)}`);
-
     }
   }
 
@@ -282,9 +281,7 @@ export class SessionDbHealthMonitor {
         db.close();
       }
     } catch (error) {
-
       status.warnings?.push(`SQLite health check warning: ${getErrorMessage(error as any)}`);
-
     }
   }
 
@@ -349,8 +346,8 @@ export class SessionDbHealthMonitor {
     averageResponseTime: number;
     successRate: number;
     recentErrors: number;
-    } {
-    const recentMetrics = (this.metrics as unknown).slice(-100); // Last 100 operations
+  } {
+    const recentMetrics = this.metrics.slice(-100); // Last 100 operations
 
     if (recentMetrics.length === 0) {
       return {
@@ -415,7 +412,7 @@ export class SessionDbHealthMonitor {
   private static generateRecommendations(
     backendHealth: HealthStatus,
     performance: { averageResponseTime: number; successRate: number; recentErrors: number },
-    storage: Record<string, any>
+    _storage: Record<string, any>
   ): string[] {
     const recommendations: string[] = [];
 
@@ -491,7 +488,7 @@ export class SessionDbHealthMonitor {
 
     // Keep only recent metrics
     if (this.metrics.length > this.MAX_METRICS) {
-      this.metrics = (this.metrics as unknown).slice(-this.MAX_METRICS);
+      this.metrics = this.metrics.slice(-this.MAX_METRICS);
     }
 
     // Log performance issues
@@ -514,7 +511,7 @@ export class SessionDbHealthMonitor {
    * Get recent metrics
    */
   static getRecentMetrics(count: number = 50): PerformanceMetrics[] {
-    return (this.metrics as unknown).slice(-count);
+    return this.metrics.slice(-count);
   }
 
   /**
@@ -535,8 +532,9 @@ export class SessionDbHealthMonitor {
     avgResponseTime: number;
   }> {
     const totalOps = this.metrics.length;
-    const errors = this.metrics.filter(m => !m.success).length;
-    const avgResponse = totalOps > 0 ? (this.metrics as unknown).reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
+    const errors = this.metrics.filter((m) => !m.success).length;
+    const avgResponse =
+      totalOps > 0 ? this.metrics.reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
     const uptime =
       this.metrics && this.metrics[0]
         ? Date.now() - new Date(this.metrics[0].timestamp).getTime()
@@ -545,11 +543,15 @@ export class SessionDbHealthMonitor {
     return {
       status: this.determineOverallHealth(
         { healthy: true, backend: "test", responseTime: 0, timestamp: new Date().toISOString() },
-        { averageResponseTime: avgResponse, successRate: 1 - errors / totalOps, recentErrors: errors }
+        {
+          averageResponseTime: avgResponse,
+          successRate: 1 - errors / totalOps,
+          recentErrors: errors,
+        }
       ),
       uptime,
       totalOperations: totalOps,
-      errorRate: 1 - this.metrics.filter(m => m.success).length / totalOps,
+      errorRate: 1 - this.metrics.filter((m) => m.success).length / totalOps,
       avgResponseTime: avgResponse,
     };
   }

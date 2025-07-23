@@ -1,11 +1,13 @@
 # Error Message Refactoring Examples
 
 ## Overview
+
 This document demonstrates how to refactor existing verbose error messages using the new error message template system.
 
 ## Example 1: Session Not Found Error
 
 ### Before (from git.ts lines 579-603)
+
 ```typescript
 throw new MinskyError(`
 🔍 Session "${sessionName}" Not Found
@@ -25,30 +27,30 @@ The session you're trying to create a PR for doesn't exist.
 
 🎯 Use a different session:
    minsky sessions list  # Find existing session
-   minsky git pr --session "existing-session"
+   minsky session pr --name "existing-session"
 
 📁 Or target a specific repository directly:
-   minsky git pr --repo-path "/path/to/your/repo"
+   minsky session pr --repo "/path/to/your/repo"
 
-Need help? Run: minsky git pr --help
+Need help? Run: minsky session pr --help
 `);
 ```
 
 ### After (using templates)
+
 ```typescript
 import { createSessionErrorMessage, createErrorContext } from "../errors/message-templates";
 
 const context = createErrorContext()
   .addCurrentDirectory()
-  .addCustom("Command", "minsky git pr")
+  .addCustom("Command", "minsky session pr")
   .build();
 
-throw new MinskyError(
-  createSessionErrorMessage(sessionName, "not_found", context)
-);
+throw new MinskyError(createSessionErrorMessage(sessionName, "not_found", context));
 ```
 
 ### Benefits
+
 - **90% less code** in the actual implementation
 - **Consistent formatting** across all session errors
 - **Reusable** for other session-related errors
@@ -60,6 +62,7 @@ throw new MinskyError(
 ## Example 2: Missing Required Information Error
 
 ### Before (from git.ts lines 554-578)
+
 ```typescript
 throw new MinskyError(`
 🚫 Cannot create PR - missing required information
@@ -67,17 +70,17 @@ throw new MinskyError(`
 You need to specify one of these options to identify the target repository:
 
 📝 Specify a session name:
-   minsky git pr --session "my-session"
+   minsky session pr --name "my-session"
 
 🎯 Use a task ID (to auto-detect session):
-   minsky git pr --task-id "123"
+   minsky session pr --task "123"
 
 📁 Target a specific repository:
-   minsky git pr --repo-path "/path/to/repo"
+   minsky session pr --repo "/path/to/repo"
 
 💡 If you're working in a session workspace, try running from the main workspace:
    cd /path/to/main/workspace
-   minsky git pr --session "session-name"
+   minsky session pr --name "session-name"
 
 📋 To see available sessions:
    minsky sessions list
@@ -85,39 +88,36 @@ You need to specify one of these options to identify the target repository:
 ```
 
 ### After (using templates)
+
 ```typescript
 import { createMissingInfoMessage, createErrorContext } from "../errors/message-templates";
 
 const alternatives = [
   {
     description: "Specify a session name",
-    command: 'minsky git pr --session "my-session"',
-    emoji: "📝"
+    command: 'minsky session pr --name "my-session"',
+    emoji: "📝",
   },
   {
     description: "Use a task ID (to auto-detect session)",
-    command: 'minsky git pr --task-id "123"',
-    emoji: "🎯"
+    command: 'minsky session pr --task "123"',
+    emoji: "🎯",
   },
   {
     description: "Target a specific repository",
-    command: 'minsky git pr --repo-path "/path/to/repo"',
-    emoji: "📁"
+    command: 'minsky session pr --repo "/path/to/repo"',
+    emoji: "📁",
   },
   {
     description: "See available sessions",
     command: "minsky sessions list",
-    emoji: "📋"
-  }
+    emoji: "📋",
+  },
 ];
 
-const context = createErrorContext()
-  .addCurrentDirectory()
-  .build();
+const context = createErrorContext().addCurrentDirectory().build();
 
-throw new MinskyError(
-  createMissingInfoMessage("create PR", alternatives, context)
-);
+throw new MinskyError(createMissingInfoMessage("create PR", alternatives, context));
 ```
 
 ---
@@ -125,13 +125,14 @@ throw new MinskyError(
 ## Example 3: Git Command Failure
 
 ### Before (scattered throughout git.ts)
+
 ```typescript
 // Example from multiple locations with similar patterns
 log.error("git clone command failed", {
   command: cloneCommand,
   error: cloneErr instanceof Error ? cloneErr.message : String(cloneErr),
   repoUrl: options.repoUrl,
-  destination: workdir
+  destination: workdir,
 });
 
 throw new MinskyError(
@@ -140,6 +141,7 @@ throw new MinskyError(
 ```
 
 ### After (using templates)
+
 ```typescript
 import { createGitErrorMessage, createErrorContext } from "../errors/message-templates";
 
@@ -149,9 +151,7 @@ const context = createErrorContext()
   .addCommand(cloneCommand)
   .build();
 
-throw new MinskyError(
-  createGitErrorMessage("clone", cloneErr, workdir, context)
-);
+throw new MinskyError(createGitErrorMessage("clone", cloneErr, workdir, context));
 ```
 
 ---
@@ -159,20 +159,18 @@ throw new MinskyError(
 ## Example 4: Validation Error
 
 ### Before (from tasks.ts line 170)
+
 ```typescript
 throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(", ")}`);
 ```
 
 ### After (using templates)
+
 ```typescript
 import { createValidationErrorMessage } from "../errors/message-templates";
 
 throw new ValidationError(
-  createValidationErrorMessage(
-    "status",
-    invalidStatus,
-    Object.values(TASK_STATUS)
-  )
+  createValidationErrorMessage("status", invalidStatus, Object.values(TASK_STATUS))
 );
 ```
 
@@ -181,16 +179,19 @@ throw new ValidationError(
 ## Implementation Strategy
 
 ### Phase 1: High-Impact Areas
+
 1. **Session-related errors** (git.ts, session.ts)
 2. **Command execution failures** (git.ts)
 3. **Validation errors** (tasks.ts)
 
 ### Phase 2: Systematic Replacement
+
 1. **Replace simple error patterns** first
 2. **Extract common command suggestions** into reusable constants
 3. **Update error handlers** to leverage new templates
 
 ### Phase 3: Enhanced Consistency
+
 1. **Audit remaining error messages** for consistency
 2. **Create additional templates** for domain-specific patterns
 3. **Update documentation** and examples
@@ -200,12 +201,14 @@ throw new ValidationError(
 ## Code Reduction Analysis
 
 ### Original Error Code Pattern Count
+
 - **Session not found**: ~8 variations across files
-- **Missing information**: ~5 variations  
+- **Missing information**: ~5 variations
 - **Git command failures**: ~15 similar patterns
 - **Validation errors**: ~12 simple cases
 
 ### After Refactoring
+
 - **Template definitions**: 1 per pattern type
 - **Usage code**: 2-3 lines per error (vs 15-25 lines)
 - **Total reduction**: ~80% less error handling code
@@ -231,19 +234,22 @@ For each error message being refactored:
 ## Quality Assurance
 
 ### Template Testing
+
 - All templates have comprehensive unit tests
 - Error messages maintain consistent emoji usage
 - Context information is properly formatted
 - Command suggestions are actionable
 
 ### User Experience
+
 - Messages provide clear problem identification
 - Step-by-step guidance is always included
 - Alternative approaches are offered
 - Context information helps debugging
 
 ### Maintainability
+
 - Single source of truth for error formatting
 - Easy to update message style globally
 - Reduced duplication across codebase
-- Template functions are pure and testable 
+- Template functions are pure and testable

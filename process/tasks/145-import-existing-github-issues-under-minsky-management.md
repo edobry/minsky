@@ -18,21 +18,23 @@ This task focuses on providing functionality to import and manage existing GitHu
 ## Implementation Details
 
 ### Core Import Function
+
 ```typescript
 async function importExistingGitHubIssues(options: {
   repository: string;
   filterCriteria?: {
-    state?: 'open' | 'closed' | 'all';
+    state?: "open" | "closed" | "all";
     labels?: string[];
     assignee?: string;
     since?: Date;
   };
-  importStrategy: 'all' | 'selective';
+  importStrategy: "all" | "selective";
   statusMapping?: Record<string, string>;
-}): Promise<ImportResult>
+}): Promise<ImportResult>;
 ```
 
 ### CLI Integration
+
 ```bash
 # Import all open issues
 minsky tasks import --backend github-issues --filter state=open
@@ -45,6 +47,7 @@ minsky tasks import --backend github-issues --map-status closed=DONE
 ```
 
 ### Status Mapping Strategy
+
 - Open issues → TODO (default)
 - Closed issues → DONE (default)
 - Issues with specific labels → Custom mapping
@@ -65,4 +68,4 @@ minsky tasks import --backend github-issues --map-status closed=DONE
 
 ## Priority
 
-Medium - Important for teams migrating to Minsky GitHub backend integration. 
+Medium - Important for teams migrating to Minsky GitHub backend integration.

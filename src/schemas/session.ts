@@ -13,7 +13,7 @@ import {
 /**
  * Schema for a session record
  */
-export const sessionRecordSchema = z.object({
+export const _sessionRecordSchema = z.object({
   session: sessionNameSchema.describe("Unique name of the session"),
   repoUrl: z.string().describe("URL of the repository"),
   repoName: z.string().describe("Normalized name of the repository"),
@@ -26,7 +26,8 @@ export const sessionRecordSchema = z.object({
     .object({
       authMethod: z.string().describe("Authentication method for remote operations"),
       depth: z.number().describe("Clone depth"),
-    }).describe("Remote repository configuration"),
+    })
+    .describe("Remote repository configuration"),
 });
 
 /**
@@ -47,7 +48,8 @@ export const sessionGetParamsSchema = z
     name: sessionNameSchema.optional().describe("Name of the session to retrieve"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => data.name !== undefined || data.task !== undefined, {
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.name !== undefined || data.task !== undefined, {
     message: "Either session name or task ID must be provided",
   });
 
@@ -103,7 +105,8 @@ export const sessionDeleteParamsSchema = z
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     force: flagSchema("Skip confirmation prompt"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => data.name !== undefined || data.task !== undefined, {
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.name !== undefined || data.task !== undefined, {
     message: "Either session name or task ID must be provided",
   });
 
@@ -120,7 +123,8 @@ export const sessionDirParamsSchema = z
     name: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => data.name !== undefined || data.task !== undefined, {
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.name !== undefined || data.task !== undefined, {
     message: "Either session name or task ID must be provided",
   });
 
@@ -142,11 +146,14 @@ export const sessionUpdateParamsSchema = z
     noPush: flagSchema("Skip pushing changes to remote after update"),
     force: flagSchema("Force update even if the session workspace is dirty"),
     skipConflictCheck: flagSchema("Skip proactive conflict detection before update"),
-    autoResolveDeleteConflicts: flagSchema("Automatically resolve delete/modify conflicts by accepting deletions"),
+    autoResolveDeleteConflicts: flagSchema(
+      "Automatically resolve delete/modify conflicts by accepting deletions"
+    ),
     dryRun: flagSchema("Check for conflicts without performing actual update"),
     skipIfAlreadyMerged: flagSchema("Skip update if session changes are already in base branch"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => data.name !== undefined || data.task !== undefined, {
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.name !== undefined || data.task !== undefined, {
     message: "Either session name or task ID must be provided",
   });
 
@@ -163,8 +170,14 @@ export const sessionApproveParamsSchema = z
     name: sessionNameSchema.optional().describe("Name of the session to approve"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path"),
+    noStash: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Skip automatic stashing of uncommitted changes"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => data.name !== undefined || data.task !== undefined || data.repo !== undefined, {
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.name !== undefined || data.task !== undefined || data.repo !== undefined, {
     message: "Either session name, task ID, or repo path must be provided",
   });
 
@@ -187,10 +200,13 @@ export const sessionPrParamsSchema = z
     debug: flagSchema("Enable debug output"),
     noStatusUpdate: flagSchema("Skip updating task status"),
     skipUpdate: flagSchema("Skip session update before creating PR"),
-    autoResolveDeleteConflicts: flagSchema("Automatically resolve delete/modify conflicts by accepting deletions"),
+    autoResolveDeleteConflicts: flagSchema(
+      "Automatically resolve delete/modify conflicts by accepting deletions"
+    ),
     skipConflictCheck: flagSchema("Skip proactive conflict detection during update"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => !(data.body && data.bodyPath), {
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => !(data.body && data.bodyPath), {
     message: "Cannot provide both 'body' and 'bodyPath' - use one or the other",
     path: ["body"],
   });
@@ -210,7 +226,8 @@ export const sessionReviewParamsSchema = z
     repo: repoPathSchema.optional().describe("Repository path to use"),
     output: z.string().optional().describe("File path to save the review output"),
     prBranch: z.string().optional().describe("PR branch name (defaults to 'pr/<session>')"),
-  }).merge(commonCommandOptionsSchema);
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for session review parameters

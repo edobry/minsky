@@ -18,7 +18,6 @@ import {
   pushFromParams,
   cloneFromParams,
   branchFromParams,
-  createPullRequestFromParams,
   mergeFromParams,
   checkoutFromParams,
   rebaseFromParams,
@@ -31,7 +30,6 @@ import {
   GIT_FORCE_DESCRIPTION,
   DEBUG_DESCRIPTION,
   GIT_BRANCH_DESCRIPTION,
-  TASK_ID_DESCRIPTION,
   NO_STATUS_UPDATE_DESCRIPTION,
 } from "../../../utils/option-descriptions";
 
@@ -163,65 +161,12 @@ const branchCommandParams: CommandParameterMap = {
 };
 
 /**
- * Parameters for the pr command
- */
-const prCommandParams: CommandParameterMap = {
-  session: {
-    schema: z.string(),
-    description: SESSION_DESCRIPTION,
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: REPO_DESCRIPTION,
-    required: false,
-  },
-  branch: {
-    schema: z.string(),
-    description: GIT_BRANCH_DESCRIPTION,
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: TASK_ID_DESCRIPTION,
-    required: false,
-  },
-  debug: {
-    schema: z.boolean().default(false),
-    description: DEBUG_DESCRIPTION,
-    required: false,
-  },
-  noStatusUpdate: {
-    schema: z.boolean().default(false),
-    description: NO_STATUS_UPDATE_DESCRIPTION,
-    required: false,
-  },
-  preview: {
-    schema: z.boolean(),
-    description: "Preview potential conflicts before creating the PR",
-    required: false,
-    defaultValue: false,
-  },
-  autoResolve: {
-    schema: z.boolean(),
-    description: "Enable advanced auto-resolution for detected conflicts",
-    required: false,
-    defaultValue: false,
-  },
-  conflictStrategy: {
-    schema: z.enum(["automatic", "guided", "manual"]),
-    description: "Choose conflict resolution strategy",
-    required: false,
-  },
-};
-
-/**
- * NEW: Parameters for the merge command
+ * Parameters for the merge command
  */
 const mergeCommandParams: CommandParameterMap = {
   branch: {
-    schema: z.string(),
-    description: "Branch to merge into the current branch",
+    schema: z.string().min(1),
+    description: "Branch to merge",
     required: true,
   },
   session: {
@@ -250,18 +195,6 @@ const mergeCommandParams: CommandParameterMap = {
     schema: z.enum(["automatic", "guided", "manual"]),
     description: "Choose conflict resolution strategy",
     required: false,
-  },
-  noCommit: {
-    schema: z.boolean(),
-    description: "Perform merge without committing",
-    required: false,
-    defaultValue: false,
-  },
-  fastForwardOnly: {
-    schema: z.boolean(),
-    description: "Only allow fast-forward merges",
-    required: false,
-    defaultValue: false,
   },
 };
 
@@ -353,7 +286,7 @@ export function registerGitCommands(): void {
     name: "commit",
     description: "Commit changes to the repository",
     parameters: commitCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.commit command", { params });
 
       const result = await commitChangesFromParams({
@@ -363,13 +296,13 @@ export function registerGitCommands(): void {
         noStage: params!.noStage,
         repo: params!.repo,
         session: params!.session,
-      }) as unknown;
+      });
 
       return {
         success: true,
-        commitHash: result!.commitHash,
-        message: result!.message,
-      } as unknown;
+        commitHash: result.commitHash,
+        message: result.message,
+      };
     },
   });
 
@@ -380,7 +313,7 @@ export function registerGitCommands(): void {
     name: "push",
     description: "Push changes to the remote repository",
     parameters: pushCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.push command", { params });
 
       const result = await pushFromParams({
@@ -389,12 +322,12 @@ export function registerGitCommands(): void {
         remote: params!.remote,
         force: params!.force,
         debug: params!.debug,
-      }) as unknown;
+      });
 
       return {
-        success: result!.pushed,
-        workdir: result!.workdir,
-      } as unknown;
+        success: result.pushed,
+        workdir: result.workdir,
+      };
     },
   });
 
@@ -405,7 +338,7 @@ export function registerGitCommands(): void {
     name: "clone",
     description: "Clone a Git repository",
     parameters: cloneCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.clone command", { params });
 
       const result = await cloneFromParams({
@@ -413,13 +346,13 @@ export function registerGitCommands(): void {
         workdir: params!.destination || ".",
         session: params!.session,
         branch: params!.branch,
-      }) as unknown;
+      });
 
       return {
         success: true,
-        workdir: result!.workdir,
-        session: result!.session,
-      } as unknown;
+        workdir: result.workdir,
+        session: result.session,
+      };
     },
   });
 
@@ -430,57 +363,30 @@ export function registerGitCommands(): void {
     name: "branch",
     description: "Create a new branch",
     parameters: branchCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.branch command", { params });
 
       const result = await branchFromParams({
         session: params!.session,
         name: params!.name,
-      }) as unknown;
+      });
 
       return {
         success: true,
-        workdir: result!.workdir,
-        branch: result!.branch,
-      } as unknown;
+        workdir: result.workdir,
+        branch: result.branch,
+      };
     },
   });
 
-  // Register git pr command
-  sharedCommandRegistry.registerCommand({
-    id: "git.pr",
-    category: CommandCategory.GIT,
-    name: "pr",
-    description: "Create a new pull request",
-    parameters: prCommandParams,
-    execute: async (params, context) => {
-      log.debug("Executing git.pr command", { params });
-
-      const result = await createPullRequestFromParams({
-        session: params!.session,
-        repo: params!.repo,
-        branch: params!.branch,
-        taskId: params!.task,
-        debug: params!.debug,
-        noStatusUpdate: params!.noStatusUpdate,
-      }) as unknown;
-
-      return {
-        success: true,
-        markdown: result!.markdown,
-        statusUpdateResult: result!.statusUpdateResult,
-      } as unknown;
-    },
-  });
-
-  // Register git merge command - NEW
+  // Register git merge command
   sharedCommandRegistry.registerCommand({
     id: "git.merge",
     category: CommandCategory.GIT,
     name: "merge",
     description: "Merge a branch with conflict detection",
     parameters: mergeCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.merge command", { params });
 
       const result = await mergeFromParams({
@@ -493,9 +399,11 @@ export function registerGitCommands(): void {
       });
 
       return {
-        success: result!.merged,
-        workdir: result!.workdir,
-        message: result!.conflicts ? result!.conflictDetails || "Merge completed with conflicts" : "Merge completed successfully",
+        success: result.merged,
+        workdir: result.workdir,
+        message: result.conflicts
+          ? result.conflictDetails || "Merge completed with conflicts"
+          : "Merge completed successfully",
       };
     },
   });
@@ -507,7 +415,7 @@ export function registerGitCommands(): void {
     name: "checkout",
     description: "Checkout a branch with conflict detection",
     parameters: checkoutCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.checkout command", { params });
 
       const result = await checkoutFromParams({
@@ -522,7 +430,9 @@ export function registerGitCommands(): void {
       return {
         success: result!.switched,
         workdir: result!.workdir,
-        message: result!.conflicts ? result!.conflictDetails || "Checkout completed with warnings" : "Checkout completed successfully",
+        message: result!.conflicts
+          ? result!.conflictDetails || "Checkout completed with warnings"
+          : "Checkout completed successfully",
       };
     },
   });
@@ -534,7 +444,7 @@ export function registerGitCommands(): void {
     name: "rebase",
     description: "Rebase with conflict detection",
     parameters: rebaseCommandParams,
-    execute: async (params, context) => {
+    execute: async (params, _context) => {
       log.debug("Executing git.rebase command", { params });
 
       const result = await rebaseFromParams({
@@ -549,7 +459,9 @@ export function registerGitCommands(): void {
       return {
         success: result!.rebased,
         workdir: result!.workdir,
-        message: result!.conflicts ? result!.conflictDetails || "Rebase completed with conflicts" : "Rebase completed successfully",
+        message: result!.conflicts
+          ? result!.conflictDetails || "Rebase completed with conflicts"
+          : "Rebase completed successfully",
       };
     },
   });

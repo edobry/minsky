@@ -20,8 +20,8 @@ export interface SessionRecord {
     branchName: string;
     exists: boolean;
     lastChecked: string; // ISO timestamp
-    createdAt?: string;   // When PR branch was created
-    mergedAt?: string;    // When merged (for cleanup)
+    createdAt?: string; // When PR branch was created
+    mergedAt?: string; // When merged (for cleanup)
   };
 }
 
@@ -65,10 +65,7 @@ export function getSessionFn(state: SessionDbState, sessionName: string): Sessio
 export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): SessionRecord | null {
   // Normalize taskId by removing # prefix if present
   const normalizedTaskId = taskId.replace(/^#/, "");
-  return (
-    state.sessions.find((s) => s.taskId.replace(/^#/, "") === normalizedTaskId) ||
-    null
-  );
+  return state.sessions.find((s) => s.taskId.replace(/^#/, "") === normalizedTaskId) || null;
 }
 
 /**
@@ -94,7 +91,7 @@ export function updateSessionFn(
     return state;
   }
 
-  const { session: _, ...safeUpdates } = updates as unknown;
+  const { session: _, ...safeUpdates } = updates as any;
   const updatedSessions = [...state.sessions];
   updatedSessions[index] = { ...updatedSessions[index], ...safeUpdates };
 
@@ -137,10 +134,7 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
 /**
  * Get the working directory for a session
  */
-export function getSessionWorkdirFn(
-  state: SessionDbState,
-  sessionName: string
-): string | undefined {
+export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | null {
   const session = getSessionFn(state, sessionName);
   if (!session) {
     return null;

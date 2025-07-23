@@ -71,7 +71,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace the preparePr method with our spy
-      (gitService as unknown).preparePr = preparePrSpy;
+      gitService.preparePr = preparePrSpy;
 
       // Execute the preparePr method
       await gitService.preparePr({
@@ -141,7 +141,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       });
 
       // Replace with correct implementation
-      (gitService as unknown).preparePr = correctPreparePrSpy;
+      gitService.preparePr = correctPreparePrSpy;
 
       // Execute the CORRECT preparePr method
       const result = await gitService.preparePr({
@@ -160,7 +160,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       expect(gitCommands).toContain("git -C /test/repo switch -C pr/feature-branch origin/main");
 
       // 3. Should create PR title/body file
-      expect(gitCommands).toContain("echo \"Test PR\" > /test/repo/.pr_title");
+      expect(gitCommands).toContain('echo "Test PR" > /test/repo/.pr_title');
 
       // 4. Should perform --no-ff merge (creating prepared merge commit)
       expect(gitCommands).toContain("git -C /test/repo merge --no-ff feature-branch -F .pr_title");
@@ -210,7 +210,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Replace the preparePrFromParams function
       const originalPreparePr = require("./git").preparePrFromParams;
-      (require("./git") as unknown).preparePrFromParams = mockPreparePrFromParams;
+      (require("./git") as any).preparePrFromParams = mockPreparePrFromParams;
 
       try {
         // Execute sessionPrFromParams
@@ -237,7 +237,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         expect(result.baseBranch).toBe("main");
       } finally {
         // Restore original function
-        (require("./git") as unknown).preparePrFromParams = originalPreparePr;
+        (require("./git") as any).preparePrFromParams = originalPreparePr;
       }
     });
   });
@@ -282,9 +282,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const ffOnlyMergeCommand = gitCommands.find((cmd) => cmd.includes("merge --ff-only"));
       expect(ffOnlyMergeCommand).toBeDefined();
 
-      log.debug(
-        "✅ VERIFIED: Prepared merge commit enables fast-forward merge in session approve"
-      );
+      log.debug("✅ VERIFIED: Prepared merge commit enables fast-forward merge in session approve");
     });
   });
 
@@ -318,7 +316,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         }
       });
 
-      (gitService as unknown).preparePr = preparePrWithConflictSpy;
+      gitService.preparePr = preparePrWithConflictSpy;
 
       // Should throw error on merge conflict
       await expect(
