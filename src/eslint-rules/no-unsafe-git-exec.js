@@ -142,6 +142,35 @@ export default {
 
     return {
       CallExpression(node) {
+        // Debug: Log what we're seeing
+        if (context.options[0]?.debug) {
+          console.log("Checking node:", {
+            type: node.callee.type,
+            name: node.callee.name,
+            property: node.callee.property?.name,
+            source: context.getSourceCode().getText(node),
+          });
+        }
+
+        // Skip safe timeout-aware git utilities - these are already using proper timeout handling
+        if (
+          node.callee.name === "execGitWithTimeout" ||
+          (node.callee.type === "MemberExpression" &&
+            node.callee.property.name === "execGitWithTimeout") ||
+          node.callee.name === "gitPushWithTimeout" ||
+          node.callee.name === "gitPullWithTimeout" ||
+          node.callee.name === "gitFetchWithTimeout" ||
+          node.callee.name === "gitCloneWithTimeout"
+        ) {
+          if (context.options[0]?.debug) {
+            console.log(
+              "Skipping safe timeout-aware utility:",
+              context.getSourceCode().getText(node)
+            );
+          }
+          return; // These are already safe - don't check them
+        }
+
         // Check for execAsync calls
         if (
           node.callee.name === "execAsync" ||

@@ -258,9 +258,9 @@ export class MinskyMCPServer {
       try {
         const result = await tool.handler(request.params.arguments || {});
 
-        // Return structured content according to MCP best practices
+        // Return content efficiently according to MCP best practices
         if (typeof result === "string") {
-          // If result is already a string, return as text content
+          // Simple text response
           return {
             content: [
               {
@@ -270,27 +270,38 @@ export class MinskyMCPServer {
             ],
           };
         } else if (result && typeof result === "object") {
-          // If result is an object, return both structured content and text fallback
-          // Only use structuredContent for plain objects, not arrays or errors
+          // For structured data, prefer structured content over redundant JSON text
           const isPlainObject = !Array.isArray(result) && !result.error;
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-            // Add structured content only for plain objects (not arrays or errors)
-            ...(isPlainObject ? { structuredContent: result } : {}),
-          };
+
+          if (isPlainObject) {
+            // Return structured content for objects - more efficient for MCP clients
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Returned ${Object.keys(result).length} properties: ${Object.keys(result).join(", ")}`,
+                },
+              ],
+              structuredContent: result,
+            };
+          } else {
+            // For arrays or error objects, return formatted text
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify(result, null, 2),
+                },
+              ],
+            };
+          }
         } else {
           // Handle other types (numbers, booleans, etc.)
-          const textContent = String(result);
           return {
             content: [
               {
                 type: "text" as const,
-                text: textContent,
+                text: String(result),
               },
             ],
           };
