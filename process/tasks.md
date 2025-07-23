@@ -548,7 +548,9 @@
 
 - [ ] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
-- [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
+- [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/319-fix-special-workspace-and-main-workspace-synchronization-for-task-operations-renamed-from-310-.md)
+
+- [ ] Research codemod-based approach for session-aware edit file tool [#310b](process/tasks/310-research-codemod-based-approach-for-session-aware-edit-file-tool.md)
 
 - [ ] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
 
@@ -560,9 +562,9 @@
 
 - [x] Investigate and fix task operations hanging issues [#317](process/tasks/317-investigate-and-fix-task-operations-hanging-issues.md)
 
-- [ ] Refactor CLI output formatters to use command-specific customizations instead of centralized bridge logic [#318](process/tasks/318-refactor-cli-output-formatters-to-use-command-specific-customizations-instead-of-centralized-bridge-logic.md)
+- [ ] Fix all linter errors [#318](process/tasks/318-fix-all-linter-errors.md)
 
-- [x] Test workspace sync fix [#319](process/tasks/319-test-workspace-sync-fix.md)
+- [x] Fix Special Workspace and Main Workspace Synchronization for Task Operations (renamed from 310) [#319](process/tasks/319-fix-special-workspace-and-main-workspace-synchronization-for-task-operations-renamed-from-310-.md)
 
 - [ ] Fix all linter errors in codebase [#320](process/tasks/320-fix-all-linter-errors-in-codebase.md)
 
@@ -571,3 +573,5 @@
 - [x] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)
 
 - [ ] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)
+
+- [ ] Add MCP Client Registration Functionality [#324](process/tasks/324-add-mcp-client-registration-functionality.md)
