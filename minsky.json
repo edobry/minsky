@@ -1,0 +1,12 @@
+{
+  "project": {
+    "name": "minsky",
+    "description": "Minsky development workflow tool"
+  },
+  "workflows": {
+    "lint": "bun run lint",
+    "test": "bun test",
+    "build": "bun run build",
+    "dev": "bun run start"
+  }
+}

@@ -1,7 +1,7 @@
 /**
  * Session Lint Command
  *
- * Simple linting command that uses existing ESLint setup
+ * Configurable linting command that reads lint configuration from project config
  */
 
 import { execAsync } from "../../utils/exec";
@@ -9,6 +9,7 @@ import { log } from "../../utils/logger";
 import { MinskyError } from "../../errors";
 import { existsSync } from "fs";
 import { join } from "path";
+import { ProjectConfigReader } from "../project";
 
 export interface SessionLintParams {
   fix?: boolean;
@@ -23,10 +24,11 @@ export interface SessionLintResult {
   errors: number;
   warnings: number;
   duration: number;
+  command: string; // Include the actual command that was run
 }
 
 /**
- * Run ESLint in the given workspace directory
+ * Run configured lint command in the given workspace directory
  */
 export async function sessionLint(
   workspaceDir: string,
@@ -36,22 +38,22 @@ export async function sessionLint(
 
   log.debug("Running session lint", { workspaceDir, params });
 
-  // Check if ESLint config exists
-  const eslintConfig = join(workspaceDir, ".eslintrc.json");
-  if (!existsSync(eslintConfig)) {
-    throw new MinskyError("No ESLint configuration found in session workspace");
-  }
-
   try {
-    // Build ESLint command
-    const eslintCmd = buildESLintCommand(params);
+    // Load project configuration to get lint command
+    const configReader = new ProjectConfigReader(workspaceDir);
+    const baseLintCommand = await configReader.getLintCommand();
+
+    // Build full command with parameters
+    const fullCommand = buildLintCommand(baseLintCommand, params);
+
+    log.debug("Using lint command", { baseLintCommand, fullCommand });
 
     let output = "";
     let exitCode = 0;
 
     try {
-      // Run ESLint
-      const result = await execAsync(eslintCmd, {
+      // Run lint command
+      const result = await execAsync(fullCommand, {
         cwd: workspaceDir,
       });
       output = result.stdout + result.stderr;
@@ -62,12 +64,12 @@ export async function sessionLint(
         output = (error.stdout || "") + (error.stderr || "");
         exitCode = error.code || 1;
       } else {
-        throw error; // Re-throw if it's not an ESLint exit code error
+        throw error; // Re-throw if it's not a lint exit code error
       }
     }
 
-    // Parse ESLint output for error/warning counts
-    const { errors, warnings } = parseESLintOutput(output);
+    // Parse lint output for error/warning counts
+    const { errors, warnings } = parseLintOutput(output);
 
     const duration = Date.now() - startTime;
     const success = exitCode === 0;
@@ -78,6 +80,7 @@ export async function sessionLint(
       warnings,
       duration,
       exitCode,
+      command: fullCommand,
     });
 
     return {
@@ -86,6 +89,7 @@ export async function sessionLint(
       errors,
       warnings,
       duration,
+      command: fullCommand,
     };
   } catch (error) {
     const duration = Date.now() - startTime;
@@ -100,43 +104,76 @@ export async function sessionLint(
       errors: 1,
       warnings: 0,
       duration,
+      command: "unknown",
     };
   }
 }
 
 /**
- * Build ESLint command based on parameters
+ * Build full lint command with parameters
  */
-function buildESLintCommand(params: SessionLintParams): string {
-  const parts = ["bun", "run", "lint"];
+function buildLintCommand(baseLintCommand: string, params: SessionLintParams): string {
+  let command = baseLintCommand;
 
-  if (params.fix) {
-    parts.push("--fix");
+  // Handle different command formats
+  if (
+    command.startsWith("bun run ") ||
+    command.startsWith("npm run ") ||
+    command.startsWith("yarn ")
+  ) {
+    // For npm/bun/yarn scripts, append flags after the script name
+    if (params.fix) {
+      command += " --fix";
+    }
+    if (params.quiet) {
+      command += " --quiet";
+    }
+  } else {
+    // For direct commands (like "eslint ."), append flags directly
+    if (params.fix) {
+      command += " --fix";
+    }
+    if (params.quiet) {
+      command += " --quiet";
+    }
   }
 
-  if (params.quiet) {
-    parts.push("--quiet");
-  }
-
-  return parts.join(" ");
+  return command;
 }
 
 /**
- * Parse ESLint output to extract error and warning counts
+ * Parse lint output to extract error and warning counts
+ * Works with ESLint and other common linters
  */
-function parseESLintOutput(output: string): { errors: number; warnings: number } {
+function parseLintOutput(output: string): { errors: number; warnings: number } {
   let errors = 0;
   let warnings = 0;
 
-  // Look for ESLint summary line like "✖ 35 problems (35 errors, 0 warnings)"
-  const summaryMatch = output.match(/✖ (\d+) problems? \((\d+) errors?, (\d+) warnings?\)/);
-  if (summaryMatch) {
-    errors = parseInt(summaryMatch[2], 10);
-    warnings = parseInt(summaryMatch[3], 10);
+  // ESLint format: "✖ 35 problems (35 errors, 0 warnings)"
+  const eslintSummaryMatch = output.match(/✖ (\d+) problems? \((\d+) errors?, (\d+) warnings?\)/);
+  if (eslintSummaryMatch) {
+    errors = parseInt(eslintSummaryMatch[2], 10);
+    warnings = parseInt(eslintSummaryMatch[3], 10);
     return { errors, warnings };
   }
 
-  // Count individual error/warning lines
+  // TSLint format: "ERROR: (typescript) ..."
+  const tslintMatches = output.match(/ERROR:/g);
+  if (tslintMatches) {
+    errors = tslintMatches.length;
+  }
+
+  const tslintWarnings = output.match(/WARNING:/g);
+  if (tslintWarnings) {
+    warnings = tslintWarnings.length;
+  }
+
+  // If we found TSLint format, return early
+  if (errors > 0 || warnings > 0) {
+    return { errors, warnings };
+  }
+
+  // Standard format: count individual error/warning lines
   const lines = output.split("\n");
   for (const line of lines) {
     if (line.match(/^\s+\d+:\d+\s+error\s+/)) {
@@ -170,6 +207,7 @@ export function formatLintResults(result: SessionLintResult): string {
   }
 
   lines.push("");
+  lines.push(`⚙️  Command: ${result.command}`);
   lines.push(`⏱️  Completed in ${result.duration}ms`);
 
   return lines.join("\n");
