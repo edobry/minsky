@@ -1124,102 +1124,29 @@ export async function sessionPrFromParams(
     sessionPrParamsSchema.parse(params);
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") {
-      // Extract the validation error message
-      const zodError = error;
+      // Extract the validation error message from ZodError
+      const zodError = error as any; // ZodError type
       const message = zodError.errors?.[0]?.message || "Invalid parameters";
       throw new ValidationError(message);
     }
     throw error;
   }
 
-  // STEP 1: Validate we're in a session workspace and on a session branch
-  const currentDir = process.cwd();
-  const isSessionWorkspace = currentDir.includes("/sessions/");
-  if (!isSessionWorkspace) {
-    throw new MinskyError(
-      "session pr command must be run from within a session workspace. Use 'minsky session start' first."
-    );
-  }
+  // STEP 1: Get session from required parameter (provided by CLI/MCP interfaces)
+  const sessionName = params.session;
 
-  // Get current git branch
+  // STEP 2: Initialize git service for session operations
   const gitService = depsInput?.gitService || createGitService();
-  const currentBranch = await gitService.getCurrentBranch(currentDir);
-
-  // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* branch)
-  if (currentBranch.startsWith("pr/")) {
-    throw new MinskyError(
-      `Cannot run session pr from PR branch '${currentBranch}'. Switch to your session branch first.`
-    );
-  }
-
-  // STEP 3: Verify we're in a session directory (no branch format restriction)
-  // The session name will be detected from the directory path or provided explicitly
-  // Both task#XXX and named sessions are supported
-
-  // STEP 4: Check for uncommitted changes
-  const hasUncommittedChanges = await gitService.hasUncommittedChanges(currentDir);
-  if (hasUncommittedChanges) {
-    // Get the status of uncommitted changes to show in the error
-    let statusInfo = "";
-    try {
-      const status = await gitService.getStatus(currentDir);
-      const changes = [];
-
-      if (status.modified.length > 0) {
-        changes.push(`📝 Modified files (${status.modified.length}):`);
-        status.modified.forEach((file) => changes.push(`   ${file}`));
-      }
-
-      if (status.untracked.length > 0) {
-        changes.push(`📄 New files (${status.untracked.length}):`);
-        status.untracked.forEach((file) => changes.push(`   ${file}`));
-      }
-
-      if (status.deleted.length > 0) {
-        changes.push(`🗑️  Deleted files (${status.deleted.length}):`);
-        status.deleted.forEach((file) => changes.push(`   ${file}`));
-      }
-
-      statusInfo = changes.length > 0 ? changes.join("\n") : "No detailed changes available";
-    } catch (statusError) {
-      statusInfo = "Unable to get detailed status.";
-    }
-
-    throw new MinskyError(
-      `
-🚫 Cannot create PR with uncommitted changes
-
-You have uncommitted changes in your session workspace that need to be committed first.
-
-Current changes:
-${statusInfo}
-
-To fix this, run one of the following:
-
-📝 Commit your changes:
-   git add .
-   git commit -m "Your commit message"
-
-📦 Or stash your changes temporarily:
-   git stash
-
-💡 Then try creating the PR again:
-   minsky session pr --title "your title"
-
-Need help? Run 'git status' to see what files have changed.
-      `.trim()
-    );
-  }
 
   // Handle body content - read from file if bodyPath is provided
-  let bodyContent = params.body;
+  let bodyContent: string | undefined = params.body;
   if (params.bodyPath) {
     try {
       // Resolve relative paths relative to current working directory
       const filePath = require("path").resolve(params.bodyPath);
-      bodyContent = await readFile(filePath, "utf-8");
+      bodyContent = (await readFile(filePath, "utf-8")) as string;
 
-      if (!bodyContent.trim()) {
+      if (!bodyContent?.trim()) {
         throw new ValidationError(`Body file is empty: ${params.bodyPath}`);
       }
 
@@ -1243,43 +1170,15 @@ Need help? Run 'git status' to see what files have changed.
     }
   }
 
-  // Determine the session name
-  let sessionName = params.session;
+  // STEP 3: Initialize session database
   const sessionDb = depsInput?.sessionDB || createSessionProvider();
 
-  // If no session name provided but task ID is, try to find the session by task ID
-  if (!sessionName && params.task) {
-    const taskId = params.task;
-    const sessionRecord = await sessionDb.getSessionByTaskId(taskId);
-    if (sessionRecord) {
-      sessionName = sessionRecord.session;
-    } else {
-      throw new MinskyError(`No session found for task ID ${taskId}`);
-    }
+  // STEP 4: Get session workspace directory (needed for git operations)
+  const sessionWorkdir = await sessionDb.getSessionWorkdir(sessionName);
+  if (!sessionWorkdir) {
+    throw new MinskyError(`Session workspace directory not found for session: ${sessionName}`);
   }
-
-  // If still no session name, try to detect from current directory
-  if (!sessionName) {
-    try {
-      // Extract session name from path - assuming standard path format
-      const pathParts = currentDir.split("/");
-      const sessionsIndex = pathParts.indexOf("sessions");
-      if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-        sessionName = pathParts[sessionsIndex + 1];
-      }
-    } catch (error) {
-      // If detection fails, throw error
-      throw new MinskyError(
-        "Could not detect session from current directory. Please specify a session name or task ID."
-      );
-    }
-
-    if (!sessionName) {
-      throw new MinskyError(
-        "Could not detect session from current directory. Please specify a session name or task ID."
-      );
-    }
-  }
+  const currentDir: string = sessionWorkdir;
 
   log.debug(`Creating PR for session: ${sessionName}`, {
     session: sessionName,
