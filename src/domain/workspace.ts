@@ -374,7 +374,10 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
 }
 
 export async function getWorkspaceGitRoot(workspacePath: string): Promise<string> {
-  const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd: workspacePath });
+  const { execGitWithTimeout } = await import("../utils/git-exec");
+  const { stdout } = await execGitWithTimeout("rev-parse", "rev-parse --show-toplevel", {
+    workdir: workspacePath,
+  });
   return stdout.trim();
 }
 

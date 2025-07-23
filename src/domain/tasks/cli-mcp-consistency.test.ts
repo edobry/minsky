@@ -17,6 +17,8 @@ import { createSpecialWorkspaceManager } from "../workspace/special-workspace-ma
 import { join } from "path";
 import { writeFile, mkdir, rm } from "fs/promises";
 import { existsSync } from "fs";
+import { createMarkdownTaskBackend } from "./markdownTaskBackend";
+import type { BackendCapabilities } from "./types";
 
 describe("CLI-MCP Task Database Consistency Bug", () => {
   const testRepoUrl = "https://github.com/test/minsky-consistency-test.git";
@@ -190,5 +192,70 @@ describe("CLI-MCP Task Database Consistency Bug", () => {
     // Should return special workspace task data
     expect(task.title).toBe("Special workspace task");
     expect(task.specPath).toContain("999-special-workspace-task.md");
+  });
+});
+
+describe("Backend Capabilities System (Task #315)", () => {
+  describe("MarkdownTaskBackend capabilities", () => {
+    test("should report accurate capabilities", () => {
+      // Create markdown backend
+      const backend = createMarkdownTaskBackend({
+        name: "markdown",
+        workspacePath: "/tmp/test",
+      });
+
+      // Get capabilities
+      const capabilities: BackendCapabilities = backend.getCapabilities();
+
+      // Verify capabilities are accurately reported
+      expect(capabilities.supportsTaskCreation).toBe(true);
+      expect(capabilities.supportsTaskUpdate).toBe(true);
+      expect(capabilities.supportsTaskDeletion).toBe(true);
+      expect(capabilities.supportsStatus).toBe(true);
+
+      // Structural metadata not yet implemented
+      expect(capabilities.supportsSubtasks).toBe(false);
+      expect(capabilities.supportsDependencies).toBe(false);
+
+      // Provenance metadata not yet implemented
+      expect(capabilities.supportsOriginalRequirements).toBe(false);
+      expect(capabilities.supportsAiEnhancementTracking).toBe(false);
+
+      // Query capabilities
+      expect(capabilities.supportsMetadataQuery).toBe(false);
+      expect(capabilities.supportsFullTextSearch).toBe(true);
+
+      // Update mechanism
+      expect(capabilities.requiresSpecialWorkspace).toBe(true);
+      expect(capabilities.supportsTransactions).toBe(false);
+      expect(capabilities.supportsRealTimeSync).toBe(false);
+    });
+
+    test("should provide capabilities discovery for backend selection", () => {
+      const backend = createMarkdownTaskBackend({
+        name: "markdown",
+        workspacePath: "/tmp/test",
+      });
+
+      const capabilities = backend.getCapabilities();
+
+      // This test demonstrates how the capability system could be used
+      // for intelligent backend selection based on requirements
+
+      if (capabilities.supportsDependencies) {
+        // This backend can handle task dependencies
+        console.log("Backend supports dependencies");
+      } else {
+        // Need a different backend or upgrade this one
+        console.log(
+          "Backend does not support dependencies - use JSON backend or implement feature"
+        );
+      }
+
+      if (capabilities.requiresSpecialWorkspace) {
+        // Special handling needed for this backend
+        console.log("Backend requires special workspace management");
+      }
+    });
   });
 });

@@ -6,6 +6,64 @@
  */
 
 /**
+ * Backend capabilities interface for capability discovery
+ * Defines what metadata and operations each backend supports
+ */
+export interface BackendCapabilities {
+  // Core operations
+  supportsTaskCreation: boolean;
+  supportsTaskUpdate: boolean;
+  supportsTaskDeletion: boolean;
+
+  // Essential metadata support (simplified scope from Task #235)
+  supportsStatus: boolean;
+
+  // Structural metadata (Tasks #238, #239)
+  supportsSubtasks: boolean;
+  supportsDependencies: boolean;
+
+  // Provenance metadata (original user requirements tracking)
+  supportsOriginalRequirements: boolean;
+  supportsAiEnhancementTracking: boolean;
+
+  // Query capabilities
+  supportsMetadataQuery: boolean;
+  supportsFullTextSearch: boolean;
+
+  // Update mechanism
+  requiresSpecialWorkspace: boolean;
+  supportsTransactions: boolean;
+  supportsRealTimeSync: boolean;
+}
+
+/**
+ * Essential task metadata structure (simplified from Task #235 analysis)
+ * Focuses only on structural and provenance metadata
+ */
+export interface TaskMetadata {
+  // Core metadata
+  createdAt?: string;
+  updatedAt?: string;
+
+  // Structural metadata (Tasks #238, #239)
+  parentTask?: string;
+  subtasks?: string[];
+  dependencies?: {
+    prerequisite?: string[];
+    optional?: string[];
+    related?: string[];
+  };
+
+  // Provenance metadata (from Task #235)
+  originalRequirements?: string; // User's original intent
+  aiEnhanced?: boolean;
+  creationContext?: string;
+
+  // Custom metadata for future extensibility
+  custom?: Record<string, any>;
+}
+
+/**
  * Interface for task service operations
  * This defines the contract for task-related functionality
  */
@@ -94,6 +152,13 @@ export interface TaskBackend {
   ): Promise<Task>;
   setTaskMetadata?(id: string, metadata: any): Promise<void>;
   deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
+
+  // New capability discovery method
+  getCapabilities(): BackendCapabilities;
+
+  // Enhanced metadata methods (optional for now)
+  getTaskMetadata?(id: string): Promise<TaskMetadata | null>;
+  setTaskMetadata?(id: string, metadata: TaskMetadata): Promise<void>;
 }
 
 export interface TaskListOptions {

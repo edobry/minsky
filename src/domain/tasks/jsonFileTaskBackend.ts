@@ -20,6 +20,7 @@ import type {
   CreateTaskOptions,
   DeleteTaskOptions,
 } from "../tasks";
+import type { BackendCapabilities } from "./types";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { validateTaskState, type TaskState } from "../../schemas/storage";
@@ -91,6 +92,37 @@ export class JsonFileTaskBackend implements TaskBackend {
       }),
       prettyPrint: true,
     });
+  }
+
+  // ---- Capability Discovery ----
+
+  getCapabilities(): BackendCapabilities {
+    return {
+      // Core operations - JSON backend supports full CRUD with structured data
+      supportsTaskCreation: true,
+      supportsTaskUpdate: true,
+      supportsTaskDeletion: true,
+
+      // Essential metadata support - excellent with JSON format
+      supportsStatus: true, // Stored in structured JSON format
+
+      // Structural metadata - JSON format makes this natural
+      supportsSubtasks: true, // Can store arrays of task IDs
+      supportsDependencies: true, // Can store complex dependency relationships
+
+      // Provenance metadata - JSON format ideal for structured metadata
+      supportsOriginalRequirements: true, // Can store as JSON field
+      supportsAiEnhancementTracking: true, // Can track enhancement history
+
+      // Query capabilities - JSON enables powerful querying
+      supportsMetadataQuery: true, // Can query JSON structure efficiently
+      supportsFullTextSearch: true, // Can search through JSON content
+
+      // Update mechanism - direct database operations
+      requiresSpecialWorkspace: false, // Can operate directly on database
+      supportsTransactions: true, // JSON file operations can be atomic
+      supportsRealTimeSync: false, // File-based, but more efficient than markdown
+    };
   }
 
   // ---- Data Retrieval ----
