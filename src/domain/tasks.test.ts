@@ -93,7 +93,7 @@ describe("interface-agnostic task functions", () => {
     });
 
     test("should filter out DONE tasks when all is false", async () => {
-      mockTaskService.listTasks.mockImplementation(() =>
+      mockTaskService.listTasks = mock(() =>
         Promise.resolve([
           { ...mockTask, status: TASK_STATUS.TODO },
           { ...mockTask, id: "#124", status: TASK_STATUS.DONE },
@@ -151,12 +151,8 @@ describe("interface-agnostic task functions", () => {
     test("should handle task IDs without leading zeros", async () => {
       // Modify mock implementation to return task with ID '023' for '#23'
       // This simulates the updated MarkdownTaskBackend.getTask behavior
-      mockTaskService.getTask.mockImplementation((id) =>
-        Promise.resolve(
-          id === "#23"
-            ? { ...mockTask, id: "#023" }
-            : null
-        )
+      mockTaskService.getTask = mock((id) =>
+        Promise.resolve(id === "#23" ? { ...mockTask, id: "#023" } : null)
       );
 
       const params = {
@@ -202,7 +198,7 @@ describe("interface-agnostic task functions", () => {
   describe("setTaskStatusFromParams", () => {
     test("should set task status with valid parameters", async () => {
       // Reset getTask mock to its default implementation for this test
-      mockTaskService.getTask.mockImplementation(defaultGetTaskMock);
+      mockTaskService.getTask = mock(defaultGetTaskMock);
 
       const params = {
         taskId: "#123",
@@ -212,10 +208,7 @@ describe("interface-agnostic task functions", () => {
 
       await setTaskStatusFromParams(params, mockDeps);
 
-      expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith(
-        "#123",
-        TASK_STATUS.IN_PROGRESS
-      );
+      expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", TASK_STATUS.IN_PROGRESS);
     });
 
     test("should throw ValidationError when status is invalid", async () => {

@@ -113,8 +113,8 @@ describe("Session Auto-Task Creation", () => {
     });
 
     // Verify session was created with task ID (adjust expectation to match actual behavior)
-    expect(result.taskId).toBe("001");  // Code returns normalized ID without #
-    expect(result.session).toBe("task001");  // Session name follows normalized ID
+    expect(result.taskId).toBe("001"); // Code returns normalized ID without #
+    expect(result.session).toBe("task001"); // Session name follows normalized ID
   });
 
   test("should not auto-create task when task ID is provided", async () => {
@@ -157,6 +157,6 @@ describe("Session Auto-Task Creation", () => {
 
     // Verify session name is the provided name, not auto-generated
     expect(result.session).toBe("custom-session");
-    expect(result.taskId).toBe("#001");  // When custom session name provided, returns full task ID
+    expect(result.taskId).toBe("#001"); // When custom session name provided, returns full task ID
   });
 });
