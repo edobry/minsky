@@ -32,28 +32,28 @@ export class ModularTasksCommandManager {
 
       // Register basic list command
       sharedCommandRegistry.registerCommand({
-        command: "tasks",
-        description: "Task management commands",
-        subcommands: {
-          list: {
-            description: "List tasks",
-            parameters: {},
-            handler: async (params: any, context: any) => {
-              const command = createTasksListCommand();
-              return await command.execute(params, context);
-            },
-          },
-          get: {
-            description: "Get task details",
-            parameters: {
-              taskId: { type: "string", required: true, description: "Task ID" },
-            },
-            handler: async (params: any, context: any) => {
-              const command = createTasksGetCommand();
-              return await command.execute(params, context);
-            },
-          },
-        },
+        id: "tasks.list",
+        category: "TASKS" as any,
+        name: "list",
+        description: "List tasks",
+        parameters: {},
+        execute: async (params: any, context: any) => {
+          const command = createTasksListCommand();
+          return await command.execute(params, context);
+        }
+      });
+
+            // Register get command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.get",
+        category: "TASKS" as any,
+        name: "get",
+        description: "Get task details",
+        parameters: {},
+        execute: async (params: any, context: any) => {
+          const command = createTasksGetCommand();
+          return await command.execute(params, context);
+        }
       });
     } catch (error) {
       console.warn("Failed to register task commands:", error);
