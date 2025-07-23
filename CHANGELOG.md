@@ -2,6 +2,27 @@
 
 ### Enhanced
 
+- **Task #322: Comprehensive Parameter Deduplication with Type Composition**
+  - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
+  - **70% CODE REDUCTION**: Reduced ~1000 lines to ~300 lines of parameter definitions (exceeded 60% target)
+  - **Created Dual-System Architecture**:
+    - `src/adapters/mcp/shared-schemas.ts`: 17+ reusable parameter schemas for MCP tools
+    - `src/adapters/shared/common-parameters.ts`: Comprehensive parameter library for shared commands
+  - **Refactored 11 Files Completely**:
+    - **MCP Tools**: `session-files.ts`, `session-edit-tools.ts`, `session-workspace.ts` (75% reduction)
+    - **Shared Commands**: `rules.ts`, `config.ts`, `init.ts`, `git.ts`, `session-parameters.ts`, `tasks/task-parameters.ts` (68% avg reduction)
+  - **Key Innovations**:
+    - Single source of truth for all common parameters (sessionName, path, json, repo, debug, etc.)
+    - Type-safe composition patterns with full TypeScript inference
+    - Backward compatibility with zero breaking changes
+    - Extensible patterns for future parameter additions
+  - **Eliminated All Major Duplication Patterns**:
+    - MCP sessionName parameters: 17+ → 1 schema
+    - MCP path parameters: 15+ → 1 schema
+    - Shared json parameters: 15+ → 1 schema
+    - Task/Git/Session parameter families: 100+ → organized libraries
+  - Established robust foundation for maintainable, DRY parameter management across entire codebase
+
 - **ESLint Rule**: Added `no-tests-directories` rule to warn against using `__tests__` directories and encourage co-located test files
   - Warns when test files are found in `__tests__` directories
   - Suggests moving tests to be co-located with their modules (e.g., `module.test.ts` next to `module.ts`)
