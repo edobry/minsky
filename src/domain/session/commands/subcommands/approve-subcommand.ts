@@ -1,5 +1,5 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
-import { approveSession } from "../approve-command";
+import { approveSessionImpl } from "../../session-approve-operations";
 
 export const approveSessionSubcommand: CommandExecutionHandler = async (params) => {
   const { args, options } = params;
@@ -9,10 +9,15 @@ export const approveSessionSubcommand: CommandExecutionHandler = async (params) 
     sessionId = args[0];
   }
 
-  const force = options?.force === true;
+  const noStash = options?.noStash === true;
+  const json = options?.json === true;
 
   try {
-    const result = await approveSession(sessionId, { force });
+    const result = await approveSessionImpl({
+      session: sessionId,
+      json,
+      noStash,
+    });
     return {
       success: true,
       message: "Session approved and merged successfully",

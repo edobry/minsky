@@ -1,5 +1,4 @@
 // Session command exports
-export * from "./approve-command";
 export * from "./delete-command";
 export * from "./dir-command";
 export * from "./get-command";
