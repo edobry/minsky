@@ -20,7 +20,10 @@ import { createMockLogger, clearLoggerMocks } from "../../utils/test-utils/logge
 // Mock git utilities (which is what the service actually uses)
 let mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
 let mockGitFetchWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
-let mockExecAsync = mock(() => Promise.resolve({ stdout: "mock-output", stderr: "" }));
+
+// Create a configurable mock implementation that tests can modify
+let mockExecAsyncImpl = () => Promise.resolve({ stdout: "", stderr: "" });
+let mockExecAsync = mock(() => mockExecAsyncImpl());
 
 // Use centralized logger mock
 const mockLog = createMockLogger();
@@ -53,8 +56,26 @@ describe("ConflictDetectionService", () => {
   describe("analyzeBranchDivergence", () => {
     test("should detect when session is ahead of base", async () => {
       // Setup: session has 2 commits ahead, 0 behind
-      mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "0\t2", stderr: "" }));
-      mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "abc123", stderr: "" }));
+      let callCount = 0;
+      mockExecAsyncImpl = () => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ stdout: "0\t2", stderr: "" }); // rev-list output: 0 behind, 2 ahead
+        }
+        if (callCount === 2) {
+          return Promise.resolve({ stdout: "abc123", stderr: "" }); // merge-base output
+        }
+        if (callCount === 3) {
+          return Promise.resolve({ stdout: "commit1\ncommit2", stderr: "" }); // session commits
+        }
+        if (callCount === 4) {
+          return Promise.resolve({ stdout: "tree-session", stderr: "" }); // session tree
+        }
+        if (callCount === 5) {
+          return Promise.resolve({ stdout: "tree-base", stderr: "" }); // base tree (different)
+        }
+        return Promise.resolve({ stdout: "", stderr: "" });
+      };
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
         testRepoPath, sessionBranch, baseBranch
@@ -74,7 +95,7 @@ describe("ConflictDetectionService", () => {
 
     test("should detect when session changes are already in base", async () => {
       // Setup: session changes are already merged to base
-      mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "0\t1", stderr: "" }))
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "0\t1", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "abc123", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "commit1", stderr: "" })) // session commits
         .mockImplementationOnce(() => Promise.resolve({ stdout: "tree1", stderr: "" })) // session tree
@@ -90,7 +111,7 @@ describe("ConflictDetectionService", () => {
 
     test("should detect when session is behind base", async () => {
       // Setup: session is 1 commit behind base
-      mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "1\t0", stderr: "" }))
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "1\t0", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "abc123", stderr: "" }));
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
