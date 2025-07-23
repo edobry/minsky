@@ -1478,3 +1478,14 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - `minsky mcp inspect` - Advanced MCP server inspection with custom methods
   - All commands support `--repo` option for repository context
   - Commands wrap the MCP Inspector CLI mode for improved user experience
+
+### Fixed
+- **MCP Tool Naming Consistency**: Standardized tool naming to use dots (MCP convention) instead of underscores
+  - `session.read_file`, `session.write_file`, `session.edit_file`, etc.
+  - Follows MCP namespacing best practices for better organization
+- **MCP Structured Content**: Implemented proper structured content responses per MCP 2025-06-18 specification
+  - Objects: Return both formatted text + structuredContent for optimal client integration
+  - Arrays: Return formatted text only (structuredContent expects objects)
+  - Strings: Return as simple text content
+  - Eliminates giant JSON string responses, now returns readable formatted output
+  - Improves CLI tool usability and MCP client integration significantly
