@@ -8,6 +8,7 @@ import noUnderscorePrefixMismatch from "./src/eslint-rules/no-underscore-prefix-
 import noExcessiveAsUnknown from "./src/eslint-rules/no-excessive-as-unknown.js";
 import noUnsafeGitExec from "./src/eslint-rules/no-unsafe-git-exec.js";
 import noJestPatterns from "./src/eslint-rules/no-jest-patterns.js";
+import noTestsDirectories from "./src/eslint-rules/no-tests-directories.js";
 
 export default [
   js.configs.recommended,
@@ -92,6 +93,7 @@ export default [
           "no-excessive-as-unknown": noExcessiveAsUnknown,
           "no-unsafe-git-exec": noUnsafeGitExec,
           "no-jest-patterns": noJestPatterns,
+          "no-tests-directories": noTestsDirectories,
         },
       },
     },
@@ -112,6 +114,9 @@ export default [
 
       // === TEST PATTERN ENFORCEMENT ===
       "custom/no-jest-patterns": "error", // Re-enabled after systematic Jest pattern migration
+
+      // === TEST ORGANIZATION ===
+      "custom/no-tests-directories": "warn", // Encourage co-located test files over __tests__ directories
 
       // === GIT OPERATION SAFETY ===
       "custom/no-unsafe-git-exec": [
