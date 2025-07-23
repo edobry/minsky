@@ -18,9 +18,10 @@
 
 ### Fixed
 
-- **Task & Session Commands Circular Dependencies**: Completely resolved circular dependency issues causing command failures
-  - **FIXED**: `minsky tasks list` now works successfully (returns 75 tasks)
+- **Task & Session Commands Circular Dependencies**: Completely resolved circular dependency issues and task list display
+  - **FIXED**: `minsky tasks list` now works successfully and displays all 75 tasks with proper formatting
   - **FIXED**: Original "setupTaskCommandRegistry not found" error completely eliminated
+  - **FIXED**: Task list formatting now shows actual tasks instead of just count message
   - Fixed circular export paths in `tasks.ts` and `session.ts` modules (`.../tasks` → `.../tasks/`)
   - Simplified both `ModularTasksCommandManager` and `ModularSessionCommandsManager` initialization
   - Removed dynamic imports in favor of static imports per no-dynamic-imports rule
