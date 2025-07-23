@@ -4,11 +4,11 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
-import { 
+import {
   execGitWithTimeout,
-  gitPushWithTimeout, 
+  gitPushWithTimeout,
   gitPullWithTimeout,
-  type GitExecOptions 
+  type GitExecOptions,
 } from "../../utils/git-exec";
 import type {
   RepositoryBackend,
@@ -199,11 +199,17 @@ Repository: ${this.repoUrl}
       }
 
       // Check for unstaged changes
-      const { stdout: statusOutput } = await execGitWithTimeout("remote-status-check", "status --porcelain", { workdir });
+      const { stdout: statusOutput } = await execGitWithTimeout(
+        "remote-status-check",
+        "status --porcelain",
+        { workdir }
+      );
       const dirty = statusOutput.trim().length > 0;
 
       // Get remotes
-      const { stdout: remoteOutput } = await execGitWithTimeout("remote-list", "remote", { workdir });
+      const { stdout: remoteOutput } = await execGitWithTimeout("remote-list", "remote", {
+        workdir,
+      });
       const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
       return {
@@ -324,7 +330,9 @@ Repository: ${this.repoUrl}
           if ((normalizedError?.message as any).includes("Authentication failed")) {
             return {
               success: false,
-              error: new Error("Authentication failed during push operation. Please check your credentials."),
+              error: new Error(
+                "Authentication failed during push operation. Please check your credentials."
+              ),
             };
           }
           throw normalizedError;

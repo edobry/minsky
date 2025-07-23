@@ -75,7 +75,12 @@ export default {
 
     function getSuggestion(operation) {
       const suggestions = {
-    const allowedLocalOperations = options.allowedLocalOperations || [];      };
+        push: "execGitWithTimeout() for push operations",
+        pull: "execGitWithTimeout() for pull operations",
+        fetch: "execGitWithTimeout() for fetch operations",
+        clone: "execGitWithTimeout() for clone operations",
+        "ls-remote": "execGitWithTimeout() for remote queries",
+      };
       return suggestions[operation] || "execGitWithTimeout() with appropriate timeout";
     }
 

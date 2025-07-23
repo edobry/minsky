@@ -87,10 +87,14 @@ export async function rebaseFromParams(params: {
 
   // Perform the rebase
   try {
-    const { stdout, stderr } = await execGitWithTimeout("rebase-command", `rebase ${params.baseBranch}`, {
-      workdir: repoPath,
-      timeout: 60000,
-    });
+    const { stdout, stderr } = await execGitWithTimeout(
+      "rebase-command",
+      `rebase ${params.baseBranch}`,
+      {
+        workdir: repoPath,
+        timeout: 60000,
+      }
+    );
 
     log("Rebase completed successfully", {
       baseBranch: params.baseBranch,

@@ -4,11 +4,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
-import { 
-  execGitWithTimeout,
-  gitCloneWithTimeout,
-  type GitExecOptions 
-} from "../../utils/git-exec";
+import { execGitWithTimeout, gitCloneWithTimeout, type GitExecOptions } from "../../utils/git-exec";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -149,17 +145,25 @@ export class LocalGitBackend implements RepositoryBackend {
       // If no upstream branch is set, this will fail - that's okay
     }
 
-    const { stdout: statusOutput } = await execGitWithTimeout("local-status-check", "status --porcelain", { workdir });
+    const { stdout: statusOutput } = await execGitWithTimeout(
+      "local-status-check",
+      "status --porcelain",
+      { workdir }
+    );
     const dirty = statusOutput.trim().length > 0;
     const modifiedFiles = statusOutput
       .trim()
-      .split("\n").filter(Boolean).map((line: string) => ({
+      .split("\n")
+      .filter(Boolean)
+      .map((line: string) => ({
         status: line.substring(0, 2).trim(),
         file: line.substring(3),
       }));
 
     // Get remote information
-    const { stdout: remoteOutput } = await execGitWithTimeout("local-remote-list", "remote", { workdir });
+    const { stdout: remoteOutput } = await execGitWithTimeout("local-remote-list", "remote", {
+      workdir,
+    });
     const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
     return {
