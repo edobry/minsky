@@ -39,6 +39,9 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       "session.pr": {
         description: "Create a pull request for a session",
       },
+      "session.lint": {
+        description: "Run configurable lint command in session workspace",
+      },
       "session.inspect": {
         hidden: true, // Hide from MCP - no "current session" context in remote calls
       },
