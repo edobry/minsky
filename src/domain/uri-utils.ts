@@ -270,8 +270,10 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
   try {
     // This will be implemented with actual Git detection code
     // For now, provide a placeholder implementation
-    const { execAsync } = await import("../utils/exec.js");
-    const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd });
+    const { execGitWithTimeout } = await import("../utils/git-exec.js");
+    const { stdout } = await execGitWithTimeout("rev-parse", "rev-parse --show-toplevel", {
+      workdir: cwd,
+    });
     return stdout.trim();
   } catch (_error) {
     // Not in a Git repository

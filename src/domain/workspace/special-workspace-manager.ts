@@ -219,7 +219,10 @@ export class SpecialWorkspaceManager {
       }
 
       // Check if it's a valid git repository
-      await execAsync("git rev-parse --git-dir", { cwd: this!.workspacePath });
+      const { execGitWithTimeout } = await import("../../utils/git-exec");
+      await execGitWithTimeout("rev-parse", "rev-parse --git-dir", {
+        workdir: this!.workspacePath,
+      });
 
       // Check if process/ directory exists
       const processDir = join(this!.workspacePath, "process");

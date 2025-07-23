@@ -142,6 +142,19 @@ export default {
 
     return {
       CallExpression(node) {
+        // Skip safe timeout-aware git utilities - these are already using proper timeout handling
+        if (
+          node.callee.name === "execGitWithTimeout" ||
+          (node.callee.type === "MemberExpression" &&
+            node.callee.property.name === "execGitWithTimeout") ||
+          node.callee.name === "gitPushWithTimeout" ||
+          node.callee.name === "gitPullWithTimeout" ||
+          node.callee.name === "gitFetchWithTimeout" ||
+          node.callee.name === "gitCloneWithTimeout"
+        ) {
+          return; // These are already safe - don't check them
+        }
+
         // Check for execAsync calls
         if (
           node.callee.name === "execAsync" ||
