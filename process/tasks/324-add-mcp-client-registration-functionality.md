@@ -1,4 +1,4 @@
-# Task #295: Add MCP Client Registration Functionality
+# Task #324: Add MCP Client Registration Functionality
 
 ## Context
 

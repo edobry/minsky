@@ -40,10 +40,10 @@ export class ModularTasksCommandManager {
         execute: async (params: any, context: any) => {
           const command = createTasksListCommand();
           return await command.execute(params, context);
-        }
+        },
       });
 
-            // Register get command
+      // Register get command
       sharedCommandRegistry.registerCommand({
         id: "tasks.get",
         category: "TASKS" as any,
@@ -53,7 +53,7 @@ export class ModularTasksCommandManager {
         execute: async (params: any, context: any) => {
           const command = createTasksGetCommand();
           return await command.execute(params, context);
-        }
+        },
       });
     } catch (error) {
       console.warn("Failed to register task commands:", error);

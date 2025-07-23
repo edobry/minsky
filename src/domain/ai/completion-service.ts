@@ -291,10 +291,7 @@ export class DefaultAICompletionService implements AICompletionService {
   /**
    * Get language model instance for provider and model
    */
-  private async getLanguageModel(
-    provider?: string,
-    modelName?: string
-  ): Promise<LanguageModel> {
+  private async getLanguageModel(provider?: string, modelName?: string): Promise<LanguageModel> {
     const defaultProvider = await this.configService.getDefaultProvider();
     const resolvedProvider = provider || defaultProvider;
     const providerConfig = await this.configService.getProviderConfig(resolvedProvider);
@@ -307,7 +304,8 @@ export class DefaultAICompletionService implements AICompletionService {
       );
     }
 
-    const resolvedModel = modelName || providerConfig.defaultModel || this.getDefaultModel(resolvedProvider);
+    const resolvedModel =
+      modelName || providerConfig.defaultModel || this.getDefaultModel(resolvedProvider);
     const cacheKey = `${resolvedProvider}:${resolvedModel}`;
 
     // Return cached model if available
@@ -427,7 +425,9 @@ export class DefaultAICompletionService implements AICompletionService {
           provider: "anthropic",
           name: "Claude 3.5 Haiku",
           description: "Fast and cost-effective Claude model",
-          capabilities: providerConfig.supportedCapabilities.filter(c => c.name !== "prompt-caching"),
+          capabilities: providerConfig.supportedCapabilities.filter(
+            (c) => c.name !== "prompt-caching"
+          ),
           contextWindow: 200000,
           maxOutputTokens: 8192,
           costPer1kTokens: { input: 0.001, output: 0.005 },
