@@ -21,3 +21,6 @@ export async function sessionDelete(
 
   return deps.sessionDB.deleteSession(name);
 }
+
+// Export alias for compatibility with subcommands
+export { sessionDelete as deleteSession };
