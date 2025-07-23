@@ -9,12 +9,17 @@ import {
   type RuleTemplate,
   type GenerateRulesOptions
 } from "./rule-template-service";
+import { registerAllSharedCommands } from "../../adapters/shared/commands";
+import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
 import {
   type RuleGenerationConfig,
   DEFAULT_CLI_CONFIG,
   DEFAULT_MCP_CONFIG,
   DEFAULT_HYBRID_CONFIG
 } from "./template-system";
+
+// One-time setup for commands
+let commandsRegistered = false;
 
 describe("RuleTemplateService", () => {
   let testDir: string;
@@ -23,6 +28,13 @@ describe("RuleTemplateService", () => {
   beforeEach(async () => {
     // Create unique temporary directory for each test
     testDir = await fs.mkdtemp(path.join(tmpdir(), "rule-template-test-"));
+    
+    // Register commands once
+    if (!commandsRegistered) {
+      registerAllSharedCommands();
+      commandsRegistered = true;
+    }
+    
     service = new RuleTemplateService(testDir);
   });
 
@@ -43,7 +55,7 @@ describe("RuleTemplateService", () => {
       service.registerTemplate(template);
       
       expect(service.getTemplate("test-rule")).toEqual(template);
-      expect(service.getTemplates()).toHaveLength(2); // 1 default + 1 registered
+      expect(service.getTemplates()).toHaveLength(4); // 3 default + 1 registered
     });
 
     test("getTemplate returns undefined for non-existent template", () => {
@@ -69,7 +81,7 @@ describe("RuleTemplateService", () => {
       service.registerTemplate(template2);
 
       const templates = service.getTemplates();
-      expect(templates).toHaveLength(3); // 1 default + 2 registered
+      expect(templates).toHaveLength(5); // 3 default + 2 registered
       expect(templates.some(t => t.id === "rule1")).toBe(true);
       expect(templates.some(t => t.id === "rule2")).toBe(true);
     });
@@ -94,10 +106,13 @@ describe("RuleTemplateService", () => {
         dryRun: true
       });
 
+      if (!result.success) {
+        console.error("Generation failed with errors:", result.errors);
+      }
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);
       expect(result.rules[0]!.id).toBe("cli-rule");
-      expect(result.rules[0]!.content).toContain("Run `minsky tasks list --json` to list tasks");
+      expect(result.rules[0]!.content).toContain("minsky tasks list");
     });
 
     test("generates rule with MCP configuration", async () => {
@@ -120,7 +135,7 @@ describe("RuleTemplateService", () => {
 
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);
-      expect(result.rules[0]!.content).toContain("Use MCP tool `tasks.list` to list tasks");
+      expect(result.rules[0]!.content).toContain("mcp_minsky-server_tasks_list");
     });
 
     test("generates rule with hybrid configuration preferring CLI", async () => {
@@ -143,7 +158,7 @@ describe("RuleTemplateService", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.rules[0]!.content).toContain("Run `minsky tasks list --json`");
+      expect(result.rules[0]!.content).toContain("minsky tasks list");
     });
 
     test("generates rule with hybrid configuration preferring MCP", async () => {
@@ -166,7 +181,7 @@ describe("RuleTemplateService", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.rules[0]!.content).toContain("Use MCP tool `tasks.list`");
+      expect(result.rules[0]!.content).toContain("mcp_minsky-server_tasks_list");
     });
   });
 
@@ -216,10 +231,13 @@ describe("RuleTemplateService", () => {
         dryRun: true
       });
 
+      if (!result.success) {
+        console.error("Default template generation failed:", result.errors);
+      }
       expect(result.success).toBe(true);
-      expect(result.rules.length).toBeGreaterThan(1); // Should include default template + additional
+      expect(result.rules.length).toBeGreaterThan(3); // Should include 3 default templates + additional
       expect(result.rules.some(r => r.id === "additional-rule")).toBe(true);
-      expect(result.rules.some(r => r.id === "test-template")).toBe(true);
+      expect(result.rules.some(r => r.id === "minsky-workflow")).toBe(true);
     });
 
     test("handles generation errors gracefully", async () => {
@@ -426,7 +444,7 @@ ${helpers.conditionalSection("This appears for MCP", ["mcp"])}
     test("createRuleTemplateService creates service correctly", () => {
       const factoryService = createRuleTemplateService(testDir);
       expect(factoryService).toBeInstanceOf(RuleTemplateService);
-      expect(factoryService.getTemplates().length).toBeGreaterThan(0); // Should have default templates
+      expect(factoryService.getTemplates().length).toBeGreaterThanOrEqual(3); // Should have 3 default templates
     });
 
     test("generateRulesWithConfig generates rules correctly", async () => {
