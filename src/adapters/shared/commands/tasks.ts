@@ -703,22 +703,22 @@ const tasksDeleteRegistration = {
 const tasksMigrateParams: CommandParameterMap = {
   to: {
     schema: z.enum([
-      "markdown", 
-      "json-file", 
+      "markdown",
+      "json-file",
       "github-issues",
       "github-sqlite-hybrid",
-      "markdown-sqlite-hybrid"
+      "markdown-sqlite-hybrid",
     ]),
     description: "Target backend type (includes hybrid backends)",
     required: true,
   },
   from: {
     schema: z.enum([
-      "markdown", 
-      "json-file", 
+      "markdown",
+      "json-file",
       "github-issues",
-      "github-sqlite-hybrid", 
-      "markdown-sqlite-hybrid"
+      "github-sqlite-hybrid",
+      "markdown-sqlite-hybrid",
     ]),
     description: "Source backend type (auto-detect if not provided)",
     required: false,
@@ -764,29 +764,33 @@ const tasksMigrateParams: CommandParameterMap = {
  * Helper function to create backends for migration, including hybrid backends
  */
 async function createBackendForMigration(
-  backendType: string, 
-  workspacePath: string, 
+  backendType: string,
+  workspacePath: string,
   sqliteDbPath?: string
 ): Promise<any> {
   const { TaskService } = await import("../../../domain/tasks/taskService");
-  
+
   switch (backendType) {
-    case "github-sqlite-hybrid":
+    case "github-sqlite-hybrid": {
       // Import hybrid backend
-      const { createGitHubSqliteHybridBackend } = await import("../../../domain/tasks/githubSqliteHybridBackend");
-      
+      const { createGitHubSqliteHybridBackend } = await import(
+        "../../../domain/tasks/githubSqliteHybridBackend"
+      );
+
       // Create octokit instance (this would need proper configuration)
       const { Octokit } = await import("@octokit/rest");
       const octokit = new Octokit({
         auth: process.env.GITHUB_TOKEN,
       });
-      
+
       // Parse repo info from environment or config
       const [owner, repo] = (process.env.GITHUB_REPOSITORY || "").split("/");
       if (!owner || !repo) {
-        throw new Error("GitHub repository not configured. Set GITHUB_REPOSITORY environment variable.");
+        throw new Error(
+          "GitHub repository not configured. Set GITHUB_REPOSITORY environment variable."
+        );
       }
-      
+
       const hybridBackend = createGitHubSqliteHybridBackend({
         octokit,
         owner,
@@ -794,40 +798,42 @@ async function createBackendForMigration(
         workspacePath,
         metadataDatabasePath: sqliteDbPath,
       });
-      
+
       await hybridBackend.initialize();
-      
+
       // Return a wrapper that implements TaskService interface
       return {
         getAllTasks: () => hybridBackend.listTasks(),
         getTask: (id: string) => hybridBackend.getTask(id),
-        createTask: (title: string, description?: string) => 
+        createTask: (title: string, description?: string) =>
           hybridBackend.createTask({ id: "", title, description }),
-        updateTaskStatus: (id: string, status: string) => 
-          hybridBackend.setTaskStatus(id, status),
+        updateTaskStatus: (id: string, status: string) => hybridBackend.setTaskStatus(id, status),
         getBackend: () => hybridBackend,
       };
-      
-    case "markdown-sqlite-hybrid":
-      const { createMarkdownSqliteHybridBackend } = await import("../../../domain/tasks/markdownSqliteHybridBackend");
-      
+    }
+
+    case "markdown-sqlite-hybrid": {
+      const { createMarkdownSqliteHybridBackend } = await import(
+        "../../../domain/tasks/markdownSqliteHybridBackend"
+      );
+
       const mdHybridBackend = createMarkdownSqliteHybridBackend({
         workspacePath,
         metadataDatabasePath: sqliteDbPath,
       });
-      
+
       await mdHybridBackend.initialize();
-      
+
       return {
         getAllTasks: () => mdHybridBackend.listTasks(),
         getTask: (id: string) => mdHybridBackend.getTask(id),
-        createTask: (title: string, description?: string) => 
+        createTask: (title: string, description?: string) =>
           mdHybridBackend.createTask({ id: "", title, description }),
-        updateTaskStatus: (id: string, status: string) => 
-          mdHybridBackend.setTaskStatus(id, status),
+        updateTaskStatus: (id: string, status: string) => mdHybridBackend.setTaskStatus(id, status),
         getBackend: () => mdHybridBackend,
       };
-      
+    }
+
     case "markdown":
     case "json-file":
       // Use enhanced backend creation for traditional backends
@@ -835,7 +841,7 @@ async function createBackendForMigration(
         backend: backendType as "markdown" | "json-file",
         backendConfig: { workspacePath },
       });
-      
+
     default:
       // Use standard TaskService for other backends
       return new TaskService({
@@ -855,7 +861,17 @@ const tasksMigrateRegistration = {
   description: "Migrate tasks between backends (markdown, json-file, github-issues)",
   parameters: tasksMigrateParams,
   execute: async (params: any, context: CommandExecutionContext) => {
-    const { to, from, backup, dryRun, workspacePath, statusMapping, metadataOnly, specsOnly, sqliteDbPath } = params;
+    const {
+      to,
+      from,
+      backup,
+      dryRun,
+      workspacePath,
+      statusMapping,
+      metadataOnly,
+      specsOnly,
+      sqliteDbPath,
+    } = params;
 
     try {
       // Import TaskService
@@ -903,16 +919,12 @@ const tasksMigrateRegistration = {
 
       // Create backend services with hybrid backend support
       sourceService = await createBackendForMigration(
-        sourceBackend, 
-        currentWorkspacePath, 
+        sourceBackend,
+        currentWorkspacePath,
         sqliteDbPath
       );
-      
-      targetService = await createBackendForMigration(
-        to, 
-        currentWorkspacePath, 
-        sqliteDbPath
-      );
+
+      targetService = await createBackendForMigration(to, currentWorkspacePath, sqliteDbPath);
 
       // Get all tasks from source backend
       const sourceTasks = await sourceService.getAllTasks();

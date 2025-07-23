@@ -13,7 +13,6 @@ import type {
   TaskSpecStorage,
   MetadataDatabase,
   Task,
-  TaskSpec,
   TaskMetadata,
   TaskListOptions,
   CreateTaskOptions,
@@ -22,6 +21,7 @@ import type {
   BackendCapabilities,
   SpecStorageCapabilities,
 } from "./types";
+import type { TaskSpecData } from "../../types/tasks/taskData";
 import { createSqliteMetadataDatabase } from "./sqliteMetadataDatabase";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
@@ -32,7 +32,7 @@ import { getErrorMessage } from "../../errors/index";
  */
 export class GitHubIssuesSpecStorage implements TaskSpecStorage {
   name = "github-issues";
-  
+
   constructor(
     private readonly octokit: any,
     private readonly owner: string,
@@ -40,7 +40,7 @@ export class GitHubIssuesSpecStorage implements TaskSpecStorage {
     private readonly workspacePath: string
   ) {}
 
-  async listTaskSpecs(options?: TaskListOptions): Promise<TaskSpec[]> {
+  async listTaskSpecs(options?: TaskListOptions): Promise<TaskSpecData[]> {
     try {
       const { data: issues } = await this.octokit.rest.issues.list({
         owner: this.owner,
@@ -53,8 +53,7 @@ export class GitHubIssuesSpecStorage implements TaskSpecStorage {
         id: issue.number.toString(),
         title: issue.title,
         description: issue.body || "",
-        content: issue.body || "",
-        specPath: issue.html_url,
+        metadata: { specPath: issue.html_url },
       }));
     } catch (error) {
       log.error("Failed to list GitHub task specs", {
@@ -66,7 +65,7 @@ export class GitHubIssuesSpecStorage implements TaskSpecStorage {
     }
   }
 
-  async getTaskSpec(id: string): Promise<TaskSpec | null> {
+  async getTaskSpec(id: string): Promise<TaskSpecData | null> {
     try {
       const { data: issue } = await this.octokit.rest.issues.get({
         owner: this.owner,
@@ -78,8 +77,7 @@ export class GitHubIssuesSpecStorage implements TaskSpecStorage {
         id: issue.number.toString(),
         title: issue.title,
         description: issue.body || "",
-        content: issue.body || "",
-        specPath: issue.html_url,
+        metadata: { specPath: issue.html_url },
       };
     } catch (error) {
       if ((error as any)?.status === 404) {
@@ -93,7 +91,7 @@ export class GitHubIssuesSpecStorage implements TaskSpecStorage {
     }
   }
 
-  async createTaskSpec(spec: TaskSpec, options?: CreateTaskOptions): Promise<TaskSpec> {
+  async createTaskSpec(spec: TaskSpecData, options?: CreateTaskOptions): Promise<TaskSpecData> {
     try {
       const { data: issue } = await this.octokit.rest.issues.create({
         owner: this.owner,
@@ -179,7 +177,7 @@ export interface GitHubSqliteHybridBackendOptions {
   owner: string;
   repo: string;
   workspacePath: string;
-  
+
   // SQLite configuration
   metadataDatabasePath?: string;
 }
@@ -189,7 +187,7 @@ export interface GitHubSqliteHybridBackendOptions {
  */
 export class GitHubSqliteHybridBackend implements HybridTaskBackend {
   name = "github-sqlite-hybrid";
-  
+
   readonly specStorage: GitHubIssuesSpecStorage;
   readonly metadataStorage: MetadataDatabase;
 
@@ -200,7 +198,7 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
       options.repo,
       options.workspacePath
     );
-    
+
     this.metadataStorage = createSqliteMetadataDatabase({
       databasePath: options.metadataDatabasePath,
     });
@@ -214,12 +212,12 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
     try {
       // Get specs from GitHub
       const specs = await this.specStorage.listTaskSpecs(options);
-      
+
       // Get metadata for all tasks
       const tasks: Task[] = [];
       for (const spec of specs) {
         const metadata = await this.metadataStorage.getTaskMetadata(spec.id);
-        
+
         tasks.push({
           id: spec.id,
           title: spec.title,
@@ -230,7 +228,7 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
           workspacePath: this.getWorkspacePath(),
         });
       }
-      
+
       return tasks;
     } catch (error) {
       log.error("Failed to list hybrid tasks", {
@@ -277,14 +275,14 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
     try {
       // Create spec in GitHub
       const createdSpec = await this.specStorage.createTaskSpec(spec, options);
-      
+
       // Create metadata in SQLite
       const taskMetadata: TaskMetadata = {
         ...metadata,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      
+
       await this.metadataStorage.setTaskMetadata(createdSpec.id, taskMetadata);
 
       return {
@@ -344,7 +342,7 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
         this.specStorage.deleteTaskSpec(id, options),
         this.metadataStorage.deleteTaskMetadata(id),
       ]);
-      
+
       return specDeleted;
     } catch (error) {
       log.error("Failed to delete hybrid task", {
@@ -367,7 +365,7 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
       status: status as any,
       updatedAt: new Date().toISOString(),
     };
-    
+
     await this.metadataStorage.setTaskMetadata(id, updatedMetadata);
   }
 
@@ -380,7 +378,7 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
       ...metadata,
       updatedAt: new Date().toISOString(),
     };
-    
+
     await this.metadataStorage.setTaskMetadata(id, updatedMetadata);
   }
 
@@ -388,7 +386,7 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
     try {
       // Query metadata first
       const metadataResults = await this.metadataStorage.queryTasks(query);
-      
+
       // Get corresponding specs
       const tasks: Task[] = [];
       for (const metadata of metadataResults) {
@@ -407,7 +405,7 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
           }
         }
       }
-      
+
       return tasks;
     } catch (error) {
       log.error("Failed to query hybrid tasks by metadata", {
@@ -424,7 +422,7 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
 
   getCapabilities(): BackendCapabilities {
     const specCaps = this.specStorage.getSpecStorageCapabilities();
-    
+
     return {
       // Core operations
       supportsTaskCreation: true,
@@ -450,7 +448,7 @@ export class GitHubSqliteHybridBackend implements HybridTaskBackend {
       requiresSpecialWorkspace: specCaps.requiresSpecialWorkspace,
       supportsTransactions: false, // GitHub doesn't support transactions
       supportsRealTimeSync: specCaps.supportsRealTimeSync,
-      
+
       // Hybrid backend indicators
       isHybridBackend: true,
       specStorageType: "github-issues",

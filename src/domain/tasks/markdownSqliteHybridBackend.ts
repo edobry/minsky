@@ -35,7 +35,7 @@ import { getErrorMessage } from "../../errors/index";
  */
 export class MarkdownFilesSpecStorage implements TaskSpecStorage {
   name = "markdown-files";
-  
+
   constructor(private readonly workspacePath: string) {}
 
   private get tasksDirectory(): string {
@@ -46,7 +46,7 @@ export class MarkdownFilesSpecStorage implements TaskSpecStorage {
     try {
       const fs = await import("fs/promises");
       const files = await fs.readdir(this.tasksDirectory);
-      
+
       const specs: TaskSpec[] = [];
       for (const file of files) {
         if (file.endsWith(".md") && file.match(/^\d+/)) {
@@ -59,7 +59,7 @@ export class MarkdownFilesSpecStorage implements TaskSpecStorage {
           }
         }
       }
-      
+
       return specs;
     } catch (error) {
       log.error("Failed to list markdown task specs", {
@@ -74,23 +74,21 @@ export class MarkdownFilesSpecStorage implements TaskSpecStorage {
     try {
       const files = await import("fs/promises");
       const dirFiles = await files.readdir(this.tasksDirectory);
-      
+
       // Find the markdown file for this task ID
-      const taskFile = dirFiles.find(file => 
-        file.startsWith(`${id}-`) && file.endsWith(".md")
-      );
-      
+      const taskFile = dirFiles.find((file) => file.startsWith(`${id}-`) && file.endsWith(".md"));
+
       if (!taskFile) {
         return null;
       }
-      
+
       const filePath = join(this.tasksDirectory, taskFile);
       const content = await readFile(filePath, "utf-8");
-      
+
       // Extract title from the first H1 header
       const titleMatch = content.match(/^#\s+(.+)$/m);
       const title = titleMatch?.[1] || taskFile.replace(/^\d+-/, "").replace(/\.md$/, "");
-      
+
       return {
         id,
         title,
@@ -117,25 +115,25 @@ export class MarkdownFilesSpecStorage implements TaskSpecStorage {
         .toLowerCase()
         .replace(/[^a-z0-9\s-]/g, "")
         .replace(/\s+/g, "-");
-      
+
       const filename = `${spec.id}-${sanitizedTitle}.md`;
       const filePath = join(this.tasksDirectory, filename);
-      
+
       // Check if file exists and force is not set
       if (existsSync(filePath) && !options?.force) {
         throw new Error(`Task spec file already exists: ${filename}`);
       }
-      
+
       // Create markdown content
       const content = spec.content || `# ${spec.title}\n\n${spec.description || ""}`;
-      
+
       // Ensure directory exists
       const fs = await import("fs/promises");
       await fs.mkdir(this.tasksDirectory, { recursive: true });
-      
+
       // Write file
       await writeFile(filePath, content, "utf-8");
-      
+
       return {
         ...spec,
         specPath: filePath,
@@ -156,15 +154,15 @@ export class MarkdownFilesSpecStorage implements TaskSpecStorage {
       if (!existingSpec) {
         throw new Error(`Task spec not found: ${id}`);
       }
-      
+
       // Update content if title or description changed
       let content = existingSpec.content || "";
-      
+
       if (spec.title && spec.title !== existingSpec.title) {
         // Update the H1 header
         content = content.replace(/^#\s+.+$/m, `# ${spec.title}`);
       }
-      
+
       if (spec.description !== undefined) {
         // Replace everything after the first H1
         const titleMatch = content.match(/^(#\s+.+$)/m);
@@ -174,11 +172,11 @@ export class MarkdownFilesSpecStorage implements TaskSpecStorage {
           content = `# ${spec.title || existingSpec.title}\n\n${spec.description}`;
         }
       }
-      
+
       if (spec.content) {
         content = spec.content;
       }
-      
+
       // Write updated content
       await writeFile(existingSpec.specPath!, content, "utf-8");
     } catch (error) {
@@ -196,7 +194,7 @@ export class MarkdownFilesSpecStorage implements TaskSpecStorage {
       if (!spec || !spec.specPath) {
         return false;
       }
-      
+
       await unlink(spec.specPath);
       return true;
     } catch (error) {
@@ -236,13 +234,13 @@ export interface MarkdownSqliteHybridBackendOptions {
  */
 export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
   name = "markdown-sqlite-hybrid";
-  
+
   readonly specStorage: MarkdownFilesSpecStorage;
   readonly metadataStorage: MetadataDatabase;
 
   constructor(options: MarkdownSqliteHybridBackendOptions) {
     this.specStorage = new MarkdownFilesSpecStorage(options.workspacePath);
-    
+
     this.metadataStorage = createSqliteMetadataDatabase({
       databasePath: options.metadataDatabasePath,
     });
@@ -256,17 +254,17 @@ export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
     try {
       // Get specs from markdown files
       const specs = await this.specStorage.listTaskSpecs(options);
-      
+
       // Get metadata for all tasks
       const tasks: Task[] = [];
       for (const spec of specs) {
         const metadata = await this.metadataStorage.getTaskMetadata(spec.id);
-        
+
         // Filter by status if requested
         if (options?.status && metadata?.status !== options.status) {
           continue;
         }
-        
+
         tasks.push({
           id: spec.id,
           title: spec.title,
@@ -277,7 +275,7 @@ export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
           workspacePath: this.getWorkspacePath(),
         });
       }
-      
+
       return tasks;
     } catch (error) {
       log.error("Failed to list markdown-sqlite hybrid tasks", {
@@ -324,14 +322,14 @@ export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
     try {
       // Create spec in markdown
       const createdSpec = await this.specStorage.createTaskSpec(spec, options);
-      
+
       // Create metadata in SQLite
       const taskMetadata: TaskMetadata = {
         ...metadata,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      
+
       await this.metadataStorage.setTaskMetadata(createdSpec.id, taskMetadata);
 
       return {
@@ -391,7 +389,7 @@ export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
         this.specStorage.deleteTaskSpec(id, options),
         this.metadataStorage.deleteTaskMetadata(id),
       ]);
-      
+
       return specDeleted;
     } catch (error) {
       log.error("Failed to delete markdown-sqlite hybrid task", {
@@ -414,7 +412,7 @@ export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
       status: status as any,
       updatedAt: new Date().toISOString(),
     };
-    
+
     await this.metadataStorage.setTaskMetadata(id, updatedMetadata);
   }
 
@@ -427,7 +425,7 @@ export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
       ...metadata,
       updatedAt: new Date().toISOString(),
     };
-    
+
     await this.metadataStorage.setTaskMetadata(id, updatedMetadata);
   }
 
@@ -435,7 +433,7 @@ export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
     try {
       // Query metadata first
       const metadataResults = await this.metadataStorage.queryTasks(query);
-      
+
       // Get corresponding specs
       const tasks: Task[] = [];
       for (const metadata of metadataResults) {
@@ -454,7 +452,7 @@ export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
           }
         }
       }
-      
+
       return tasks;
     } catch (error) {
       log.error("Failed to query markdown-sqlite hybrid tasks by metadata", {
@@ -471,7 +469,7 @@ export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
 
   getCapabilities(): BackendCapabilities {
     const specCaps = this.specStorage.getSpecStorageCapabilities();
-    
+
     return {
       // Core operations
       supportsTaskCreation: true,
@@ -497,7 +495,7 @@ export class MarkdownSqliteHybridBackend implements HybridTaskBackend {
       requiresSpecialWorkspace: specCaps.requiresSpecialWorkspace,
       supportsTransactions: false, // File system doesn't support transactions
       supportsRealTimeSync: specCaps.supportsRealTimeSync,
-      
+
       // Hybrid backend indicators
       isHybridBackend: true,
       specStorageType: "markdown-files",

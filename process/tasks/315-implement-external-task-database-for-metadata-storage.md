@@ -1,9 +1,12 @@
 # Implement Task Backend Capabilities System and Enhanced Metadata Support
 
-## Status: ⚠️ PARTIALLY COMPLETED
+## Status: ✅ COMPLETED
 
-**Completed**: Backend capabilities, JSON metadata, migration command, SQLite implementation  
-**Missing**: True spec/metadata separation - backends are still monolithic
+**Phase 5 COMPLETED**: True spec/metadata separation with hybrid backends implemented
+- ✅ Backend capabilities, JSON metadata, migration command, SQLite implementation  
+- ✅ True spec/metadata separation with HybridTaskBackend architecture
+- ✅ GitHub + SQLite hybrid backend for collaborative workflows
+- ✅ Markdown + SQLite hybrid backend for file-based workflows
 
 ## Context
 
@@ -258,18 +261,19 @@ Focus on essential capabilities while preserving workflows:
 - **Automatic tracking**: createdAt, updatedAt, status stored transparently
 - **Future-ready foundation**: Infrastructure for Tasks #238 (subtasks) and #239 (dependencies)
 
-## ⚠️ Success Criteria (PARTIAL COMPLETION)
+## ✅ Success Criteria (FULLY ACHIEVED)
 
-1. **❌ Clear Architecture**: Spec vs metadata storage distinction NOT IMPLEMENTED
+1. **✅ Clear Architecture**: Spec vs metadata storage distinction IMPLEMENTED via TaskSpecStorage + MetadataDatabase
 2. **✅ Backend Capability Discovery**: Any code can query what a backend supports via `getCapabilities()`
-3. **⚠️ Essential Metadata Support**: Metadata works but NOT separated from specs
-4. **⚠️ Flexible Storage**: JSON backend stores BOTH specs and metadata together
-5. **✅ Migration Path**: `minsky tasks migrate` provides smooth transition from markdown backend
-6. **⚠️ Foundation Ready**: Infrastructure exists but with architectural limitations
-7. **✅ Default Integration**: JSON backend is now the default with seamless metadata tracking
+3. **✅ Essential Metadata Support**: True metadata separation with hybrid backends
+4. **✅ Flexible Storage**: Hybrid backends support GitHub + SQLite, Markdown + SQLite combinations
+5. **✅ Migration Path**: `minsky tasks migrate` supports all backends including hybrid ones
+6. **✅ Foundation Ready**: Full architecture implemented with hybrid backend patterns
+7. **✅ Default Integration**: JSON backend remains default, hybrid backends available for advanced use
 8. **✅ Special Workspace Support**: Full integration with Minsky's workspace management system
+9. **✅ Hybrid Workflows**: True GitHub collaboration + rich local metadata workflows enabled
 
-## ⚠️ ARCHITECTURAL GAP: Spec vs Metadata Separation Not Implemented
+## ✅ ARCHITECTURAL ACHIEVEMENT: Spec vs Metadata Separation Successfully Implemented
 
 ### What We Intended to Build
 The original design called for **true separation** of task specs from task metadata:
@@ -307,32 +311,35 @@ Without true spec/metadata separation:
 
 ## 🚧 Remaining Work for True Spec/Metadata Separation
 
-### Phase 5: Implement True Separation (NOT COMPLETED)
+### ✅ Phase 5: Implement True Separation (COMPLETED)
 
-To achieve the original architectural vision, we need:
+**IMPLEMENTED SOLUTIONS:**
 
-1. **Refactor Backend Architecture**
+1. **✅ Refactored Backend Architecture**
    ```typescript
-   interface TaskBackend {
-     specStorage: TaskSpecStorage;      // Handles task content
-     metadataStorage?: MetadataStorage; // Handles metadata separately
+   // New interfaces implemented:
+   interface TaskSpecStorage { /* handles task content */ }
+   interface HybridTaskBackend { 
+     specStorage: TaskSpecStorage;
+     metadataStorage: MetadataDatabase;
    }
    ```
 
-2. **Implement Hybrid Backends**
-   - **GitHub + SQLite**: GitHub Issues for specs, local SQLite for metadata
-   - **Markdown + SQLite**: Markdown files for specs, SQLite for metadata
-   - **GitHub + JSON**: GitHub Issues for specs, JSON file for metadata
+2. **✅ Implemented Hybrid Backends**
+   - **✅ GitHub + SQLite**: `GitHubSqliteHybridBackend` - GitHub Issues for specs, local SQLite for metadata
+   - **✅ Markdown + SQLite**: `MarkdownSqliteHybridBackend` - Markdown files for specs, SQLite for metadata
+   - **Future**: GitHub + JSON can be easily added following the same pattern
 
-3. **Update Migration System**
-   - Support migrating specs and metadata independently
-   - Allow GitHub spec migration while preserving local metadata
-   - Enable spec backend changes without metadata loss
+3. **✅ Updated Migration System**
+   - ✅ Support for hybrid backends in `minsky tasks migrate` command
+   - ✅ New parameters: `--metadata-only`, `--specs-only`, `--sqlite-db-path`
+   - ✅ Independent spec/metadata migration capabilities
+   - ✅ GitHub spec migration while preserving local metadata
 
-4. **Integrate MetadataDatabase**
-   - Wire up the SQLite implementation we built
-   - Make backends use MetadataDatabase interface
-   - Ensure proper transaction boundaries
+4. **✅ Integrated MetadataDatabase**
+   - ✅ Wired up the existing SQLite implementation 
+   - ✅ Hybrid backends use MetadataDatabase interface properly
+   - ✅ Proper transaction boundaries and initialization
 
 ### Benefits of Completing This Work
 
@@ -341,24 +348,33 @@ To achieve the original architectural vision, we need:
 3. **Migration Flexibility**: Change spec backends without losing metadata
 4. **Clean Architecture**: Proper separation of concerns for future features
 
-## 🔧 Current State: Working but Monolithic
+## ✅ Current State: True Hybrid Architecture Working
 
-The current implementation is **functional but architecturally limited**:
+The implementation now provides **true spec/metadata separation**:
 
 ```bash
-# This works but stores everything together
+# Traditional backends still work
 minsky tasks migrate --to json-file --backup
 
-# Metadata is tracked but not separated
-minsky tasks list           # JSON backend with integrated metadata
-minsky tasks status set #123 DONE  # Updates both spec and metadata together
+# NEW: Hybrid backends with true separation
+minsky tasks migrate --to github-sqlite-hybrid --sqlite-db-path ~/.minsky/metadata.db
+minsky tasks migrate --to markdown-sqlite-hybrid
+
+# Metadata is now properly separated
+minsky tasks list           # Works with any backend
+minsky tasks status set #123 DONE  # Updates metadata without touching specs
 ```
 
-### Migration to GitHub Issues: ⚠️ Metadata Loss
+### Migration to GitHub Issues: ✅ Metadata Preserved
 ```bash
-# WARNING: This works but LOSES all metadata
-minsky tasks migrate --to github-issues
-# createdAt, updatedAt, future subtasks/dependencies - all lost!
+# NEW: Migrate to GitHub while preserving metadata in SQLite
+minsky tasks migrate --to github-sqlite-hybrid --sqlite-db-path ~/.minsky/metadata.db
+
+# Or migrate only specs, keeping existing metadata
+minsky tasks migrate --to github-issues --specs-only
+
+# Or migrate only metadata to a new database  
+minsky tasks migrate --to markdown-sqlite-hybrid --metadata-only --sqlite-db-path /new/path.db
 ```
 
 ## Next Steps After This Task
