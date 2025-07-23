@@ -88,10 +88,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return null;
     }
 
-    return (
-      result.data!.sessions.find((session) => session.session === id) ||
-      null
-    );
+    return result.data!.sessions.find((session) => session.session === id) || null;
   }
 
   async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
@@ -114,9 +111,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
         });
       }
       if (options.repoName) {
-        sessions = sessions.filter(
-          (s) => s.repoName === options.repoName
-        );
+        sessions = sessions.filter((s) => s.repoName === options.repoName);
       }
       if (options.branch) {
         sessions = sessions.filter((s) => s.branch === options.branch);

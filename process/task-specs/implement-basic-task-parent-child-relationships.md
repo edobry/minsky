@@ -30,18 +30,21 @@ Implement the minimal viable parent-child relationship system that allows:
 ### Monitorable Task Graph Design
 
 **Execution Transparency Requirements:**
+
 - Task hierarchy must support real-time monitoring of AI execution at each node
 - Parent-child relationships must enable "Chain-of-Execution" visibility
 - Task state changes must be observable and interventions must be possible
 - Task graph structure must support subgraph preemption and restart capabilities
 
 **Intervention Points:**
+
 - Each parent-child relationship represents a potential intervention boundary
 - Task execution can be interrupted at any node in the hierarchy
 - Subgraph termination and regeneration must be supported
 - Human oversight can redirect execution at any level of the hierarchy
 
 **Metadata for Monitoring:**
+
 - Task relationships must store execution context and reasoning traces
 - Parent-child links must support intervention history and decision rationale
 - Task hierarchy must enable rollback to any previous state

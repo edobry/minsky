@@ -5,11 +5,13 @@ Eliminated the "Enhanced Storage Backend Factory" which constituted a meta-cogni
 ## Changes
 
 ### Removed
+
 - **DELETED**: `src/domain/storage/enhanced-storage-backend-factory.ts` (405 lines)
 - **DELETED**: `src/domain/storage/__tests__/enhanced-storage-backend-factory.test.ts` (443 lines)
 - Total reduction: 848 lines of duplicated code eliminated
 
 ### Added
+
 - Extended `StorageConfig` interface with integrity options (`enableIntegrityCheck`, `autoMigrate`, `promptOnIntegrityIssues`)
 - Added `StorageResult` interface for integrity reporting
 - Integrated `DatabaseIntegrityChecker` functionality into main factory
@@ -18,15 +20,17 @@ Eliminated the "Enhanced Storage Backend Factory" which constituted a meta-cogni
 - Added schema files for error and runtime types
 
 ### Changed
+
 - **BEFORE**: "Enhanced Storage Backend Factory" (internal assessment language)
 - **AFTER**: "Storage Backend Factory" with functional descriptions:
   - `createStorageBackendWithIntegrity()` - describes what it does
-  - `createStrictStorageBackend()` - describes validation mode  
+  - `createStrictStorageBackend()` - describes validation mode
   - `createAutoMigratingStorageBackend()` - describes migration behavior
 - Updated `SessionDbAdapter` to use merged factory with integrity checking enabled by default
 - Fixed failing DatabaseIntegrityChecker tests with correct error message expectations
 
 ### Fixed
+
 - Meta-cognitive boundary violation eliminated
 - 3 failing DatabaseIntegrityChecker tests now pass with correct error messages
 - All 32 storage tests pass (24 DatabaseIntegrityChecker + 8 JsonFileStorage)
@@ -35,6 +39,7 @@ Eliminated the "Enhanced Storage Backend Factory" which constituted a meta-cogni
 ## Preserved Functionality
 
 All valuable features maintained:
+
 - Database integrity checking (prevents data loss)
 - Auto-migration capabilities (safe backend switching)
 - Enhanced error reporting (detailed diagnostics)

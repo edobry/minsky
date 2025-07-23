@@ -35,7 +35,7 @@ describe("resolveSessionContext", () => {
           createdAt: "2024-01-02T00:00:00Z",
           taskId: "456", // Plain format for storage
         },
-      ]
+      ],
     });
   });
 
@@ -130,7 +130,7 @@ describe("resolveSessionName", () => {
           createdAt: "2024-01-01T00:00:00Z",
           taskId: "123",
         },
-      ]
+      ],
     });
 
     const sessionName = await resolveSessionName({
@@ -154,7 +154,7 @@ describe("validateSessionContext", () => {
           createdAt: "2024-01-01T00:00:00Z",
           taskId: "123",
         },
-      ]
+      ],
     });
 
     const isValid = await validateSessionContext({

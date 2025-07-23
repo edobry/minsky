@@ -17,7 +17,7 @@ async function testSessiondbMigration() {
 
   // Get the migrate command
   const migrateCommand = sharedCommandRegistry.getCommand("sessiondb.migrate");
-  
+
   if (!migrateCommand) {
     throw new Error("sessiondb.migrate command not found");
   }
@@ -26,7 +26,7 @@ async function testSessiondbMigration() {
 
   // Test dry run migration from backup
   const backupFile = "/Users/edobry/.local/state/minsky/session-db-backup-1750696515391.json";
-  
+
   try {
     const result = await migrateCommand.execute(
       {
@@ -41,7 +41,7 @@ async function testSessiondbMigration() {
     );
 
     log.info("✅ Dry run migration test successful:", result);
-    
+
     if (result.success) {
       log.info(`Would migrate ${result.sourceCount} sessions from backup to SQLite`);
     }
@@ -62,4 +62,4 @@ testSessiondbMigration()
   .catch((error) => {
     log.error("💥 Test failed:", error);
     process.exit(1);
-  }); 
+  });

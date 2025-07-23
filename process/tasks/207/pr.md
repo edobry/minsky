@@ -9,7 +9,7 @@ This PR implements a new CLOSED task status for tasks that are no longer relevan
 ### Added
 
 - **CLOSED Status Support**: Added CLOSED to task status constants with "!" checkbox representation
-- **Schema Validation**: Updated task schemas to include CLOSED status validation  
+- **Schema Validation**: Updated task schemas to include CLOSED status validation
 - **CLI Integration**: Added CLOSED status support to all CLI commands (list, filter, set status)
 - **Backend Configuration**: Updated GitHub backend and migration utilities for CLOSED status
 - **Test Coverage**: Added comprehensive test coverage for CLOSED status functionality
@@ -29,34 +29,36 @@ This PR implements a new CLOSED task status for tasks that are no longer relevan
 // src/domain/tasks/taskConstants.ts
 export const TASK_STATUS = {
   TODO: "TODO",
-  IN_PROGRESS: "IN_PROGRESS", 
+  IN_PROGRESS: "IN_PROGRESS",
   DONE: "DONE",
-  CLOSED: "CLOSED",  // New status
+  CLOSED: "CLOSED", // New status
 } as const;
 
 export const TASK_STATUS_CHECKBOX_MAP = {
   [TASK_STATUS.TODO]: "[ ]",
   [TASK_STATUS.IN_PROGRESS]: "[~]",
-  [TASK_STATUS.DONE]: "[x]", 
-  [TASK_STATUS.CLOSED]: "[!]",  // New checkbox representation
+  [TASK_STATUS.DONE]: "[x]",
+  [TASK_STATUS.CLOSED]: "[!]", // New checkbox representation
 } as const;
 ```
 
 ### Critical Bug Fix
 
 **Before (Broken)**:
+
 ```typescript
-const task = await this.getTask(id);  // Returns normalized ID
+const task = await this.getTask(id); // Returns normalized ID
 const updatedTasks = tasks.map((t) => (t.id === task.id ? { ...t, status } : t));
 // FAILS: task.id is normalized, but t.id is raw
 ```
 
 **After (Fixed)**:
+
 ```typescript
 const normalizedId = normalizeTaskId(id);
 const taskIndex = tasks.findIndex((t) => {
   const taskNormalizedId = normalizeTaskId(t.id);
-  return taskNormalizedId === normalizedId;  // Consistent comparison
+  return taskNormalizedId === normalizedId; // Consistent comparison
 });
 ```
 
@@ -65,10 +67,10 @@ const taskIndex = tasks.findIndex((t) => {
 ```typescript
 // src/schemas/tasks.ts
 export const TaskStatusSchema = z.enum([
-  "TODO", 
-  "IN_PROGRESS", 
-  "DONE", 
-  "CLOSED"  // Added CLOSED
+  "TODO",
+  "IN_PROGRESS",
+  "DONE",
+  "CLOSED", // Added CLOSED
 ]);
 ```
 
@@ -116,18 +118,21 @@ The TaskService.setTaskStatus bug fix is significant because:
 ## Usage Examples
 
 ### Setting CLOSED Status
+
 ```bash
 minsky tasks status set <task-id> CLOSED
 ```
 
 ### Filtering CLOSED Tasks
+
 ```bash
 minsky tasks list --filter CLOSED
 ```
 
 ### Checkbox Representation
+
 - `[ ]` - TODO
-- `[~]` - IN_PROGRESS  
+- `[~]` - IN_PROGRESS
 - `[x]` - DONE
 - `[!]` - CLOSED (new)
 

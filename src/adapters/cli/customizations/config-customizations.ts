@@ -8,7 +8,7 @@ import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
 import { log } from "../../../utils/logger";
 import {
   formatResolvedConfiguration,
-  formatConfigurationSources
+  formatConfigurationSources,
 } from "../utilities/formatting-utilities";
 
 /**
@@ -103,7 +103,10 @@ function formatFlattenedConfiguration(resolved: any): string {
  * Get config command customizations configuration
  * @returns Config category customization options
  */
-export function getConfigCustomizations(): { category: CommandCategory; options: CategoryCommandOptions } {
+export function getConfigCustomizations(): {
+  category: CommandCategory;
+  options: CategoryCommandOptions;
+} {
   return {
     category: CommandCategory.CONFIG,
     options: {
@@ -174,7 +177,10 @@ export function getConfigCustomizations(): { category: CommandCategory; options:
  * Get sessiondb command customizations configuration
  * @returns SessionDB category customization options
  */
-export function getSessiondbCustomizations(): { category: string; options: CategoryCommandOptions } {
+export function getSessiondbCustomizations(): {
+  category: string;
+  options: CategoryCommandOptions;
+} {
   return {
     category: "SESSIONDB" as any,
     options: {

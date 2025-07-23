@@ -18,7 +18,7 @@ import type {
   Task,
   TaskListOptions,
   CreateTaskOptions,
-  DeleteTaskOptions
+  DeleteTaskOptions,
 } from "./types";
 
 const matter = require("gray-matter");
@@ -126,7 +126,11 @@ export class MarkdownTaskBackend implements TaskBackend {
         const files = await fs.readdir(taskDir);
         const matchingFile = files.find((f) => f.startsWith(`${taskIdNum}-`));
         if (matchingFile) {
-          return getTaskSpecRelativePath(taskId, matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""), this.workspacePath);
+          return getTaskSpecRelativePath(
+            taskId,
+            matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""),
+            this.workspacePath
+          );
         }
       } catch (err) {
         // Directory doesn't exist or can't be read
@@ -272,12 +276,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Skip if this looks like an old task format to avoid false positives
       if (title.startsWith("Task ")) {
         throw new Error(
-          "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
+          'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
         );
       }
     } else {
       throw new Error(
-        "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
+        'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
       );
     }
 
@@ -361,9 +365,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         }
       }
     } catch (error: any) {
-      throw new Error(
-        `Failed to rename or update spec file: ${getErrorMessage(error as any)}`
-      );
+      throw new Error(`Failed to rename or update spec file: ${getErrorMessage(error as any)}`);
     }
 
     // Create the task entry
@@ -431,9 +433,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         id,
         specFilePath,
       });
-      throw new Error(
-        `Failed to update task metadata: ${getErrorMessage(error as any)}`
-      );
+      throw new Error(`Failed to update task metadata: ${getErrorMessage(error as any)}`);
     }
   }
 
@@ -476,7 +476,10 @@ export class MarkdownTaskBackend implements TaskBackend {
       await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
 
       // Delete the task specification file if it exists
-      const specPath = join(this.workspacePath, getTaskSpecRelativePath(task.id, task.title, this.workspacePath));
+      const specPath = join(
+        this.workspacePath,
+        getTaskSpecRelativePath(task.id, task.title, this.workspacePath)
+      );
 
       try {
         await fs.unlink(specPath);

@@ -4,7 +4,7 @@
  */
 
 // Import base errors
-import { MinskyError, ensureError } from "./base-errors";
+import { MinskyError, ensureError } from "../../errors/base-errors";
 
 // Re-export base errors
 export { MinskyError, ensureError };
@@ -14,7 +14,7 @@ export { MinskyError, ensureError };
  * Replaces the common pattern: error instanceof Error ? error.message : String(error)
  */
 export function getErrorMessage(error: any): string {
-  return error instanceof Error ? (error as any).message as any : String(error as any) as any;
+  return error instanceof Error ? ((error as any).message as any) : (String(error as any) as any);
 }
 
 /**
@@ -104,7 +104,7 @@ import {
   createNetworkError,
   isNetworkError,
   formatNetworkErrorMessage,
-} from "./network-errors";
+} from "../../errors/network-errors";
 
 // Re-export the network error classes and functions
 export {
@@ -137,5 +137,5 @@ export {
   type CommandSuggestion,
   type ContextInfo,
   type ErrorTemplate,
-  type ErrorMessageSection
-} from "./message-templates";
+  type ErrorMessageSection,
+} from "../../errors/message-templates";

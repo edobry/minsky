@@ -5,11 +5,7 @@
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { GitService } from "../git";
-import {
-  createMock,
-  setupTestMocks,
-  mockModule,
-} from "../../utils/test-utils/mocking";
+import { createMock, setupTestMocks, mockModule } from "../../utils/test-utils/mocking";
 import {
   expectToHaveBeenCalled,
   expectToHaveBeenCalledWith,
@@ -97,7 +93,7 @@ describe("PR Workflow with Dependencies", () => {
 
     await expect(
       gitService.prWithDependencies({ session: "nonexistent" }, mockDeps)
-    ).rejects.toThrow("Session \"nonexistent\" Not Found");
+    ).rejects.toThrow('Session "nonexistent" Not Found');
   });
 
   test("should resolve taskId to session in PR workflow", async () => {
@@ -130,18 +126,22 @@ describe("PR Workflow with Dependencies", () => {
         }
         return { stdout: "", stderr: "" };
       }) as any,
-      getSession: createMock(() => Promise.resolve({
-        session: "task-143-session",
-        repoName: "test-repo",
-        repoUrl: "https://github.com/user/repo.git",
-      })) as any,
+      getSession: createMock(() =>
+        Promise.resolve({
+          session: "task-143-session",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/user/repo.git",
+        })
+      ) as any,
       getSessionWorkdir: createMock(() => "/test/repo/sessions/task-143-session") as any,
-      getSessionByTaskId: createMock(() => Promise.resolve({
-        session: "task-143-session",
-        repoName: "test-repo",
-        repoUrl: "https://github.com/user/repo.git",
-        taskId: "143",
-      })) as any,
+      getSessionByTaskId: createMock(() =>
+        Promise.resolve({
+          session: "task-143-session",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/user/repo.git",
+          taskId: "143",
+        })
+      ) as any,
     };
 
     const gitService = new GitService();
@@ -168,7 +168,7 @@ describe("PR Workflow with Dependencies", () => {
     const gitService = new GitService();
 
     await expect(gitService.prWithDependencies({ taskId: "999" }, mockDeps)).rejects.toThrow(
-      "No session found for task ID \"999\""
+      'No session found for task ID "999"'
     );
 
     expectToHaveBeenCalledWith(mockDeps.getSessionByTaskId, "999");

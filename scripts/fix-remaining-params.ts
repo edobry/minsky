@@ -176,7 +176,7 @@ function fixRemainingParams(content: string): { content: string; changeCount: nu
       pattern:
         /spyOn\(GitService\.prototype, "execInRepository"\)\.mockImplementation\(async \(_workdir, _command\) => {/g,
       replacement:
-        "spyOn(GitService.prototype, \"execInRepository\").mockImplementation(async (_workdir, command) => {",
+        'spyOn(GitService.prototype, "execInRepository").mockImplementation(async (_workdir, command) => {',
     },
   ];
 

@@ -40,7 +40,7 @@ function createMockBackend(): TaskBackend {
     // Mock pure operations
     parseTasks: mock((content: unknown) => {
       // Simple parsing for testing
-      if ((content).toString().includes("#001")) {
+      if (content.toString().includes("#001")) {
         return [
           { id: "#001", title: "Task 1", status: "TODO" },
           { id: "#002", title: "Task 2", status: "IN-PROGRESS" },
@@ -108,7 +108,7 @@ function createMockBackend(): TaskBackend {
     getTaskStatus: mock(() => Promise.resolve(undefined)),
     setTaskStatus: mock(() => Promise.resolve()),
     deleteTask: mock(() => Promise.resolve(true)),
-    createTaskFromTitleAndDescription: mock((title: string, description: string) => 
+    createTaskFromTitleAndDescription: mock((title: string, description: string) =>
       Promise.resolve({
         id: "#TEST_VALUE",
         title: title,
@@ -326,14 +326,16 @@ describe("TaskService", () => {
 
         // Verify the file actually exists at the proper location
         const fullSpecPath = path.join(tempWorkspace, task.specPath || "");
-        const accessResult = await fs.access(fullSpecPath).then(() => null).catch(err => err);
+        const accessResult = await fs
+          .access(fullSpecPath)
+          .then(() => null)
+          .catch((err) => err);
         expect(accessResult).toBeNull(); // File access succeeded
 
         // Verify the file content
         const fileContent = await fs.readFile(fullSpecPath, "utf-8");
         expect(fileContent).toContain(title);
         expect(fileContent).toContain(description);
-
       } finally {
         // Clean up the temporary workspace
         try {

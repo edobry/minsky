@@ -2,7 +2,7 @@
 
 /**
  * Fix Import Paths Script
- * 
+ *
  * The codemod calculated import paths incorrectly. This script fixes them
  * by calculating the correct relative path from each file to src/errors/index
  */
@@ -13,7 +13,7 @@ import { dirname, relative, join } from "path";
 // List of files that need fixing (from the grep output)
 const filesToFix = [
   "src/utils/package-manager.ts",
-  "src/mcp/tools/tasks.ts", 
+  "src/mcp/tools/tasks.ts",
   "src/mcp/inspector-launcher.ts",
   "src/mcp/server.ts",
   "src/mcp/command-mapper.ts",
@@ -63,10 +63,10 @@ const filesToFix = [
 function calculateCorrectImportPath(filePath: string): string {
   // Remove the src/ prefix to get the relative path within src
   const relativeFileDir = dirname(filePath.replace(/^src\//, ""));
-  
+
   // Calculate relative path from file directory to errors directory
   const relativePath = relative(relativeFileDir, "errors");
-  
+
   // If we're in the same directory level as errors, use ./errors
   // Otherwise use the calculated relative path
   if (relativePath === "errors") {
@@ -82,14 +82,15 @@ function fixImportInFile(filePath: string): boolean {
   try {
     const content = readFileSync(filePath, "utf-8") as string;
     const correctImportPath = calculateCorrectImportPath(filePath);
-    
+
     // Pattern to match the incorrect import
-    const importPattern = /import\s*\{\s*getErrorMessage\s*\}\s*from\s*["'][^"']*errors\/index["']/g;
-    
+    const importPattern =
+      /import\s*\{\s*getErrorMessage\s*\}\s*from\s*["'][^"']*errors\/index["']/g;
+
     // Replace with correct import
     const newImport = `import { getErrorMessage } from "${correctImportPath}"`;
-    const newContent = (content).toString().replace(importPattern, newImport);
-    
+    const newContent = content.toString().replace(importPattern, newImport);
+
     if (newContent !== content) {
       writeFileSync(filePath, newContent, "utf-8");
       console.log(`✅ Fixed import in ${filePath} -> ${correctImportPath}`);
@@ -106,17 +107,17 @@ function fixImportInFile(filePath: string): boolean {
 
 function main() {
   console.log("🔧 Fixing incorrect import paths for getErrorMessage...");
-  
+
   let fixedCount = 0;
-  
+
   for (const file of filesToFix) {
     if (fixImportInFile(file)) {
       fixedCount++;
     }
   }
-  
+
   console.log(`\n📊 Summary: Fixed ${fixedCount} out of ${filesToFix.length} files`);
-  
+
   if (fixedCount > 0) {
     console.log("✅ Import paths have been corrected!");
   } else {
@@ -126,5 +127,4 @@ function main() {
 
 if (import.meta.main) {
   main();
-} 
- 
+}

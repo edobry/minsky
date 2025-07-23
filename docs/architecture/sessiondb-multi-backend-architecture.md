@@ -89,8 +89,8 @@ export interface SessionRecord {
     branchName: string;
     exists: boolean;
     lastChecked: string; // ISO timestamp
-    createdAt?: string;   // When PR branch was created
-    mergedAt?: string;    // When merged (for cleanup)
+    createdAt?: string; // When PR branch was created
+    mergedAt?: string; // When merged (for cleanup)
   };
 }
 ```

@@ -24,7 +24,7 @@ export interface MergePrDependencies {
 
 /**
  * Merges a pull request branch into the base branch
- * 
+ *
  * @param options - PR merge options
  * @param deps - Injected dependencies
  * @returns PR merge result
@@ -80,4 +80,4 @@ export async function mergePrImpl(
     mergeDate,
     mergedBy,
   };
-} 
+}

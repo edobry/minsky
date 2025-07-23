@@ -11,13 +11,13 @@ describe("SemanticErrorClassifier", () => {
     it("should classify ENOENT file errors correctly", async () => {
       const error = {
         code: "ENOENT",
-        message: "ENOENT: no such file or directory, open '/path/to/file.txt'"
+        message: "ENOENT: no such file or directory, open '/path/to/file.txt'",
       };
-      
+
       const context: ErrorContext = {
         operation: "read_file",
         path: "/path/to/file.txt",
-        session: "test-session"
+        session: "test-session",
       };
 
       const result = await SemanticErrorClassifier.classifyError(error, context);
@@ -34,14 +34,14 @@ describe("SemanticErrorClassifier", () => {
     it("should classify ENOENT directory errors correctly", async () => {
       const error = {
         code: "ENOENT",
-        message: "ENOENT: no such file or directory, mkdir '/nonexistent/path/file.txt'"
+        message: "ENOENT: no such file or directory, mkdir '/nonexistent/path/file.txt'",
       };
-      
+
       const context: ErrorContext = {
         operation: "write_file",
         path: "/nonexistent/path/file.txt",
         session: "test-session",
-        createDirs: false
+        createDirs: false,
       };
 
       const result = await SemanticErrorClassifier.classifyError(error, context);
@@ -49,7 +49,9 @@ describe("SemanticErrorClassifier", () => {
       expect(result.success).toBe(false);
       expect(result.errorCode).toBe(SemanticErrorCode.DIRECTORY_NOT_FOUND);
       expect(result.error).toContain("parent directory does not exist");
-      expect(result.solutions).toContain("Set createDirs: true to automatically create parent directories");
+      expect(result.solutions).toContain(
+        "Set createDirs: true to automatically create parent directories"
+      );
       expect(result.relatedTools).toContain("session_create_directory");
       expect(result.retryable).toBe(true);
     });
@@ -57,13 +59,13 @@ describe("SemanticErrorClassifier", () => {
     it("should classify permission errors correctly", async () => {
       const error = {
         code: "EACCES",
-        message: "EACCES: permission denied, open '/etc/passwd'"
+        message: "EACCES: permission denied, open '/etc/passwd'",
       };
-      
+
       const context: ErrorContext = {
         operation: "read_file",
         path: "/etc/passwd",
-        session: "test-session"
+        session: "test-session",
       };
 
       const result = await SemanticErrorClassifier.classifyError(error, context);
@@ -77,13 +79,13 @@ describe("SemanticErrorClassifier", () => {
 
     it("should classify session errors correctly", async () => {
       const error = {
-        message: "Session not found: invalid-session"
+        message: "Session not found: invalid-session",
       };
-      
+
       const context: ErrorContext = {
         operation: "read_file",
         path: "/some/file.txt",
-        session: "invalid-session"
+        session: "invalid-session",
       };
 
       const result = await SemanticErrorClassifier.classifyError(error, context);
@@ -97,12 +99,12 @@ describe("SemanticErrorClassifier", () => {
 
     it("should classify git errors correctly", async () => {
       const error = {
-        message: "git: authentication failed for repository"
+        message: "git: authentication failed for repository",
       };
-      
+
       const context: ErrorContext = {
         operation: "git_push",
-        session: "test-session"
+        session: "test-session",
       };
 
       const result = await SemanticErrorClassifier.classifyError(error, context);
@@ -116,12 +118,12 @@ describe("SemanticErrorClassifier", () => {
 
     it("should handle generic errors gracefully", async () => {
       const error = {
-        message: "Some unexpected error occurred"
+        message: "Some unexpected error occurred",
       };
-      
+
       const context: ErrorContext = {
         operation: "unknown_operation",
-        session: "test-session"
+        session: "test-session",
       };
 
       const result = await SemanticErrorClassifier.classifyError(error, context);
@@ -136,12 +138,12 @@ describe("SemanticErrorClassifier", () => {
     it("should extract file paths from error messages", async () => {
       const error = {
         code: "ENOENT",
-        message: "ENOENT: no such file or directory, open '/extracted/path/file.txt'"
+        message: "ENOENT: no such file or directory, open '/extracted/path/file.txt'",
       };
-      
+
       const context: ErrorContext = {
         operation: "read_file",
-        session: "test-session"
+        session: "test-session",
         // Note: no path provided in context
       };
 
@@ -153,19 +155,21 @@ describe("SemanticErrorClassifier", () => {
     it("should enhance solutions based on context", async () => {
       const error = {
         code: "ENOENT",
-        message: "ENOENT: no such file or directory, mkdir '/path/to/file.txt'"
+        message: "ENOENT: no such file or directory, mkdir '/path/to/file.txt'",
       };
-      
+
       const context: ErrorContext = {
         operation: "write_file",
         path: "/path/to/file.txt",
         session: "test-session",
-        createDirs: false // This should add extra solution
+        createDirs: false, // This should add extra solution
       };
 
       const result = await SemanticErrorClassifier.classifyError(error, context);
 
-      expect(result.solutions[0]).toBe("Set createDirs: true to automatically create parent directories");
+      expect(result.solutions[0]).toBe(
+        "Set createDirs: true to automatically create parent directories"
+      );
     });
   });
 });

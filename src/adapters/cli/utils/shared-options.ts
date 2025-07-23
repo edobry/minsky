@@ -90,7 +90,8 @@ export interface ForceOptions {
 export function addRepoOptions(command: Command): Command {
   return command
     .option("--session <session>", SESSION_DESCRIPTION)
-    .option("--repo <repositoryUri>", REPO_DESCRIPTION).option("--upstream-repo <upstreamRepoUri>", UPSTREAM_REPO_DESCRIPTION);
+    .option("--repo <repositoryUri>", REPO_DESCRIPTION)
+    .option("--upstream-repo <upstreamRepoUri>", UPSTREAM_REPO_DESCRIPTION);
 }
 
 /**

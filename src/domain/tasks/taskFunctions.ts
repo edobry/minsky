@@ -10,7 +10,7 @@ import type { TaskStatus } from "./taskConstants";
 import {
   normalizeTaskIdForStorage,
   formatTaskIdForDisplay,
-  getTaskIdNumber
+  getTaskIdNumber,
 } from "./task-id-utils";
 
 /**
@@ -77,16 +77,18 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
 export function formatTasksToMarkdown(tasks: TaskData[]): string {
   if (!tasks || tasks.length === 0) return "";
 
-  return tasks.map((task) => {
-    const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
-    const specPath = task.specPath || "#";
-    // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix in markdown display
-    const displayId = formatTaskIdForDisplay(task.id);
-    const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
+  return tasks
+    .map((task) => {
+      const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
+      const specPath = task.specPath || "#";
+      // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix in markdown display
+      const displayId = formatTaskIdForDisplay(task.id);
+      const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
 
-    // Always return only the task line - descriptions should remain in spec files
-    return taskLine;
-  }).join("\n\n");
+      // Always return only the task line - descriptions should remain in spec files
+      return taskLine;
+    })
+    .join("\n\n");
 }
 
 /**

@@ -4,21 +4,20 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { 
+import {
   CLISessionContextResolver,
   MCPSessionContextResolver,
   SessionContextResolverFactory,
-  resolveSessionForInterface
+  resolveSessionForInterface,
 } from "../session-context-resolver";
 import { ValidationError } from "../../errors/index";
 
 describe("Interface-Layer Session Context Resolution", () => {
-  
   describe("CLI Session Context Resolver", () => {
     it("should use explicit name when provided", () => {
       const params = { name: "explicit-session", title: "test" };
       const result = CLISessionContextResolver.resolveSessionContext(params);
-      
+
       expect(result.session).toBe("explicit-session");
       expect(result.title).toBe("test");
     });
@@ -26,9 +25,9 @@ describe("Interface-Layer Session Context Resolution", () => {
     it("should auto-detect session from session workspace path", () => {
       const params = { title: "test" };
       const workingDir = "/Users/edobry/.local/state/minsky/sessions/task#158";
-      
+
       const result = CLISessionContextResolver.resolveSessionContext(params, workingDir);
-      
+
       expect(result.session).toBe("task#158");
       expect(result.title).toBe("test");
     });
@@ -36,9 +35,9 @@ describe("Interface-Layer Session Context Resolution", () => {
     it("should return params unchanged if no session can be detected", () => {
       const params = { title: "test" };
       const workingDir = "/Users/edobry/Projects/minsky";
-      
+
       const result = CLISessionContextResolver.resolveSessionContext(params, workingDir);
-      
+
       expect(result.session).toBeUndefined();
       expect(result.title).toBe("test");
     });
@@ -46,9 +45,9 @@ describe("Interface-Layer Session Context Resolution", () => {
     it("should prefer explicit name over auto-detection", () => {
       const params = { name: "explicit-session", title: "test" };
       const workingDir = "/Users/edobry/.local/state/minsky/sessions/task#158";
-      
+
       const result = CLISessionContextResolver.resolveSessionContext(params, workingDir);
-      
+
       expect(result.session).toBe("explicit-session");
       expect(result.title).toBe("test");
     });
@@ -56,19 +55,19 @@ describe("Interface-Layer Session Context Resolution", () => {
     it("should use explicit task parameter for session identification", () => {
       const params = { task: "158", title: "test" };
       const result = CLISessionContextResolver.resolveSessionContext(params);
-      
-      expect(result.session).toBe("158");
-      expect(result.task).toBe("158");
+
+      expect(result.session).toBeUndefined(); // Session should not be set from task
+      expect(result.task).toBe("158"); // Task should remain as task
       expect(result.title).toBe("test");
     });
 
     it("should prefer name over task when both are provided", () => {
       const params = { name: "task#158", task: "158", title: "test" };
       const result = CLISessionContextResolver.resolveSessionContext(params);
-      
-      expect(result.session).toBe("task#158");
+
+      expect(result.session).toBe("task#158"); // Session set from name
       expect(result.name).toBe("task#158");
-      expect(result.task).toBe("158");
+      expect(result.task).toBe("158"); // Task remains as task
       expect(result.title).toBe("test");
     });
   });
@@ -77,18 +76,18 @@ describe("Interface-Layer Session Context Resolution", () => {
     it("should use explicit session when provided", () => {
       const params = { session: "task#158", title: "test" };
       const result = MCPSessionContextResolver.resolveSessionContext(params);
-      
+
       expect(result.session).toBe("task#158");
       expect(result.title).toBe("test");
     });
 
     it("should throw ValidationError when no session provided", () => {
       const params = { title: "test" };
-      
+
       expect(() => {
         MCPSessionContextResolver.resolveSessionContext(params);
       }).toThrow(ValidationError);
-      
+
       expect(() => {
         MCPSessionContextResolver.resolveSessionContext(params);
       }).toThrow("Session parameter required for MCP interface");
@@ -97,7 +96,7 @@ describe("Interface-Layer Session Context Resolution", () => {
     it("should not auto-detect even in session workspace", () => {
       const params = { title: "test" };
       const workingDir = "/Users/edobry/.local/state/minsky/sessions/task#158";
-      
+
       expect(() => {
         MCPSessionContextResolver.resolveSessionContext(params, workingDir);
       }).toThrow(ValidationError);
@@ -106,19 +105,19 @@ describe("Interface-Layer Session Context Resolution", () => {
     it("should use explicit task parameter for session identification", () => {
       const params = { task: "158", title: "test" };
       const result = MCPSessionContextResolver.resolveSessionContext(params);
-      
-      expect(result.session).toBe("158");
-      expect(result.task).toBe("158");
+
+      expect(result.session).toBeUndefined(); // Session should not be set from task
+      expect(result.task).toBe("158"); // Task should remain as task
       expect(result.title).toBe("test");
     });
 
     it("should prefer name over task when both are provided", () => {
       const params = { name: "task#158", task: "158", title: "test" };
       const result = MCPSessionContextResolver.resolveSessionContext(params);
-      
-      expect(result.session).toBe("task#158");
+
+      expect(result.session).toBe("task#158"); // Session set from name
       expect(result.name).toBe("task#158");
-      expect(result.task).toBe("158");
+      expect(result.task).toBe("158"); // Task remains as task
       expect(result.title).toBe("test");
     });
   });
@@ -166,38 +165,28 @@ describe("Interface-Layer Session Context Resolution", () => {
         "cli",
         "/Users/edobry/.local/state/minsky/sessions/task#158"
       );
-      
+
       expect(result.session).toBe("task#158");
       expect(result.title).toBe("test");
     });
 
     it("should resolve MCP session context with explicit session", () => {
-      const result = resolveSessionForInterface(
-        { session: "task#158", title: "test" },
-        "mcp"
-      );
-      
+      const result = resolveSessionForInterface({ session: "task#158", title: "test" }, "mcp");
+
       expect(result.session).toBe("task#158");
       expect(result.title).toBe("test");
     });
 
     it("should throw ValidationError when MCP has no session", () => {
       expect(() => {
-        resolveSessionForInterface(
-          { title: "test" },
-          "mcp"
-        );
+        resolveSessionForInterface({ title: "test" }, "mcp");
       }).toThrow(ValidationError);
     });
 
     it("should throw ValidationError when CLI can't detect session", () => {
       expect(() => {
-        resolveSessionForInterface(
-          { title: "test" },
-          "cli",
-          "/Users/edobry/Projects/minsky"
-        );
+        resolveSessionForInterface({ title: "test" }, "cli", "/Users/edobry/Projects/minsky");
       }).toThrow(ValidationError);
     });
   });
-}); 
+});

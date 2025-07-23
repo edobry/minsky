@@ -159,7 +159,6 @@ minsky templates delete task-continue
 
 **Medium-High** - Requires thoughtful design of template system, variable substitution, and CLI integration while maintaining compatibility with existing workflows.
 
-
 ## Requirements
 
 [To be filled in]

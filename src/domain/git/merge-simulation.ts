@@ -1,6 +1,6 @@
 /**
  * Merge Simulation
- * 
+ *
  * Provides merge simulation functionality extracted from ConflictDetectionService
  * for better maintainability and focused responsibility.
  */
@@ -27,15 +27,11 @@ export async function simulateMergeImpl(
 
     try {
       // Create temp branch from target
-      await deps.execAsync(
-        `git -C ${repoPath} checkout -b ${tempBranch} ${targetBranch}`
-      );
+      await deps.execAsync(`git -C ${repoPath} checkout -b ${tempBranch} ${targetBranch}`);
 
       // Attempt merge
       try {
-        await deps.execAsync(
-          `git -C ${repoPath} merge --no-commit --no-ff ${sourceBranch}`
-        );
+        await deps.execAsync(`git -C ${repoPath} merge --no-commit --no-ff ${sourceBranch}`);
 
         // If merge succeeds, reset and return no conflicts
         await deps.execAsync(`git -C ${repoPath} reset --hard HEAD`);
@@ -70,4 +66,4 @@ export async function simulateMergeImpl(
     });
     throw error;
   }
-} 
+}

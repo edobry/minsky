@@ -60,7 +60,9 @@ export const prCommandParams: CommandParameterMap = {
  * Execute the pr command
  */
 export async function executePrCommand(
-  parameters: { [K in keyof typeof prCommandParams]: z.infer<typeof prCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof prCommandParams]: z.infer<(typeof prCommandParams)[K]["schema"]>;
+  },
   context: CommandExecutionContext
 ): Promise<{ markdown: string; statusUpdateResult?: any }> {
   const { session, repo, branch, task, debug, noStatusUpdate } = parameters;
@@ -79,4 +81,4 @@ export async function executePrCommand(
   }
 
   return result;
-} 
+}

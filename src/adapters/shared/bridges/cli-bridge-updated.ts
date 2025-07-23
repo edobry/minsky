@@ -2,7 +2,7 @@
  * CLI Bridge
  *
  * This module bridges the command registry with the Commander.js CLI,
- * eliminating all type casting while maintaining parameter types through 
+ * eliminating all type casting while maintaining parameter types through
  * the execution chain.
  */
 import { Command } from "commander";
@@ -187,10 +187,7 @@ export class CliCommandBridge {
         };
 
         // Normalize parameters
-        const normalizedParams = normalizeCliParameters(
-          commandDef.parameters,
-          rawParameters
-        );
+        const normalizedParams = normalizeCliParameters(commandDef.parameters, rawParameters);
 
         // Execute the command with parameters and context - NO TYPE CASTING NEEDED
         const result = await commandDef.execute(normalizedParams, context);
@@ -232,7 +229,7 @@ export class CliCommandBridge {
     context?: { viaFactory?: boolean }
   ): Command | null {
     const customOptions = this.categoryCustomizations.get(category) || {};
-    
+
     const commands = this.registry.getCommandsByCategory(category);
     if (commands.length === 0) {
       return null;
@@ -263,7 +260,7 @@ export class CliCommandBridge {
           const newParentCommand = new Command(prefixedName)
             .description(commandDef.description)
             .action((...args) => subcommand.parseAsync(args));
-          
+
           categoryCommand.addCommand(newParentCommand);
         } else {
           // Add as direct subcommand
@@ -280,8 +277,8 @@ export class CliCommandBridge {
    */
   generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean }): void {
     const categories = Object.values(CommandCategory);
-    
-    categories.forEach(category => {
+
+    categories.forEach((category) => {
       const categoryCommand = this.generateCategoryCommand(category, context);
       if (categoryCommand) {
         program.addCommand(categoryCommand);
@@ -342,19 +339,19 @@ export class CliCommandBridge {
    */
   private getSessionFormatter(commandId: string): (result: any) => void {
     switch (commandId) {
-    case "session-list":
-      return (result: any) => {
-        if (result.sessions && Array.isArray(result.sessions)) {
-          result.sessions.forEach((session: any) => this.formatSessionSummary(session));
-        }
-      };
-    case "session-get":
-    case "session-inspect":
-      return (result: any) => this.formatSessionDetails(result);
-    case "session-start":
-      return (result: any) => this.formatSessionStartSuccess(result);
-    default:
-      return (result: any) => console.log(JSON.stringify(result, null, 2));
+      case "session-list":
+        return (result: any) => {
+          if (result.sessions && Array.isArray(result.sessions)) {
+            result.sessions.forEach((session: any) => this.formatSessionSummary(session));
+          }
+        };
+      case "session-get":
+      case "session-inspect":
+        return (result: any) => this.formatSessionDetails(result);
+      case "session-start":
+        return (result: any) => this.formatSessionStartSuccess(result);
+      default:
+        return (result: any) => console.log(JSON.stringify(result, null, 2));
     }
   }
 
@@ -363,18 +360,18 @@ export class CliCommandBridge {
    */
   private getTaskFormatter(commandId: string): (result: any) => void {
     switch (commandId) {
-    case "tasks-list":
-      return (result: any) => {
-        if (result.tasks && Array.isArray(result.tasks)) {
-          result.tasks.forEach((task: any) => {
-            // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix
-            const displayId = formatTaskIdForDisplay(task.id);
-            console.log(`${displayId}: ${task.title} [${task.status}]`);
-          });
-        }
-      };
-    default:
-      return (result: any) => console.log(JSON.stringify(result, null, 2));
+      case "tasks-list":
+        return (result: any) => {
+          if (result.tasks && Array.isArray(result.tasks)) {
+            result.tasks.forEach((task: any) => {
+              // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix
+              const displayId = formatTaskIdForDisplay(task.id);
+              console.log(`${displayId}: ${task.title} [${task.status}]`);
+            });
+          }
+        };
+      default:
+        return (result: any) => console.log(JSON.stringify(result, null, 2));
     }
   }
 
@@ -390,16 +387,16 @@ export class CliCommandBridge {
    */
   private getRuleFormatter(commandId: string): (result: any) => void {
     switch (commandId) {
-    case "rules-list":
-      return (result: any) => {
-        if (result.rules && Array.isArray(result.rules)) {
-          result.rules.forEach((rule: any) => this.formatRuleSummary(rule));
-        }
-      };
-    case "rules-get":
-      return (result: any) => this.formatRuleDetails(result);
-    default:
-      return (result: any) => console.log(JSON.stringify(result, null, 2));
+      case "rules-list":
+        return (result: any) => {
+          if (result.rules && Array.isArray(result.rules)) {
+            result.rules.forEach((rule: any) => this.formatRuleSummary(rule));
+          }
+        };
+      case "rules-get":
+        return (result: any) => this.formatRuleDetails(result);
+      default:
+        return (result: any) => console.log(JSON.stringify(result, null, 2));
     }
   }
 
@@ -408,10 +405,10 @@ export class CliCommandBridge {
    */
   private getDebugFormatter(commandId: string): (result: any) => void {
     switch (commandId) {
-    case "debug-echo":
-      return (result: any) => this.formatDebugEchoDetails(result);
-    default:
-      return (result: any) => console.log(JSON.stringify(result, null, 2));
+      case "debug-echo":
+        return (result: any) => this.formatDebugEchoDetails(result);
+      default:
+        return (result: any) => console.log(JSON.stringify(result, null, 2));
     }
   }
 
@@ -468,4 +465,4 @@ export function createCliBridge(registry?: SharedCommandRegistry): CliCommandBri
 /**
  * Default CLI bridge instance
  */
-export const _cliBridge = createCliBridge(); 
+export const _cliBridge = createCliBridge();

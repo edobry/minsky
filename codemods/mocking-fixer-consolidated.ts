@@ -2,11 +2,11 @@
 
 /**
  * BOUNDARY VALIDATION TEST RESULTS: mocking-fixer-consolidated.ts
- * 
- * DECISION: ✅ SAFE - CONSOLIDATED UTILITY 
- * 
+ *
+ * DECISION: ✅ SAFE - CONSOLIDATED UTILITY
+ *
  * === STEP 1: REVERSE ENGINEERING ANALYSIS ===
- * 
+ *
  * Consolidation Purpose:
  * - Consolidates fix-mock-function-signatures.ts, fix-mock-object-properties.ts, fix-mocking-simple.ts
  * - Consolidates fix-mocking-unknown-ast.ts, fix-mocking-unknown-types-ast.ts, fix-mocking-unknown-types.ts
@@ -14,51 +14,58 @@
  * - Processes mock object property assignments and type safety
  * - Uses AST-based approach for comprehensive mocking pattern detection
  * - Replaces 6 specialized mocking fixers with single comprehensive solution
- * 
+ *
  * === STEP 2: TECHNICAL ANALYSIS ===
- * 
+ *
  * SAFETY VERIFICATIONS:
  * - AST-BASED ANALYSIS: Uses ts-morph for proper mock structure understanding
  * - TYPE-SAFE MOCKING: Ensures mock signatures match original function signatures
  * - PROPERTY VALIDATION: Validates mock object properties against interface definitions
  * - UNKNOWN TYPE HANDLING: Safely converts unknown mock types to proper types
  * - COMPREHENSIVE COVERAGE: Handles all major mocking frameworks and patterns
- * 
+ *
  * === STEP 3: BOUNDARY VALIDATION ===
- * 
+ *
  * BOUNDARY CONDITIONS TESTED:
  * 1. ✅ FUNCTION MOCKS: Properly validates function signature compatibility
  * 2. ✅ OBJECT MOCKS: Ensures object property types match interface definitions
  * 3. ✅ UNKNOWN TYPES: Safely handles and converts unknown mock types
  * 4. ✅ NESTED MOCKS: Handles deeply nested mock structures
  * 5. ✅ FRAMEWORK COMPATIBILITY: Works with Jest, Vitest, and custom mocking patterns
- * 
+ *
  * === STEP 4: INTEGRATION TESTING ===
- * 
+ *
  * INTEGRATION SCENARIOS:
  * - Jest Mock Functions: jest.fn(), jest.spyOn() type validation
  * - Vitest Mocks: vi.fn(), vi.mock() pattern handling
  * - Object Mocking: Mock object property type checking
  * - Function Signature Matching: Parameter and return type validation
  * - Unknown Type Resolution: Converting unknown to proper mock types
- * 
+ *
  * === STEP 5: ANTI-PATTERN PREVENTION ===
- * 
+ *
  * PREVENTED ANTI-PATTERNS:
  * - Untyped Mock Functions (jest.fn() without signature)
  * - Mock Object Property Type Mismatches
  * - Unknown Type Propagation in Mocks
  * - Inconsistent Mock Return Types
  * - Missing Mock Function Parameter Types
- * 
+ *
  * CONCLUSION: ✅ SAFE - Comprehensive mocking pattern fixing and type safety
- * 
+ *
  * REPLACES: 6 codemods (fix-mock-function-signatures.ts, fix-mock-object-properties.ts, fix-mocking-simple.ts, fix-mocking-unknown-ast.ts, fix-mocking-unknown-types-ast.ts, fix-mocking-unknown-types.ts)
  * SAFETY IMPROVEMENT: 95% - AST-based mock validation prevents type errors
  * MAINTAINABILITY: 90% - Single comprehensive utility vs. 6 specialized fixers
  */
 
-import { Project, SyntaxKind, SourceFile, TypeChecker, CallExpression, PropertyAccessExpression } from "ts-morph";
+import {
+  Project,
+  SyntaxKind,
+  SourceFile,
+  TypeChecker,
+  CallExpression,
+  PropertyAccessExpression,
+} from "ts-morph";
 import { globSync } from "glob";
 
 interface MockingFix {
@@ -92,8 +99,8 @@ class MockingFixer {
         strict: false,
         skipLibCheck: true,
         forceConsistentCasingInFileNames: false,
-        lib: ["ES2022", "DOM"]
-      }
+        lib: ["ES2022", "DOM"],
+      },
     });
   }
 
@@ -111,18 +118,18 @@ class MockingFixer {
         fixer: (node, sourceFile) => {
           const callExpr = node as CallExpression;
           const text = callExpr.getText();
-          
+
           // Try to infer type from usage context
           const parent = callExpr.getParent();
           if (parent && parent.getKind() === SyntaxKind.VariableDeclaration) {
             return text.replace("jest.fn()", "jest.fn<() => any>()");
           }
-          
+
           return text.replace("jest.fn()", "jest.fn<() => unknown>()");
-        }
+        },
       },
       {
-        type: "VITEST_FN_UNTYPED", 
+        type: "VITEST_FN_UNTYPED",
         description: "Add type annotations to vi.fn() calls",
         detector: (node, sourceFile) => {
           if (node.getKind() !== SyntaxKind.CallExpression) return false;
@@ -134,7 +141,7 @@ class MockingFixer {
           const callExpr = node as CallExpression;
           const text = callExpr.getText();
           return text.replace("vi.fn()", "vi.fn<() => unknown>()");
-        }
+        },
       },
       {
         type: "MOCK_RETURN_VALUE_UNTYPED",
@@ -148,27 +155,27 @@ class MockingFixer {
         fixer: (node, sourceFile) => {
           const callExpr = node as CallExpression;
           const args = callExpr.getArguments();
-          
+
           if (args.length > 0) {
             const arg = args[0];
             const argText = arg.getText();
-            
+
             // If the argument is already typed, don't change it
             if (argText.includes(" as ")) return null;
-            
+
             // Add type assertion based on common patterns
             if (argText === "undefined" || argText === "null") {
               return callExpr.getText().replace(argText, `${argText} as any`);
             }
-            
+
             // For object literals, add type assertion
             if (argText.startsWith("{")) {
               return callExpr.getText().replace(argText, `${argText} as any`);
             }
           }
-          
+
           return null;
-        }
+        },
       },
       {
         type: "MOCK_OBJECT_PROPERTY",
@@ -181,18 +188,18 @@ class MockingFixer {
         fixer: (node, sourceFile) => {
           const assignment = node;
           const text = assignment.getText();
-          
+
           // Check if it's a function property without proper typing
           if (text.includes("jest.fn()") && !text.includes("<")) {
             return text.replace("jest.fn()", "jest.fn<() => any>()");
           }
-          
+
           if (text.includes("vi.fn()") && !text.includes("<")) {
             return text.replace("vi.fn()", "vi.fn<() => any>()");
           }
-          
+
           return null;
-        }
+        },
       },
       {
         type: "MOCK_IMPLEMENTATION_UNTYPED",
@@ -206,11 +213,11 @@ class MockingFixer {
         fixer: (node, sourceFile) => {
           const callExpr = node as CallExpression;
           const args = callExpr.getArguments();
-          
+
           if (args.length > 0) {
             const arg = args[0];
             const argText = arg.getText();
-            
+
             // If it's an arrow function without explicit return type
             if (argText.includes("=>") && !argText.includes(": ")) {
               // Try to add return type annotation
@@ -219,9 +226,9 @@ class MockingFixer {
               }
             }
           }
-          
+
           return null;
-        }
+        },
       },
       {
         type: "UNKNOWN_MOCK_TYPE",
@@ -233,46 +240,46 @@ class MockingFixer {
         fixer: (node, sourceFile) => {
           const text = node.getText();
           return text.replace(/: unknown/g, ": any");
-        }
-      }
+        },
+      },
     ];
   }
 
   private processMockingPatterns(sourceFile: SourceFile): number {
     let fixes = 0;
     const patterns = this.getMockingPatterns();
-    
+
     // Process all nodes in the source file
     sourceFile.forEachDescendant((node) => {
       for (const pattern of patterns) {
         if (pattern.detector(node, sourceFile)) {
           const originalText = node.getText();
           const fixedText = pattern.fixer(node, sourceFile);
-          
+
           if (fixedText && fixedText !== originalText) {
             try {
               node.replaceWithText(fixedText);
-              
+
               this.results.push({
                 file: sourceFile.getFilePath(),
                 mockType: pattern.type,
                 pattern: pattern.description,
                 originalCode: originalText,
                 fixedCode: fixedText,
-                line: node.getStartLineNumber()
+                line: node.getStartLineNumber(),
               });
-              
+
               fixes++;
             } catch (error) {
               console.warn(`Failed to apply fix for ${pattern.type}: ${error}`);
             }
           }
-          
+
           break; // Only apply first matching pattern
         }
       }
     });
-    
+
     return fixes;
   }
 
@@ -280,34 +287,34 @@ class MockingFixer {
     const text = sourceFile.getFullText();
     const hasJestImport = text.includes("import") && text.includes("jest");
     const hasVitestImport = text.includes("import") && text.includes("vitest");
-    
+
     // Add type imports if mocking is detected but imports are missing
     if ((text.includes("jest.fn") || text.includes("jest.mock")) && !hasJestImport) {
       const imports = sourceFile.getImportDeclarations();
       let insertPosition = 0;
-      
+
       if (imports.length > 0) {
         insertPosition = imports[imports.length - 1].getEnd() + 1;
       }
-      
+
       sourceFile.insertText(insertPosition, `import { jest } from '@jest/globals';\n`);
     }
-    
+
     if ((text.includes("vi.fn") || text.includes("vi.mock")) && !hasVitestImport) {
       const imports = sourceFile.getImportDeclarations();
       let insertPosition = 0;
-      
+
       if (imports.length > 0) {
         insertPosition = imports[imports.length - 1].getEnd() + 1;
       }
-      
+
       sourceFile.insertText(insertPosition, `import { vi } from 'vitest';\n`);
     }
   }
 
   public async processFiles(pattern: string = "src/**/*.{ts,test.ts,spec.ts}"): Promise<void> {
     const files = globSync(pattern, {
-      ignore: ["**/node_modules/**", "**/*.d.ts"]
+      ignore: ["**/node_modules/**", "**/*.d.ts"],
     });
 
     console.log(`🎭 Processing ${files.length} files for mocking fixes...`);
@@ -318,23 +325,22 @@ class MockingFixer {
     for (const filePath of files) {
       try {
         const sourceFile = this.project.addSourceFileAtPath(filePath);
-        
+
         // Add necessary imports
         this.addMockingImports(sourceFile);
-        
+
         // Process mocking patterns
         const fixes = this.processMockingPatterns(sourceFile);
-        
+
         if (fixes > 0) {
           await sourceFile.save();
           totalFixes += fixes;
           processedFiles++;
           console.log(`✅ Fixed ${fixes} mocking issues in ${filePath}`);
         }
-        
+
         // Clean up memory
         sourceFile.forget();
-        
       } catch (error) {
         console.error(`❌ Error processing ${filePath}:`, error);
       }
@@ -352,7 +358,7 @@ class MockingFixer {
     if (this.results.length > 0) {
       console.log(`\n📊 Mocking issue breakdown:`);
       const typeSummary: Record<string, number> = {};
-      
+
       for (const result of this.results) {
         typeSummary[result.mockType] = (typeSummary[result.mockType] || 0) + 1;
       }
@@ -371,8 +377,8 @@ async function main() {
 }
 
 // Execute if run directly (simple check)
-if (typeof require !== 'undefined' && require.main === module) {
+if (typeof require !== "undefined" && require.main === module) {
   main().catch(console.error);
 }
 
-export { MockingFixer }; 
+export { MockingFixer };

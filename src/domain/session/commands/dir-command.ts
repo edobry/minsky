@@ -1,14 +1,8 @@
 import type { SessionDirParams } from "../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { 
-  SessionProviderInterface,
-  SessionDependencies 
-} from "../types";
-import { 
-  ResourceNotFoundError, 
-  ValidationError,
-} from "../../errors/index";
+import { SessionProviderInterface, SessionDependencies } from "../types";
+import { ResourceNotFoundError, ValidationError } from "../../errors/index";
 
 /**
  * Gets session directory based on parameters
@@ -48,4 +42,4 @@ export async function getSessionDirFromParams(
     }
     throw error;
   }
-} 
+}

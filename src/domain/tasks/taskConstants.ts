@@ -81,10 +81,12 @@ export function isValidTaskStatus(status: string): status is TaskStatus {
  */
 function generateCheckboxPattern(): string {
   const specialRegexChars = ["+", "-", "*", "?", "^", "$", "(", ")", "[", "]", "{", "}", "|", "\\"];
-  const checkboxChars = Object.keys(CHECKBOX_TO_STATUS).map((char) => {
-    if (char === " ") return " ";
-    return specialRegexChars.includes(char) ? `\\${char}` : char;
-  }).join("|");
+  const checkboxChars = Object.keys(CHECKBOX_TO_STATUS)
+    .map((char) => {
+      if (char === " ") return " ";
+      return specialRegexChars.includes(char) ? `\\${char}` : char;
+    })
+    .join("|");
   return checkboxChars;
 }
 
@@ -98,7 +100,9 @@ export const TASK_REGEX_PATTERNS = {
    * Dynamically includes all valid checkbox characters
    * Supports both numeric and alphanumeric task IDs
    */
-  TASK_LINE: new RegExp(`^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[#([A-Za-z0-9_]+)\\]\\([^)]+\\)`),
+  TASK_LINE: new RegExp(
+    `^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[#([A-Za-z0-9_]+)\\]\\([^)]+\\)`
+  ),
 
   /**
    * Pattern for replacing checkbox status in task lines

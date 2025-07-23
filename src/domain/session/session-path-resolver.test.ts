@@ -29,7 +29,7 @@ describe("SessionPathResolver Domain Logic", () => {
     // Create some test files and directories
     await mkdir(join(sessionWorkspace, "src"), { recursive: true });
     await mkdir(join(sessionWorkspace, "src", "components"), { recursive: true });
-    await writeFile(join(sessionWorkspace, "package.json"), "{\"name\": \"test\"}");
+    await writeFile(join(sessionWorkspace, "package.json"), '{"name": "test"}');
     await writeFile(join(sessionWorkspace, "src", "index.ts"), "export default {};");
 
     resolver = new SessionPathResolver();
@@ -140,7 +140,10 @@ describe("SessionPathResolver Domain Logic", () => {
         console.warn("Skipping test due to temp directory creation failure");
         return;
       }
-      const result = resolver.getRelativePathFromSession(sessionWorkspace, "src/components/Button.tsx");
+      const result = resolver.getRelativePathFromSession(
+        sessionWorkspace,
+        "src/components/Button.tsx"
+      );
       expect(result).toBe(join("src", "components", "Button.tsx"));
     });
   });
@@ -177,7 +180,7 @@ describe("SessionPathResolver Domain Logic", () => {
       expect(result).toEqual([
         join(sessionWorkspace, "src", "index.ts"),
         join(sessionWorkspace, "package.json"),
-        join(sessionWorkspace, "src", "components")
+        join(sessionWorkspace, "src", "components"),
       ]);
     });
 
@@ -243,4 +246,4 @@ describe("SessionPathResolver Domain Logic", () => {
       expect(result).toBe(".");
     });
   });
-}); 
+});

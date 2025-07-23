@@ -5,10 +5,7 @@ import {
 } from "../../../../adapters/shared/command-registry";
 import { cloneFromParams } from "../clone-command";
 import { log } from "../../../../utils/logger";
-import {
-  SESSION_DESCRIPTION,
-  GIT_BRANCH_DESCRIPTION,
-} from "../../../../utils/option-descriptions";
+import { SESSION_DESCRIPTION, GIT_BRANCH_DESCRIPTION } from "../../../../utils/option-descriptions";
 
 /**
  * Parameters for the clone command
@@ -40,7 +37,9 @@ export const cloneCommandParams: CommandParameterMap = {
  * Execute the clone command
  */
 export async function executeCloneCommand(
-  parameters: { [K in keyof typeof cloneCommandParams]: z.infer<typeof cloneCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof cloneCommandParams]: z.infer<(typeof cloneCommandParams)[K]["schema"]>;
+  },
   context: CommandExecutionContext
 ): Promise<{ workdir: string; session: string }> {
   const { url, session, destination, branch } = parameters;
@@ -57,4 +56,4 @@ export async function executeCloneCommand(
   }
 
   return result;
-} 
+}

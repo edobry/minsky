@@ -9,7 +9,7 @@ This guide explains the Minsky project's test architecture, which is organized b
 **Tests are organized by what they test, not how they're accessed.**
 
 - Domain logic tests are co-located with domain modules
-- Adapter tests are co-located with adapter modules  
+- Adapter tests are co-located with adapter modules
 - Integration tests use `tests/` directories only when they don't fit simple co-location
 
 ## Test Categories
@@ -78,7 +78,7 @@ describe("Session Lifecycle Integration", () => {
 
 ```
 What are you testing?
-├── Core domain service methods? 
+├── Core domain service methods?
 │   └── Co-locate: src/domain/[module].test.ts
 ├── *FromParams functions (command logic)?
 │   └── Co-locate: src/domain/[module].commands.test.ts
@@ -101,7 +101,7 @@ What are you testing?
 
 ## Migration Guidelines
 
-### From __tests__ Structure
+### From **tests** Structure
 
 When moving tests from the old `__tests__/` structure:
 
@@ -119,6 +119,7 @@ When moving tests from the old `__tests__/` structure:
 ## Import Path Patterns
 
 ### Co-located Tests
+
 ```typescript
 // src/domain/session.test.ts
 import { SessionService } from "./session";
@@ -126,6 +127,7 @@ import { createMock } from "../utils/test-utils/mocking";
 ```
 
 ### Integration Tests
+
 ```typescript
 // src/domain/tests/session-integration.test.ts
 import { SessionService } from "../session";
@@ -181,4 +183,4 @@ src/
 
 - [test-organization.mdc](mdc:.cursor/rules/test-organization.mdc) - File organization rules
 - [bun-test-patterns.mdc](mdc:.cursor/rules/bun-test-patterns.mdc) - Test implementation patterns
-- [testing-boundaries.mdc](mdc:.cursor/rules/testing-boundaries.mdc) - What to test vs avoid 
+- [testing-boundaries.mdc](mdc:.cursor/rules/testing-boundaries.mdc) - What to test vs avoid

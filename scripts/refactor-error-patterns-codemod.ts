@@ -2,13 +2,13 @@
 
 /**
  * Comprehensive Error Pattern Refactoring Codemod
- * 
+ *
  * This codemod safely replaces instances of:
  * `error instanceof Error ? error.message : String(error)`
- * 
+ *
  * With:
  * `getErrorMessage(error)`
- * 
+ *
  * It performs the following safety checks:
  * 1. Parses TypeScript AST to understand code structure
  * 2. Verifies the pattern matches exactly before replacement
@@ -44,18 +44,22 @@ class ErrorPatternCodemod {
     // Simple error pattern (for exact "error" variable)
     /error\s+instanceof\s+Error\s*\?\s*error\.message\s*:\s*String\s*\(\s*error\s*\)/g,
   ];
-  private readonly importPattern = /import\s*\{[^}]*getErrorMessage[^}]*\}\s*from\s*["'][^"']*errors[^"']*["']/;
-  
+  private readonly importPattern =
+    /import\s*\{[^}]*getErrorMessage[^}]*\}\s*from\s*["'][^"']*errors[^"']*["']/;
+
   /**
    * Main entry point for the codemod
    */
-  async refactorDirectory(dirPath: string, extensions: string[] = [".ts", ".tsx"]): Promise<RefactorSummary> {
+  async refactorDirectory(
+    dirPath: string,
+    extensions: string[] = [".ts", ".tsx"]
+  ): Promise<RefactorSummary> {
     const summary: RefactorSummary = {
       totalFiles: 0,
       modifiedFiles: 0,
       totalReplacements: 0,
       errors: [],
-      results: []
+      results: [],
     };
 
     try {
@@ -68,15 +72,17 @@ class ErrorPatternCodemod {
         try {
           const result = await this.refactorFile(file);
           summary.results.push(result);
-          
+
           if (result.replacements > 0) {
             summary.modifiedFiles++;
             summary.totalReplacements += result.replacements;
-            console.log(`✅ ${file}: ${result.replacements} replacements${result.importAdded ? " + import added" : ""}`);
+            console.log(
+              `✅ ${file}: ${result.replacements} replacements${result.importAdded ? " + import added" : ""}`
+            );
           }
-          
+
           if (result.errors.length > 0) {
-            summary.errors.push(...result.errors.map(err => `${file}: ${err}`));
+            summary.errors.push(...result.errors.map((err) => `${file}: ${err}`));
           }
         } catch (error) {
           const errorMsg = `Failed to process ${file}: ${error instanceof Error ? error.message : String(error)}`;
@@ -87,7 +93,9 @@ class ErrorPatternCodemod {
 
       return summary;
     } catch (error) {
-      summary.errors.push(`Directory processing failed: ${error instanceof Error ? error.message : String(error)}`);
+      summary.errors.push(
+        `Directory processing failed: ${error instanceof Error ? error.message : String(error)}`
+      );
       return summary;
     }
   }
@@ -100,17 +108,17 @@ class ErrorPatternCodemod {
       file: filePath,
       replacements: 0,
       importAdded: false,
-      errors: []
+      errors: [],
     };
 
     try {
       const originalContent = readFileSync(filePath, "utf-8") as string;
-      
+
       // Check if file contains the error pattern (including multi-line variations)
       if (!this.containsErrorPattern(originalContent)) {
         return result; // No patterns found
       }
-      
+
       // Parse TypeScript to understand structure
       const sourceFile = ts.createSourceFile(
         filePath,
@@ -140,7 +148,7 @@ class ErrorPatternCodemod {
       // Find and replace all instances with all patterns
       for (const pattern of this.errorPatterns) {
         const matches = Array.from(originalContent.matchAll(pattern));
-        
+
         for (const match of matches) {
           if (match.index !== undefined) {
             // Verify this is a safe replacement by checking context
@@ -148,13 +156,13 @@ class ErrorPatternCodemod {
               // Perform the replacement using the captured variable name
               const variableName = match[1] || "error";
               const replacement = `getErrorMessage(${variableName})`;
-              
+
               modifiedContent = modifiedContent.replace(match[0], replacement);
               result.replacements++;
             }
           }
         }
-        
+
         // Reset pattern for next iteration
         pattern.lastIndex = 0;
       }
@@ -194,7 +202,9 @@ class ErrorPatternCodemod {
 
       return result;
     } catch (error) {
-      result.errors.push(`Processing error: ${error instanceof Error ? error.message : String(error)}`);
+      result.errors.push(
+        `Processing error: ${error instanceof Error ? error.message : String(error)}`
+      );
       return result;
     }
   }
@@ -208,7 +218,7 @@ class ErrorPatternCodemod {
       /(\w+)\s+instanceof\s+Error\s*\?\s*\1\.message\s*:\s*String\s*\(\s*\1\s*\)/,
       /error\s+instanceof\s+Error\s*\?\s*error\.message\s*:\s*String\s*\(\s*error\s*\)/,
     ];
-    
+
     // Check with all patterns
     for (const pattern of testPatterns) {
       if (pattern.test(content)) {
@@ -217,13 +227,13 @@ class ErrorPatternCodemod {
     }
 
     // Also check for patterns that might be spread across lines
-    const normalizedContent = (content).toString().replace(/\s+/g, " ");
+    const normalizedContent = content.toString().replace(/\s+/g, " ");
     for (const pattern of testPatterns) {
       if (pattern.test(normalizedContent)) {
         return true;
       }
     }
-    
+
     return false;
   }
 
@@ -241,10 +251,10 @@ class ErrorPatternCodemod {
       // Skip if it's in a comment
       /\/\*[\s\S]*?error\s+instanceof\s+Error[\s\S]*?\*\//,
       /\/\/.*error\s+instanceof\s+Error/,
-      
+
       // Skip if it's in a regular string literal (not template literal)
       /['"][\s\S]*?error\s+instanceof\s+Error[\s\S]*?['"]/,
-      
+
       // Skip if it's already wrapped in getErrorMessage
       /getErrorMessage\s*\(\s*error\s+instanceof\s+Error/,
     ];
@@ -273,9 +283,9 @@ class ErrorPatternCodemod {
   private addGetErrorMessageImport(content: string, filePath: string): string {
     // Calculate relative path to errors module
     const relativePath = this.calculateErrorsImportPath(filePath);
-    
+
     // Find the best place to add the import
-    const lines = (content).toString().split("\n");
+    const lines = content.toString().split("\n");
     let insertIndex = 0;
     let hasOtherImports = false;
 
@@ -287,7 +297,13 @@ class ErrorPatternCodemod {
       if (trimmedLine.startsWith("import ") && trimmedLine.includes("from ")) {
         insertIndex = i + 1;
         hasOtherImports = true;
-      } else if (hasOtherImports && trimmedLine && !trimmedLine.startsWith("import ") && !trimmedLine.startsWith("//") && !trimmedLine.startsWith("/*")) {
+      } else if (
+        hasOtherImports &&
+        trimmedLine &&
+        !trimmedLine.startsWith("import ") &&
+        !trimmedLine.startsWith("//") &&
+        !trimmedLine.startsWith("/*")
+      ) {
         break;
       }
     }
@@ -311,7 +327,7 @@ class ErrorPatternCodemod {
     // Add new import
     const importStatement = `import { getErrorMessage } from "${relativePath}";`;
     lines.splice(insertIndex, 0, importStatement);
-    
+
     return lines.join("\n");
   }
 
@@ -327,10 +343,10 @@ class ErrorPatternCodemod {
 
     const pathFromSrc = filePath.slice(srcIndex + 5); // Remove '/src/'
     const depth = pathFromSrc.split("/").length - 1; // -1 for the file itself
-    
+
     const relativeParts = new Array(depth).fill("..");
     relativeParts.push("errors", "index");
-    
+
     return relativeParts.join("/");
   }
 
@@ -339,15 +355,15 @@ class ErrorPatternCodemod {
    */
   private findTypeScriptFiles(dirPath: string, extensions: string[]): string[] {
     const files: string[] = [];
-    
+
     const traverse = (currentPath: string) => {
       try {
         const items = readdirSync(currentPath);
-        
+
         for (const item of items) {
           const fullPath = join(currentPath, item);
           const stat = statSync(fullPath);
-          
+
           if (stat.isDirectory()) {
             // Skip node_modules and other common directories
             if (!["node_modules", ".git", "dist", "build", ".next"].includes(item)) {
@@ -375,35 +391,37 @@ class ErrorPatternCodemod {
  */
 async function main() {
   const codemod = new ErrorPatternCodemod();
-  
+
   console.log("🚀 Starting Error Pattern Refactoring Codemod");
   console.log("📁 Target directory: src/");
-  
+
   const summary = await codemod.refactorDirectory("src");
-  
+
   console.log("\n📊 Refactoring Summary:");
   console.log(`   Files analyzed: ${summary.totalFiles}`);
   console.log(`   Files modified: ${summary.modifiedFiles}`);
   console.log(`   Total replacements: ${summary.totalReplacements}`);
-  
+
   if (summary.errors.length > 0) {
     console.log(`\n❌ Errors encountered: ${summary.errors.length}`);
-    summary.errors.forEach(error => console.log(`   ${error}`));
+    summary.errors.forEach((error) => console.log(`   ${error}`));
   }
-  
+
   if (summary.modifiedFiles > 0) {
     console.log("\n✅ Refactoring completed successfully!");
     console.log("   All error patterns have been replaced with getErrorMessage() calls");
     console.log("   Required imports have been added automatically");
   } else {
-    console.log("\n✨ No files needed modification - all error patterns already use getErrorMessage()");
+    console.log(
+      "\n✨ No files needed modification - all error patterns already use getErrorMessage()"
+    );
   }
-  
+
   (globalThis as any).process?.exit?.(summary.errors.length > 0 ? 1 : 0);
 }
 
 if (import.meta.main) {
-  main().catch(error => {
+  main().catch((error) => {
     console.error("💥 Codemod failed:", error);
     (globalThis as any).process?.exit?.(1);
   });

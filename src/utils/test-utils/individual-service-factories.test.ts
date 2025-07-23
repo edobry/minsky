@@ -5,7 +5,7 @@ import {
   createMockTaskService,
   type MockSessionProviderOptions,
   type MockGitServiceOptions,
-  type MockTaskServiceOptions
+  type MockTaskServiceOptions,
 } from "./dependencies";
 import type { SessionRecord } from "../../domain/session";
 import type { Task } from "../../domain/tasks";
@@ -21,13 +21,13 @@ describe("Individual Service Mock Factories", () => {
       expect(await mockProvider.deleteSession("test")).toBe(true);
       expect(await mockProvider.getRepoPath()).toBe("/mock/repo/path");
       expect(await mockProvider.getSessionWorkdir()).toBe("/mock/session/workdir");
-      
+
       // Test methods that require parameters
       await mockProvider.addSession({
         session: "test",
-        repoName: "test-repo", 
+        repoName: "test-repo",
         repoUrl: "https://github.com/test/repo",
-        createdAt: "2023-01-01T00:00:00Z"
+        createdAt: "2023-01-01T00:00:00Z",
       });
       await mockProvider.updateSession("test", { taskId: "456" });
     });
@@ -53,12 +53,13 @@ describe("Individual Service Mock Factories", () => {
 
     test("accepts method overrides", async () => {
       const customOptions: MockSessionProviderOptions = {
-        getSession: () => Promise.resolve({
-          session: "custom",
-          repoName: "custom-repo",
-          repoUrl: "https://github.com/custom/repo",
-          createdAt: "2023-01-01T00:00:00Z",
-        }),
+        getSession: () =>
+          Promise.resolve({
+            session: "custom",
+            repoName: "custom-repo",
+            repoUrl: "https://github.com/custom/repo",
+            createdAt: "2023-01-01T00:00:00Z",
+          }),
         deleteSession: () => Promise.resolve(false),
       };
 
@@ -99,9 +100,15 @@ describe("Individual Service Mock Factories", () => {
       const mockServiceExists = createMockGitService({ branchExists: true });
       const mockServiceNotExists = createMockGitService({ branchExists: false });
 
-      expect(await mockServiceExists.execInRepository("/test", "show-ref pr/123")).toBe("ref-exists");
-      expect(await mockServiceNotExists.execInRepository("/test", "show-ref pr/123")).toBe("not-exists");
-      expect(await mockServiceExists.execInRepository("/test", "ls-remote pr/123")).toBe("remote-ref-exists");
+      expect(await mockServiceExists.execInRepository("/test", "show-ref pr/123")).toBe(
+        "ref-exists"
+      );
+      expect(await mockServiceNotExists.execInRepository("/test", "show-ref pr/123")).toBe(
+        "not-exists"
+      );
+      expect(await mockServiceExists.execInRepository("/test", "ls-remote pr/123")).toBe(
+        "remote-ref-exists"
+      );
       expect(await mockServiceNotExists.execInRepository("/test", "ls-remote pr/123")).toBe("");
     });
 
@@ -122,10 +129,11 @@ describe("Individual Service Mock Factories", () => {
 
     test("accepts method overrides", async () => {
       const customOptions: MockGitServiceOptions = {
-        clone: () => Promise.resolve({
-          workdir: "/custom/workdir",
-          session: "custom-session",
-        }),
+        clone: () =>
+          Promise.resolve({
+            workdir: "/custom/workdir",
+            session: "custom-session",
+          }),
         getSessionWorkdir: () => "/custom/session/workdir",
       };
 
@@ -212,11 +220,12 @@ describe("Individual Service Mock Factories", () => {
 
     test("supports custom task creation", async () => {
       const customOptions: MockTaskServiceOptions = {
-        createTask: () => Promise.resolve({
-          id: "#custom-create",
-          title: "Custom Created Task",
-          status: "CREATED",
-        }),
+        createTask: () =>
+          Promise.resolve({
+            id: "#custom-create",
+            title: "Custom Created Task",
+            status: "CREATED",
+          }),
       };
 
       const mockService = createMockTaskService(customOptions);
@@ -252,11 +261,12 @@ describe("Individual Service Mock Factories", () => {
       const mockSessionProvider = createMockSessionProvider({ sessions });
       const mockGitService = createMockGitService({ branchExists: true });
       const mockTaskService = createMockTaskService({
-        mockGetTask: () => Promise.resolve({
-          id: "#INT-001",
-          title: "Integration Task",
-          status: "IN_PROGRESS",
-        }),
+        mockGetTask: () =>
+          Promise.resolve({
+            id: "#INT-001",
+            title: "Integration Task",
+            status: "IN_PROGRESS",
+          }),
       });
 
       // Test session provider
@@ -288,4 +298,4 @@ describe("Individual Service Mock Factories", () => {
       expect(await taskService.listTasks()).toEqual([]);
     });
   });
-}); 
+});

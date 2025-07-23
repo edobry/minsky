@@ -1,6 +1,6 @@
 /**
  * Configuration Testing Utilities
- * 
+ *
  * Utilities for testing configuration scenarios, mocking sources,
  * and creating test configurations.
  */
@@ -87,17 +87,21 @@ export class TestConfigurationBuilder {
    */
   private deepMerge(target: any, source: any): any {
     const result = { ...target };
-    
+
     for (const key in source) {
       if (Object.prototype.hasOwnProperty.call(source, key)) {
-        if (typeof source[key] === "object" && !Array.isArray(source[key]) && source[key] !== null) {
+        if (
+          typeof source[key] === "object" &&
+          !Array.isArray(source[key]) &&
+          source[key] !== null
+        ) {
           result[key] = this.deepMerge(result[key] || {}, source[key]);
         } else {
           result[key] = source[key];
         }
       }
     }
-    
+
     return result;
   }
 }
@@ -157,7 +161,7 @@ export class MockConfigurationLoader {
       if (this.loadError) {
         throw this.loadError;
       }
-      
+
       return Array.from(this.mockSources.values());
     };
 
@@ -169,11 +173,16 @@ export class MockConfigurationLoader {
    */
   private getDefaultPriority(name: string): number {
     switch (name) {
-    case "defaults": return 0;
-    case "project": return 25;
-    case "user": return 50;
-    case "environment": return 100;
-    default: return 10;
+      case "defaults":
+        return 0;
+      case "project":
+        return 25;
+      case "user":
+        return 50;
+      case "environment":
+        return 100;
+      default:
+        return 10;
     }
   }
 }
@@ -186,10 +195,7 @@ export const testConfigurations = {
    * Minimal valid configuration
    */
   minimal(): PartialConfiguration {
-    return new TestConfigurationBuilder()
-      .backend("markdown")
-      .sessionDb("sqlite")
-      .build();
+    return new TestConfigurationBuilder().backend("markdown").sessionDb("sqlite").build();
   },
 
   /**
@@ -204,13 +210,13 @@ export const testConfigurations = {
   },
 
   /**
-    * Production configuration
-    */
+   * Production configuration
+   */
   production(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("github-issues")
-      .sessionDb("postgres", { 
-        postgres: { connectionString: "postgresql://localhost/minsky_prod" }
+      .sessionDb("postgres", {
+        postgres: { connectionString: "postgresql://localhost/minsky_prod" },
       })
       .github({ token: "prod-token" })
       .logger({ level: "info", mode: "STRUCTURED" })
@@ -218,8 +224,8 @@ export const testConfigurations = {
   },
 
   /**
-    * Testing configuration
-    */
+   * Testing configuration
+   */
   testing(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("json-file")
@@ -229,8 +235,8 @@ export const testConfigurations = {
   },
 
   /**
-    * AI-enabled configuration
-    */
+   * AI-enabled configuration
+   */
   withAI(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("markdown")
@@ -250,8 +256,8 @@ export const testConfigurations = {
   },
 
   /**
-    * GitHub integration configuration
-    */
+   * GitHub integration configuration
+   */
   withGitHub(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("github-issues")
@@ -282,13 +288,13 @@ export const testEnvironmentVariables = {
    */
   set(vars: Record<string, string>): () => void {
     const originalValues: Record<string, string | undefined> = {};
-    
+
     // Store original values and set new ones
     for (const [key, value] of Object.entries(vars)) {
       originalValues[key] = process.env[key];
       process.env[key] = value;
     }
-    
+
     // Return cleanup function
     return () => {
       for (const [key, originalValue] of Object.entries(originalValues)) {
@@ -357,7 +363,7 @@ export const testAssertions = {
   isSuccessfulLoad(result: ConfigurationLoadResult): boolean {
     return (
       result.validationResult.success &&
-      result.sources.some(s => s.success) &&
+      result.sources.some((s) => s.success) &&
       this.hasValidStructure(result.config)
     );
   },
@@ -366,18 +372,14 @@ export const testAssertions = {
    * Assert source loaded successfully
    */
   sourceLoadedSuccessfully(result: ConfigurationLoadResult, sourceName: string): boolean {
-    const source = result.sources.find(s => s.source.name === sourceName);
+    const source = result.sources.find((s) => s.source.name === sourceName);
     return source ? source.success : false;
   },
 
   /**
    * Assert configuration value came from expected source
    */
-  valueFromSource(
-    result: ConfigurationLoadResult,
-    path: string,
-    expectedSource: string
-  ): boolean {
+  valueFromSource(result: ConfigurationLoadResult, path: string, expectedSource: string): boolean {
     const effectiveValue = result.effectiveValues[path];
     return effectiveValue ? effectiveValue.source === expectedSource : false;
   },
@@ -411,4 +413,4 @@ export async function loadTestConfiguration(
 
   const loader = mockLoader.createLoader();
   return loader.load();
-} 
+}

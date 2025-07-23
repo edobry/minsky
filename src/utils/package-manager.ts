@@ -20,7 +20,10 @@ export interface PackageManagerDependencies {
     existsSync: (path: string) => boolean;
   };
   process: {
-    execSync: (command: string, options?: { cwd?: string; stdio?: string | string[] }) => Buffer | null;
+    execSync: (
+      command: string,
+      options?: { cwd?: string; stdio?: string | string[] }
+    ) => Buffer | null;
   };
   logger?: {
     debug: (message: string) => void;
@@ -76,16 +79,16 @@ export function detectPackageManager(
  */
 export function getInstallCommand(packageManager: PackageManager): string | undefined {
   switch (packageManager) {
-  case "bun":
-    return "bun install";
-  case "npm":
-    return "npm install";
-  case "yarn":
-    return "yarn";
-  case "pnpm":
-    return "pnpm install";
-  default:
-    return undefined;
+    case "bun":
+      return "bun install";
+    case "npm":
+      return "npm install";
+    case "yarn":
+      return "yarn";
+    case "pnpm":
+      return "pnpm install";
+    default:
+      return undefined;
   }
 }
 

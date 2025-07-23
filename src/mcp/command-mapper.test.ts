@@ -156,9 +156,11 @@ describe("CommandMapper", () => {
       // This schema pattern was causing "Invalid literal value, expected 'object'" errors
       const zodSchema = z.object({
         path: z.string().describe("File path to analyze"),
-        options: z.object({
-          verbose: z.boolean().optional(),
-        }).optional(),
+        options: z
+          .object({
+            verbose: z.boolean().optional(),
+          })
+          .optional(),
       });
 
       const jsonSchema = commandMapper.zodToJsonSchema(zodSchema);

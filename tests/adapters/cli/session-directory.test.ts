@@ -1,10 +1,10 @@
 /**
  * Session Directory Command Tests
- * 
+ *
  * Tests for session directory command functionality
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { getSessionDirFromParams } from "../../../src/domain/session";
 import { createMock } from "../../../src/utils/test-utils/mocking";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
@@ -26,7 +26,14 @@ describe("session dir command", () => {
     const correctSession = testData.mockSessions[1]; // task#160 session
     testData.mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(correctSession));
     testData.mockSessionDB.getSession = mock(() => Promise.resolve(correctSession));
-    testData.mockSessionDB.getRepoPath = mock(() => Promise.resolve("/Users/edobry/.local/state/minsky/sessions/task#160"));
+
+    // Add the missing getRepoPath method to the mock
+    if (!testData.mockSessionDB.getRepoPath) {
+      testData.mockSessionDB.getRepoPath = createMock();
+    }
+    testData.mockSessionDB.getRepoPath = mock(() =>
+      Promise.resolve("/Users/edobry/.local/state/minsky/sessions/task#160")
+    );
 
     // Act
     const result = await getSessionDirFromParams(
@@ -38,8 +45,9 @@ describe("session dir command", () => {
       }
     );
 
-    // Assert: Check the result instead of testing the mock call parameters
-    expect(result).toBeDefined();
+    // Assert
+    expect(testData.mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#160");
+    expect(typeof result).toBe("string");
     expect(result).toContain("task#160");
     expect(result).not.toContain("/004");
   });
@@ -51,14 +59,10 @@ describe("session dir command", () => {
     testData.mockSessionDB.getSession = mock(() => Promise.resolve(correctSession));
 
     // Act: Test with task ID without # prefix
-    const result = await getSessionDirFromParams(
-      { task: "160" },
-      { sessionDB: testData.mockSessionDB }
-    );
+    await getSessionDirFromParams({ task: "160" }, { sessionDB: testData.mockSessionDB });
 
-    // Assert: Check the result instead of testing the mock call parameters
-    expect(result).toBeDefined();
-    expect(result).toContain("task#160");
+    // Assert: Should call with normalized task ID (with # prefix)
+    expect(testData.mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#160");
   });
 
   test("should handle null taskId sessions correctly", () => {
@@ -93,7 +97,7 @@ describe("session dir command", () => {
       if (!options?.taskId) {
         return testData.mockSessions;
       }
-            
+
       // Implement the same filtering logic as SQLite storage
       const normalizedTaskId = options.taskId.replace(/^#/, "");
       return testData.mockSessions.filter((s) => {
@@ -136,4 +140,4 @@ describe("session dir command", () => {
     expect(correctSessions).toHaveLength(3);
     expect(correctSessions.map((s) => s.session)).toEqual(["task160", "task#160", "task-160-v2"]);
   });
-}); 
+});

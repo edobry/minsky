@@ -160,4 +160,4 @@ This is a test task description.
       expect(path).toBe("process/tasks/001-test-task-with-special-characters-.md");
     });
   });
-}); 
+});

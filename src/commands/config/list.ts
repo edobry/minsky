@@ -15,7 +15,8 @@ interface ListOptions {
 export function createConfigListCommand(): Command {
   return new Command("list")
     .description("List all configuration values and their sources")
-    .option("--json", "Output in JSON format", false).action(async (options: ListOptions) => {
+    .option("--json", "Output in JSON format", false)
+    .action(async (options: ListOptions) => {
       try {
         // Use new configuration system with metadata support
         const provider = getConfigurationProvider();
@@ -35,7 +36,7 @@ export function createConfigListCommand(): Command {
           const output = {
             resolved,
             metadata,
-            sources: metadata.sources || []
+            sources: metadata.sources || [],
           };
           await Bun.write(Bun.stdout, `${JSON.stringify(output, undefined, 2)}\n`);
         } else {
@@ -76,7 +77,7 @@ async function displayConfigurationSources(resolved: any, metadata: any) {
 
   if (resolved.ai && resolved.ai.providers) {
     const configuredProviders = Object.keys(resolved.ai.providers).filter(
-      provider => resolved.ai.providers[provider].apiKey
+      (provider) => resolved.ai.providers[provider].apiKey
     );
     if (configuredProviders.length > 0) {
       await Bun.write(Bun.stdout, `AI Providers: ${configuredProviders.join(", ")}\n`);

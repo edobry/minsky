@@ -9,4 +9,4 @@ describe("pushImpl", () => {
   test("should require dependencies", () => {
     expect(pushImpl.length).toBe(2); // function takes 2 parameters
   });
-}); 
+});

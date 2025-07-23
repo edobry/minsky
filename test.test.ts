@@ -5,6 +5,5 @@ const mockLog = {
   debug: mock(() => {}),
   warn: mock(() => {}),
   error: mock(() => {}),
-  cli: mock(() => {})
+  cli: mock(() => {}),
 };
-      

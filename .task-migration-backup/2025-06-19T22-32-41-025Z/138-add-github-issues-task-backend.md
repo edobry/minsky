@@ -1,11 +1,13 @@
 # Task #138: Add GitHub Issues Support as Task Backend
 
 ## Status
+
 IN-PROGRESS
 
 ## Implementation Status
 
 ### ✅ Completed
+
 - **GitHubIssuesTaskBackend Class**: Fully implemented with all TaskBackend interface methods
 - **GitHub API Integration**: Using @octokit/rest for GitHub Issues API communication
 - **Task-Issue Mapping**: Complete mapping between Minsky tasks and GitHub issues
@@ -20,22 +22,26 @@ IN-PROGRESS
 Before final completion, I need clarification on several aspects:
 
 1. **Authentication Configuration**: How should GitHub tokens be configured and stored?
+
    - Environment variables (GITHUB_TOKEN)?
    - Config file (~/.minsky/config)?
    - Command-line flags?
    - Interactive prompts?
 
 2. **Repository Selection**: How should users specify which repository to use?
+
    - Command-line flags (--github-owner, --github-repo)?
    - Config file settings?
    - Auto-detection from current git repository?
 
 3. **Label Management**: Should Minsky automatically create the required labels if they don't exist?
+
    - Auto-create default labels (minsky:todo, etc.)?
    - Prompt user before creating labels?
    - Fail with clear error message if labels missing?
 
 4. **Issue Synchronization**: How should existing issues be handled?
+
    - Import existing issues as tasks?
    - Only manage issues created by Minsky?
    - Merge conflicts when both Minsky and GitHub are modified?
@@ -50,7 +56,7 @@ Before final completion, I need clarification on several aspects:
 Based on your answers, the remaining tasks would be:
 
 - [ ] **Configuration Management**: Implement chosen authentication and repository selection approach
-- [ ] **CLI Command Updates**: Add GitHub-specific configuration commands if needed  
+- [ ] **CLI Command Updates**: Add GitHub-specific configuration commands if needed
 - [ ] **Label Management**: Implement automatic label creation/validation
 - [ ] **Integration Tests**: Add tests that work with actual GitHub API (optional)
 - [ ] **Documentation**: Add usage examples and configuration guide
@@ -58,6 +64,7 @@ Based on your answers, the remaining tasks would be:
 ### 🔧 Technical Notes
 
 The current implementation:
+
 - ✅ Implements all required TaskBackend interface methods
 - ✅ Handles GitHub API authentication with configurable tokens
 - ✅ Maps task statuses to GitHub issue states and labels
@@ -88,7 +95,9 @@ Currently, Minsky supports markdown and basic GitHub backend for task management
 ## Implementation Plan
 
 ### Phase 1: Core GitHub Issues API Integration
+
 1. **Create GitHub API Client**
+
    - Set up GitHub REST API client with authentication
    - Implement rate limiting and error handling
    - Add support for both public and private repositories
@@ -99,7 +108,9 @@ Currently, Minsky supports markdown and basic GitHub backend for task management
    - Map GitHub Issues to TaskData objects
 
 ### Phase 2: Task-Issue Mapping
+
 1. **Status Mapping**
+
    - Map Minsky task statuses (TODO, IN-PROGRESS, IN-REVIEW, DONE) to GitHub issue states and labels
    - Use GitHub labels for granular status tracking
 
@@ -109,7 +120,9 @@ Currently, Minsky supports markdown and basic GitHub backend for task management
    - Preserve spec file references as issue body content
 
 ### Phase 3: CLI Integration
+
 1. **Update Task Service**
+
    - Add GitHubIssuesTaskBackend to available backends
    - Update backend selection logic
    - Add configuration validation
@@ -120,7 +133,9 @@ Currently, Minsky supports markdown and basic GitHub backend for task management
    - Default label/milestone configuration
 
 ### Phase 4: Error Handling & Polish
+
 1. **Robust Error Handling**
+
    - API rate limiting
    - Network connectivity issues
    - Authentication failures

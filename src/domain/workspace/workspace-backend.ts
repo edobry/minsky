@@ -32,7 +32,11 @@ export interface WorkspaceBackend {
    * @param content Content to write
    * @returns Operation result
    */
-  writeFile(workspaceDir: string, relativePath: string, content: string): Promise<WorkspaceOperationResult>;
+  writeFile(
+    workspaceDir: string,
+    relativePath: string,
+    content: string
+  ): Promise<WorkspaceOperationResult>;
 
   /**
    * Delete a file from the workspace
@@ -87,12 +91,7 @@ export class WorkspaceError extends Error {
  * Error thrown when a path is invalid or outside workspace boundaries
  */
 export class InvalidPathError extends WorkspaceError {
-  constructor(
-    message: string,
-    workspaceDir: string,
-    relativePath?: string,
-    cause?: Error
-  ) {
+  constructor(message: string, workspaceDir: string, relativePath?: string, cause?: Error) {
     super(message, "path_validation", workspaceDir, relativePath, cause);
     this.name = "InvalidPathError";
   }
@@ -102,18 +101,8 @@ export class InvalidPathError extends WorkspaceError {
  * Error thrown when a file or directory is not found
  */
 export class FileNotFoundError extends WorkspaceError {
-  constructor(
-    workspaceDir: string,
-    relativePath: string,
-    cause?: Error
-  ) {
-    super(
-      `File not found: ${relativePath}`,
-      "file_not_found",
-      workspaceDir,
-      relativePath,
-      cause
-    );
+  constructor(workspaceDir: string, relativePath: string, cause?: Error) {
+    super(`File not found: ${relativePath}`, "file_not_found", workspaceDir, relativePath, cause);
     this.name = "FileNotFoundError";
   }
 }
@@ -122,13 +111,8 @@ export class FileNotFoundError extends WorkspaceError {
  * Error thrown when attempting to perform an operation on a directory when expecting a file
  */
 export class DirectoryError extends WorkspaceError {
-  constructor(
-    message: string,
-    workspaceDir: string,
-    relativePath: string,
-    cause?: Error
-  ) {
+  constructor(message: string, workspaceDir: string, relativePath: string, cause?: Error) {
     super(message, "directory_operation", workspaceDir, relativePath, cause);
     this.name = "DirectoryError";
   }
-} 
+}

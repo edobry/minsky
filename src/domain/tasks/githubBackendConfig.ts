@@ -29,7 +29,9 @@ function extractGitHubRepoFromRemote(
     const remoteUrl = execSync("git remote get-url origin", {
       cwd: workspacePath,
       encoding: "utf8",
-    }).toString().trim();
+    })
+      .toString()
+      .trim();
 
     // Parse GitHub repository from various URL formats
     // SSH: git@github.com:owner/repo.git

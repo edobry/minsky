@@ -2,7 +2,11 @@ import { promises as fs } from "fs";
 import { join } from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { createSessionProvider, type SessionProviderInterface, type SessionRecord } from "./session";
+import {
+  createSessionProvider,
+  type SessionProviderInterface,
+  type SessionRecord,
+} from "./session";
 import { log } from "../utils/logger";
 import { createHash } from "crypto";
 import { readFileSync, existsSync } from "fs";
@@ -370,7 +374,10 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
 }
 
 export async function getWorkspaceGitRoot(workspacePath: string): Promise<string> {
-  const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd: workspacePath });
+  const { execGitWithTimeout } = await import("../utils/git-exec");
+  const { stdout } = await execGitWithTimeout("rev-parse", "rev-parse --show-toplevel", {
+    workdir: workspacePath,
+  });
   return stdout.trim();
 }
 

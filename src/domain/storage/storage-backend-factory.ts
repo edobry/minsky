@@ -154,43 +154,43 @@ export function createStorageBackend(
   log.debug(`Creating storage backend: ${storageConfig.backend}`);
 
   switch (storageConfig.backend) {
-  case "json": {
-    const dbPath = storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath;
-    const baseDir = getMinskyStateDir();
-    return new JsonFileStorage(dbPath, baseDir);
-  }
+    case "json": {
+      const dbPath = storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath;
+      const baseDir = getMinskyStateDir();
+      return new JsonFileStorage(dbPath, baseDir);
+    }
 
-  case "sqlite": {
-    const sqliteConfig: SqliteStorageConfig = {
-      dbPath: storageConfig.sqlite?.dbPath || getDefaultStorageConfig().sqlite!.dbPath!,
-      enableWAL: storageConfig.sqlite?.enableWAL ?? true,
-      timeout: storageConfig.sqlite?.timeout ?? 5000,
-    };
-    return createSqliteStorage(sqliteConfig);
-  }
+    case "sqlite": {
+      const sqliteConfig: SqliteStorageConfig = {
+        dbPath: storageConfig.sqlite?.dbPath || getDefaultStorageConfig().sqlite!.dbPath!,
+        enableWAL: storageConfig.sqlite?.enableWAL ?? true,
+        timeout: storageConfig.sqlite?.timeout ?? 5000,
+      };
+      return createSqliteStorage(sqliteConfig);
+    }
 
-  case "postgres": {
-    if (!storageConfig.postgres?.connectionUrl) {
-      const errorMessage = createBackendDetectionErrorMessage(
+    case "postgres": {
+      if (!storageConfig.postgres?.connectionUrl) {
+        const errorMessage = createBackendDetectionErrorMessage(
+          "postgres",
+          ["json", "sqlite", "postgres"],
+          {
+            postgres: ["PostgreSQL connection URL"],
+          }
+        );
+        throw new Error(errorMessage);
+      }
+      return createPostgresStorage(storageConfig.postgres);
+    }
+
+    default: {
+      const errorMessage = createBackendDetectionErrorMessage(storageConfig.backend, [
+        "json",
+        "sqlite",
         "postgres",
-        ["json", "sqlite", "postgres"],
-        {
-          postgres: ["PostgreSQL connection URL"],
-        }
-      );
+      ]);
       throw new Error(errorMessage);
     }
-    return createPostgresStorage(storageConfig.postgres);
-  }
-
-  default: {
-    const errorMessage = createBackendDetectionErrorMessage(storageConfig.backend, [
-      "json",
-      "sqlite",
-      "postgres",
-    ]);
-    throw new Error(errorMessage);
-  }
   }
 }
 
@@ -272,14 +272,14 @@ export async function createStorageBackendWithIntegrity(
  */
 function getFilePath(config: StorageConfig): string | null {
   switch (config.backend) {
-  case "json":
-    return config.json?.filePath || getDefaultJsonDbPath();
-  case "sqlite":
-    return config.sqlite?.dbPath || getDefaultSqliteDbPath();
-  case "postgres":
-    return null; // PostgreSQL doesn't have local file paths
-  default:
-    return null;
+    case "json":
+      return config.json?.filePath || getDefaultJsonDbPath();
+    case "sqlite":
+      return config.sqlite?.dbPath || getDefaultSqliteDbPath();
+    case "postgres":
+      return null; // PostgreSQL doesn't have local file paths
+    default:
+      return null;
   }
 }
 
@@ -291,7 +291,10 @@ async function handleIntegrityIssues(
   config: StorageConfig
 ): Promise<{ shouldContinue: boolean; autoMigrationPerformed: boolean }> {
   // For now, implement simple handling - in the future this could be more sophisticated
-  if (config.autoMigrate && integrityResult.suggestedActions.some(action => action.autoExecutable)) {
+  if (
+    config.autoMigrate &&
+    integrityResult.suggestedActions.some((action) => action.autoExecutable)
+  ) {
     // Auto-migration logic would go here
     log.debug("Auto-migration would be performed here");
     return { shouldContinue: true, autoMigrationPerformed: false };
@@ -387,14 +390,14 @@ export class StorageBackendFactory {
    */
   private getBackendKey(config: StorageConfig): string {
     switch (config.backend) {
-    case "json":
-      return `json:${config.json?.filePath}`;
-    case "sqlite":
-      return `sqlite:${config.sqlite?.dbPath}`;
-    case "postgres":
-      return `postgres:${config.postgres?.connectionUrl}`;
-    default:
-      return config.backend;
+      case "json":
+        return `json:${config.json?.filePath}`;
+      case "sqlite":
+        return `sqlite:${config.sqlite?.dbPath}`;
+      case "postgres":
+        return `postgres:${config.postgres?.connectionUrl}`;
+      default:
+        return config.backend;
     }
   }
 }

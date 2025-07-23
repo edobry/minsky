@@ -15,6 +15,7 @@ Research and design a `session lint` command that can detect various issues in a
 ## Scope of Research
 
 ### Command Purpose
+
 - Run comprehensive linting and validation checks on session workspace
 - Detect issues that could cause commit failures or code quality problems
 - Provide actionable feedback to developers before they attempt to commit
@@ -22,6 +23,7 @@ Research and design a `session lint` command that can detect various issues in a
 ### Areas to Investigate
 
 #### 1. Types of Checks to Include
+
 - **Code Quality**: ESLint, TypeScript compiler errors, style issues
 - **Test Validation**: Ensure tests pass, check for test syntax issues
 - **Import/Export Issues**: Circular dependencies, missing imports, unused imports
@@ -31,24 +33,28 @@ Research and design a `session lint` command that can detect various issues in a
 - **Minsky-Specific**: Task completion status, session state validation
 
 #### 2. Integration Points
+
 - How should this integrate with existing session workflow?
 - Should it run automatically before certain operations?
 - How should it interact with existing linting tools?
 - What about CI/CD pipeline integration?
 
 #### 3. User Experience Design
+
 - Command syntax and options (`minsky session lint [options]`)
 - Output formatting (summary vs detailed, JSON output for tooling)
 - Exit codes for programmatic usage
 - Interactive vs non-interactive modes
 
 #### 4. Performance Considerations
+
 - How to make linting fast enough for frequent use
 - Incremental linting (only changed files)
 - Parallel execution of different check types
 - Caching strategies
 
 #### 5. Configuration Options
+
 - Allow users to configure which checks to run
 - Project-specific linting rules
 - Integration with existing linting configurations (.eslintrc, etc.)
@@ -82,12 +88,14 @@ Research and design a `session lint` command that can detect various issues in a
 ### Functional Requirements
 
 1. **Command Interface**
+
    - Implement `minsky session lint` command in CLI adapter
    - Support common flags: `--fix`, `--json`, `--verbose`, `--fast`
    - Provide clear exit codes (0=success, 1=warnings, 2=errors)
    - Include help documentation and examples
 
 2. **Core Linting Capabilities**
+
    - TypeScript compilation check
    - ESLint integration (respect existing .eslintrc config)
    - Import/export validation
@@ -95,6 +103,7 @@ Research and design a `session lint` command that can detect various issues in a
    - Test syntax validation (without running tests)
 
 3. **Output Requirements**
+
    - Human-readable summary with file/line references
    - JSON output option for tool integration
    - Color-coded output (errors=red, warnings=yellow, success=green)
@@ -109,11 +118,13 @@ Research and design a `session lint` command that can detect various issues in a
 ### Technical Requirements
 
 1. **Performance**
+
    - Complete basic lint check in under 10 seconds for typical session
    - Support incremental checking (only changed files)
    - Parallel execution where possible
 
 2. **Extensibility**
+
    - Plugin architecture for custom checks
    - Configuration file support (`.minsky-lint.json`)
    - Integration with existing project linting setup
@@ -126,6 +137,7 @@ Research and design a `session lint` command that can detect various issues in a
 ## Success Criteria
 
 ### Research Phase Success
+
 - [ ] Complete analysis of existing linting tools and integration patterns
 - [ ] Document 3+ real-world use cases with specific examples
 - [ ] Identify technical constraints and implementation challenges
@@ -133,6 +145,7 @@ Research and design a `session lint` command that can detect various issues in a
 - [ ] Define plugin architecture for extensibility
 
 ### Design Phase Success
+
 - [ ] Command syntax and options clearly defined
 - [ ] Output format specifications completed
 - [ ] Performance benchmarks and targets established
@@ -140,6 +153,7 @@ Research and design a `session lint` command that can detect various issues in a
 - [ ] Configuration strategy documented
 
 ### Implementation Readiness
+
 - [ ] Technical architecture designed and reviewed
 - [ ] Development effort estimated (story points/hours)
 - [ ] Dependencies and prerequisites identified
@@ -147,6 +161,7 @@ Research and design a `session lint` command that can detect various issues in a
 - [ ] Documentation plan created
 
 ### User Value Validation
+
 - [ ] Workflow improvements quantified (time saved, errors prevented)
 - [ ] User experience mockups or prototypes created
 - [ ] Integration with existing developer tools planned
@@ -157,18 +172,21 @@ Research and design a `session lint` command that can detect various issues in a
 This task is complete when:
 
 1. **Comprehensive Research Report** exists documenting:
+
    - Analysis of existing solutions (pre-commit hooks, IDE integrations, etc.)
    - Technical feasibility assessment
    - User workflow integration analysis
    - Performance and scalability considerations
 
 2. **Detailed Design Specification** includes:
+
    - Complete command interface definition
    - Architecture diagrams and component breakdown
    - Configuration options and file formats
    - Error handling and user experience flows
 
 3. **Implementation Roadmap** provides:
+
    - Phased development plan with effort estimates
    - Risk assessment and mitigation strategies
    - Testing and quality assurance approach

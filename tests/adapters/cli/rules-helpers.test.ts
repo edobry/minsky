@@ -25,13 +25,13 @@ describe("Rules CLI Helper Functions", () => {
     });
 
     test("parses JSON array string format", () => {
-      const _result = parseGlobs("[\"**/*.ts\", \"**/*.tsx\", \"*.md\"]");
+      const _result = parseGlobs('["**/*.ts", "**/*.tsx", "*.md"]');
       expect(_result)!.toEqual(["**/*.ts", "**/*.tsx", "*.md"]);
     });
 
     test("falls back to comma handling if JSON parsing fails", () => {
-      const _result = parseGlobs("[\"**/*.ts\", \"**/*.tsx\", malformed");
-      expect(_result)!.toEqual(["[\"**/*.ts\"", "\"**/*.tsx\"", "malformed"]);
+      const _result = parseGlobs('["**/*.ts", "**/*.tsx", malformed');
+      expect(_result)!.toEqual(['["**/*.ts"', '"**/*.tsx"', "malformed"]);
     });
 
     test("returns undefined for empty string", () => {

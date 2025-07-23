@@ -5,14 +5,8 @@
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { GitService } from "../git";
-import {
-  createMock,
-  setupTestMocks,
-  mockModule,
-} from "../../utils/test-utils/mocking";
-import {
-  expectToHaveBeenCalled,
-} from "../../utils/test-utils/assertions";
+import { createMock, setupTestMocks, mockModule } from "../../utils/test-utils/mocking";
+import { expectToHaveBeenCalled } from "../../utils/test-utils/assertions";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -43,12 +37,16 @@ mockModule("../../utils/exec", () => ({
   execAsync: createMock(async (command: string) => {
     // Simulate git command failures that tests expect
     if (command.includes("git clone") && command.includes("nonexistent")) {
-      throw new Error("Command failed: git clone https://github.com/user/nonexistent.git /test/workdir");
+      throw new Error(
+        "Command failed: git clone https://github.com/user/nonexistent.git /test/workdir"
+      );
     }
     if (command.includes("git clone") && command.includes("local/path/to/repo")) {
-      throw new Error("Command failed: git clone local/path/to/repo /test/workdir\nfatal: repository 'local/path/to/repo' does not exist");
+      throw new Error(
+        "Command failed: git clone local/path/to/repo /test/workdir\nfatal: repository 'local/path/to/repo' does not exist"
+      );
     }
-    
+
     // Default successful git clone
     return { stdout: "Cloning into '/test/workdir'...\nDone.", stderr: "" };
   }),
@@ -95,13 +93,11 @@ describe("Clone Operations", () => {
     };
 
     await expect(
-      gitService.clone(
-        {
-          repoUrl: "",
-          session: "test-session",
-          workdir: "/test/workdir",
-        }
-      )
+      gitService.clone({
+        repoUrl: "",
+        session: "test-session",
+        workdir: "/test/workdir",
+      })
     ).rejects.toThrow("Failed to clone git repository"); // Updated to match actual error pattern
   });
 
@@ -133,9 +129,7 @@ describe("Clone Operations", () => {
     const mockDeps = {
       execAsync: createMock(async (command: string) => {
         if (command.includes("git clone")) {
-          throw new Error(
-            "fatal: repository 'https://github.com/user/nonexistent.git' not found"
-          );
+          throw new Error("fatal: repository 'https://github.com/user/nonexistent.git' not found");
         }
         return { stdout: "", stderr: "" };
       }),
@@ -147,13 +141,11 @@ describe("Clone Operations", () => {
     };
 
     await expect(
-      gitService.clone(
-        {
-          repoUrl: "https://github.com/user/nonexistent.git",
-          session: "test-session",
-          workdir: "/test/workdir",
-        }
-      )
+      gitService.clone({
+        repoUrl: "https://github.com/user/nonexistent.git",
+        session: "test-session",
+        workdir: "/test/workdir",
+      })
     ).rejects.toThrow("Failed to clone git repository");
   });
 
@@ -175,13 +167,11 @@ describe("Clone Operations", () => {
     };
 
     await expect(
-      gitService.clone(
-        {
-          repoUrl: "https://github.com/user/repo.git",
-          session: "test-session",
-          workdir: "/test/workdir",
-        }
-      )
+      gitService.clone({
+        repoUrl: "https://github.com/user/repo.git",
+        session: "test-session",
+        workdir: "/test/workdir",
+      })
     ).rejects.toThrow("Failed to clone git repository"); // Updated to match actual error pattern
   });
 
@@ -195,7 +185,7 @@ describe("Clone Operations", () => {
       access: createMock(),
     };
 
-    // Updated: Test now expects error due to filesystem constraints  
+    // Updated: Test now expects error due to filesystem constraints
     await expect(
       gitService.clone({
         repoUrl: "local/path/to/repo",
@@ -216,13 +206,11 @@ describe("Clone Operations", () => {
     };
 
     await expect(
-      gitService.clone(
-        {
-          repoUrl: "https://github.com/user/repo.git",
-          session: "test-session",
-          workdir: "/test/workdir",
-        }
-      )
+      gitService.clone({
+        repoUrl: "https://github.com/user/repo.git",
+        session: "test-session",
+        workdir: "/test/workdir",
+      })
     ).rejects.toThrow("Failed to clone git repository");
   });
-}); 
+});

@@ -31,24 +31,34 @@ describe("ImportExtensionFixer", () => {
   beforeEach(() => {
     // Create isolated test environment
     originalCwd = process.cwd();
-    testDir = join(tmpdir(), `import-fixer-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+    testDir = join(
+      tmpdir(),
+      `import-fixer-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    );
     mkdirSync(testDir, { recursive: true });
 
     // Create test src directory
     mkdirSync(join(testDir, "src"), { recursive: true });
 
     // Create minimal tsconfig.json
-    writeFileSync(join(testDir, "tsconfig.json"), JSON.stringify({
-      compilerOptions: {
-        target: "ES2020",
-        module: "ESNext",
-        moduleResolution: "node",
-        allowSyntheticDefaultImports: true,
-        esModuleInterop: true,
-        strict: true
-      },
-      include: ["src/**/*"]
-    }, null, 2));
+    writeFileSync(
+      join(testDir, "tsconfig.json"),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2020",
+            module: "ESNext",
+            moduleResolution: "node",
+            allowSyntheticDefaultImports: true,
+            esModuleInterop: true,
+            strict: true,
+          },
+          include: ["src/**/*"],
+        },
+        null,
+        2
+      )
+    );
 
     // Change to test directory
     process.chdir(testDir);
@@ -68,11 +78,14 @@ describe("ImportExtensionFixer", () => {
   describe("Unit Tests - Individual Transformations", () => {
     test("should remove .js extension from local imports", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { helper } from "./utils.js";
 import { config } from "../config.js";
 import { Component } from "./components/Button.js";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -88,10 +101,13 @@ import { Component } from "./components/Button.js";
 
     test("should remove .ts extension from local imports", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { TypeHelper } from "./types.ts";
 import { Interface } from "../interfaces.ts";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -106,11 +122,14 @@ import { Interface } from "../interfaces.ts";
 
     test("should remove extensions from export statements", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 export { helper } from "./utils.js";
 export type { Config } from "../config.ts";
 export * from "./components/Button.js";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -126,12 +145,15 @@ export * from "./components/Button.js";
 
     test("should preserve external npm package imports", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { readFile } from "fs/promises";
 import express from "express";
 import { z } from "zod";
 import { join } from "path";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -148,11 +170,14 @@ import { join } from "path";
 
     test("should preserve non-.js/.ts extensions", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import "./styles.css";
 import config from "./config.json";
 import template from "./template.html";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -168,13 +193,16 @@ import template from "./template.html";
 
     test("should handle mixed import types correctly", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { readFile } from "fs/promises";
 import { helper } from "./utils.js";
 import "./styles.css";
 import express from "express";
 import { config } from "../config.ts";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -197,12 +225,12 @@ import { config } from "../config.ts";
       const files = [
         { path: "src/app.ts", content: `import { helper } from "./utils.js";` },
         { path: "src/components/Button.ts", content: `export { theme } from "../theme.ts";` },
-        { path: "src/utils/index.ts", content: `import { config } from "./config.js";` }
+        { path: "src/utils/index.ts", content: `import { config } from "./config.js";` },
       ];
 
-      files.forEach(file => {
+      files.forEach((file) => {
         const fullPath = join(testDir, file.path);
-        mkdirSync(join(testDir, file.path.split('/').slice(0, -1).join('/')), { recursive: true });
+        mkdirSync(join(testDir, file.path.split("/").slice(0, -1).join("/")), { recursive: true });
         writeFileSync(fullPath, file.content);
       });
 
@@ -219,12 +247,15 @@ import { config } from "../config.ts";
 
     test("should generate accurate metrics", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { a } from "./a.js";
 import { b } from "./b.ts";
 import { c } from "external";
 export { d } from "./d.js";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -241,10 +272,13 @@ export { d } from "./d.js";
 
     test("should provide detailed results per file", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { helper } from "./utils.js";
 export { config } from "./config.ts";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -258,11 +292,14 @@ export { config } from "./config.ts";
 
     test("should handle files with no changes", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { readFile } from "fs/promises";
 import express from "express";
 const message = "Hello World";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -292,12 +329,15 @@ const message = "Hello World";
 
     test("should handle files with only comments", async () => {
       const testFile = join(testDir, "src/comments.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 // This is a comment
 /*
  * Multi-line comment
  */
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -310,10 +350,13 @@ const message = "Hello World";
 
     test("should handle imports without extensions", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { helper } from "./utils";
 import { config } from "../config";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -326,14 +369,17 @@ import { config } from "../config";
 
     test("should handle complex import/export patterns", async () => {
       const testFile = join(testDir, "src/complex.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import type { Config } from "./types.ts";
 import { default as Helper, type HelperType } from "./helper.js";
 import * as Utils from "./utils.js";
 export { default } from "./main.js";
 export type { Theme } from "./theme.ts";
 export * from "./components.js";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -354,11 +400,14 @@ export * from "./components.js";
 
     test("should handle exports without module specifiers", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 const helper = () => {};
 export { helper };
 export default helper;
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -371,9 +420,12 @@ export default helper;
 
     test("should exclude test files from processing", async () => {
       const testFile = join(testDir, "src/component.test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { helper } from "./utils.js";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -383,9 +435,12 @@ import { helper } from "./utils.js";
 
     test("should exclude spec files from processing", async () => {
       const specFile = join(testDir, "src/component.spec.ts");
-      writeFileSync(specFile, `
+      writeFileSync(
+        specFile,
+        `
 import { helper } from "./utils.js";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -400,10 +455,13 @@ import { helper } from "./utils.js";
       const fileCount = 10;
       for (let i = 0; i < fileCount; i++) {
         const testFile = join(testDir, `src/file${i}.ts`);
-        writeFileSync(testFile, `
+        writeFileSync(
+          testFile,
+          `
 import { helper${i} } from "./utils${i}.js";
 export { config${i} } from "./config${i}.ts";
-        `);
+        `
+        );
       }
 
       const startTime = Date.now();
@@ -419,11 +477,14 @@ export { config${i} } from "./config${i}.ts";
 
     test("should maintain high success rate", async () => {
       const testFile = join(testDir, "src/test.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { valid } from "./valid.js";
 import { another } from "./another.ts";
 import { external } from "external-package";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -436,11 +497,14 @@ import { external } from "external-package";
   describe("TypeScript Support", () => {
     test("should handle TypeScript-specific imports", async () => {
       const testFile = join(testDir, "src/typescript.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import type { Config } from "./types.ts";
 import type { Theme } from "./theme.js";
 import { type Utils, helper } from "./utils.js";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -456,11 +520,14 @@ import { type Utils, helper } from "./utils.js";
 
     test("should handle JSX/TSX files", async () => {
       const testFile = join(testDir, "src/component.tsx");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import React from "react";
 import { Button } from "./Button.js";
 import { theme } from "./theme.ts";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -478,12 +545,15 @@ import { theme } from "./theme.ts";
   describe("Real-world Scenarios", () => {
     test("should handle Bun-style imports correctly", async () => {
       const testFile = join(testDir, "src/bun-example.ts");
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { serve } from "bun";
 import { readFileSync } from "fs";
 import { helper } from "./utils.js";
 import { config } from "./config.ts";
-      `);
+      `
+      );
 
       await fixer.execute();
 
@@ -501,11 +571,14 @@ import { config } from "./config.ts";
     test("should handle nested directory imports", async () => {
       const testFile = join(testDir, "src/nested/deep/component.ts");
       mkdirSync(join(testDir, "src/nested/deep"), { recursive: true });
-      writeFileSync(testFile, `
+      writeFileSync(
+        testFile,
+        `
 import { helper } from "../../utils.js";
 import { config } from "../../../config.ts";
 import { theme } from "./theme.js";
-      `);
+      `
+      );
 
       await fixer.execute();
 

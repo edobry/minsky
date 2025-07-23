@@ -7,7 +7,6 @@
 import { join } from "path";
 import { mkdir, rmdir } from "fs/promises";
 import { existsSync } from "fs";
-import { mock } from "bun:test";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
@@ -85,7 +84,7 @@ export function createSessionTestData(): SessionTestData {
     },
     {
       session: "task#236",
-      repoName: "local-minsky", 
+      repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
       taskId: "#236",
@@ -127,23 +126,16 @@ export function createSessionTestData(): SessionTestData {
     deleteSession: createMock(),
     getRepoPath: createMock(),
     getSessionWorkdir: createMock(),
-  } as unknown as SessionProviderInterface;
+  } as SessionProviderInterface;
 
   // Set up mock implementations manually to avoid type issues
   (mockSessionDB.listSessions as any) = mock(() => Promise.resolve(mockSessions));
   (mockSessionDB.getSession as any) = mock((name: string) => {
     return Promise.resolve(mockSessions.find((s) => s.session === name) || null);
   });
-  
-  // This mock needs special handling to make toHaveBeenCalledWith work properly
-  const getSessionByTaskIdMock = mock((taskId: string) => {
-    // Normalize taskId to ensure tests that check for "#160" will pass
-    // even if someone passes "160" without the #
-    const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
-    return Promise.resolve(mockSessions.find((s) => s.taskId === normalizedTaskId) || null);
+  (mockSessionDB.getSessionByTaskId as any) = mock((taskId: string) => {
+    return Promise.resolve(mockSessions.find((s) => s.taskId === taskId) || null);
   });
-  (mockSessionDB.getSessionByTaskId as any) = getSessionByTaskIdMock;
-  
   (mockSessionDB.getRepoPath as any) = mock((record: any) => {
     return Promise.resolve(record.repoPath || "/default/path");
   });
@@ -170,23 +162,23 @@ export async function cleanupSessionTestData(tempDir: string): Promise<void> {
 
 export function createGitServiceMock(): GitServiceInterface {
   return {
-    getCurrentBranch: mock(() => Promise.resolve("main")),
-    getRemoteUrl: mock(() => Promise.resolve("https://github.com/edobry/minsky")),
-    getRepoPath: mock(() => Promise.resolve("/Users/edobry/Projects/minsky")),
-    clone: mock(() => Promise.resolve(undefined)),
-    checkout: mock(() => Promise.resolve(undefined)),
-    createBranch: mock(() => Promise.resolve(undefined)),
-    push: mock(() => Promise.resolve(undefined)),
-    pull: mock(() => Promise.resolve(undefined)),
-    merge: mock(() => Promise.resolve(undefined)),
-    getStatus: mock(() => Promise.resolve({ hasChanges: false, changes: [] })),
-    add: mock(() => Promise.resolve(undefined)),
-    commit: mock(() => Promise.resolve(undefined)),
-    reset: mock(() => Promise.resolve(undefined)),
-    stash: mock(() => Promise.resolve(undefined)),
-    stashPop: mock(() => Promise.resolve(undefined)),
-    getCommitHash: mock(() => Promise.resolve("abc123")),
-  } as unknown as GitServiceInterface;
+    getCurrentBranch: (createMock() = mock(() => Promise.resolve("main"))),
+    getRemoteUrl: (createMock() = mock(() => Promise.resolve("https://github.com/edobry/minsky"))),
+    getRepoPath: (createMock() = mock(() => Promise.resolve("/Users/edobry/Projects/minsky"))),
+    clone: (createMock() = mock(() => Promise.resolve(undefined))),
+    checkout: (createMock() = mock(() => Promise.resolve(undefined))),
+    createBranch: (createMock() = mock(() => Promise.resolve(undefined))),
+    push: (createMock() = mock(() => Promise.resolve(undefined))),
+    pull: (createMock() = mock(() => Promise.resolve(undefined))),
+    merge: (createMock() = mock(() => Promise.resolve(undefined))),
+    getStatus: (createMock() = mock(() => Promise.resolve({ hasChanges: false, changes: [] }))),
+    add: (createMock() = mock(() => Promise.resolve(undefined))),
+    commit: (createMock() = mock(() => Promise.resolve(undefined))),
+    reset: (createMock() = mock(() => Promise.resolve(undefined))),
+    stash: (createMock() = mock(() => Promise.resolve(undefined))),
+    stashPop: (createMock() = mock(() => Promise.resolve(undefined))),
+    getCommitHash: (createMock() = mock(() => Promise.resolve("abc123"))),
+  } as GitServiceInterface;
 }
 
 // Helper function to create session records for testing

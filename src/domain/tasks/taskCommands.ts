@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils";
 import { resolveTaskWorkspacePath } from "../../utils/workspace-resolver";
-import { autoCommitTaskChanges } from "../../utils/auto-commit";
+import { commitTaskChanges } from "../../utils/task-workspace-commit";
 import { getErrorMessage } from "../../errors/index";
 import {
   createTaskService as createTaskServiceImpl,
@@ -16,9 +16,7 @@ import {
 import { normalizeTaskId } from "./taskFunctions";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
-import {
-  createTaskIdParsingErrorMessage
-} from "../../errors/enhanced-error-templates";
+import { createTaskIdParsingErrorMessage } from "../../errors/enhanced-error-templates";
 import { createFormattedValidationError } from "../../utils/zod-error-formatter";
 // Re-export task data types
 export type {} from "../../types/tasks/taskData";
@@ -93,8 +91,8 @@ export async function listTasksFromParams(
     } else {
       // Unless "all" is provided, filter out DONE and CLOSED tasks
       if (!validParams.all) {
-        tasks = tasks.filter((task: any) =>
-          task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
+        tasks = tasks.filter(
+          (task: any) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
         );
       }
     }
@@ -102,7 +100,11 @@ export async function listTasksFromParams(
     return tasks;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ValidationError("Invalid parameters for listing tasks", (error as any).format(), error as any);
+      throw new ValidationError(
+        "Invalid parameters for listing tasks",
+        (error as any).format(),
+        error as any
+      );
     }
     throw error;
   }
@@ -132,13 +134,10 @@ export async function getTaskFromParams(
     // Normalize the taskId before validation
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
-      const errorMessage = createTaskIdParsingErrorMessage(
-        params.taskId,
-        [
-          { label: "Operation", value: "get task" },
-          { label: "Input", value: params.taskId }
-        ]
-      );
+      const errorMessage = createTaskIdParsingErrorMessage(params.taskId, [
+        { label: "Operation", value: "get task" },
+        { label: "Input", value: params.taskId },
+      ]);
       throw new ValidationError(errorMessage);
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
@@ -155,7 +154,7 @@ export async function getTaskFromParams(
     // Then get the workspace path using backend-aware resolution
     const workspacePath = await actualDeps.resolveTaskWorkspacePath({
       backend: validParams.backend || "markdown",
-      repoUrl: repoPath
+      repoUrl: repoPath,
     });
 
     // Create task service with explicit backend to avoid configuration issues
@@ -178,7 +177,11 @@ export async function getTaskFromParams(
     return task;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ValidationError("Invalid parameters for getting task", (error as any).format(), error as any);
+      throw new ValidationError(
+        "Invalid parameters for getting task",
+        (error as any).format(),
+        error as any
+      );
     }
     throw error;
   }
@@ -206,13 +209,10 @@ export async function getTaskStatusFromParams(
     // Normalize the taskId before validation
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
-      const errorMessage = createTaskIdParsingErrorMessage(
-        params.taskId,
-        [
-          { label: "Operation", value: "get task status" },
-          { label: "Input", value: params.taskId }
-        ]
-      );
+      const errorMessage = createTaskIdParsingErrorMessage(params.taskId, [
+        { label: "Operation", value: "get task status" },
+        { label: "Input", value: params.taskId },
+      ]);
       throw new ValidationError(errorMessage);
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
@@ -229,7 +229,7 @@ export async function getTaskStatusFromParams(
     // Then get the workspace path using backend-aware resolution
     const workspacePath = await deps.resolveTaskWorkspacePath({
       backend: validParams.backend || "markdown",
-      repoUrl: repoPath
+      repoUrl: repoPath,
     });
 
     // Create task service
@@ -283,13 +283,10 @@ export async function setTaskStatusFromParams(
     // Normalize the taskId before validation
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
-      const errorMessage = createTaskIdParsingErrorMessage(
-        params.taskId,
-        [
-          { label: "Operation", value: "set task status" },
-          { label: "Input", value: params.taskId }
-        ]
-      );
+      const errorMessage = createTaskIdParsingErrorMessage(params.taskId, [
+        { label: "Operation", value: "set task status" },
+        { label: "Input", value: params.taskId },
+      ]);
       throw new ValidationError(errorMessage);
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
@@ -306,7 +303,7 @@ export async function setTaskStatusFromParams(
     // Then get the workspace path using backend-aware resolution
     const workspacePath = await deps.resolveTaskWorkspacePath({
       backend: validParams.backend || "markdown",
-      repoUrl: repoPath
+      repoUrl: repoPath,
     });
 
     // Create task service with explicit backend to avoid configuration issues
@@ -333,7 +330,12 @@ export async function setTaskStatusFromParams(
     // Auto-commit changes for markdown backend
     if ((validParams.backend || "markdown") === "markdown") {
       const commitMessage = `chore(${validParams.taskId}): update task status ${oldStatus} → ${validParams.status}`;
-      await autoCommitTaskChanges(workspacePath, commitMessage);
+      await commitTaskChanges({
+        workspacePath,
+        message: commitMessage,
+        repoUrl: repoPath,
+        backend: validParams.backend || "markdown",
+      });
     }
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -378,7 +380,7 @@ export async function createTaskFromParams(
     // Then get the workspace path using backend-aware resolution
     const workspacePath = await deps.resolveTaskWorkspacePath({
       backend: validParams.backend || "markdown",
-      repoUrl: repoPath
+      repoUrl: repoPath,
     });
 
     // Create task service
@@ -395,13 +397,22 @@ export async function createTaskFromParams(
     // Auto-commit changes for markdown backend
     if ((validParams.backend || "markdown") === "markdown") {
       const commitMessage = `feat(${task.id}): create task "${validParams.title}"`;
-      await autoCommitTaskChanges(workspacePath, commitMessage);
+      await commitTaskChanges({
+        workspacePath,
+        message: commitMessage,
+        repoUrl: repoPath,
+        backend: validParams.backend || "markdown",
+      });
     }
 
     return task;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ValidationError("Invalid parameters for creating task", (error as any).format(), error as any);
+      throw new ValidationError(
+        "Invalid parameters for creating task",
+        (error as any).format(),
+        error as any
+      );
     }
     throw error;
   }
@@ -430,8 +441,14 @@ export async function getTaskSpecContentFromParams(
     const validParams = taskSpecContentParamsSchema.parse(params);
 
     // Normalize task ID
-    const taskIdString = Array.isArray(validParams.taskId) ? validParams.taskId[0] : validParams.taskId;
+    const taskIdString = Array.isArray(validParams.taskId)
+      ? validParams.taskId[0]
+      : validParams.taskId;
     const taskId = normalizeTaskId(taskIdString);
+
+    if (!taskId) {
+      throw new ValidationError(`Invalid task ID: ${taskIdString}`);
+    }
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -442,7 +459,7 @@ export async function getTaskSpecContentFromParams(
     // Then get the workspace path using backend-aware resolution
     const workspacePath = await deps.resolveTaskWorkspacePath({
       backend: validParams.backend || "markdown",
-      repoUrl: repoPath
+      repoUrl: repoPath,
     });
 
     // Create task service
@@ -457,16 +474,21 @@ export async function getTaskSpecContentFromParams(
       throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
     }
 
-    // Get the task spec path
-    const specPath = await taskService.getTaskSpecPath(taskId);
+    // SYNCHRONIZATION FIX: Use the stored spec path directly from the task database
+    // instead of calling getTaskSpecPath which may generate stale paths
+    const { fixTaskSpecPath } = await import("../../utils/task-workspace-commit");
+    const specPath = await fixTaskSpecPath(task.id, task.specPath || "", workspacePath);
+
     if (!specPath) {
       throw new ResourceNotFoundError(`Task ${taskId} has no specification file`, "task", taskId);
     }
 
-    // Read the spec content
+    // Read the spec content with workspace-relative path handling
     let content: string;
     try {
-      content = (await readFile(specPath, "utf8")) as string;
+      const path = await import("path");
+      const fullSpecPath = specPath.startsWith("/") ? specPath : path.join(workspacePath, specPath);
+      content = (await readFile(fullSpecPath, "utf8")) as string;
     } catch (error) {
       throw new ResourceNotFoundError(
         `Could not read specification file at ${specPath}`,
@@ -551,7 +573,7 @@ export async function createTaskFromTitleAndDescription(
     // Then get the workspace path using backend-aware resolution
     const workspacePath = await deps.resolveTaskWorkspacePath({
       backend: validParams.backend || "markdown",
-      repoUrl: repoPath
+      repoUrl: repoPath,
     });
 
     // Create task service
@@ -603,7 +625,12 @@ export async function createTaskFromTitleAndDescription(
     // Auto-commit changes for markdown backend
     if ((validParams.backend || "markdown") === "markdown") {
       const commitMessage = `feat(${task.id}): create task "${validParams.title}"`;
-      await autoCommitTaskChanges(workspacePath, commitMessage);
+      await commitTaskChanges({
+        workspacePath,
+        message: commitMessage,
+        repoUrl: repoPath,
+        backend: validParams.backend || "markdown",
+      });
     }
 
     return task;
@@ -659,7 +686,7 @@ export async function deleteTaskFromParams(
     // Then get the workspace path using backend-aware resolution
     const workspacePath = await deps.resolveTaskWorkspacePath({
       backend: validParams.backend || "markdown",
-      repoUrl: repoPath
+      repoUrl: repoPath,
     });
 
     // Create task service
@@ -687,7 +714,12 @@ export async function deleteTaskFromParams(
     // Auto-commit changes for markdown backend
     if (deleted && (validParams.backend || "markdown") === "markdown") {
       const commitMessage = `chore(${validParams.taskId}): delete task`;
-      await autoCommitTaskChanges(workspacePath, commitMessage);
+      await commitTaskChanges({
+        workspacePath,
+        message: commitMessage,
+        repoUrl: repoPath,
+        backend: validParams.backend || "markdown",
+      });
     }
 
     return {
@@ -697,7 +729,11 @@ export async function deleteTaskFromParams(
     };
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ValidationError("Invalid parameters for deleting task", (error as any).format(), error as any);
+      throw new ValidationError(
+        "Invalid parameters for deleting task",
+        (error as any).format(),
+        error as any
+      );
     }
     throw error;
   }

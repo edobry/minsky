@@ -1,6 +1,6 @@
 ---
-description: 
-globs: 
+description: null
+globs: null
 alwaysApply: true
 ---
 # Implementation Verification Protocol
@@ -21,3 +21,19 @@ $ command [usage]  # Must show actual output/results
 ❌ Without testing: "Successfully implemented"  
 ✅ Without testing: "Code written, needs testing"  
 ✅ With testing: "Verified working" + proof shown
+
+## Existing Work Assessment
+
+**Before recreating or rebuilding existing work, check current state and quality.**
+
+For ambiguous commands like "recreate X" or "redo Y":
+1. **Assess existing X/Y quality first**
+2. **Default to minimal necessary action** (refresh/update) 
+3. **Only rebuild if existing work is inadequate**
+
+Examples:
+- "recreate the PR" + good existing PR → refresh branch only
+- "recreate the config" + working config → update specific sections
+- "redo the tests" + passing tests → add missing coverage only
+
+**Principle**: Don't waste effort redoing good work unless explicitly needed.

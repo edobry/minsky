@@ -17,7 +17,7 @@ describe("Rules CLI Core Functionality", () => {
     });
 
     test("handles JSON array glob patterns", () => {
-      const _result = parseGlobs("[\"**/*.ts\", \"**/*.tsx\", \"*.md\"]");
+      const _result = parseGlobs('["**/*.ts", "**/*.tsx", "*.md"]');
       expect(_result)!.toEqual(["**/*.ts", "**/*.tsx", "*.md"]);
     });
 

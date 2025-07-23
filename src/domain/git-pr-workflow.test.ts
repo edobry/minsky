@@ -7,22 +7,23 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 
 import { createMock, createPartialMock, setupTestMocks } from "../utils/test-utils/mocking";
-import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/dependencies";
-import type { WorkspaceUtilsInterface } from "./workspace";
 import {
-  expectToHaveBeenCalled,
-  expectToHaveBeenCalledWith,
-} from "../utils/test-utils/assertions";
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+} from "../utils/test-utils/dependencies";
+import type { WorkspaceUtilsInterface } from "./workspace";
+import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
 
 // Module-level mocks for git utilities to prevent real command execution
 mock.module("../utils/git-exec", () => ({
   execGitWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" })),
   gitFetchWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" }))
+  gitPushWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" })),
 }));
 
 mock.module("../utils/exec", () => ({
-  execAsync: mock(() => Promise.resolve({ stdout: "", stderr: "" }))
+  execAsync: mock(() => Promise.resolve({ stdout: "", stderr: "" })),
 }));
 
 // Set up automatic mock cleanup
@@ -53,7 +54,8 @@ describe("Session Approve Workflow", () => {
         remote: { authMethod: "ssh", depth: 1 },
         createdAt: new Date().toISOString(),
         taskId: "task025",
-      }));
+      })
+    );
 
     getSessionWorkdirSpy = mock(() => {});
     getSessionWorkdirSpy = mock(() => Promise.resolve("/test/repo/path/sessions/test-session"));
@@ -79,7 +81,8 @@ describe("Session Approve Workflow", () => {
         title: "Test Task", // Fixed: use 'title' instead of '_title'
         description: "A test task",
         status: "in-progress", // Fixed: use 'status' instead of '_status'
-      }));
+      })
+    );
 
     setTaskStatusSpy = mock(() => {});
     setTaskStatusSpy = mock(() => Promise.resolve(true));
@@ -158,7 +161,7 @@ describe("Session Approve Workflow", () => {
     // Override execInRepository to simulate failure
     let failingExecSpy = mock(() => {});
     failingExecSpy = mock(() => Promise.reject(new Error("Git command failed")));
-    
+
     const failingGitService = createMockGitService({
       execInRepository: failingExecSpy,
     });

@@ -9,7 +9,7 @@ This PR implements task #138, adding comprehensive GitHub Issues support as a ne
 The original task specification identified the need for GitHub Issues integration to enable team collaboration and leverage GitHub's native issue tracking capabilities. This addresses limitations of file-based task management by providing:
 
 - Centralized task management accessible to entire teams
-- Native GitHub integration for development workflows  
+- Native GitHub integration for development workflows
 - Automatic status tracking via labels
 - Real-time collaboration capabilities
 - Integration with GitHub's project management features
@@ -102,10 +102,10 @@ const tasks = await service.listTasks();
 
     # List GitHub Issues as tasks
     minsky tasks list --backend github-issues
-    
+
     # Create task as GitHub Issue
     minsky tasks create spec.md --backend github-issues
-    
+
     # Update status (creates/updates labels)
     minsky tasks status set #123 IN-PROGRESS --backend github-issues
 
@@ -122,7 +122,7 @@ No data migrations required. The GitHub backend operates independently and exist
 ### Follow-up Tasks Created
 
 - **Task #140**: Import Existing GitHub Issues Under Minsky Management
-- **Task #141**: Implement Repository Configuration System  
+- **Task #141**: Implement Repository Configuration System
 - **Task #142**: Implement Backend Migration Utility
 
 ### Module Import Resolution
@@ -147,8 +147,9 @@ No data migrations required. The GitHub backend operates independently and exist
 ### Manual Testing Results
 
 Integration test demonstrated complete functionality:
+
 - GitHub service creation successful
-- Available backends: ["markdown", "json-file", "github-issues"]  
+- Available backends: ["markdown", "json-file", "github-issues"]
 - GitHub API connectivity confirmed
 - Automatic label creation verified
 - Backend switching operational
@@ -167,8 +168,9 @@ Integration test demonstrated complete functionality:
 ### Automatic Label Creation
 
 Default status labels created automatically:
+
 - `minsky:todo` (green) - For TODO status tasks
-- `minsky:in-progress` (yellow) - For IN-PROGRESS status tasks  
+- `minsky:in-progress` (yellow) - For IN-PROGRESS status tasks
 - `minsky:in-review` (blue) - For IN-REVIEW status tasks
 - `minsky:done` (purple) - For DONE status tasks
 
@@ -183,6 +185,7 @@ GITHUB_TOKEN=ghp_your_token_here
 ### Repository Auto-Detection
 
 Supports both SSH and HTTPS GitHub URLs:
+
 - `git@github.com:owner/repo.git` → `owner/repo`
 - `https://github.com/owner/repo.git` → `owner/repo`
 
@@ -195,4 +198,4 @@ Supports both SSH and HTTPS GitHub URLs:
 - **Module resolution**: Solved TypeScript import issues with session workspaces
 - **Future-proof design**: Ready for additional GitHub features and team workflows
 
-This implementation provides a solid foundation for GitHub-based task management while maintaining the flexibility and simplicity of the existing Minsky CLI interface. 
+This implementation provides a solid foundation for GitHub-based task management while maintaining the flexibility and simplicity of the existing Minsky CLI interface.

@@ -7,7 +7,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-  createCommandFailureMessage
+  createCommandFailureMessage,
 } from "../../errors/index";
 import { taskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
@@ -22,9 +22,7 @@ import {
 } from "../workspace";
 import * as WorkspaceUtils from "../workspace";
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
-import {
-  gitFetchWithTimeout
-} from "../../utils/git-exec";
+import { gitFetchWithTimeout } from "../../utils/git-exec";
 
 /**
  * Interface for session review parameters
@@ -179,10 +177,7 @@ export async function sessionReviewImpl(
       const taskService = deps.taskService;
 
       // Check if taskService has getTaskSpecData method dynamically
-      if (
-        "getTaskSpecData" in taskService &&
-        typeof taskService.getTaskSpecData === "function"
-      ) {
+      if ("getTaskSpecData" in taskService && typeof taskService.getTaskSpecData === "function") {
         const taskSpec = await taskService.getTaskSpecData(taskId);
         result.taskSpec = taskSpec;
       } else {
@@ -280,4 +275,4 @@ export async function sessionReviewImpl(
   }
 
   return result;
-} 
+}

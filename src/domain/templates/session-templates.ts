@@ -1,6 +1,6 @@
 /**
  * Auto-Task Creation Utilities
- * 
+ *
  * This module provides utilities for automatically creating tasks when starting
  * sessions with the --description parameter.
  */
@@ -22,4 +22,4 @@ export function createTaskFromDescription(description: string): {
     priority: "MEDIUM",
     status: "BACKLOG",
   };
-} 
+}

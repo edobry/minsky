@@ -24,13 +24,13 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
   private validateAndResolvePath(workspaceDir: string, relativePath: string): string {
     // Normalize the workspace directory path
     const normalizedWorkspace = resolve(workspaceDir);
-    
+
     // Resolve the target path
     const targetPath = resolve(normalizedWorkspace, relativePath);
-    
+
     // Check if the resolved path is within the workspace
     const relativeToBoundary = relative(normalizedWorkspace, targetPath);
-    
+
     // If the relative path starts with "..", it's outside the workspace
     if (relativeToBoundary.startsWith("..") || relativeToBoundary === "..") {
       throw new InvalidPathError(
@@ -39,7 +39,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         relativePath
       );
     }
-    
+
     // Log the path resolution for debugging
     log.debug("Resolved workspace path", {
       workspaceDir: normalizedWorkspace,
@@ -47,7 +47,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       resolvedPath: targetPath,
       relativeToBoundary,
     });
-    
+
     return targetPath;
   }
 
@@ -58,7 +58,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
     try {
       const stats = await fs.stat(fullPath);
       const relativePath = relative(workspaceDir, fullPath);
-      
+
       return {
         name: relativePath.split("/").pop() || relativePath,
         path: relativePath,
@@ -79,7 +79,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
 
   async readFile(workspaceDir: string, relativePath: string): Promise<string> {
     const fullPath = this.validateAndResolvePath(workspaceDir, relativePath);
-    
+
     try {
       // Check if the path exists and is a file
       const stats = await fs.stat(fullPath);
@@ -90,26 +90,26 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
           relativePath
         );
       }
-      
-      const content = (String(await fs.readFile(fullPath, { encoding: "utf8" }))) as string;
-      
+
+      const content = String(await fs.readFile(fullPath, { encoding: "utf8" })) as string;
+
       log.debug("Read file from workspace", {
         workspaceDir,
         relativePath,
         contentLength: content.length,
       });
-      
+
       return content;
     } catch (error) {
       if (error instanceof InvalidPathError || error instanceof DirectoryError) {
         throw error;
       }
-      
+
       // Handle file not found
       if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
         throw new FileNotFoundError(workspaceDir, relativePath, error);
       }
-      
+
       throw new WorkspaceError(
         `Failed to read file: ${getErrorMessage(error as any)}`,
         "read_file",
@@ -120,27 +120,31 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
     }
   }
 
-  async writeFile(workspaceDir: string, relativePath: string, content: string): Promise<WorkspaceOperationResult> {
+  async writeFile(
+    workspaceDir: string,
+    relativePath: string,
+    content: string
+  ): Promise<WorkspaceOperationResult> {
     const fullPath = this.validateAndResolvePath(workspaceDir, relativePath);
-    
+
     try {
       // Ensure the directory exists
       const dir = dirname(fullPath);
       await fs.mkdir(dir, { recursive: true });
-      
+
       // Write the file atomically by writing to a temp file first
       const tempPath = `${fullPath}.tmp.${Date.now()}`;
-      
+
       try {
         await fs.writeFile(tempPath, content, "utf8");
         await fs.rename(tempPath, fullPath);
-        
+
         log.debug("Wrote file to workspace", {
           workspaceDir,
           relativePath,
           contentLength: content.length,
         });
-        
+
         return {
           success: true,
           message: `File written successfully: ${relativePath}`,
@@ -158,14 +162,14 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       if (error instanceof InvalidPathError) {
         throw error;
       }
-      
+
       const message = `Failed to write file: ${getErrorMessage(error as any)}`;
       log.error("Write file failed", {
         workspaceDir,
         relativePath,
         error: message,
       });
-      
+
       return {
         success: false,
         error: message,
@@ -175,10 +179,10 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
 
   async deleteFile(workspaceDir: string, relativePath: string): Promise<WorkspaceOperationResult> {
     const fullPath = this.validateAndResolvePath(workspaceDir, relativePath);
-    
+
     try {
       const stats = await fs.stat(fullPath);
-      
+
       if (stats.isDirectory()) {
         // Delete directory recursively
         await fs.rmdir(fullPath, { recursive: true });
@@ -194,7 +198,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
           relativePath,
         });
       }
-      
+
       return {
         success: true,
         message: `${stats.isDirectory() ? "Directory" : "File"} deleted successfully: ${relativePath}`,
@@ -203,19 +207,19 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       if (error instanceof InvalidPathError) {
         throw error;
       }
-      
+
       // Handle file not found
       if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
         throw new FileNotFoundError(workspaceDir, relativePath, error);
       }
-      
+
       const message = `Failed to delete: ${getErrorMessage(error as any)}`;
       log.error("Delete failed", {
         workspaceDir,
         relativePath,
         error: message,
       });
-      
+
       return {
         success: false,
         error: message,
@@ -225,7 +229,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
 
   async listDirectory(workspaceDir: string, relativePath?: string): Promise<FileInfo[]> {
     const fullPath = this.validateAndResolvePath(workspaceDir, relativePath || ".");
-    
+
     try {
       const stats = await fs.stat(fullPath);
       if (!stats.isDirectory()) {
@@ -235,10 +239,10 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
           relativePath || "."
         );
       }
-      
+
       const entries = await fs.readdir(fullPath);
       const fileInfos: FileInfo[] = [];
-      
+
       for (const entry of entries) {
         const entryPath = join(fullPath, entry);
         try {
@@ -252,13 +256,13 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
           });
         }
       }
-      
+
       log.debug("Listed directory contents", {
         workspaceDir,
         relativePath: relativePath || ".",
         entryCount: fileInfos.length,
       });
-      
+
       return fileInfos.sort((a, b) => {
         // Sort directories first, then files, then alphabetically
         if (a?.type !== b?.type) {
@@ -270,12 +274,12 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       if (error instanceof InvalidPathError || error instanceof DirectoryError) {
         throw error;
       }
-      
+
       // Handle directory not found
       if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
         throw new FileNotFoundError(workspaceDir, relativePath || ".", error);
       }
-      
+
       throw new WorkspaceError(
         `Failed to list directory: ${getErrorMessage(error as any)}`,
         "list_directory",
@@ -299,17 +303,20 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
     }
   }
 
-  async createDirectory(workspaceDir: string, relativePath: string): Promise<WorkspaceOperationResult> {
+  async createDirectory(
+    workspaceDir: string,
+    relativePath: string
+  ): Promise<WorkspaceOperationResult> {
     const fullPath = this.validateAndResolvePath(workspaceDir, relativePath);
-    
+
     try {
       await fs.mkdir(fullPath, { recursive: true });
-      
+
       log.debug("Created directory in workspace", {
         workspaceDir,
         relativePath,
       });
-      
+
       return {
         success: true,
         message: `Directory created successfully: ${relativePath}`,
@@ -318,18 +325,18 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       if (error instanceof InvalidPathError) {
         throw error;
       }
-      
+
       const message = `Failed to create directory: ${getErrorMessage(error as any)}`;
       log.error("Create directory failed", {
         workspaceDir,
         relativePath,
         error: message,
       });
-      
+
       return {
         success: false,
         error: message,
       };
     }
   }
-} 
+}

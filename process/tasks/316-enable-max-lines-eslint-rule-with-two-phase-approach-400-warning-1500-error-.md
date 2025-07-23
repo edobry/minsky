@@ -11,18 +11,21 @@ Currently, the `max-lines` ESLint rule is explicitly disabled in `eslint.config.
 However, the codebase has identified file size as a concern, with 36 files exceeding 400 lines including some massive files (e.g., `src/domain/git.ts` at 2,476 lines). The project uses Cursor rules for soft guidance (~400 lines), but lacks automated enforcement.
 
 This task implements a two-phase ESLint approach:
+
 - **Phase 1**: Warning at 400 lines for early intervention
 - **Phase 2**: Error at 1500 lines to prevent extremely large files
 
 ## Problem Statement
 
 **Current Issues:**
+
 - No automated file size enforcement
 - Large files create maintenance difficulties
 - Cursor rules provide guidance but no CI/CD integration
 - Some files are extremely large (1000+ lines)
 
 **Desired State:**
+
 - Gentle warnings at reasonable thresholds (400 lines)
 - Hard stops for extremely large files (1500 lines)
 - Skip blank lines and comments for more accurate measurements
@@ -33,6 +36,7 @@ This task implements a two-phase ESLint approach:
 ### Phase 1: Basic max-lines Rule (400 lines warning)
 
 1. **Enable max-lines as warning**:
+
    ```javascript
    "max-lines": ["warn", {
      "max": 400,
@@ -50,11 +54,13 @@ This task implements a two-phase ESLint approach:
 ### Phase 2: Research Two-Phase Configuration
 
 1. **Investigate ESLint multi-configuration approaches**:
+
    - Can ESLint support two different max-lines thresholds?
    - Custom rule creation for two-phase file size checking
    - Alternative approaches (plugins, custom rules, multiple configs)
 
 2. **Implement 1500-line error threshold**:
+
    - Research feasibility of dual thresholds
    - Implement solution that errors at 1500 lines
    - Ensure compatibility with 400-line warning
@@ -67,6 +73,7 @@ This task implements a two-phase ESLint approach:
 ### Phase 3: Integration and Testing
 
 1. **Codebase impact analysis**:
+
    - Run ESLint with new configuration
    - Document all files that trigger warnings/errors
    - Verify no immediate CI/CD breakage
@@ -120,23 +127,25 @@ This task implements a two-phase ESLint approach:
 ### Multi-Configuration Approaches
 
 1. **ESLint Overrides Pattern**:
+
    ```javascript
    export default [
      {
        rules: {
-         "max-lines": ["warn", { "max": 400, "skipBlankLines": true, "skipComments": true }]
-       }
+         "max-lines": ["warn", { max: 400, skipBlankLines: true, skipComments: true }],
+       },
      },
      {
        files: ["**/*.ts", "**/*.js"],
        rules: {
-         "max-lines": ["error", { "max": 1500, "skipBlankLines": true, "skipComments": true }]
-       }
-     }
+         "max-lines": ["error", { max: 1500, skipBlankLines: true, skipComments: true }],
+       },
+     },
    ];
    ```
 
 2. **Custom Rule Development**:
+
    - Create `src/eslint-rules/max-lines-two-phase.js`
    - Implement dual threshold logic
    - Support configurable warning/error levels
@@ -154,11 +163,13 @@ This task implements a two-phase ESLint approach:
 ## Success Criteria
 
 1. **Basic Configuration Working**:
+
    - ESLint warns at 400 lines with proper skip options
    - Existing development workflow unaffected
    - Clear, actionable warning messages
 
 2. **Two-Phase Implementation**:
+
    - Dual thresholds working (400 warn, 1500 error)
    - Accurate line counting with skip options
    - No conflicts between warning and error rules

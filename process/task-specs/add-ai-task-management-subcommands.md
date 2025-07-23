@@ -37,12 +37,14 @@ The AI integration approach described below may need to be revised based on #235
 **RESEARCH REQUIRED**: This AI-powered decomposition should be designed to support future extension to generate tactical subtasks/todos with **full Chain-of-Thought monitoring capabilities**:
 
 **Monitorable Tactical Operations:**
+
 - Tool calls (grep_search, read_file, edit_file, etc.) with reasoning traces
 - Code generation steps with decision rationale
 - Thinking/analysis steps exposed as observable chains
 - Verification operations with explicit validation reasoning
 
 **Chain-of-Thought Safety Integration:**
+
 - **Real-time monitoring** of AI reasoning during task decomposition
 - **Pattern detection** for problematic decomposition approaches
 - **Intervention points** where human can redirect task planning
@@ -74,18 +76,21 @@ The AI integration approach described below may need to be revised based on #235
 ### Monitoring AI Task Decomposition
 
 **Real-time Reasoning Observation:**
+
 - Monitor AI reasoning chains during task analysis and breakdown
 - Detect when AI is making suboptimal decomposition decisions
 - Identify opportunities for human guidance or intervention
 - Track reasoning quality and consistency across decompositions
 
 **Safety Through Transparency:**
+
 - All AI reasoning about task breakdown is observable
 - Intervention possible at any point in the decomposition process
 - Human can redirect AI reasoning before inappropriate task structures are created
 - Full audit trail of AI decision-making in task planning
 
 **Intervention Patterns for Task Planning:**
+
 - **Scope creep detection** - AI expanding beyond intended task boundaries
 - **Over-decomposition** - AI creating unnecessarily complex hierarchies
 - **Under-decomposition** - AI failing to break down complex tasks adequately
@@ -94,12 +99,14 @@ The AI integration approach described below may need to be revised based on #235
 ### Monitorability Requirements
 
 **Transparent Reasoning:**
+
 - AI must externalize reasoning about task complexity, dependencies, and breakdown strategies
 - Decision rationale for each decomposition choice must be observable
 - Alternative approaches considered must be visible
 - Confidence levels and uncertainty acknowledgment required
 
 **Intervention Capability:**
+
 - System must support interrupting AI decomposition mid-process
 - Human can provide corrective guidance at any reasoning step
 - AI must be able to incorporate intervention feedback and restart reasoning

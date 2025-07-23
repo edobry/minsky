@@ -21,7 +21,7 @@ async function testPrRefreshLogic() {
     currentDir: string
   ): Promise<boolean> {
     const prBranch = `pr/${sessionName}`;
-    
+
     try {
       // Check if branch exists locally
       const localBranchOutput = await gitService.execInRepository(
@@ -29,18 +29,18 @@ async function testPrRefreshLogic() {
         `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
       );
       const localBranchExists = localBranchOutput.trim() !== "not-exists";
-      
+
       if (localBranchExists) {
         return true;
       }
-      
+
       // Check if branch exists remotely
       const remoteBranchOutput = await gitService.execInRepository(
         currentDir,
         `git ls-remote --heads origin ${prBranch}`
       );
       const remoteBranchExists = remoteBranchOutput.trim().length > 0;
-      
+
       return remoteBranchExists;
     } catch (error) {
       console.log("Error checking PR branch existence:", error.message);
@@ -55,7 +55,7 @@ async function testPrRefreshLogic() {
     currentDir: string
   ): Promise<{ title: string; body: string } | null> {
     const prBranch = `pr/${sessionName}`;
-    
+
     try {
       // Try to get from remote first
       const remoteBranchOutput = await gitService.execInRepository(
@@ -63,13 +63,13 @@ async function testPrRefreshLogic() {
         `git ls-remote --heads origin ${prBranch}`
       );
       const remoteBranchExists = remoteBranchOutput.trim().length > 0;
-      
+
       let commitMessage = "";
-      
+
       if (remoteBranchExists) {
         // Fetch the PR branch to ensure we have latest
         await gitService.execInRepository(currentDir, `git fetch origin ${prBranch}`);
-        
+
         // Get the commit message from the remote branch's last commit
         commitMessage = await gitService.execInRepository(
           currentDir,
@@ -82,7 +82,7 @@ async function testPrRefreshLogic() {
           `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
         );
         const localBranchExists = localBranchOutput.trim() !== "not-exists";
-        
+
         if (localBranchExists) {
           // Get the commit message from the local branch's last commit
           commitMessage = await gitService.execInRepository(
@@ -93,12 +93,12 @@ async function testPrRefreshLogic() {
           return null;
         }
       }
-      
+
       // Parse the commit message to extract title and body
       const lines = commitMessage.trim().split("\n");
       const title = lines[0] || "";
       const body = lines.slice(1).join("\n").trim();
-      
+
       return { title, body };
     } catch (error) {
       console.log("Error extracting PR description:", error.message);
@@ -122,15 +122,15 @@ async function testPrRefreshLogic() {
     }
 
     console.log("3️⃣ Testing refresh logic scenarios...");
-    
+
     // Scenario 1: No title provided (refresh)
     const titleToUse1 = undefined;
     if (!titleToUse1 && prExists) {
       console.log("   ✅ Scenario: Existing PR + no title → REFRESH");
       console.log("   🔄 Would reuse existing title/body");
     }
-    
-    // Scenario 2: Title provided (update)  
+
+    // Scenario 2: Title provided (update)
     const titleToUse2 = "feat(#231): New title";
     if (titleToUse2 && prExists) {
       console.log("   ✅ Scenario: Existing PR + new title → UPDATE");
@@ -138,14 +138,14 @@ async function testPrRefreshLogic() {
     }
   } else {
     console.log("3️⃣ Testing create logic scenarios...");
-    
+
     // Scenario 3: No PR, no title (error)
     const titleToUse3 = undefined;
     if (!titleToUse3 && !prExists) {
       console.log("   ✅ Scenario: No PR + no title → ERROR");
       console.log("   ❌ Would throw: 'PR branch doesn't exist. Please provide --title'");
     }
-    
+
     // Scenario 4: No PR, title provided (create)
     const titleToUse4 = "feat(#231): New PR";
     if (titleToUse4 && !prExists) {
@@ -164,4 +164,4 @@ async function testPrRefreshLogic() {
 }
 
 // Run the test
-testPrRefreshLogic().catch(console.error); 
+testPrRefreshLogic().catch(console.error);

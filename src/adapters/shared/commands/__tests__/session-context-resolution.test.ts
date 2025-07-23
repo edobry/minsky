@@ -1,6 +1,6 @@
 /**
  * Test-driven development: Failing tests that expose session context resolution problems
- * 
+ *
  * ARCHITECTURAL PROBLEM: Session commands mix business logic with interface concerns
  * - Domain methods have conditional session parameter requirements based on process.cwd()
  * - CLI auto-detection logic is embedded in domain layer
@@ -29,10 +29,10 @@ describe("Session Context Resolution Architecture Issues", () => {
     it("should NOT require different validation logic based on working directory", async () => {
       // Bug #158: Domain methods mix interface concerns with business logic
       // This test demonstrates how session commands behave differently based on process.cwd()
-      
+
       // Mock current implementation that mixes concerns
       const mockCurrentSessionPr = async (params: any, context: CommandExecutionContext) => {
-        // 🚩 CURRENT PROBLEMATIC IMPLEMENTATION: 
+        // 🚩 CURRENT PROBLEMATIC IMPLEMENTATION:
         // Business logic mixed with interface concerns
         const currentDir = mockCwd();
         const isSessionWorkspace = currentDir.includes("/sessions/");
@@ -56,28 +56,33 @@ describe("Session Context Resolution Architecture Issues", () => {
 
       // CASE 1: CLI context (session workspace) - should NOT auto-detect in domain
       mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
-      
+
       const cliContext: CommandExecutionContext = {
-        interface: "cli"
+        interface: "cli",
       };
 
       // 🚩 ARCHITECTURAL PROBLEM: Domain layer auto-detects session
-      const result = await mockCurrentSessionPr({
-        title: "test PR",
-        body: "test body"
-        // ❌ NO session parameter - but passes due to auto-detection
-      }, cliContext);
+      const result = await mockCurrentSessionPr(
+        {
+          title: "test PR",
+          body: "test body",
+          // ❌ NO session parameter - but passes due to auto-detection
+        },
+        cliContext
+      );
 
       // This demonstrates the problem - domain layer should NOT auto-detect
       expect(result.sessionName).toBe("task#158");
-      
+
       // Force test failure to show this is the problem we need to fix
-      expect("Domain layer should not auto-detect session").toBe("This is the architectural problem");
+      expect("Domain layer should not auto-detect session").toBe(
+        "This is the architectural problem"
+      );
     });
 
     it("should NOT have different behavior based on working directory context", async () => {
       // Bug #158: Same domain method has different contracts based on process.cwd()
-      
+
       const mockCurrentSessionPr = async (params: any, context: CommandExecutionContext) => {
         const currentDir = mockCwd();
         const isSessionWorkspace = currentDir.includes("/sessions/");
@@ -100,26 +105,32 @@ describe("Session Context Resolution Architecture Issues", () => {
 
       // CASE 1: Main workspace context - should fail
       mockCwd = mock(() => "/Users/edobry/Projects/minsky");
-      
+
       let mainWorkspaceError: Error | null = null;
       try {
-        await mockCurrentSessionPr({
-          title: "test PR",
-          body: "test body"
-        }, { interface: "mcp" });
+        await mockCurrentSessionPr(
+          {
+            title: "test PR",
+            body: "test body",
+          },
+          { interface: "mcp" }
+        );
       } catch (error) {
         mainWorkspaceError = error as Error;
       }
 
       // CASE 2: Session workspace context - auto-detects
       mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
-      
+
       let sessionWorkspaceResult: any = null;
       try {
-        sessionWorkspaceResult = await mockCurrentSessionPr({
-          title: "test PR",
-          body: "test body"
-        }, { interface: "cli" });
+        sessionWorkspaceResult = await mockCurrentSessionPr(
+          {
+            title: "test PR",
+            body: "test body",
+          },
+          { interface: "cli" }
+        );
       } catch (error) {
         // Should not error in session workspace
       }
@@ -127,22 +138,24 @@ describe("Session Context Resolution Architecture Issues", () => {
       // 🚩 ARCHITECTURAL PROBLEM: Same function, different behavior based on cwd
       expect(mainWorkspaceError).toBeInstanceOf(Error);
       expect(sessionWorkspaceResult?.success).toBe(true);
-      
+
       // Force failure to demonstrate this inconsistency is the problem
-      expect("Same function should have consistent behavior").toBe("This demonstrates the architecture problem");
+      expect("Same function should have consistent behavior").toBe(
+        "This demonstrates the architecture problem"
+      );
     });
   });
 
   describe("✅ TARGET: Clean Architecture with Interface-Layer Resolution", () => {
     it("should ALWAYS require session parameter in domain layer", async () => {
       // Target behavior: Domain methods are pure and always require session
-      
+
       // This test defines the TARGET behavior after architectural fix
       // Domain layer should NEVER inspect process.cwd() or have conditional validation
-      
+
       // TODO: This will pass once we implement clean architecture
       const pureDomainFunction = async (params: {
-        session: string;  // ✅ ALWAYS required
+        session: string; // ✅ ALWAYS required
         title: string;
         body: string;
       }) => {
@@ -156,38 +169,42 @@ describe("Session Context Resolution Architecture Issues", () => {
 
       // Should always fail without session, regardless of working directory
       mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
-      await expect(pureDomainFunction({
-        title: "test",
-        body: "test"
-        // No session - should always fail
-      } as any)).rejects.toThrow("Session parameter is required");
+      await expect(
+        pureDomainFunction({
+          title: "test",
+          body: "test",
+          // No session - should always fail
+        } as any)
+      ).rejects.toThrow("Session parameter is required");
 
       mockCwd = mock(() => "/Users/edobry/Projects/minsky");
-      await expect(pureDomainFunction({
-        title: "test", 
-        body: "test"
-        // No session - should always fail
-      } as any)).rejects.toThrow("Session parameter is required");
+      await expect(
+        pureDomainFunction({
+          title: "test",
+          body: "test",
+          // No session - should always fail
+        } as any)
+      ).rejects.toThrow("Session parameter is required");
 
       // Should always pass with session, regardless of working directory
       const result1 = await pureDomainFunction({
         session: "task#158",
         title: "test",
-        body: "test"
+        body: "test",
       });
       expect(result1.success).toBe(true);
 
       const result2 = await pureDomainFunction({
-        session: "task#158", 
+        session: "task#158",
         title: "test",
-        body: "test"
+        body: "test",
       });
       expect(result2.success).toBe(true);
     });
 
     it("should handle session resolution in interface adapters", async () => {
       // Target behavior: Interface adapters handle context resolution
-      
+
       const mockCliAdapter = {
         resolveSessionContext: (params: any, workingDir: string) => {
           // CLI adapter: auto-detect session from working directory
@@ -199,7 +216,7 @@ describe("Session Context Resolution Architecture Issues", () => {
             }
           }
           return params;
-        }
+        },
       };
 
       const mockMcpAdapter = {
@@ -209,31 +226,41 @@ describe("Session Context Resolution Architecture Issues", () => {
             throw new Error("Session parameter required for MCP interface");
           }
           return params;
-        }
+        },
       };
 
       // CLI adapter should auto-resolve session
       mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
-      const cliResolvedParams = mockCliAdapter.resolveSessionContext({
-        title: "test",
-        body: "test"
-      }, mockCwd());
-       
+      const cliResolvedParams = mockCliAdapter.resolveSessionContext(
+        {
+          title: "test",
+          body: "test",
+        },
+        mockCwd()
+      );
+
       expect(cliResolvedParams.session).toBe("task#158");
 
       // MCP adapter should require explicit session
       mockCwd = mock(() => "/Users/edobry/Projects/minsky");
       expect(() => {
-        mockMcpAdapter.resolveSessionContext({
-          title: "test",
-          body: "test"
-        }, mockCwd());
+        mockMcpAdapter.resolveSessionContext(
+          {
+            title: "test",
+            body: "test",
+          },
+          mockCwd()
+        );
       }).toThrow("Session parameter required for MCP interface");
 
       // Both should work with explicit session
       const explicitParams = { session: "task#158", title: "test", body: "test" };
-      expect(mockCliAdapter.resolveSessionContext(explicitParams, "/any/dir")).toEqual(explicitParams);
-      expect(mockMcpAdapter.resolveSessionContext(explicitParams, "/any/dir")).toEqual(explicitParams);
+      expect(mockCliAdapter.resolveSessionContext(explicitParams, "/any/dir")).toEqual(
+        explicitParams
+      );
+      expect(mockMcpAdapter.resolveSessionContext(explicitParams, "/any/dir")).toEqual(
+        explicitParams
+      );
     });
   });
-}); 
+});

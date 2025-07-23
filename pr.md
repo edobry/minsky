@@ -11,11 +11,13 @@ FastMCP expected proprietary `~standard.vendor` metadata that standard MCP clien
 ## Changes
 
 ### Removed
+
 - FastMCP dependency completely eliminated
 - Proprietary FastMCP-specific configurations and handlers
 - Custom FastMCP transport implementations
 
 ### Added
+
 - `@modelcontextprotocol/sdk` dependency
 - `zod-to-json-schema` for proper schema conversion
 - Official MCP Server class and StdioServerTransport
@@ -23,18 +25,22 @@ FastMCP expected proprietary `~standard.vendor` metadata that standard MCP clien
 - Standard MCP protocol compliance
 
 ### Modified
+
 - **src/mcp/server.ts**: Complete rewrite using official SDK
+
   - Replaced FastMCP server with `Server` from `@modelcontextprotocol/sdk`
   - Implemented proper `ListToolsRequestSchema` and `CallToolRequestSchema` handlers
   - Added tool/resource/prompt management with Maps
   - Uses `StdioServerTransport` for standard I/O communication
 
 - **src/mcp/command-mapper.ts**: Updated for official SDK
+
   - Changed from FastMCP `ToolDefinition` to official SDK tool registration
   - Added JSON Schema conversion from Zod schemas using `zod-to-json-schema`
   - Maintains all 46+ tool registrations
 
 - **src/commands/mcp/index.ts**: Simplified transport layer
+
   - Removed FastMCP-specific network configuration
   - Focus on stdio transport only for Claude Desktop compatibility
   - Simplified error handling for cleaner user experience
@@ -46,11 +52,13 @@ FastMCP expected proprietary `~standard.vendor` metadata that standard MCP clien
 ## Testing Performed
 
 ### Unit Tests
+
 - ✅ All MCP-specific tests pass (6/6)
 - ✅ Server initialization tests updated for official SDK
 - ✅ Command mapper tests verify proper tool registration
 
 ### Integration Testing
+
 - ✅ **End-to-end MCP protocol verification**
   - Tested actual JSON-RPC 2.0 communication via stdin/stdout
   - Verified `initialize` request returns proper capabilities
@@ -58,6 +66,7 @@ FastMCP expected proprietary `~standard.vendor` metadata that standard MCP clien
   - Tested `tools/call` request handling works correctly
 
 ### Compatibility Verification
+
 - ✅ Server starts without FastMCP dependency errors
 - ✅ Compatible with Claude Desktop and standard MCP clients
 - ✅ All existing CLI functionality maintained (`minsky mcp start`, `minsky mcp --help`)
@@ -71,7 +80,7 @@ FastMCP expected proprietary `~standard.vendor` metadata that standard MCP clien
 ## Acceptance Criteria
 
 - [x] Remove fastmcp dependency completely
-- [x] Install @modelcontextprotocol/sdk 
+- [x] Install @modelcontextprotocol/sdk
 - [x] Rewrite server.ts using official SDK Server class and StdioServerTransport
 - [x] Update command-mapper.ts for official SDK tool registration
 - [x] Simplify transport layer to focus on stdio only
@@ -83,4 +92,4 @@ FastMCP expected proprietary `~standard.vendor` metadata that standard MCP clien
 
 This change resolves the core issue preventing standard MCP clients from communicating with Minsky. The official SDK ensures full MCP protocol specification compliance, eliminating the `~standard.vendor` metadata requirement that was breaking compatibility.
 
-No breaking changes to the CLI interface - all `minsky mcp` commands work exactly as before, but now with proper standard MCP client support. 
+No breaking changes to the CLI interface - all `minsky mcp` commands work exactly as before, but now with proper standard MCP client support.

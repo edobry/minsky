@@ -127,4 +127,4 @@ export const cliFactory = new CliCommandFactory();
 /**
  * Export types for external use
  */
-export type { ValidCommandId }; 
+export type { ValidCommandId };

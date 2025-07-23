@@ -1,6 +1,6 @@
 /**
  * Tests for session approval error handling bug fix (Task #300)
- * 
+ *
  * Verifies that session approval correctly validates task existence
  * before checking for sessions and provides clear error messages.
  */
@@ -31,7 +31,7 @@ describe("Session Approval Error Handling Fix", () => {
         expect(error.message).toContain("The specified task does not exist");
         expect(error.message).toContain("💡 Available options:");
         expect(error.message).toContain("Run 'minsky tasks list'");
-        
+
         // Verify resource type is correct
         expect(error.resourceType).toBe("task");
         expect(error.resourceId).toBe("3283");
@@ -79,7 +79,7 @@ describe("Session Approval Error Handling Fix", () => {
         expect(error.message).toContain("❌ No session found for task 100");
         expect(error.message).toContain("The task exists but has no associated session");
         expect(error.message).toContain("Run 'minsky session start --task 100'");
-        
+
         // Verify resource type indicates session problem, not task problem
         expect(error.resourceType).toBe("session");
         expect(error.resourceId).toBe("100");
@@ -96,7 +96,7 @@ describe("Session Approval Error Handling Fix", () => {
   test("should have proper validation order", async () => {
     // This test ensures the fix addresses the root cause:
     // validation order should be: task exists → session exists → approval logic
-    
+
     let taskValidationCalled = false;
     let sessionValidationCalled = false;
 
@@ -108,7 +108,7 @@ describe("Session Approval Error Handling Fix", () => {
       },
     };
 
-    // Mock SessionDB that tracks when it's called  
+    // Mock SessionDB that tracks when it's called
     const mockSessionDB = {
       getSessionByTaskId: async () => {
         sessionValidationCalled = true;
@@ -130,10 +130,10 @@ describe("Session Approval Error Handling Fix", () => {
     } catch (error) {
       // Task validation should have been called
       expect(taskValidationCalled).toBe(true);
-      
+
       // Session validation should NOT have been called for non-existent task
       expect(sessionValidationCalled).toBe(false);
-      
+
       // Should be a task not found error
       expect(error).toBeInstanceOf(ResourceNotFoundError);
       expect((error as ResourceNotFoundError).resourceType).toBe("task");
@@ -150,19 +150,19 @@ describe("Session Approval Error Handling Fix", () => {
     } catch (error) {
       if (error instanceof ResourceNotFoundError) {
         const message = error.message;
-        
+
         // Should start with clear error indicator
         expect(message).toMatch(/^❌/);
-        
+
         // Should have clear structure: error + explanation + options
         expect(message).toContain("❌ Task not found:");
         expect(message).toContain("The specified task does not exist.");
         expect(message).toContain("💡 Available options:");
-        
+
         // Should provide actionable guidance
         expect(message).toContain("minsky tasks list");
         expect(message).toContain("Check your task ID for typos");
-        
+
         // Should NOT be overly verbose like the old error
         expect(message.split("\n").length).toBeLessThan(15); // Reasonable line count
         expect(message).not.toContain("1️⃣"); // No numbered lists
@@ -171,4 +171,4 @@ describe("Session Approval Error Handling Fix", () => {
       }
     }
   });
-}); 
+});

@@ -1,6 +1,6 @@
 /**
  * Tests for session PR title duplication bug (#285)
- * 
+ *
  * This test suite reproduces and verifies the fix for title duplication issues
  * in the session PR workflow.
  */
@@ -64,10 +64,10 @@ async function extractPrDescriptionFixed(
     // Parse the commit message more intelligently to prevent duplication
     const lines = commitMessage.trim().split("\n");
     const title = lines[0] || "";
-    
+
     // Filter out empty lines and prevent title duplication in body
-    const bodyLines = lines.slice(1).filter(line => line.trim() !== "");
-    
+    const bodyLines = lines.slice(1).filter((line) => line.trim() !== "");
+
     // Check if first line of body duplicates the title
     let body = "";
     if (bodyLines.length > 0) {
@@ -110,11 +110,11 @@ describe("Session PR Title Duplication Bug Tests", () => {
           return commitMessage;
         }
         return "";
-      }
+      },
     };
 
     const result = await extractPrDescriptionCurrent("task285", mockGitService, testDir);
-    
+
     expect(result).not.toBeNull();
     expect(result!.title).toBe(originalTitle);
     expect(result!.body).toBe(originalBody);
@@ -123,7 +123,8 @@ describe("Session PR Title Duplication Bug Tests", () => {
   test("should reproduce title duplication when body accidentally contains title", async () => {
     // Simulate a commit message where the body accidentally includes the title
     const originalTitle = "feat(#285): Fix session PR title duplication bug";
-    const duplicatedBody = "feat(#285): Fix session PR title duplication bug\n\nThis PR fixes the issue where titles are duplicated in PR descriptions.";
+    const duplicatedBody =
+      "feat(#285): Fix session PR title duplication bug\n\nThis PR fixes the issue where titles are duplicated in PR descriptions.";
     const commitMessage = `${originalTitle}\n\n${duplicatedBody}`;
 
     mockGitService = {
@@ -132,11 +133,11 @@ describe("Session PR Title Duplication Bug Tests", () => {
           return commitMessage;
         }
         return "";
-      }
+      },
     };
 
     const result = await extractPrDescriptionCurrent("task285", mockGitService, testDir);
-    
+
     expect(result).not.toBeNull();
     expect(result!.title).toBe(originalTitle);
     // This demonstrates the bug: body contains the title duplicated
@@ -146,7 +147,8 @@ describe("Session PR Title Duplication Bug Tests", () => {
   test("should fix title duplication with improved parsing", async () => {
     // Same problematic commit message as above
     const originalTitle = "feat(#285): Fix session PR title duplication bug";
-    const duplicatedBody = "feat(#285): Fix session PR title duplication bug\n\nThis PR fixes the issue where titles are duplicated in PR descriptions.";
+    const duplicatedBody =
+      "feat(#285): Fix session PR title duplication bug\n\nThis PR fixes the issue where titles are duplicated in PR descriptions.";
     const commitMessage = `${originalTitle}\n\n${duplicatedBody}`;
 
     mockGitService = {
@@ -155,15 +157,17 @@ describe("Session PR Title Duplication Bug Tests", () => {
           return commitMessage;
         }
         return "";
-      }
+      },
     };
 
     const result = await extractPrDescriptionFixed("task285", mockGitService, testDir);
-    
+
     expect(result).not.toBeNull();
     expect(result!.title).toBe(originalTitle);
     // Fixed version should remove the duplicated title from body
-    expect(result!.body).toBe("This PR fixes the issue where titles are duplicated in PR descriptions.");
+    expect(result!.body).toBe(
+      "This PR fixes the issue where titles are duplicated in PR descriptions."
+    );
     expect(result!.body).not.toContain("feat(#285): Fix session PR title duplication bug");
   });
 
@@ -177,11 +181,11 @@ describe("Session PR Title Duplication Bug Tests", () => {
           return commitMessage;
         }
         return "";
-      }
+      },
     };
 
     const result = await extractPrDescriptionFixed("task285", mockGitService, testDir);
-    
+
     expect(result).not.toBeNull();
     expect(result!.title).toBe(originalTitle);
     expect(result!.body).toBe("");
@@ -189,7 +193,8 @@ describe("Session PR Title Duplication Bug Tests", () => {
 
   test("should handle multiline body with potential title duplication", async () => {
     const originalTitle = "feat(#285): Fix session PR title duplication bug";
-    const cleanBody = "## Summary\n\nThis PR fixes the title duplication issue.\n\n## Changes\n\n- Fixed extractPrDescription parsing";
+    const cleanBody =
+      "## Summary\n\nThis PR fixes the title duplication issue.\n\n## Changes\n\n- Fixed extractPrDescription parsing";
     const commitMessage = `${originalTitle}\n\n${cleanBody}`;
 
     mockGitService = {
@@ -198,14 +203,16 @@ describe("Session PR Title Duplication Bug Tests", () => {
           return commitMessage;
         }
         return "";
-      }
+      },
     };
 
     const result = await extractPrDescriptionFixed("task285", mockGitService, testDir);
-    
+
     expect(result).not.toBeNull();
     expect(result!.title).toBe(originalTitle);
     // The fixed version filters out empty lines, so expect the filtered result
-    expect(result!.body).toBe("## Summary\nThis PR fixes the title duplication issue.\n## Changes\n- Fixed extractPrDescription parsing");
+    expect(result!.body).toBe(
+      "## Summary\nThis PR fixes the title duplication issue.\n## Changes\n- Fixed extractPrDescription parsing"
+    );
   });
-}); 
+});

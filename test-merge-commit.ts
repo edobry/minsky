@@ -13,10 +13,13 @@ function testCommitMessage(message: string, expectedValid: boolean, testName: st
   try {
     writeFileSync(tempFile, message);
 
-    const result = execSync(`cd /Users/edobry/Projects/minsky && bun scripts/validate-commit-message.ts ${tempFile}`, {
-      encoding: "utf8",
-      stdio: "pipe"
-    });
+    const result = execSync(
+      `cd /Users/edobry/Projects/minsky && bun scripts/validate-commit-message.ts ${tempFile}`,
+      {
+        encoding: "utf8",
+        stdio: "pipe",
+      }
+    );
 
     if (expectedValid) {
       console.log(`✅ ${testName}: PASSED - Message accepted as expected`);
@@ -33,7 +36,11 @@ function testCommitMessage(message: string, expectedValid: boolean, testName: st
       console.log(`   Error: ${error.message}`);
     }
   } finally {
-    try { unlinkSync(tempFile); } catch { /* ignore cleanup errors */ }
+    try {
+      unlinkSync(tempFile);
+    } catch {
+      /* ignore cleanup errors */
+    }
   }
 }
 
@@ -41,27 +48,19 @@ console.log("Testing merge commit validation fix...\n");
 
 // Test cases
 testCommitMessage(
-  "Merge remote-tracking branch \"origin/main\" into task#280",
+  'Merge remote-tracking branch "origin/main" into task#280',
   true,
   "Session update merge commit"
 );
 
 testCommitMessage(
-  "feat(#280): Complete \"as unknown\" cleanup with 100% code elimination",
+  'feat(#280): Complete "as unknown" cleanup with 100% code elimination',
   true,
   "Regular conventional commit"
 );
 
-testCommitMessage(
-  "fix",
-  false,
-  "Forbidden placeholder message"
-);
+testCommitMessage("fix", false, "Forbidden placeholder message");
 
-testCommitMessage(
-  "some random commit message",
-  false,
-  "Non-conventional commit message"
-);
+testCommitMessage("some random commit message", false, "Non-conventional commit message");
 
 console.log("\nTest completed!");

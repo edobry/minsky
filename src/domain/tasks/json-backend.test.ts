@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { JsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { createJsonBackend } from "../json-backend";
+import { rmSync, mkdirSync } from "fs";
 import { join } from "path";
-import { mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 
 describe("Enhanced JSON Backend", () => {
@@ -21,10 +21,10 @@ describe("Enhanced JSON Backend", () => {
   });
 
   test("should create backend with explicit workspace path", async () => {
-    const backend = await new JsonFileTaskBackend({
+    const backend = await createWorkspaceResolvingJsonBackend({
       name: "json-file",
       workspacePath: testDir,
-      dbFilePath: join(testDir, "custom-tasks.json")
+      dbFilePath: join(testDir, "custom-tasks.json"),
     });
 
     expect(backend.name).toBe("json-file");
@@ -32,9 +32,8 @@ describe("Enhanced JSON Backend", () => {
   });
 
   test("should resolve workspace using current directory", async () => {
-    const backend = new JsonFileTaskBackend({
+    const backend = await createWorkspaceResolvingJsonBackend({
       name: "json-file",
-      workspacePath: process.cwd()
     });
 
     expect(backend.name).toBe("json-file");
@@ -43,20 +42,20 @@ describe("Enhanced JSON Backend", () => {
 
   test("should handle database file path configuration", async () => {
     const customDbPath = join(testDir, "my-tasks.json");
-    const backend = await new JsonFileTaskBackend({
+    const backend = (await createWorkspaceResolvingJsonBackend({
       name: "json-file",
       workspacePath: testDir,
-      dbFilePath: customDbPath
-    }) as any;
+      dbFilePath: customDbPath,
+    })) as any;
 
     expect(backend.getStorageLocation()).toBe(customDbPath);
   });
 
   test("should identify as in-tree backend when using special workspace", async () => {
-    const backend = await new JsonFileTaskBackend({
+    const backend = (await createWorkspaceResolvingJsonBackend({
       name: "json-file",
-      workspacePath: testDir
-    }) as any;
+      workspacePath: testDir,
+    })) as any;
 
     expect(backend.isInTreeBackend()).toBe(true);
   });

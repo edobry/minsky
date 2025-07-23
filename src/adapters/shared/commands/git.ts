@@ -401,7 +401,9 @@ export function registerGitCommands(): void {
       return {
         success: result.merged,
         workdir: result.workdir,
-        message: result.conflicts ? result.conflictDetails || "Merge completed with conflicts" : "Merge completed successfully",
+        message: result.conflicts
+          ? result.conflictDetails || "Merge completed with conflicts"
+          : "Merge completed successfully",
       };
     },
   });
@@ -428,7 +430,9 @@ export function registerGitCommands(): void {
       return {
         success: result!.switched,
         workdir: result!.workdir,
-        message: result!.conflicts ? result!.conflictDetails || "Checkout completed with warnings" : "Checkout completed successfully",
+        message: result!.conflicts
+          ? result!.conflictDetails || "Checkout completed with warnings"
+          : "Checkout completed successfully",
       };
     },
   });
@@ -455,7 +459,9 @@ export function registerGitCommands(): void {
       return {
         success: result!.rebased,
         workdir: result!.workdir,
-        message: result!.conflicts ? result!.conflictDetails || "Rebase completed with conflicts" : "Rebase completed successfully",
+        message: result!.conflicts
+          ? result!.conflictDetails || "Rebase completed with conflicts"
+          : "Rebase completed successfully",
       };
     },
   });

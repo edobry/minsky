@@ -1,13 +1,10 @@
 import { describe, test, expect, mock } from "bun:test";
 import { approveSessionImpl } from "./session-approve-operations";
-import { createMockGitService, createMockSessionProvider, createMockTaskService } from "../../utils/test-utils/dependencies";
-
-// Mock git utilities that are called directly (not through GitService)
-mock.module("../../utils/git-exec", () => ({
-  gitFetchWithTimeout: mock(() => Promise.resolve()),
-  gitPushWithTimeout: mock(() => Promise.resolve()),
-  execGitWithTimeout: mock(() => Promise.resolve("mock-output")),
-}));
+import {
+  createMockGitService,
+  createMockSessionProvider,
+  createMockTaskService,
+} from "../../utils/test-utils/dependencies";
 
 // Mock logger to avoid console noise in tests
 const mockLog = {
@@ -23,7 +20,6 @@ mock.module("../../utils/logger", () => ({
 }));
 
 describe("Session Approve - Bug Regression Tests", () => {
-
   describe("Bug #1: Untracked Files Auto-Stash", () => {
     // Bug Report: Session approve fails with untracked files that would be overwritten by merge
     // Original Error: "error: The following untracked working tree files would be overwritten by merge"
@@ -49,44 +45,34 @@ describe("Session Approve - Bug Regression Tests", () => {
             return Promise.resolve("Test User");
           }
           return Promise.resolve("");
-        })
+        }),
       });
 
-      // Mock hasUncommittedChanges separately to trigger stashing behavior
+      // Mock hasUncommittedChanges separately
       mockGitService.hasUncommittedChanges = mock(() => Promise.resolve(true));
 
       const mockSessionDB = createMockSessionProvider({
-        getSessionByTaskId: () => Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "123",
-          createdAt: new Date().toISOString()
-        }),
-        getSession: () => Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "123",
-          createdAt: new Date().toISOString()
-        })
+        getSessionByTaskId: () =>
+          Promise.resolve({
+            session: "test-session",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            taskId: "123",
+            createdAt: new Date().toISOString(),
+          }),
+        getSession: () =>
+          Promise.resolve({
+            session: "test-session",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            taskId: "123",
+            createdAt: new Date().toISOString(),
+          }),
       });
 
       const mockTaskService = createMockTaskService({
-        setTaskStatus: mock(() => Promise.resolve()),
         getTaskStatus: () => Promise.resolve("TODO"),
-        mockGetTask: (taskId: string) => {
-          if (taskId === "123" || taskId === "#123") {
-            return Promise.resolve({
-              id: "#123",
-              title: "Test Task 123",
-              description: "Test task for regression test",
-              status: "TODO",
-              specPath: "process/tasks/123.md"
-            });
-          }
-          return Promise.resolve(null);
-        }
+        setTaskStatus: mock(() => Promise.resolve()),
       });
 
       // Act: Run session approve with uncommitted changes
@@ -95,7 +81,7 @@ describe("Session Approve - Bug Regression Tests", () => {
         {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
-          taskService: mockTaskService
+          taskService: mockTaskService,
         }
       );
 
@@ -112,7 +98,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       const mockGitService = createMockGitService({
         stashChanges: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
         popStash: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
-        execInRepository: mock(() => Promise.resolve(""))
+        execInRepository: mock(() => Promise.resolve("")),
       });
 
       // Test the GitService stashChanges method directly to verify -u flag usage
@@ -142,44 +128,36 @@ describe("Session Approve - Bug Regression Tests", () => {
           }
           if (command.includes("git merge --ff-only")) {
             // Simulate the exact error that occurred
-            throw new Error("Command failed: git merge --ff-only pr/task#295\nhint: Diverging branches can't be fast-forwarded");
+            throw new Error(
+              "Command failed: git merge --ff-only pr/task#295\nhint: Diverging branches can't be fast-forwarded"
+            );
           }
           return Promise.resolve("");
-        })
+        }),
       });
 
       const mockSessionDB = createMockSessionProvider({
-        getSessionByTaskId: () => Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "123",
-          createdAt: new Date().toISOString()
-        }),
-        getSession: () => Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "123",
-          createdAt: new Date().toISOString()
-        })
+        getSessionByTaskId: () =>
+          Promise.resolve({
+            session: "test-session",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            taskId: "123",
+            createdAt: new Date().toISOString(),
+          }),
+        getSession: () =>
+          Promise.resolve({
+            session: "test-session",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            taskId: "123",
+            createdAt: new Date().toISOString(),
+          }),
       });
 
       const mockTaskService = createMockTaskService({
         setTaskStatus: mock(() => Promise.resolve()),
         getTaskStatus: () => Promise.resolve("TODO"),
-        mockGetTask: (taskId: string) => {
-          if (taskId === "123" || taskId === "#123") {
-            return Promise.resolve({
-              id: "#123",
-              title: "Test Task 123",
-              description: "Test task for regression test",
-              status: "TODO",
-              specPath: "process/tasks/123.md"
-            });
-          }
-          return Promise.resolve(null);
-        }
       });
 
       // Act & Assert: Command should throw error and NOT continue to task status update
@@ -189,7 +167,7 @@ describe("Session Approve - Bug Regression Tests", () => {
           {
             sessionDB: mockSessionDB,
             gitService: mockGitService,
-            taskService: mockTaskService
+            taskService: mockTaskService,
           }
         )
       ).rejects.toThrow("Diverging branches can't be fast-forwarded");
@@ -204,6 +182,7 @@ describe("Session Approve - Bug Regression Tests", () => {
     test("should continue processing when PR is genuinely already merged", async () => {
       // Arrange: Set up scenario where merge "fails" because already merged
       const mockGitService = createMockGitService({
+        hasUncommittedChanges: () => Promise.resolve(false),
         execInRepository: mock((workdir, command) => {
           if (command.includes("git show-ref")) {
             return Promise.resolve(""); // PR branch exists
@@ -219,41 +198,29 @@ describe("Session Approve - Bug Regression Tests", () => {
             return Promise.resolve("Test User");
           }
           return Promise.resolve("");
-        })
+        }),
       });
 
       const mockSessionDB = createMockSessionProvider({
-        getSessionByTaskId: () => Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "123",
-          createdAt: new Date().toISOString()
-        }),
-        getSession: () => Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "123",
-          createdAt: new Date().toISOString()
-        })
+        getSessionByTaskId: () =>
+          Promise.resolve({
+            session: "test-session",
+            repoUrl: "/test/repo",
+            taskId: "123",
+            createdAt: new Date().toISOString(),
+          }),
+        getSession: () =>
+          Promise.resolve({
+            session: "test-session",
+            repoUrl: "/test/repo",
+            taskId: "123",
+            createdAt: new Date().toISOString(),
+          }),
       });
 
       const mockTaskService = createMockTaskService({
         setTaskStatus: mock(() => Promise.resolve()),
         getTaskStatus: () => Promise.resolve("TODO"),
-        mockGetTask: (taskId: string) => {
-          if (taskId === "123" || taskId === "#123") {
-            return Promise.resolve({
-              id: "#123",
-              title: "Test Task 123",
-              description: "Test task for session approve",
-              status: "TODO",
-              specPath: "process/tasks/123.md"
-            });
-          }
-          return Promise.resolve(null);
-        }
       });
 
       // Act: Command should succeed for genuinely already merged PRs
@@ -262,7 +229,7 @@ describe("Session Approve - Bug Regression Tests", () => {
         {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
-          taskService: mockTaskService
+          taskService: mockTaskService,
         }
       );
 
@@ -275,58 +242,44 @@ describe("Session Approve - Bug Regression Tests", () => {
     });
 
     test("should restore stash even when merge fails", async () => {
-      // Arrange: Set up scenario where merge fails but stash should still be restored
+      // Arrange: Set up scenario with stashed changes and merge failure
       const mockGitService = createMockGitService({
-        stashChanges: mock(() => Promise.resolve({ workdir: "/test/repo", stashed: true })),
-        popStash: mock(() => Promise.resolve({ workdir: "/test/repo", stashed: true })),
+        stashChanges: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
+        popStash: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
         execInRepository: mock((workdir, command) => {
           if (command.includes("git show-ref")) {
-            return Promise.resolve(""); // PR branch exists
+            return Promise.resolve("");
           }
           if (command.includes("git rev-parse")) {
             return Promise.resolve("abc123");
           }
           if (command.includes("git merge --ff-only")) {
-            // Simulate merge failure
-            throw new Error("Merge failed");
+            throw new Error("Merge conflict detected");
           }
           return Promise.resolve("");
-        })
+        }),
       });
 
       // Mock hasUncommittedChanges separately to trigger stashing behavior
       mockGitService.hasUncommittedChanges = mock(() => Promise.resolve(true));
 
       const mockSessionDB = createMockSessionProvider({
-        getSessionByTaskId: () => Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "123",
-          createdAt: new Date().toISOString()
-        }),
-        getSession: () => Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "/test/repo",
-          taskId: "123",
-          createdAt: new Date().toISOString()
-        })
-      });
-
-      const mockTaskService = createMockTaskService({
-        mockGetTask: (taskId: string) => {
-          if (taskId === "123" || taskId === "#123") {
-            return Promise.resolve({
-              id: "#123",
-              title: "Test Task 123",
-              description: "Test task for regression test",
-              status: "TODO",
-              specPath: "process/tasks/123.md"
-            });
-          }
-          return Promise.resolve(null);
-        }
+        getSessionByTaskId: () =>
+          Promise.resolve({
+            session: "test-session",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            taskId: "123",
+            createdAt: new Date().toISOString(),
+          }),
+        getSession: () =>
+          Promise.resolve({
+            session: "test-session",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            taskId: "123",
+            createdAt: new Date().toISOString(),
+          }),
       });
 
       // Act: Command should fail but still restore stash
@@ -336,7 +289,6 @@ describe("Session Approve - Bug Regression Tests", () => {
           {
             sessionDB: mockSessionDB,
             gitService: mockGitService,
-            taskService: mockTaskService
           }
         );
       } catch (error) {

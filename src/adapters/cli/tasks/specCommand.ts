@@ -33,7 +33,8 @@ interface SpecCommandOptions {
 export function createSpecCommand(): Command {
   const command = new Command("spec")
     .description("Get task specification _content")
-    .argument("<task-id>", "ID of the task to retrieve specification _content for").option(
+    .argument("<task-id>", "ID of the task to retrieve specification _content for")
+    .option(
       "--section <section>",
       "Specific section of the specification to retrieve (e.g., 'requirements')"
     );
@@ -43,42 +44,37 @@ export function createSpecCommand(): Command {
   addOutputOptions(command);
   addBackendOptions(command);
 
-  command.action(
-    async (
-      taskId: string,
-      options: SpecCommandOptions
-    ) => {
-      try {
-        // Normalize the task ID before passing to domain
-        const normalizedTaskId = normalizeTaskId(taskId);
-        if (!normalizedTaskId) {
-          throw new ValidationError(
-            `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-          );
-        }
-
-        // Convert CLI options to domain parameters using normalization helper
-        const normalizedParams = normalizeTaskParams(options);
-
-        // Convert CLI options to domain parameters
-        const params: TaskSpecContentParams = {
-          ...normalizedParams,
-          taskId: normalizedTaskId,
-          section: options.section,
-        };
-
-        // Call the domain function
-        const result = await getTaskSpecContentFromParams(params);
-
-        // Format and display the result
-        outputResult(result, {
-          json: options.json,
-        });
-      } catch (error) {
-        handleCliError(error);
+  command.action(async (taskId: string, options: SpecCommandOptions) => {
+    try {
+      // Normalize the task ID before passing to domain
+      const normalizedTaskId = normalizeTaskId(taskId);
+      if (!normalizedTaskId) {
+        throw new ValidationError(
+          `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        );
       }
+
+      // Convert CLI options to domain parameters using normalization helper
+      const normalizedParams = normalizeTaskParams(options);
+
+      // Convert CLI options to domain parameters
+      const params: TaskSpecContentParams = {
+        ...normalizedParams,
+        taskId: normalizedTaskId,
+        section: options.section,
+      };
+
+      // Call the domain function
+      const result = await getTaskSpecContentFromParams(params);
+
+      // Format and display the result
+      outputResult(result, {
+        json: options.json,
+      });
+    } catch (error) {
+      handleCliError(error);
     }
-  );
+  });
 
   return command;
 }

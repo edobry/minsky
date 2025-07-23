@@ -20,4 +20,4 @@ This is a test task specification using the new clean title format without task 
 
 - [ ] Task creation succeeds with clean title format
 - [ ] Generated task file has clean title (not Task #XXX: format)
-- [ ] Task appears correctly in tasks.md with proper ID reference 
+- [ ] Task appears correctly in tasks.md with proper ID reference

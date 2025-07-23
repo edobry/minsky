@@ -15,6 +15,7 @@ Implement a stacked PR workflow that allows sessions to be created from existing
 ## Current State Analysis
 
 Currently, Minsky sessions:
+
 - Always start from the main/default branch
 - Create isolated branches for each session
 - Use `session update` to merge latest changes from main
@@ -37,6 +38,7 @@ minsky session start --task 124 --base-branch task#123
 ```
 
 **Implementation Details:**
+
 - Add `--base-session` and `--base-branch` parameters to session start
 - Validate that base session/branch exists before creating new session
 - Update session record schema to include `baseBranch` and `baseSession` fields
@@ -54,14 +56,15 @@ export interface SessionRecord {
   createdAt: string;
   taskId?: string;
   branch?: string;
-  baseBranch?: string;        // NEW: base branch this session was created from
-  baseSession?: string;       // NEW: base session this session depends on
+  baseBranch?: string; // NEW: base branch this session was created from
+  baseSession?: string; // NEW: base session this session depends on
   dependentSessions?: string[]; // NEW: sessions that depend on this session
   // ... existing fields
 }
 ```
 
 **Features:**
+
 - Automatically detect and store dependency relationships
 - Prevent circular dependencies
 - Provide dependency visualization commands
@@ -83,6 +86,7 @@ minsky session update --from-main
 ```
 
 **Implementation Details:**
+
 - Default behavior: update from base session if it exists, otherwise from main
 - Add `--from-base`, `--from-main`, and `--cascade` options
 - Handle conflicts when base session has been updated
@@ -104,6 +108,7 @@ minsky session pr --create-stack
 ```
 
 **Features:**
+
 - PRs target their base session branch by default
 - Support creating entire PR stacks in one command
 - Maintain PR descriptions that reference dependencies
@@ -122,6 +127,7 @@ minsky session approve --check-dependencies
 ```
 
 **Implementation Details:**
+
 - Check that base sessions are approved before allowing approval
 - Support cascading approvals for entire stacks
 - Provide clear feedback about approval prerequisites
@@ -161,6 +167,7 @@ session:
 ```
 
 **Safety Features:**
+
 - Validate dependency chains don't exceed max depth
 - Prevent operations that would break dependent sessions
 - Provide rollback mechanisms for failed stack operations
@@ -173,6 +180,7 @@ session:
 Before implementing stacked PR workflows from scratch, investigate existing tools and libraries that might provide this functionality:
 
 **Tools to Evaluate:**
+
 - **git town**: Comprehensive git workflow tool with stacked branch support
 - **git-branchless**: Modern git workflow tooling with stacked commits
 - **git-machete**: Tool for managing git branch hierarchies
@@ -180,6 +188,7 @@ Before implementing stacked PR workflows from scratch, investigate existing tool
 - **Graphite CLI**: Professional stacked PR workflow tool
 
 **Evaluation Criteria:**
+
 - Integration complexity with existing Minsky architecture
 - Feature overlap with planned requirements
 - Maintenance burden vs. custom implementation
@@ -187,41 +196,48 @@ Before implementing stacked PR workflows from scratch, investigate existing tool
 - Performance and reliability
 
 **Decision Framework:**
+
 - If existing tool provides 80%+ of required functionality → integrate/wrap it
 - If existing tool provides solid foundation → build on top of it
 - If no suitable tool exists → proceed with custom implementation
 
 **Deliverables:**
+
 - Evaluation report comparing tools against requirements
 - Recommendation for integration vs. custom implementation
 - If integration chosen: proof-of-concept integration
 - If custom implementation chosen: detailed architecture plan
 
 ### Phase 1: Basic Stacked Session Creation
+
 1. Add base branch/session parameters to session start
 2. Extend session record schema
 3. Implement dependency tracking
 4. Add basic validation
 
 ### Phase 2: Enhanced Update Strategy
+
 1. Modify session update to use base branch
 2. Add update options (--from-base, --from-main, --cascade)
 3. Implement conflict resolution for stacked scenarios
 4. Add tests for various update scenarios
 
 ### Phase 3: Stacked PR Workflow
+
 1. Modify PR creation to target base branches
 2. Add stack-aware PR descriptions
 3. Implement PR stack creation
 4. Add approval dependency checking
 
 ### Phase 4: Visualization and Management
+
 1. Add dependency visualization commands
 2. Implement session rebase functionality
 3. Add dependency management tools
 4. Create comprehensive documentation
 
 ### Phase 5: Advanced Features
+
 1. Add configuration options
 2. Implement cascading operations
 3. Add rollback mechanisms
@@ -230,18 +246,21 @@ Before implementing stacked PR workflows from scratch, investigate existing tool
 ## Testing Strategy
 
 ### Unit Tests
+
 - Session creation with base branches
 - Dependency tracking and validation
 - Update strategy selection
 - PR targeting logic
 
 ### Integration Tests
+
 - End-to-end stacked workflow scenarios
 - Conflict resolution workflows
 - Cascading operations
 - Error handling and rollback
 
 ### Performance Tests
+
 - Large dependency chains
 - Concurrent operations on stacked sessions
 - Memory usage with complex dependency graphs
@@ -249,11 +268,13 @@ Before implementing stacked PR workflows from scratch, investigate existing tool
 ## Migration Strategy
 
 ### Backward Compatibility
+
 - Existing sessions continue to work without changes
 - New features are opt-in via explicit parameters
 - Default behavior remains unchanged for existing workflows
 
 ### Data Migration
+
 - Add new fields to session records with default values
 - Migrate existing sessions to have `baseBranch: "main"`
 - Provide migration script for existing session databases
@@ -261,12 +282,14 @@ Before implementing stacked PR workflows from scratch, investigate existing tool
 ## Documentation Requirements
 
 ### User Documentation
+
 - Tutorial on stacked PR workflows
 - Best practices for managing session dependencies
 - Troubleshooting guide for common stacked scenarios
 - Examples of complex dependency chains
 
 ### Developer Documentation
+
 - Architecture overview of dependency tracking
 - API documentation for new session interfaces
 - Testing guide for stacked workflows
@@ -275,18 +298,21 @@ Before implementing stacked PR workflows from scratch, investigate existing tool
 ## Success Criteria
 
 1. **Functional Requirements Met:**
+
    - Sessions can be created from existing session branches
    - Dependencies are tracked and visualized
    - PRs target appropriate base branches
    - Approval workflows respect dependencies
 
 2. **User Experience:**
+
    - Clear error messages for dependency conflicts
    - Intuitive command structure
    - Smooth migration from current workflows
    - Comprehensive documentation
 
 3. **Technical Quality:**
+
    - Robust dependency validation
    - Efficient dependency graph operations
    - Comprehensive test coverage
@@ -300,24 +326,27 @@ Before implementing stacked PR workflows from scratch, investigate existing tool
 ## Risks and Mitigation
 
 ### Technical Risks
+
 - **Complexity**: Stacked workflows add significant complexity
-  - *Mitigation*: Evaluate existing tools first, phased implementation, comprehensive testing
+  - _Mitigation_: Evaluate existing tools first, phased implementation, comprehensive testing
 - **Performance**: Large dependency graphs could impact performance
-  - *Mitigation*: Efficient graph algorithms, caching, limits
+  - _Mitigation_: Efficient graph algorithms, caching, limits
 - **Data Integrity**: Dependency tracking could become inconsistent
-  - *Mitigation*: Transactional operations, validation, repair tools
+  - _Mitigation_: Transactional operations, validation, repair tools
 
 ### User Experience Risks
+
 - **Confusion**: Users might create overly complex dependency chains
-  - *Mitigation*: Clear documentation, sensible defaults, warnings
+  - _Mitigation_: Clear documentation, sensible defaults, warnings
 - **Migration Issues**: Existing users might have trouble adapting
-  - *Mitigation*: Backward compatibility, migration guides, optional features
+  - _Mitigation_: Backward compatibility, migration guides, optional features
 
 ### Operational Risks
+
 - **Debugging**: Complex dependency chains could be hard to debug
-  - *Mitigation*: Comprehensive logging, visualization tools, debugging commands
+  - _Mitigation_: Comprehensive logging, visualization tools, debugging commands
 - **Recovery**: Failed operations could leave sessions in inconsistent state
-  - *Mitigation*: Rollback mechanisms, repair tools, validation
+  - _Mitigation_: Rollback mechanisms, repair tools, validation
 
 ## Future Enhancements
 

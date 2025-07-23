@@ -10,7 +10,10 @@ import { log } from "../../../utils/logger";
  * Get session command customizations configuration
  * @returns Session category customization options
  */
-export function getSessionCustomizations(): { category: CommandCategory; options: CategoryCommandOptions } {
+export function getSessionCustomizations(): {
+  category: CommandCategory;
+  options: CategoryCommandOptions;
+} {
   return {
     category: CommandCategory.SESSION,
     options: {
@@ -34,7 +37,8 @@ export function getSessionCustomizations(): { category: CommandCategory; options
             },
             task: {
               alias: "t",
-              description: "Task ID to associate with the session (required if --description not provided)",
+              description:
+                "Task ID to associate with the session (required if --description not provided)",
             },
             description: {
               alias: "d",
@@ -86,7 +90,7 @@ export function getSessionCustomizations(): { category: CommandCategory; options
               log.cli("💡 Next steps:");
               log.cli("   • Your session workspace is ready for editing");
               log.cli("   • All changes will be tracked on your session branch");
-              log.cli("   • Run \"minsky session pr\" when ready to create a pull request");
+              log.cli('   • Run "minsky session pr" when ready to create a pull request');
             } else {
               // Fallback to JSON output if result structure is unexpected
               log.cli(JSON.stringify(result as any, null, 2));
@@ -109,7 +113,7 @@ export function getSessionCustomizations(): { category: CommandCategory; options
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name (optional, alternative to --task)",
+              description: "Session name",
             },
             task: {
               alias: "t",
@@ -121,7 +125,7 @@ export function getSessionCustomizations(): { category: CommandCategory; options
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name (optional, alternative to --task)",
+              description: "Session name",
             },
             task: {
               alias: "t",
@@ -133,7 +137,7 @@ export function getSessionCustomizations(): { category: CommandCategory; options
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name (optional, alternative to --task)",
+              description: "Session name",
             },
             task: {
               alias: "t",
@@ -145,7 +149,7 @@ export function getSessionCustomizations(): { category: CommandCategory; options
           parameters: {
             name: {
               asArgument: true,
-              description: "Session name (optional, alternative to --task)",
+              description: "Session name",
             },
             task: {
               alias: "t",

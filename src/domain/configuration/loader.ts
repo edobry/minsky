@@ -1,6 +1,6 @@
 /**
  * Configuration Loader
- * 
+ *
  * Main orchestrator for loading and merging configuration from multiple sources
  * with proper hierarchical precedence and validation.
  */
@@ -43,11 +43,14 @@ export interface ConfigurationLoadResult {
   readonly validationResult: ConfigurationValidationResult;
   readonly loadedAt: Date;
   readonly mergeOrder: string[];
-  readonly effectiveValues: Record<string, {
-    value: any;
-    source: string;
-    path: string;
-  }>;
+  readonly effectiveValues: Record<
+    string,
+    {
+      value: any;
+      source: string;
+      path: string;
+    }
+  >;
 }
 
 /**
@@ -96,33 +99,33 @@ export class ConfigurationLoader {
     try {
       // Load from all sources
       const sourceResults = await this.loadAllSources();
-      
+
       // Merge configurations with proper precedence
       const mergedConfig = this.mergeConfigurations(sourceResults);
-      
+
       // Validate final configuration
-      const validationResult = this.options.skipValidation 
+      const validationResult = this.options.skipValidation
         ? { success: true, data: mergedConfig as Configuration }
         : this.validateConfiguration(mergedConfig);
 
       // Handle validation errors
       if (!validationResult.success && this.options.failOnValidationError) {
-        const errorMessage = validationResult.error ? 
-          this.extractValidationErrors(validationResult.error).join(", ") : 
-          "Unknown validation error";
+        const errorMessage = validationResult.error
+          ? this.extractValidationErrors(validationResult.error).join(", ")
+          : "Unknown validation error";
         throw new Error(`Configuration validation failed: ${errorMessage}`);
       }
 
       // Build result
       const result: ConfigurationLoadResult = {
-        config: validationResult.data || mergedConfig as Configuration,
+        config: validationResult.data || (mergedConfig as Configuration),
         sources: sourceResults,
         validationResult,
         loadedAt: startTime,
         mergeOrder: sourceResults
-          .filter(r => r.success)
+          .filter((r) => r.success)
           .sort((a, b) => a.source.priority - b.source.priority)
-          .map(r => r.source.name),
+          .map((r) => r.source.name),
         effectiveValues: this.buildEffectiveValues(sourceResults),
       };
 
@@ -134,7 +137,9 @@ export class ConfigurationLoader {
 
       return result;
     } catch (error) {
-      throw new Error(`Configuration loading failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Configuration loading failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -208,7 +213,7 @@ export class ConfigurationLoader {
         }
       } catch (error) {
         const errorObj = error instanceof Error ? error : new Error(String(error));
-        
+
         results.push({
           source: source.metadata,
           config: {} as PartialConfiguration,
@@ -220,11 +225,15 @@ export class ConfigurationLoader {
 
         // Required sources must load successfully
         if (source.metadata.required) {
-          throw new Error(`Required configuration source '${source.metadata.name}' failed to load: ${errorObj.message}`);
+          throw new Error(
+            `Required configuration source '${source.metadata.name}' failed to load: ${errorObj.message}`
+          );
         }
 
         if (this.options.logDebugInfo) {
-          console.warn(`⚠ Failed to load ${source.metadata.name} configuration: ${errorObj.message}`);
+          console.warn(
+            `⚠ Failed to load ${source.metadata.name} configuration: ${errorObj.message}`
+          );
         }
       }
     }
@@ -238,16 +247,18 @@ export class ConfigurationLoader {
   private mergeConfigurations(sourceResults: ConfigurationSourceResult[]): PartialConfiguration {
     // Sort by priority (lower priority = loaded first, higher priority overrides)
     const sortedSources = sourceResults
-      .filter(result => result.success)
+      .filter((result) => result.success)
       .sort((a, b) => a.source.priority - b.source.priority);
 
     let mergedConfig: PartialConfiguration = {} as PartialConfiguration;
 
     for (const sourceResult of sortedSources) {
       mergedConfig = this.deepMerge(mergedConfig, sourceResult.config);
-      
+
       if (this.options.logDebugInfo) {
-        console.log(`📥 Merged ${sourceResult.source.name} (priority: ${sourceResult.source.priority})`);
+        console.log(
+          `📥 Merged ${sourceResult.source.name} (priority: ${sourceResult.source.priority})`
+        );
       }
     }
 
@@ -278,10 +289,14 @@ export class ConfigurationLoader {
 
     // For objects, merge recursively
     const result = { ...target };
-    
+
     for (const key in source) {
       if (Object.prototype.hasOwnProperty.call(source, key)) {
-        if (typeof source[key] === "object" && !Array.isArray(source[key]) && source[key] !== null) {
+        if (
+          typeof source[key] === "object" &&
+          !Array.isArray(source[key]) &&
+          source[key] !== null
+        ) {
           result[key] = this.deepMerge(result[key], source[key]);
         } else {
           result[key] = source[key];
@@ -297,7 +312,7 @@ export class ConfigurationLoader {
    */
   private validateConfiguration(config: PartialConfiguration): ConfigurationValidationResult {
     const result = configurationSchema.safeParse(config);
-    
+
     if (result.success) {
       return {
         success: true,
@@ -329,16 +344,19 @@ export class ConfigurationLoader {
   /**
    * Build effective values map showing which source provided each value
    */
-  private buildEffectiveValues(sourceResults: ConfigurationSourceResult[]): Record<string, {
-    value: any;
-    source: string;
-    path: string;
-  }> {
-    const effectiveValues: Record<string, { value: any; source: string; path: string; }> = {};
-    
+  private buildEffectiveValues(sourceResults: ConfigurationSourceResult[]): Record<
+    string,
+    {
+      value: any;
+      source: string;
+      path: string;
+    }
+  > {
+    const effectiveValues: Record<string, { value: any; source: string; path: string }> = {};
+
     // Sort by priority to track which source wins for each value
     const sortedSources = sourceResults
-      .filter(result => result.success)
+      .filter((result) => result.success)
       .sort((a, b) => a.source.priority - b.source.priority);
 
     for (const sourceResult of sortedSources) {
@@ -355,7 +373,7 @@ export class ConfigurationLoader {
     config: any,
     sourceName: string,
     currentPath: string,
-    collector: Record<string, { value: any; source: string; path: string; }>
+    collector: Record<string, { value: any; source: string; path: string }>
   ): void {
     if (config === null || config === undefined || typeof config !== "object") {
       return;
@@ -390,12 +408,14 @@ export const defaultLoader = new ConfigurationLoader();
 /**
  * Load configuration using default loader
  */
-export async function loadConfiguration(options?: ConfigurationLoaderOptions): Promise<ConfigurationLoadResult> {
+export async function loadConfiguration(
+  options?: ConfigurationLoaderOptions
+): Promise<ConfigurationLoadResult> {
   if (options) {
     const loader = new ConfigurationLoader(options);
     return loader.load();
   }
-  
+
   return defaultLoader.load();
 }
 
@@ -418,4 +438,4 @@ export function getCachedConfiguration(): ConfigurationLoadResult | null {
  */
 export function clearConfigurationCache(): void {
   defaultLoader.clearCache();
-} 
+}

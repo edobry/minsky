@@ -13,19 +13,19 @@ export async function branchFromParams(params: {
   name: string;
 }): Promise<BranchResult> {
   const gitService = createGitService();
-  
+
   const options: BranchOptions = {
     session: params.session,
     branch: params.name,
   };
-  
+
   const result = await gitService.branch(options);
-  
-  log.debug("Branch created successfully", { 
+
+  log.debug("Branch created successfully", {
     session: params.session,
     branch: params.name,
-    workdir: result.workdir 
+    workdir: result.workdir,
   });
-  
+
   return result;
-} 
+}

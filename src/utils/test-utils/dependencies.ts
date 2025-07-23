@@ -7,7 +7,12 @@ const _TEST_VALUE = 123;
 import { createPartialMock } from "./mocking";
 import type { SessionProviderInterface, SessionRecord } from "../../domain/session";
 import type { GitServiceInterface } from "../../domain/git";
-import type { TaskServiceInterface, Task, TaskListOptions, CreateTaskOptions } from "../../domain/tasks";
+import type {
+  TaskServiceInterface,
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
+} from "../../domain/tasks";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
 import type { RepositoryBackend } from "../../domain/repository";
 
@@ -94,7 +99,8 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
     getSessionWorkdir: () => "/mock/session/workdir",
     stashChanges: () => Promise.resolve({ workdir: "/mock/workdir", stashed: true }),
     pullLatest: () => Promise.resolve({ workdir: "/mock/workdir", updated: true }),
-    mergeBranch: () => Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false }),
+    mergeBranch: () =>
+      Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false }),
     push: () => Promise.resolve({ workdir: "/mock/workdir", pushed: true }),
     popStash: () => Promise.resolve({ workdir: "/mock/workdir", stashed: false }),
     getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
@@ -196,7 +202,8 @@ export function createSessionTestDeps(
     getSessionWorkdir: () => "/mock/session/workdir",
     stashChanges: () => Promise.resolve({ workdir: "/mock/workdir", stashed: true }),
     pullLatest: () => Promise.resolve({ workdir: "/mock/workdir", updated: true }),
-    mergeBranch: () => Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false }),
+    mergeBranch: () =>
+      Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false }),
     push: () => Promise.resolve({ workdir: "/mock/workdir", pushed: true }),
     popStash: () => Promise.resolve({ workdir: "/mock/workdir", stashed: false }),
     getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
@@ -223,7 +230,8 @@ export function createGitTestDeps(overrides: Partial<GitDependencies> = {}): Git
     getSessionWorkdir: () => "/mock/session/workdir",
     stashChanges: () => Promise.resolve({ workdir: "/mock/workdir", stashed: true }),
     pullLatest: () => Promise.resolve({ workdir: "/mock/workdir", updated: true }),
-    mergeBranch: () => Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false }),
+    mergeBranch: () =>
+      Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false }),
     push: () => Promise.resolve({ workdir: "/mock/workdir", pushed: true }),
     popStash: () => Promise.resolve({ workdir: "/mock/workdir", stashed: false }),
     getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
@@ -433,21 +441,26 @@ export function createMockSessionProvider(
   const mockProvider = createPartialMock<SessionProviderInterface>({
     listSessions: options.listSessions || (() => Promise.resolve(sessions)),
 
-    getSession: options.getSession || ((sessionName: string) => {
-      const session = sessions.find((s) => s.session === sessionName);
-      return Promise.resolve(session || null);
-    }),
+    getSession:
+      options.getSession ||
+      ((sessionName: string) => {
+        const session = sessions.find((s) => s.session === sessionName);
+        return Promise.resolve(session || null);
+      }),
 
-    getSessionByTaskId: options.getSessionByTaskId || ((taskId: string) => {
-      const session = sessions.find((s) => s.taskId === taskId);
-      return Promise.resolve(session || null);
-    }),
+    getSessionByTaskId:
+      options.getSessionByTaskId ||
+      ((taskId: string) => {
+        const session = sessions.find((s) => s.taskId === taskId);
+        return Promise.resolve(session || null);
+      }),
 
     addSession: options.addSession || (() => Promise.resolve()),
     updateSession: options.updateSession || (() => Promise.resolve()),
     deleteSession: options.deleteSession || (() => Promise.resolve(true)),
     getRepoPath: options.getRepoPath || (() => Promise.resolve("/mock/repo/path")),
-    getSessionWorkdir: options.getSessionWorkdir || (() => Promise.resolve("/mock/session/workdir")),
+    getSessionWorkdir:
+      options.getSessionWorkdir || (() => Promise.resolve("/mock/session/workdir")),
   });
 
   return mockProvider;
@@ -477,46 +490,58 @@ export interface MockGitServiceOptions {
  * @param options Configuration options for mock behavior
  * @returns A complete mock GitServiceInterface
  */
-export function createMockGitService(
-  options: MockGitServiceOptions = {}
-): GitServiceInterface {
+export function createMockGitService(options: MockGitServiceOptions = {}): GitServiceInterface {
   const { branchExists = true } = options;
   let gitCallCount = 0;
 
   const mockGitService = createPartialMock<GitServiceInterface>({
-    execInRepository: options.execInRepository || ((workdir: string, command: string) => {
-      gitCallCount++;
-      if (command.includes("show-ref") && command.includes("pr/")) {
-        return Promise.resolve(branchExists ? "ref-exists" : "not-exists");
-      }
-      if (command.includes("ls-remote") && command.includes("pr/")) {
-        return Promise.resolve(branchExists ? "remote-ref-exists" : "");
-      }
-      return Promise.resolve("mock git output");
-    }),
+    execInRepository:
+      options.execInRepository ||
+      ((workdir: string, command: string) => {
+        gitCallCount++;
+        if (command.includes("show-ref") && command.includes("pr/")) {
+          return Promise.resolve(branchExists ? "ref-exists" : "not-exists");
+        }
+        if (command.includes("ls-remote") && command.includes("pr/")) {
+          return Promise.resolve(branchExists ? "remote-ref-exists" : "");
+        }
+        return Promise.resolve("mock git output");
+      }),
 
-    clone: options.clone || (() => Promise.resolve({ workdir: "/mock/workdir", session: "test-session" })),
+    clone:
+      options.clone ||
+      (() => Promise.resolve({ workdir: "/mock/workdir", session: "test-session" })),
 
-    branch: options.branch || (() => Promise.resolve({ workdir: "/mock/workdir", branch: "test-branch" })),
+    branch:
+      options.branch ||
+      (() => Promise.resolve({ workdir: "/mock/workdir", branch: "test-branch" })),
 
     getSessionWorkdir: options.getSessionWorkdir || (() => "/mock/session/workdir"),
 
-    stashChanges: options.stashChanges || (() => Promise.resolve({ workdir: "/mock/workdir", stashed: true })),
+    stashChanges:
+      options.stashChanges || (() => Promise.resolve({ workdir: "/mock/workdir", stashed: true })),
 
-    pullLatest: options.pullLatest || (() => Promise.resolve({ workdir: "/mock/workdir", updated: true })),
+    pullLatest:
+      options.pullLatest || (() => Promise.resolve({ workdir: "/mock/workdir", updated: true })),
 
-    mergeBranch: options.mergeBranch || (() => Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false })),
+    mergeBranch:
+      options.mergeBranch ||
+      (() => Promise.resolve({ workdir: "/mock/workdir", merged: true, conflicts: false })),
 
     push: options.push || (() => Promise.resolve({ workdir: "/mock/workdir", pushed: true })),
 
-    popStash: options.popStash || (() => Promise.resolve({ workdir: "/mock/workdir", stashed: false })),
+    popStash:
+      options.popStash || (() => Promise.resolve({ workdir: "/mock/workdir", stashed: false })),
 
-    getStatus: options.getStatus || (() => Promise.resolve({ modified: [], untracked: [], deleted: [] })),
+    getStatus:
+      options.getStatus || (() => Promise.resolve({ modified: [], untracked: [], deleted: [] })),
   });
 
   // Add additional utility methods that some tests expect
   (mockGitService as any).getGitCallCount = () => gitCallCount;
-  (mockGitService as any).resetGitCallCount = () => { gitCallCount = 0; };
+  (mockGitService as any).resetGitCallCount = () => {
+    gitCallCount = 0;
+  };
 
   return mockGitService;
 }
@@ -534,7 +559,11 @@ export interface MockTaskServiceOptions {
   createTask?: (specPath: string, options?: CreateTaskOptions) => Promise<Task>;
   deleteTask?: (taskId: string) => Promise<boolean>;
   getWorkspacePath?: () => string;
-  createTaskFromTitleAndDescription?: (title: string, description: string, options?: CreateTaskOptions) => Promise<Task>;
+  createTaskFromTitleAndDescription?: (
+    title: string,
+    description: string,
+    options?: CreateTaskOptions
+  ) => Promise<Task>;
   getBackendForTask?: (taskId: string) => Promise<string>;
 }
 
@@ -545,9 +574,7 @@ export interface MockTaskServiceOptions {
  * @param options Configuration options for mock behavior
  * @returns A complete mock TaskServiceInterface
  */
-export function createMockTaskService(
-  options: MockTaskServiceOptions = {}
-): TaskServiceInterface {
+export function createMockTaskService(options: MockTaskServiceOptions = {}): TaskServiceInterface {
   const mockTaskService = createPartialMock<TaskServiceInterface>({
     getTask: options.mockGetTask || (() => Promise.resolve(null)),
 
@@ -557,31 +584,34 @@ export function createMockTaskService(
 
     setTaskStatus: options.setTaskStatus || (() => Promise.resolve()),
 
-    createTask: options.createTask || ((_specPath: string, _options?: CreateTaskOptions) =>
-      Promise.resolve({
-        id: "#test",
-        title: "Test Task",
-        status: "TODO",
-      })
-    ),
+    createTask:
+      options.createTask ||
+      ((_specPath: string, _options?: CreateTaskOptions) =>
+        Promise.resolve({
+          id: "#test",
+          title: "Test Task",
+          status: "TODO",
+        })),
 
     deleteTask: options.deleteTask || (() => Promise.resolve(false)),
 
     getBackendForTask: options.getBackendForTask || (() => Promise.resolve("markdown")),
 
-    createTaskFromTitleAndDescription: options.createTaskFromTitleAndDescription || ((title: string, description: string, options?: CreateTaskOptions) =>
-      Promise.resolve({
-        id: "#test-from-title",
-        title: "Test Task",
-        status: "TODO",
-      })
-    ),
+    createTaskFromTitleAndDescription:
+      options.createTaskFromTitleAndDescription ||
+      ((title: string, description: string, options?: CreateTaskOptions) =>
+        Promise.resolve({
+          id: "#test-from-title",
+          title: "Test Task",
+          status: "TODO",
+        })),
   });
 
   // Add additional properties that some tests expect
   (mockTaskService as any).backends = options.backends || [];
   (mockTaskService as any).currentBackend = options.currentBackend || "test";
-  (mockTaskService as any).getWorkspacePath = options.getWorkspacePath || (() => "/mock/workspace/path");
+  (mockTaskService as any).getWorkspacePath =
+    options.getWorkspacePath || (() => "/mock/workspace/path");
 
   return mockTaskService;
 }

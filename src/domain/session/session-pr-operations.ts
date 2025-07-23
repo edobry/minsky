@@ -11,7 +11,11 @@ import { type GitServiceInterface, preparePrFromParams } from "../git";
 import { TASK_STATUS, TaskService } from "../tasks";
 import type { SessionProviderInterface } from "../session";
 import { updateSessionFromParams } from "../session";
-import { checkPrBranchExistsOptimized, updatePrStateOnCreation, extractPrDescription } from "./session-update-operations";
+import {
+  checkPrBranchExistsOptimized,
+  updatePrStateOnCreation,
+  extractPrDescription,
+} from "./session-update-operations";
 
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
@@ -125,12 +129,13 @@ Need help? Run 'git status' to see what files have changed.
   }
 
   // Handle body content - read from file if bodyPath is provided
-  let bodyContent = params.body;
+  let bodyContent: string | undefined = params.body;
   if (params.bodyPath) {
     try {
       // Resolve relative paths relative to current working directory
       const filePath = require("path").resolve(params.bodyPath);
-      bodyContent = await readFile(filePath, "utf-8");
+      const fileContent = await readFile(filePath, "utf-8");
+      bodyContent = typeof fileContent === "string" ? fileContent : fileContent.toString();
 
       if (!bodyContent.trim()) {
         throw new ValidationError(`Body file is empty: ${params.bodyPath}`);
@@ -151,9 +156,7 @@ Need help? Run 'git status' to see what files have changed.
       } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
         throw new ValidationError(`Permission denied reading body file: ${params.bodyPath}`);
       } else {
-        throw new ValidationError(
-          `Failed to read body file: ${params.bodyPath}. ${errorMessage}`
-        );
+        throw new ValidationError(`Failed to read body file: ${params.bodyPath}. ${errorMessage}`);
       }
     }
   }
@@ -199,26 +202,47 @@ Need help? Run 'git status' to see what files have changed.
     session: sessionName,
     title: params.title,
     hasBody: !!bodyContent,
-    bodySource: params.bodyPath ? "file" : "parameter",
+    bodySource: params.bodyPath ? "file" : params.body ? "parameter" : "none",
     baseBranch: params.baseBranch,
   });
 
   // STEP 4.5: PR Branch Detection and Title/Body Handling
   // This implements the new refresh functionality
-  const prBranchExists = await checkPrBranchExistsOptimized(sessionName, deps.gitService, currentDir, deps.sessionDB);
+  const prBranchExists = await checkPrBranchExistsOptimized(
+    sessionName,
+    deps.gitService,
+    currentDir,
+    deps.sessionDB
+  );
 
   let titleToUse = params.title;
   let bodyToUse = bodyContent;
 
   if (!titleToUse && prBranchExists) {
     // Case: Existing PR + no title → Auto-reuse existing title/body (refresh)
-    log.cli("🔄 Refreshing existing PR (reusing title and body)...");
+    const hasNewBodyContent = !!(params.body || params.bodyPath);
 
-    const existingDescription = await extractPrDescription(sessionName, deps.gitService, currentDir);
+    if (hasNewBodyContent) {
+      log.cli("🔄 Refreshing existing PR (reusing title, using new body)...");
+    } else {
+      log.cli("🔄 Refreshing existing PR (reusing title and body)...");
+    }
+
+    const existingDescription = await extractPrDescription(
+      sessionName,
+      deps.gitService,
+      currentDir
+    );
     if (existingDescription) {
       titleToUse = existingDescription.title;
-      bodyToUse = existingDescription.body;
+      // Only reuse existing body if user didn't provide new body content
+      if (!hasNewBodyContent) {
+        bodyToUse = existingDescription.body;
+      }
       log.cli(`📝 Reusing existing title: "${titleToUse}"`);
+      if (hasNewBodyContent) {
+        log.cli(`📝 Using new body content from ${params.bodyPath ? "--body-path" : "--body"}`);
+      }
     } else {
       // Fallback if we can't extract description
       throw new MinskyError(
@@ -232,7 +256,22 @@ Need help? Run 'git status' to see what files have changed.
     );
   } else if (titleToUse && prBranchExists) {
     // Case: Existing PR + new title → Use new title/body (update)
-    log.cli("📝 Updating existing PR with new title/body...");
+    const hasNewBodyContent = !!(params.body || params.bodyPath);
+    if (hasNewBodyContent) {
+      log.cli("📝 Updating existing PR with new title and body...");
+    } else {
+      log.cli("📝 Updating existing PR with new title (keeping existing body)...");
+      // If no new body provided, try to keep existing body
+      const existingDescription = await extractPrDescription(
+        sessionName,
+        deps.gitService,
+        currentDir
+      );
+      if (existingDescription && !bodyToUse) {
+        bodyToUse = existingDescription.body;
+        log.cli("📝 Preserving existing PR body");
+      }
+    }
   } else if (titleToUse && !prBranchExists) {
     // Case: No PR + title → Normal creation flow
     log.cli("✨ Creating new PR...");
@@ -282,7 +321,9 @@ Example:
 
       // Enhanced error handling for common conflict scenarios
       if (errorMessage.includes("already in base") || errorMessage.includes("already merged")) {
-        log.cli("💡 Your session changes are already in the base branch. Proceeding with PR creation...");
+        log.cli(
+          "💡 Your session changes are already in the base branch. Proceeding with PR creation..."
+        );
       } else if (errorMessage.includes("conflicts")) {
         log.cli("⚠️  Merge conflicts detected. Consider using conflict resolution options:");
         log.cli("   • --auto-resolve-delete-conflicts: Auto-resolve delete/modify conflicts");
@@ -320,12 +361,10 @@ Example:
         await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
         log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
       } catch (error) {
-        log.warn(
-          `Failed to update task status: ${getErrorMessage(error)}`
-        );
+        log.warn(`Failed to update task status: ${getErrorMessage(error)}`);
       }
     }
   }
 
   return result;
-} 
+}

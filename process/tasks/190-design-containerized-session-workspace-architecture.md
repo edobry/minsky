@@ -10,24 +10,27 @@ Plans are underway to run session workspaces in Docker containers (initially loc
 
 1. **Deployment Model**: Sessions will run in isolated Docker containers
 2. **Network Boundaries**: File operations must cross container boundaries
-3. **Resource Constraints**: Solutions must minimize per-container overhead  
+3. **Resource Constraints**: Solutions must minimize per-container overhead
 4. **Remote Future**: Architecture must work with distributed containers
 
 ## Requirements
 
 1. **Container Deployment Architecture**
+
    - Design how session containers are created, managed, and destroyed
    - Define container lifecycle integration with session management
    - Plan for local Docker and remote Kubernetes deployment scenarios
    - Consider container resource allocation and scaling strategies
 
 2. **Session-to-Container Mapping**
+
    - Design service registry for mapping session IDs to container endpoints
    - Handle container health checks and recovery mechanisms
    - Support container migration and failover scenarios
    - Plan for multiple deployment models (local Docker, K8s, mixed)
 
 3. **Container Communication Layer**
+
    - Determine how session-aware tools communicate with containers
    - Evaluate: Container APIs vs. Per-Container MCP Servers vs. Hybrid approaches
    - Design authentication and authorization for container access
@@ -44,30 +47,37 @@ Plans are underway to run session workspaces in Docker containers (initially loc
 ### Approach Comparison for Docker
 
 #### **A. Session MCP Server Per Container**
+
 ```
 AI Agent → Session 1 MCP (port 3001) → Container 1 Files
 AI Agent → Session 2 MCP (port 3002) → Container 2 Files
 ```
+
 **Pros**: Zero new code, perfect isolation, full MCP features
 **Cons**: Memory overhead, connection management complexity
 
 #### **B. Custom Container API**
+
 ```
 AI Agent → Central MCP → Container API → Container Files
 ```
+
 **Pros**: Lightweight, consistent interface, single connection
 **Cons**: New component to build, limited to file operations
 
 #### **C. Session-Specific Tools** (From Task #049)
+
 ```
 AI Agent → Central MCP → session_edit_file(session_id) → Container
 ```
+
 **Pros**: Unified interface, deployment agnostic, explicit context
 **Cons**: Requires session routing infrastructure
 
 ### Service Discovery Analysis
 
-**Port Management**: 
+**Port Management**:
+
 - Per-Container MCP requires port registry
 - Container API requires service registry
 - Session Tools need single MCP + session routing
@@ -79,12 +89,14 @@ AI Agent → Central MCP → session_edit_file(session_id) → Container
 ## Implementation Considerations
 
 1. **Container Image Design**
+
    - Base image with Minsky tooling
    - Session workspace volume mounting strategy
    - Container API or MCP server implementation
    - Health check and monitoring setup
 
 2. **Orchestration Integration**
+
    - Docker Compose for local development
    - Kubernetes manifests for production
    - Service mesh considerations
@@ -112,4 +124,4 @@ This task builds on the session-aware tools interface designed in Task #049. The
 ## Work Log
 
 - 2025-06-17: Extracted from Task #049 to maintain implementation focus
-- 2025-06-17: Documented analysis findings and requirements 
+- 2025-06-17: Documented analysis findings and requirements

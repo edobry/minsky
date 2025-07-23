@@ -1,9 +1,9 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { Project, SourceFile, Node, SyntaxKind } from 'ts-morph';
-import { join, basename } from 'path';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as ts from 'typescript';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs";
+import { Project, SourceFile, Node, SyntaxKind } from "ts-morph";
+import { join, basename } from "path";
+import * as fs from "fs";
+import * as path from "path";
+import * as ts from "typescript";
 
 /**
  * Options for configuring codemod behavior
@@ -26,7 +26,7 @@ export interface CodemodResult {
 
 /**
  * Base Codemod Class
- * 
+ *
  * Provides common functionality for all codemods including:
  * - File processing with error handling
  * - AST project management
@@ -34,13 +34,13 @@ export interface CodemodResult {
  */
 export abstract class BaseCodemod {
   protected project: Project;
-  protected name: string = 'BaseCodemod';
-  protected description: string = 'Base codemod functionality';
+  protected name: string = "BaseCodemod";
+  protected description: string = "Base codemod functionality";
 
   constructor() {
     this.project = new Project({
-      tsConfigFilePath: process.cwd() + '/tsconfig.json',
-      skipAddingFilesFromTsConfig: true
+      tsConfigFilePath: process.cwd() + "/tsconfig.json",
+      skipAddingFilesFromTsConfig: true,
     });
   }
 
@@ -53,16 +53,19 @@ export abstract class BaseCodemod {
   /**
    * Safely apply changes to a file with error handling
    */
-  protected safeApplyChanges(filePath: string, transformFn: (sourceFile: SourceFile) => boolean): boolean {
+  protected safeApplyChanges(
+    filePath: string,
+    transformFn: (sourceFile: SourceFile) => boolean
+  ): boolean {
     try {
       const sourceFile = this.project.addSourceFileAtPath(filePath);
       const hasChanges = transformFn(sourceFile);
-      
+
       if (hasChanges) {
         sourceFile.saveSync();
         console.log(`✅ Applied changes to ${filePath}`);
       }
-      
+
       return hasChanges;
     } catch (error) {
       console.error(`❌ Error processing ${filePath}:`, error);
@@ -75,7 +78,7 @@ export abstract class BaseCodemod {
    */
   protected functionUsesVariable(functionNode: Node, variableName: string): boolean {
     const identifiers = functionNode.getDescendantsOfKind(SyntaxKind.Identifier);
-    return identifiers.some(id => id.getText() === variableName);
+    return identifiers.some((id) => id.getText() === variableName);
   }
 
   /**
@@ -83,21 +86,21 @@ export abstract class BaseCodemod {
    */
   protected scopeUsesVariable(scopeNode: Node, variableName: string): boolean {
     const identifiers = scopeNode.getDescendantsOfKind(SyntaxKind.Identifier);
-    return identifiers.some(id => id.getText() === variableName);
+    return identifiers.some((id) => id.getText() === variableName);
   }
 }
 
 /**
  * Variable Naming Codemod
- * 
+ *
  * Fixes variable naming issues, particularly underscore mismatches
  * Based on the successful fix-variable-naming-ast.ts pattern
  */
 export class VariableNamingCodemod extends BaseCodemod {
   constructor() {
     super();
-    this.name = 'VariableNamingCodemod';
-    this.description = 'Fixes variable naming issues, particularly underscore mismatches';
+    this.name = "VariableNamingCodemod";
+    this.description = "Fixes variable naming issues, particularly underscore mismatches";
   }
 
   /**
@@ -106,13 +109,13 @@ export class VariableNamingCodemod extends BaseCodemod {
   applyToFile(filePath: string): boolean {
     return this.safeApplyChanges(filePath, (sourceFile) => {
       let hasChanges = false;
-      
+
       // Fix parameter underscore mismatches
       hasChanges = this.fixParameterUnderscoreMismatches(sourceFile) || hasChanges;
-      
+
       // Fix variable declaration underscore mismatches
       hasChanges = this.fixVariableDeclarationMismatches(sourceFile) || hasChanges;
-      
+
       return hasChanges;
     });
   }
@@ -122,13 +125,13 @@ export class VariableNamingCodemod extends BaseCodemod {
    */
   private fixParameterUnderscoreMismatches(sourceFile: SourceFile): boolean {
     let hasChanges = false;
-    
-    sourceFile.getDescendantsOfKind(SyntaxKind.Parameter).forEach(param => {
+
+    sourceFile.getDescendantsOfKind(SyntaxKind.Parameter).forEach((param) => {
       const paramName = param.getName();
-      if (paramName?.startsWith('_')) {
+      if (paramName?.startsWith("_")) {
         const expectedName = paramName.substring(1);
         const functionNode = param.getParent();
-        
+
         // Check if function body uses the non-underscore version
         if (functionNode && this.functionUsesVariable(functionNode, expectedName)) {
           param.rename(expectedName);
@@ -136,7 +139,7 @@ export class VariableNamingCodemod extends BaseCodemod {
         }
       }
     });
-    
+
     return hasChanges;
   }
 
@@ -145,17 +148,18 @@ export class VariableNamingCodemod extends BaseCodemod {
    */
   private fixVariableDeclarationMismatches(sourceFile: SourceFile): boolean {
     let hasChanges = false;
-    
-    sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration).forEach(decl => {
+
+    sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration).forEach((decl) => {
       const name = decl.getName();
-      if (name?.startsWith('_')) {
+      if (name?.startsWith("_")) {
         const expectedName = name.substring(1);
         // Find the containing scope
-        const scope = decl.getFirstAncestorByKind(SyntaxKind.Block) || 
-                     decl.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
-                     decl.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
-                     sourceFile;
-        
+        const scope =
+          decl.getFirstAncestorByKind(SyntaxKind.Block) ||
+          decl.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
+          decl.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
+          sourceFile;
+
         // Check if the variable is used without underscore in the same scope
         if (scope && this.scopeUsesVariable(scope, expectedName)) {
           decl.rename(expectedName);
@@ -163,22 +167,22 @@ export class VariableNamingCodemod extends BaseCodemod {
         }
       }
     });
-    
+
     return hasChanges;
   }
 }
 
 /**
  * Unused Import Codemod
- * 
+ *
  * Removes unused imports from files
  * Consolidates multiple unused import codemods into one
  */
 export class UnusedImportCodemod extends BaseCodemod {
   constructor() {
     super();
-    this.name = 'UnusedImportCodemod';
-    this.description = 'Removes unused imports from files';
+    this.name = "UnusedImportCodemod";
+    this.description = "Removes unused imports from files";
   }
 
   /**
@@ -187,16 +191,16 @@ export class UnusedImportCodemod extends BaseCodemod {
   applyToFile(filePath: string): boolean {
     return this.safeApplyChanges(filePath, (sourceFile) => {
       let hasChanges = false;
-      
+
       // Remove unused named imports
       hasChanges = this.removeUnusedNamedImports(sourceFile) || hasChanges;
-      
+
       // Remove unused default imports
       hasChanges = this.removeUnusedDefaultImports(sourceFile) || hasChanges;
-      
+
       // Remove empty import statements
       hasChanges = this.removeEmptyImports(sourceFile) || hasChanges;
-      
+
       return hasChanges;
     });
   }
@@ -206,19 +210,19 @@ export class UnusedImportCodemod extends BaseCodemod {
    */
   private removeUnusedNamedImports(sourceFile: SourceFile): boolean {
     let hasChanges = false;
-    
-    sourceFile.getImportDeclarations().forEach(importDecl => {
+
+    sourceFile.getImportDeclarations().forEach((importDecl) => {
       const importClause = importDecl.getImportClause();
       if (!importClause) return;
 
       const namedBindings = importClause.getNamedBindings();
       if (namedBindings && Node.isNamedImports(namedBindings)) {
         const elements = namedBindings.getElements();
-        
-        elements.forEach(element => {
+
+        elements.forEach((element) => {
           const name = element.getName();
           const usages = this.findUsagesInFile(sourceFile, name);
-          
+
           if (usages.length === 0) {
             element.remove();
             hasChanges = true;
@@ -226,7 +230,7 @@ export class UnusedImportCodemod extends BaseCodemod {
         });
       }
     });
-    
+
     return hasChanges;
   }
 
@@ -235,8 +239,8 @@ export class UnusedImportCodemod extends BaseCodemod {
    */
   private removeUnusedDefaultImports(sourceFile: SourceFile): boolean {
     let hasChanges = false;
-    
-    sourceFile.getImportDeclarations().forEach(importDecl => {
+
+    sourceFile.getImportDeclarations().forEach((importDecl) => {
       const importClause = importDecl.getImportClause();
       if (!importClause) return;
 
@@ -244,18 +248,21 @@ export class UnusedImportCodemod extends BaseCodemod {
       if (defaultImport) {
         const name = defaultImport.getText();
         const usages = this.findUsagesInFile(sourceFile, name);
-        
+
         if (usages.length === 0) {
           // Mark entire import for removal if only default import
           const namedBindings = importClause.getNamedBindings();
-          if (!namedBindings || (Node.isNamedImports(namedBindings) && namedBindings.getElements().length === 0)) {
+          if (
+            !namedBindings ||
+            (Node.isNamedImports(namedBindings) && namedBindings.getElements().length === 0)
+          ) {
             importDecl.remove();
             hasChanges = true;
           }
         }
       }
     });
-    
+
     return hasChanges;
   }
 
@@ -264,22 +271,24 @@ export class UnusedImportCodemod extends BaseCodemod {
    */
   private removeEmptyImports(sourceFile: SourceFile): boolean {
     let hasChanges = false;
-    
-    sourceFile.getImportDeclarations().forEach(importDecl => {
+
+    sourceFile.getImportDeclarations().forEach((importDecl) => {
       const importClause = importDecl.getImportClause();
       if (!importClause) return;
 
       const hasDefault = importClause.getDefaultImport();
       const namedBindings = importClause.getNamedBindings();
-      const hasNamed = namedBindings && Node.isNamedImports(namedBindings) && 
-                      namedBindings.getElements().length > 0;
+      const hasNamed =
+        namedBindings &&
+        Node.isNamedImports(namedBindings) &&
+        namedBindings.getElements().length > 0;
 
       if (!hasDefault && !hasNamed) {
         importDecl.remove();
         hasChanges = true;
       }
     });
-    
+
     return hasChanges;
   }
 
@@ -288,8 +297,8 @@ export class UnusedImportCodemod extends BaseCodemod {
    */
   private findUsagesInFile(sourceFile: SourceFile, name: string): Node[] {
     const usages: Node[] = [];
-    
-    sourceFile.getDescendantsOfKind(SyntaxKind.Identifier).forEach(identifier => {
+
+    sourceFile.getDescendantsOfKind(SyntaxKind.Identifier).forEach((identifier) => {
       if (identifier.getText() === name) {
         // Check if this is a usage (not a declaration)
         const parent = identifier.getParent();
@@ -298,21 +307,21 @@ export class UnusedImportCodemod extends BaseCodemod {
         }
       }
     });
-    
+
     return usages;
   }
 }
 
 /**
  * Unused Variable Codemod
- * 
+ *
  * Handles unused variable and parameter management
  */
 export class UnusedVariableCodemod extends BaseCodemod {
   constructor() {
     super();
-    this.name = 'UnusedVariableCodemod';
-    this.description = 'Handles unused variable and parameter management';
+    this.name = "UnusedVariableCodemod";
+    this.description = "Handles unused variable and parameter management";
   }
 
   /**
@@ -321,13 +330,13 @@ export class UnusedVariableCodemod extends BaseCodemod {
   applyToFile(filePath: string): boolean {
     return this.safeApplyChanges(filePath, (sourceFile) => {
       let hasChanges = false;
-      
+
       // Add underscore prefix to unused parameters
       hasChanges = this.prefixUnusedParameters(sourceFile) || hasChanges;
-      
+
       // Add underscore prefix to unused variables
       hasChanges = this.prefixUnusedVariables(sourceFile) || hasChanges;
-      
+
       return hasChanges;
     });
   }
@@ -337,21 +346,21 @@ export class UnusedVariableCodemod extends BaseCodemod {
    */
   private prefixUnusedParameters(sourceFile: SourceFile): boolean {
     let hasChanges = false;
-    
-    sourceFile.getDescendantsOfKind(SyntaxKind.Parameter).forEach(param => {
+
+    sourceFile.getDescendantsOfKind(SyntaxKind.Parameter).forEach((param) => {
       const paramName = param.getName();
-      if (!paramName || paramName.startsWith('_')) return;
-      
+      if (!paramName || paramName.startsWith("_")) return;
+
       const functionNode = param.getParent();
       if (!functionNode) return;
-      
+
       // Check if parameter is used in function body
       if (!this.functionUsesVariable(functionNode, paramName)) {
-        param.rename('_' + paramName);
+        param.rename("_" + paramName);
         hasChanges = true;
       }
     });
-    
+
     return hasChanges;
   }
 
@@ -360,39 +369,40 @@ export class UnusedVariableCodemod extends BaseCodemod {
    */
   private prefixUnusedVariables(sourceFile: SourceFile): boolean {
     let hasChanges = false;
-    
-    sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration).forEach(decl => {
+
+    sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration).forEach((decl) => {
       const name = decl.getName();
-      if (!name || name.startsWith('_')) return;
-      
-      const scope = decl.getFirstAncestorByKind(SyntaxKind.Block) || 
-                   decl.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
-                   decl.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
-                   sourceFile;
-      
+      if (!name || name.startsWith("_")) return;
+
+      const scope =
+        decl.getFirstAncestorByKind(SyntaxKind.Block) ||
+        decl.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
+        decl.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
+        sourceFile;
+
       if (!scope) return;
-      
+
       // Check if variable is used in scope
       if (!this.scopeUsesVariable(scope, name)) {
-        decl.rename('_' + name);
+        decl.rename("_" + name);
         hasChanges = true;
       }
     });
-    
+
     return hasChanges;
   }
 }
 
 /**
  * Type Assertion Codemod
- * 
+ *
  * Manages type assertion fixes and safety improvements
  */
 export class TypeAssertionCodemod extends BaseCodemod {
   constructor() {
     super();
-    this.name = 'TypeAssertionCodemod';
-    this.description = 'Manages type assertion fixes and safety improvements';
+    this.name = "TypeAssertionCodemod";
+    this.description = "Manages type assertion fixes and safety improvements";
   }
 
   /**
@@ -401,13 +411,13 @@ export class TypeAssertionCodemod extends BaseCodemod {
   applyToFile(filePath: string): boolean {
     return this.safeApplyChanges(filePath, (sourceFile) => {
       let hasChanges = false;
-      
+
       // Fix basic type assertions
       hasChanges = this.fixBasicTypeAssertions(sourceFile) || hasChanges;
-      
+
       // Add safe type guards
       hasChanges = this.addSafeTypeGuards(sourceFile) || hasChanges;
-      
+
       return hasChanges;
     });
   }
@@ -417,13 +427,13 @@ export class TypeAssertionCodemod extends BaseCodemod {
    */
   private fixBasicTypeAssertions(sourceFile: SourceFile): boolean {
     let hasChanges = false;
-    
+
     // Find places where 'as any' might be needed
-    sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression).forEach(expr => {
+    sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression).forEach((expr) => {
       // This is a placeholder - specific type assertion logic would go here
       // Based on the actual TypeScript errors found
     });
-    
+
     return hasChanges;
   }
 
@@ -432,17 +442,17 @@ export class TypeAssertionCodemod extends BaseCodemod {
    */
   private addSafeTypeGuards(sourceFile: SourceFile): boolean {
     let hasChanges = false;
-    
+
     // Add type guards where needed
     // This is a placeholder for more complex type safety logic
-    
+
     return hasChanges;
   }
-} 
+}
 
 /**
  * TypeScript Error Codemod - Handles specific TypeScript error codes systematically
- * 
+ *
  * This class provides a framework for fixing specific TypeScript error codes
  * by implementing error-specific patterns while maintaining common functionality
  * like project initialization, file filtering, and progress reporting.
@@ -462,48 +472,50 @@ export abstract class TypeScriptErrorCodemod extends BaseCodemod {
   }
 
   private findTsConfig(): string {
-    const paths = ['./tsconfig.json', '../tsconfig.json', '../../tsconfig.json'];
+    const paths = ["./tsconfig.json", "../tsconfig.json", "../../tsconfig.json"];
     for (const path of paths) {
       if (fs.existsSync(path)) {
         return path;
       }
     }
-    return './tsconfig.json';
+    return "./tsconfig.json";
   }
 
   protected getSourceFiles(): SourceFile[] {
-    const sourceFiles = this.getAllTsFiles('./src').filter(file => 
-      !file.includes('/scripts/') && 
-      !file.includes('test-utils') &&
-      !file.includes('__tests__') && !file.includes('/tests/') &&
-      !file.includes('.test.ts') &&
-      !file.includes('.spec.ts')
+    const sourceFiles = this.getAllTsFiles("./src").filter(
+      (file) =>
+        !file.includes("/scripts/") &&
+        !file.includes("test-utils") &&
+        !file.includes("__tests__") &&
+        !file.includes("/tests/") &&
+        !file.includes(".test.ts") &&
+        !file.includes(".spec.ts")
     );
 
-    sourceFiles.forEach(file => this.project.addSourceFileAtPath(file));
+    sourceFiles.forEach((file) => this.project.addSourceFileAtPath(file));
     return this.project.getSourceFiles();
   }
 
   private getAllTsFiles(dir: string): string[] {
     const files: string[] = [];
-    
+
     if (!fs.existsSync(dir)) {
       return files;
     }
 
     const items = fs.readdirSync(dir);
-    
+
     for (const item of items) {
       const fullPath = path.join(dir, item);
       const stat = fs.statSync(fullPath);
-      
-      if (stat.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+
+      if (stat.isDirectory() && !item.startsWith(".") && item !== "node_modules") {
         files.push(...this.getAllTsFiles(fullPath));
-      } else if (item.endsWith('.ts') && !item.endsWith('.d.ts')) {
+      } else if (item.endsWith(".ts") && !item.endsWith(".d.ts")) {
         files.push(fullPath);
       }
     }
-    
+
     return files;
   }
 
@@ -524,7 +536,7 @@ export abstract class TypeScriptErrorCodemod extends BaseCodemod {
       return {
         success: false,
         error: `Source file not found: ${filePath}`,
-        changesApplied: 0
+        changesApplied: 0,
       };
     }
 
@@ -545,13 +557,13 @@ export abstract class TypeScriptErrorCodemod extends BaseCodemod {
       return {
         success: true,
         changesApplied: fileChanges,
-        details: `Applied ${fileChanges} ${this.errorCode} fixes`
+        details: `Applied ${fileChanges} ${this.errorCode} fixes`,
       };
     } catch (error) {
       return {
         success: false,
         error: `Error processing ${fileName}: ${error}`,
-        changesApplied: fileChanges
+        changesApplied: fileChanges,
       };
     }
   }
@@ -572,10 +584,7 @@ export abstract class TypeScriptErrorCodemod extends BaseCodemod {
   /**
    * Helper method to get nodes of a specific syntax kind
    */
-  protected getNodesOfKind<T extends SyntaxKind>(
-    sourceFile: SourceFile,
-    kind: T
-  ): Node<ts.Node>[] {
+  protected getNodesOfKind<T extends SyntaxKind>(sourceFile: SourceFile, kind: T): Node<ts.Node>[] {
     return sourceFile.getDescendantsOfKind(kind);
   }
 
@@ -598,28 +607,30 @@ export abstract class TypeScriptErrorCodemod extends BaseCodemod {
    */
   protected matchesPattern(node: Node, patterns: string[]): boolean {
     const nodeText = node.getText();
-    return patterns.some(pattern => nodeText.includes(pattern));
+    return patterns.some((pattern) => nodeText.includes(pattern));
   }
 
   /**
    * Helper method to get function context for a node
    */
   protected getFunctionContext(node: Node): Node | undefined {
-    return node.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
-           node.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
-           node.getFirstAncestorByKind(SyntaxKind.MethodDeclaration);
+    return (
+      node.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
+      node.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
+      node.getFirstAncestorByKind(SyntaxKind.MethodDeclaration)
+    );
   }
 
   /**
    * Helper method to check if a node is in a specific context
    */
   protected isInContext(node: Node, contextKinds: SyntaxKind[]): boolean {
-    return contextKinds.some(kind => node.getFirstAncestorByKind(kind) !== undefined);
+    return contextKinds.some((kind) => node.getFirstAncestorByKind(kind) !== undefined);
   }
 
   run(): void {
     console.log(`🎯 Starting ${this.errorCode} (${this.errorDescription}) error fixer...`);
-    console.log(`📊 Target patterns: ${this.targetPatterns.join(', ')}`);
+    console.log(`📊 Target patterns: ${this.targetPatterns.join(", ")}`);
 
     const sourceFiles = this.getSourceFiles();
     console.log(`📁 Processing ${sourceFiles.length} source files...`);
@@ -630,7 +641,7 @@ export abstract class TypeScriptErrorCodemod extends BaseCodemod {
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
       const result = this.applyToFileSync(filePath);
-      
+
       if (result.success && result.changesApplied > 0) {
         totalChanges += result.changesApplied;
         filesModified++;
@@ -648,4 +659,4 @@ export abstract class TypeScriptErrorCodemod extends BaseCodemod {
     console.log(`📁 Files modified: ${filesModified}`);
     console.log(`🎯 Target: ${this.errorCode} ${this.errorDescription} errors`);
   }
-} 
+}

@@ -16,7 +16,8 @@ export function createConfigShowCommand(): Command {
   return new Command("show")
     .description("Show the final resolved configuration")
     .option("--json", "Output in JSON format", false)
-    .option("--working-dir <dir>", "Working directory", process.cwd()).action(async (options: ShowOptions) => {
+    .option("--working-dir <dir>", "Working directory", process.cwd())
+    .action(async (options: ShowOptions) => {
       try {
         // Use new configuration system for resolved configuration
         const config = getConfiguration();

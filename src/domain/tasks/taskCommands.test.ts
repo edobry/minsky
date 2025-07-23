@@ -1,18 +1,18 @@
 /**
  * Tests for task command functions
- * 
+ *
  * Comprehensive tests for interface-agnostic command functions that contain
  * real business logic: parameter validation, ID normalization, workspace resolution, etc.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { 
+import {
   getTaskStatusFromParams,
   getTaskFromParams,
   listTasksFromParams,
   setTaskStatusFromParams,
   createTaskFromParams,
-  deleteTaskFromParams 
+  deleteTaskFromParams,
 } from "./taskCommands";
 import { TASK_STATUS } from "./taskConstants";
 import type { TaskService } from "./taskService";
@@ -22,25 +22,26 @@ import fs from "fs/promises";
 describe("Interface-Agnostic Task Command Functions", () => {
   const testWorkspacePath = "/tmp/test-minsky-workspace";
   const testTasksFile = path.join(testWorkspacePath, "process", "tasks.md");
-  
+
   // Helper function to create a complete mock TaskService
-  const createMockTaskService = (mockGetTask: (taskId: string) => Promise<any>) => ({
-    getTask: mockGetTask,
-    backends: [],
-    currentBackend: "test",
-    listTasks: async () => [],
-    getTaskStatus: async () => null,
-    setTaskStatus: async () => {},
-    createTask: async () => ({}),
-    deleteTask: async () => false,
-    getWorkspacePath: () => testWorkspacePath,
-    createTaskFromTitleAndDescription: async () => ({}),
-  } as any);
+  const createMockTaskService = (mockGetTask: (taskId: string) => Promise<any>) =>
+    ({
+      getTask: mockGetTask,
+      backends: [],
+      currentBackend: "test",
+      listTasks: async () => [],
+      getTaskStatus: async () => null,
+      setTaskStatus: async () => {},
+      createTask: async () => ({}),
+      deleteTask: async () => false,
+      getWorkspacePath: () => testWorkspacePath,
+      createTaskFromTitleAndDescription: async () => ({}),
+    }) as any;
 
   beforeEach(async () => {
     // Create test workspace structure
     await fs.mkdir(path.join(testWorkspacePath, "process"), { recursive: true });
-    
+
     // Create a test tasks.md file with task 155 having BLOCKED status
     const tasksContent = `# Tasks
 
@@ -51,7 +52,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 - [+] In progress task [#157](process/tasks/157-in-progress.md)
 - [x] Done task [#158](process/tasks/158-done-task.md)
 `;
-    
+
     await fs.writeFile(testTasksFile, tasksContent, "utf8");
   });
 
@@ -175,7 +176,9 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createTaskService: async (options: any) => mockTaskService,
       };
 
-      await expect(getTaskStatusFromParams(params, mockDeps)).rejects.toThrow("Task 999 not found or has no status");
+      await expect(getTaskStatusFromParams(params, mockDeps)).rejects.toThrow(
+        "Task 999 not found or has no status"
+      );
     });
 
     test("should handle task ID normalization", async () => {
@@ -585,4 +588,4 @@ describe("Interface-Agnostic Task Command Functions", () => {
       expect(result).toEqual(mockTask);
     });
   });
-}); 
+});

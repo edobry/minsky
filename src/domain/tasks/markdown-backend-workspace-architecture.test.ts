@@ -24,7 +24,10 @@ describe("MarkdownTaskBackend Special Workspace Requirements", () => {
   beforeEach(() => {
     // Create temporary directory that mimics a workspace with tasks.md
     // Use more unique naming to prevent race conditions with other tests
-    tempDir = join(tmpdir(), `minsky-workspace-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+    tempDir = join(
+      tmpdir(),
+      `minsky-workspace-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    );
 
     // Ensure directory creation is atomic and race-condition safe
     let retryCount = 0;
@@ -54,11 +57,9 @@ describe("MarkdownTaskBackend Special Workspace Requirements", () => {
     // Create a tasks.md file in the temp directory (simulating main workspace)
     // Use consistent synchronous operations to avoid race conditions
     try {
-      writeFileSync(
-        join(processDir, "tasks.md"),
-        "# Tasks\n\n- #001: Test Task [TODO]\n",
-        { encoding: "utf8" }
-      );
+      writeFileSync(join(processDir, "tasks.md"), "# Tasks\n\n- #001: Test Task [TODO]\n", {
+        encoding: "utf8",
+      });
     } catch (error) {
       throw new Error(`Failed to create tasks.md file: ${error}`);
     }
@@ -92,7 +93,7 @@ describe("MarkdownTaskBackend Special Workspace Requirements", () => {
 
       const backend = createMarkdownTaskBackend({
         workspacePath: "/special/workspace/path",
-        taskFile: "process/tasks.md"
+        taskFile: "process/tasks.md",
       });
 
       // Try to get a task - this should ONLY look in the special workspace,
@@ -108,7 +109,6 @@ describe("MarkdownTaskBackend Special Workspace Requirements", () => {
       // even though it exists in the current directory's tasks.md,
       // because it should only look in the special workspace.
       // This proves the architecture is correctly enforced.
-
     } finally {
       // Always restore original working directory
       process.chdir(originalCwd);
@@ -124,7 +124,7 @@ describe("MarkdownTaskBackend Special Workspace Requirements", () => {
 
       const backend = createMarkdownTaskBackend({
         workspacePath: "/special/workspace/path",
-        taskFile: "process/tasks.md"
+        taskFile: "process/tasks.md",
       });
 
       // Test task creation - should go to special workspace
@@ -132,7 +132,7 @@ describe("MarkdownTaskBackend Special Workspace Requirements", () => {
         id: "999",
         title: "Test Task",
         description: "Test Description",
-        status: "TODO" as const
+        status: "TODO" as const,
       };
 
       // This should attempt to create the task in the special workspace
@@ -140,12 +140,14 @@ describe("MarkdownTaskBackend Special Workspace Requirements", () => {
       try {
         await backend.createTask(taskData);
         // If it doesn't throw, something is wrong with our test
-        expect(false).toBe(true, "Expected createTask to fail when special workspace doesn't exist");
+        expect(false).toBe(
+          true,
+          "Expected createTask to fail when special workspace doesn't exist"
+        );
       } catch (error) {
         // Expected behavior - should fail because special workspace doesn't exist
         expect(error).toBeDefined();
       }
-
     } finally {
       process.chdir(originalCwd);
     }

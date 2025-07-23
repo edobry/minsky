@@ -1,6 +1,6 @@
 /**
  * Default Configuration Values
- * 
+ *
  * Provides the base configuration values that serve as defaults for the entire
  * application. These values are used when no override is provided in project
  * configuration, user configuration, or environment variables.
@@ -10,26 +10,26 @@ import type { PartialConfiguration } from "../schemas";
 
 /**
  * Application default configuration
- * 
+ *
  * These are the baseline configuration values that the application uses
  * when no other configuration source provides a value.
  */
 export const defaultConfiguration: PartialConfiguration = {
   // Backend configuration
   backend: "markdown",
-  
+
   backendConfig: {
     "github-issues": undefined,
     markdown: {},
     "json-file": {},
   },
-  
+
   detectionRules: [
     { condition: "tasks_md_exists", backend: "markdown" },
     { condition: "json_file_exists", backend: "json-file" },
     { condition: "always", backend: "markdown" },
   ],
-  
+
   // Session database configuration
   sessiondb: {
     backend: "sqlite",
@@ -42,7 +42,7 @@ export const defaultConfiguration: PartialConfiguration = {
     },
     postgres: undefined,
   },
-  
+
   // GitHub configuration (all optional)
   github: {
     token: undefined,
@@ -51,7 +51,7 @@ export const defaultConfiguration: PartialConfiguration = {
     repository: undefined,
     baseUrl: undefined,
   },
-  
+
   // AI providers configuration
   ai: {
     defaultProvider: undefined, // Auto-detect from available providers
@@ -114,7 +114,7 @@ export const defaultConfiguration: PartialConfiguration = {
       },
     },
   },
-  
+
   // Logger configuration
   logger: {
     mode: "auto",
@@ -128,8 +128,6 @@ export const defaultConfiguration: PartialConfiguration = {
     maxFiles: 5,
   },
 };
-
-
 
 /**
  * Get default configuration
@@ -146,4 +144,4 @@ export const defaultsSourceMetadata = {
   description: "Application default configuration values",
   priority: 0, // Lowest priority
   required: true,
-} as const; 
+} as const;

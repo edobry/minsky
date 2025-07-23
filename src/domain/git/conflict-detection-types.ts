@@ -160,4 +160,4 @@ export enum FileConflictStatus {
   ADDED_BY_US = "added_by_us",
   ADDED_BY_THEM = "added_by_them",
   RENAMED = "renamed",
-} 
+}

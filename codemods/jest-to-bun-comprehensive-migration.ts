@@ -7,7 +7,7 @@ import {
   ImportDeclaration,
   VariableDeclaration,
   PropertyAccessExpression,
-  AsExpression
+  AsExpression,
 } from "ts-morph";
 
 /**
@@ -29,7 +29,6 @@ import {
  * Follows AST-first development principles for 6x effectiveness over regex approaches.
  */
 export class JestToBunComprehensiveMigration extends CodemodBase {
-
   constructor(options: CodemodOptions = {}) {
     super({
       includePatterns: ["**/*.test.ts", "**/*.spec.ts", "src/**/*.ts", "tests/**/*.ts"],
@@ -37,9 +36,9 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
         "**/node_modules/**",
         "**/codemods/**",
         "**/compatibility/**", // Skip compatibility layer
-        "**/*.d.ts"
+        "**/*.d.ts",
       ],
-      ...options
+      ...options,
     });
   }
 
@@ -68,10 +67,11 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
     for (const importDecl of importDeclarations) {
       const moduleSpecifier = importDecl.getModuleSpecifierValue();
 
-      if (moduleSpecifier === "jest" ||
-          moduleSpecifier.includes("@jest/") ||
-          moduleSpecifier === "@testing-library/jest-dom") {
-
+      if (
+        moduleSpecifier === "jest" ||
+        moduleSpecifier.includes("@jest/") ||
+        moduleSpecifier === "@testing-library/jest-dom"
+      ) {
         this.addIssue({
           file: sourceFile.getFilePath(),
           line: importDecl.getStartLineNumber(),
@@ -81,7 +81,7 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
           severity: "error",
           type: "jest-import",
           original: moduleSpecifier,
-          suggested: "bun:test"
+          suggested: "bun:test",
         });
       }
     }
@@ -109,7 +109,7 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
             severity: "error",
             type: "jest-fn",
             original: "jest.fn()",
-            suggested: "mock()"
+            suggested: "mock()",
           });
         }
       }
@@ -137,7 +137,7 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
             severity: "error",
             type: "jest-mock",
             original: "jest.mock",
-            suggested: "mockModule"
+            suggested: "mockModule",
           });
         }
 
@@ -151,7 +151,7 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
             severity: "error",
             type: "jest-spyon",
             original: "jest.spyOn",
-            suggested: "spyOn"
+            suggested: "spyOn",
           });
         }
       }
@@ -186,7 +186,7 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
           "mockRejectedValue",
           "mockReturnValueOnce",
           "mockResolvedValueOnce",
-          "mockRejectedValueOnce"
+          "mockRejectedValueOnce",
         ];
 
         if (mockMethods.includes(property)) {
@@ -221,7 +221,7 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
             severity: "error",
             type: "mock-method",
             original: `.${property}()`,
-            suggested: suggestion
+            suggested: suggestion,
           });
         }
       }
@@ -253,7 +253,7 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
               severity: "error",
               type: "jest-fn-variable",
               original: "jest.fn()",
-              suggested: "mock()"
+              suggested: "mock()",
             });
           }
         }
@@ -261,7 +261,9 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
     }
   }
 
-  protected addIssue(issue: Omit<CodemodIssue, 'line' | 'column'> & { line: number; column: number }): void {
+  protected addIssue(
+    issue: Omit<CodemodIssue, "line" | "column"> & { line: number; column: number }
+  ): void {
     this.issues.push(issue);
     this.metrics.issuesFound++;
   }
@@ -354,11 +356,19 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
         if (object.getText() === "jest" && property === "fn") {
           // Replace jest.fn() with mock()
           const args = callExpr.getArguments();
-          const argText = args.length > 0 ? callExpr.getArguments().map(arg => arg.getText()).join(", ") : "";
+          const argText =
+            args.length > 0
+              ? callExpr
+                  .getArguments()
+                  .map((arg) => arg.getText())
+                  .join(", ")
+              : "";
 
           callExpr.replaceWithText(`mock(${argText})`);
           changes++;
-          this.log(`✅ Fixed jest.fn(): ${sourceFile.getBaseName()}:${callExpr.getStartLineNumber()}`);
+          this.log(
+            `✅ Fixed jest.fn(): ${sourceFile.getBaseName()}:${callExpr.getStartLineNumber()}`
+          );
         }
       }
     }
@@ -381,21 +391,25 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
         if (object.getText() === "jest" && property === "mock") {
           // Replace jest.mock() with mockModule()
           const args = callExpr.getArguments();
-          const argText = args.map(arg => arg.getText()).join(", ");
+          const argText = args.map((arg) => arg.getText()).join(", ");
 
           callExpr.replaceWithText(`mockModule(${argText})`);
           changes++;
-          this.log(`✅ Fixed jest.mock(): ${sourceFile.getBaseName()}:${callExpr.getStartLineNumber()}`);
+          this.log(
+            `✅ Fixed jest.mock(): ${sourceFile.getBaseName()}:${callExpr.getStartLineNumber()}`
+          );
         }
 
         if (object.getText() === "jest" && property === "spyOn") {
           // Replace jest.spyOn() with spyOn()
           const args = callExpr.getArguments();
-          const argText = args.map(arg => arg.getText()).join(", ");
+          const argText = args.map((arg) => arg.getText()).join(", ");
 
           callExpr.replaceWithText(`spyOn(${argText})`);
           changes++;
-          this.log(`✅ Fixed jest.spyOn(): ${sourceFile.getBaseName()}:${callExpr.getStartLineNumber()}`);
+          this.log(
+            `✅ Fixed jest.spyOn(): ${sourceFile.getBaseName()}:${callExpr.getStartLineNumber()}`
+          );
         }
       }
     }
@@ -456,7 +470,9 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
           if (statement) {
             statement.replaceWithText(replacement + ";");
             changes++;
-            this.log(`✅ Fixed .${property}(): ${sourceFile.getBaseName()}:${callExpr.getStartLineNumber()}`);
+            this.log(
+              `✅ Fixed .${property}(): ${sourceFile.getBaseName()}:${callExpr.getStartLineNumber()}`
+            );
           }
         }
       }
@@ -470,7 +486,7 @@ export class JestToBunComprehensiveMigration extends CodemodBase {
 if (import.meta.main) {
   const codemod = new JestToBunComprehensiveMigration({
     verbose: true,
-    dryRun: process.argv.includes("--dry-run")
+    dryRun: process.argv.includes("--dry-run"),
   });
 
   codemod.execute().catch(console.error);

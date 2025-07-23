@@ -71,24 +71,24 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
 
     // Set the type based on the format
     switch (normalizedInfo.format) {
-    case UriFormat.HTTPS:
-      components.type = RepositoryURIType?.HTTPS;
-      components.scheme = "https";
-      break;
-    case UriFormat.SSH:
-      components.type = RepositoryURIType?.SSH;
-      components.scheme = "ssh";
-      break;
-    case UriFormat.FILE:
-      components.type = RepositoryURIType?.LOCAL_FILE;
-      components.scheme = "file";
-      break;
-    case UriFormat.PATH:
-      components.type = RepositoryURIType?.LOCAL_PATH;
-      break;
-    case UriFormat.SHORTHAND:
-      components.type = RepositoryURIType?.GITHUB_SHORTHAND;
-      break;
+      case UriFormat.HTTPS:
+        components.type = RepositoryURIType?.HTTPS;
+        components.scheme = "https";
+        break;
+      case UriFormat.SSH:
+        components.type = RepositoryURIType?.SSH;
+        components.scheme = "ssh";
+        break;
+      case UriFormat.FILE:
+        components.type = RepositoryURIType?.LOCAL_FILE;
+        components.scheme = "file";
+        break;
+      case UriFormat.PATH:
+        components.type = RepositoryURIType?.LOCAL_PATH;
+        break;
+      case UriFormat.SHORTHAND:
+        components.type = RepositoryURIType?.GITHUB_SHORTHAND;
+        break;
     }
 
     // For non-local repositories, extract owner and repo
@@ -177,7 +177,10 @@ export function validateRepositoryURI(uri: string): URIValidationResult {
  * @param targetType Target URI type
  * @returns Converted URI or null if conversion is not possible
  */
-export function convertRepositoryURI(uri: string, targetType: RepositoryURIType): string | undefined {
+export function convertRepositoryURI(
+  uri: string,
+  targetType: RepositoryURIType
+): string | undefined {
   try {
     // Map our RepositoryURIType to UriFormat
     const targetFormat = targetType;

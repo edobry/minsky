@@ -35,4 +35,4 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       // Multi-tier dependency injection architecture established!
     });
   });
-}); 
+});

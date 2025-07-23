@@ -24,6 +24,7 @@ The PR workflow includes intelligent caching to optimize performance:
 - **Performance Impact**: Eliminates 2-3 git operations per approval (60-70% reduction in race conditions)
 
 **Implementation Details:**
+
 - PR state is stored in the `prState` field of session records
 - Cache includes branch name, existence status, and timestamp metadata
 - Automatically updated on PR creation and merge operations

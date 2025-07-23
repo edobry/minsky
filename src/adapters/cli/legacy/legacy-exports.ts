@@ -52,4 +52,4 @@ export function createCategoryCommand(category: CommandCategory): Command | null
  */
 export function registerAllCommands(program: Command): void {
   cliFactory.registerAllCommands(program);
-} 
+}

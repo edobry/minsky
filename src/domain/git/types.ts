@@ -265,4 +265,4 @@ export interface MergePrResult {
   mergedBy: string;
 }
 
-export type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void; 
+export type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;

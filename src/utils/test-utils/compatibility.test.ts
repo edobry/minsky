@@ -16,7 +16,7 @@ setupTestMocks();
 compat.setupTestCompat();
 
 // Use a typed expect to make TypeScript happy with the enhanced matchers
- 
+
 const expect = bunExpect;
 
 describe("Mock Function Compatibility", () => {
@@ -30,7 +30,7 @@ describe("Mock Function Compatibility", () => {
     // Verify tracking works
     expect(mockFn.mock.calls.length).toBe(1);
     // Use type assertion to silence TypeScript
-     
+
     const args = mockFn.mock.calls[0]!;
     expect(args[0]).toBe("test");
     expect(args[1]).toBe(123);
@@ -217,8 +217,8 @@ describe("Module Mocking Compatibility", () => {
   test("mockModule works with factory", () => {
     // Mock a module with a factory
     const mockExports = {
-      foo: compat.createCompatMock() = mock(() => "mocked foo"),
-      bar: compat.createCompatMock() = mock(() => "mocked bar"),
+      foo: (compat.createCompatMock() = mock(() => "mocked foo")),
+      bar: (compat.createCompatMock() = mock(() => "mocked bar")),
     };
 
     compat.mockModule("some/module/path", () => mockExports);
@@ -233,7 +233,7 @@ describe("Module Mocking Compatibility", () => {
   test("jest.mock provides Jest-like syntax", () => {
     // Mock a module using jest.mock
     compat.jest.mock("another/module/path", () => ({
-      baz: compat.createCompatMock() = mock(() => "mocked baz"),
+      baz: (compat.createCompatMock() = mock(() => "mocked baz")),
     }));
 
     // The module should be mocked

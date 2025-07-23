@@ -216,14 +216,14 @@ export class EnhancedStorageBackendFactory {
    */
   private getFilePath(config: EnhancedStorageConfig): string | null {
     switch (config.backend) {
-    case "json":
-      return config.json?.filePath || getDefaultJsonDbPath();
-    case "sqlite":
-      return config.sqlite?.dbPath || getDefaultSqliteDbPath();
-    case "postgres":
-      return null; // PostgreSQL doesn't have local file paths
-    default:
-      return null;
+      case "json":
+        return config.json?.filePath || getDefaultJsonDbPath();
+      case "sqlite":
+        return config.sqlite?.dbPath || getDefaultSqliteDbPath();
+      case "postgres":
+        return null; // PostgreSQL doesn't have local file paths
+      default:
+        return null;
     }
   }
 
@@ -250,43 +250,43 @@ export class EnhancedStorageBackendFactory {
     log.debug(`Creating storage backend: ${config.backend}`);
 
     switch (config.backend) {
-    case "json": {
-      const dbPath = config.json?.filePath || getDefaultStorageConfig().json!.filePath;
-      const baseDir = getMinskyStateDir();
-      return new JsonFileStorage(dbPath, baseDir);
-    }
+      case "json": {
+        const dbPath = config.json?.filePath || getDefaultStorageConfig().json!.filePath;
+        const baseDir = getMinskyStateDir();
+        return new JsonFileStorage(dbPath, baseDir);
+      }
 
-    case "sqlite": {
-      const sqliteConfig: SqliteStorageConfig = {
-        dbPath: config.sqlite?.dbPath || getDefaultStorageConfig().sqlite!.dbPath!,
-        enableWAL: config.sqlite?.enableWAL ?? true,
-        timeout: config.sqlite?.timeout ?? 5000,
-      };
-      return createSqliteStorage(sqliteConfig);
-    }
+      case "sqlite": {
+        const sqliteConfig: SqliteStorageConfig = {
+          dbPath: config.sqlite?.dbPath || getDefaultStorageConfig().sqlite!.dbPath!,
+          enableWAL: config.sqlite?.enableWAL ?? true,
+          timeout: config.sqlite?.timeout ?? 5000,
+        };
+        return createSqliteStorage(sqliteConfig);
+      }
 
-    case "postgres": {
-      if (!config.postgres?.connectionUrl) {
-        const errorMessage = createBackendDetectionErrorMessage(
+      case "postgres": {
+        if (!config.postgres?.connectionUrl) {
+          const errorMessage = createBackendDetectionErrorMessage(
+            "postgres",
+            ["json", "sqlite", "postgres"],
+            {
+              postgres: ["PostgreSQL connection URL"],
+            }
+          );
+          throw new Error(errorMessage);
+        }
+        return createPostgresStorage(config.postgres);
+      }
+
+      default: {
+        const errorMessage = createBackendDetectionErrorMessage(config.backend, [
+          "json",
+          "sqlite",
           "postgres",
-          ["json", "sqlite", "postgres"],
-          {
-            postgres: ["PostgreSQL connection URL"],
-          }
-        );
+        ]);
         throw new Error(errorMessage);
       }
-      return createPostgresStorage(config.postgres);
-    }
-
-    default: {
-      const errorMessage = createBackendDetectionErrorMessage(config.backend, [
-        "json",
-        "sqlite",
-        "postgres",
-      ]);
-      throw new Error(errorMessage);
-    }
     }
   }
 
@@ -339,14 +339,14 @@ export class EnhancedStorageBackendFactory {
    */
   private getBackendKey(config: EnhancedStorageConfig): string {
     switch (config.backend) {
-    case "json":
-      return `json:${config.json?.filePath}`;
-    case "sqlite":
-      return `sqlite:${config.sqlite?.dbPath}`;
-    case "postgres":
-      return `postgres:${config.postgres?.connectionUrl}`;
-    default:
-      return config.backend;
+      case "json":
+        return `json:${config.json?.filePath}`;
+      case "sqlite":
+        return `sqlite:${config.sqlite?.dbPath}`;
+      case "postgres":
+        return `postgres:${config.postgres?.connectionUrl}`;
+      default:
+        return config.backend;
     }
   }
 }

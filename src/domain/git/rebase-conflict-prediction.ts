@@ -1,6 +1,6 @@
 /**
  * Rebase Conflict Prediction
- * 
+ *
  * Provides rebase conflict prediction functionality extracted from ConflictDetectionService
  * for better maintainability and focused responsibility.
  */
@@ -16,7 +16,9 @@ export interface RebasePredictionDependencies {
   execAsync: typeof execAsync;
   analyzeConflictFiles: (repoPath: string) => Promise<ConflictFile[]>;
   determineCommitComplexity: (conflictFiles: ConflictFile[]) => "simple" | "moderate" | "complex";
-  determineOverallComplexity: (conflictingCommits: ConflictingCommit[]) => "simple" | "moderate" | "complex";
+  determineOverallComplexity: (
+    conflictingCommits: ConflictingCommit[]
+  ) => "simple" | "moderate" | "complex";
   estimateResolutionTime: (conflictingCommits: ConflictingCommit[]) => string;
   generateRebaseRecommendations: (
     conflictingCommits: ConflictingCommit[],
@@ -79,29 +81,25 @@ export async function predictRebaseConflictsImpl(
     // Create a temporary branch for simulation
     const tempBranch = `rebase-simulation-${Date.now()}`;
     const conflictingCommits: ConflictingCommit[] = [];
-    
+
     try {
       // Create temp branch from base
-      await deps.execAsync(
-        `git -C ${repoPath} checkout -b ${tempBranch} ${baseBranch}`
-      );
+      await deps.execAsync(`git -C ${repoPath} checkout -b ${tempBranch} ${baseBranch}`);
 
       // Simulate cherry-picking each commit to detect conflicts
       for (const commit of commitInfos) {
         try {
-          await deps.execAsync(
-            `git -C ${repoPath} cherry-pick --no-commit ${commit.sha}`
-          );
-          
+          await deps.execAsync(`git -C ${repoPath} cherry-pick --no-commit ${commit.sha}`);
+
           // No conflict for this commit, clean up and continue
           await deps.execAsync(`git -C ${repoPath} reset --hard HEAD`);
         } catch (cherryPickError) {
           // Cherry-pick failed, analyze conflicts
           const conflictFiles = await deps.analyzeConflictFiles(repoPath);
-          
+
           // Determine complexity based on conflict files
           const complexity = deps.determineCommitComplexity(conflictFiles);
-          
+
           conflictingCommits.push({
             sha: commit.sha,
             message: commit.message,
@@ -130,9 +128,7 @@ export async function predictRebaseConflictsImpl(
     // Determine overall complexity and estimated resolution time
     const overallComplexity = deps.determineOverallComplexity(conflictingCommits);
     const estimatedResolutionTime = deps.estimateResolutionTime(conflictingCommits);
-    const canAutoResolve = conflictingCommits.every(
-      (commit) => commit.complexity === "simple"
-    );
+    const canAutoResolve = conflictingCommits.every((commit) => commit.complexity === "simple");
 
     // Generate recommendations
     const recommendations = deps.generateRebaseRecommendations(
@@ -159,4 +155,4 @@ export async function predictRebaseConflictsImpl(
     });
     throw error;
   }
-} 
+}

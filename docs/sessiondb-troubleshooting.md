@@ -41,11 +41,13 @@ journalctl -u minsky --since "1 hour ago"
 #### Issue: `ENOENT: no such file or directory`
 
 **Symptoms**:
+
 ```
 Error: ENOENT: no such file or directory, open '/path/to/session-db.json'
 ```
 
 **Causes**:
+
 - Missing session database file
 - Incorrect baseDir configuration
 - Permission issues
@@ -53,11 +55,13 @@ Error: ENOENT: no such file or directory, open '/path/to/session-db.json'
 **Solutions**:
 
 1. **Initialize the database**:
+
    ```bash
    minsky sessiondb init --backend json
    ```
 
 2. **Check configuration**:
+
    ```bash
    minsky config get sessiondb.baseDir
    minsky config set sessiondb.baseDir ~/.local/state/minsky
@@ -72,11 +76,13 @@ Error: ENOENT: no such file or directory, open '/path/to/session-db.json'
 #### Issue: `SyntaxError: Unexpected token`
 
 **Symptoms**:
+
 ```
 SyntaxError: Unexpected token } in JSON at position 245
 ```
 
 **Causes**:
+
 - Corrupted JSON file
 - Incomplete write operation
 - System crash during write
@@ -84,19 +90,21 @@ SyntaxError: Unexpected token } in JSON at position 245
 **Solutions**:
 
 1. **Restore from backup**:
+
    ```bash
    # Find latest backup
    ls -la ~/.local/state/minsky/backups/
-   
+
    # Restore
    minsky sessiondb restore --backup ~/.local/state/minsky/backups/latest.json --to json
    ```
 
 2. **Manual repair**:
+
    ```bash
    # Backup corrupted file
    cp ~/.local/state/minsky/session-db.json ~/.local/state/minsky/session-db.json.corrupt
-   
+
    # Try to fix JSON syntax
    jq '.' ~/.local/state/minsky/session-db.json > fixed.json
    mv fixed.json ~/.local/state/minsky/session-db.json
@@ -114,11 +122,13 @@ SyntaxError: Unexpected token } in JSON at position 245
 #### Issue: `SQLITE_BUSY: database is locked`
 
 **Symptoms**:
+
 ```
 Error: SQLITE_BUSY: database is locked
 ```
 
 **Causes**:
+
 - Another process has the database open
 - Unclean shutdown left lock files
 - WAL files not properly closed
@@ -126,12 +136,14 @@ Error: SQLITE_BUSY: database is locked
 **Solutions**:
 
 1. **Find blocking processes**:
+
    ```bash
    lsof ~/.local/state/minsky/sessions.db
    kill -TERM <pid>
    ```
 
 2. **Remove lock files**:
+
    ```bash
    rm ~/.local/state/minsky/sessions.db-shm
    rm ~/.local/state/minsky/sessions.db-wal
@@ -146,11 +158,13 @@ Error: SQLITE_BUSY: database is locked
 #### Issue: `SQLITE_CORRUPT: database disk image is malformed`
 
 **Symptoms**:
+
 ```
 Error: SQLITE_CORRUPT: database disk image is malformed
 ```
 
 **Causes**:
+
 - Hardware failure
 - Filesystem corruption
 - Power loss during write
@@ -158,15 +172,17 @@ Error: SQLITE_CORRUPT: database disk image is malformed
 **Solutions**:
 
 1. **Attempt automatic recovery**:
+
    ```bash
    minsky sessiondb repair --backend sqlite --auto-recover
    ```
 
 2. **Manual recovery**:
+
    ```bash
    # Try to recover data
    sqlite3 ~/.local/state/minsky/sessions.db ".recover" > recovered.sql
-   
+
    # Create new database from recovered data
    mv ~/.local/state/minsky/sessions.db ~/.local/state/minsky/sessions.db.corrupt
    sqlite3 ~/.local/state/minsky/sessions.db < recovered.sql
@@ -180,11 +196,13 @@ Error: SQLITE_CORRUPT: database disk image is malformed
 #### Issue: `SQLITE_READONLY: attempt to write a readonly database`
 
 **Symptoms**:
+
 ```
-Error: SQLITE_READONLY: attempt to write a readonly database  
+Error: SQLITE_READONLY: attempt to write a readonly database
 ```
 
 **Causes**:
+
 - Incorrect file permissions
 - Database file on read-only filesystem
 - SELinux/AppArmor restrictions
@@ -192,12 +210,14 @@ Error: SQLITE_READONLY: attempt to write a readonly database
 **Solutions**:
 
 1. **Fix permissions**:
+
    ```bash
    chmod 644 ~/.local/state/minsky/sessions.db
    chmod 755 ~/.local/state/minsky/
    ```
 
 2. **Check filesystem**:
+
    ```bash
    mount | grep "$(dirname ~/.local/state/minsky/sessions.db)"
    ```
@@ -212,11 +232,13 @@ Error: SQLITE_READONLY: attempt to write a readonly database
 #### Issue: `Connection refused`
 
 **Symptoms**:
+
 ```
 Error: connect ECONNREFUSED 127.0.0.1:5432
 ```
 
 **Causes**:
+
 - PostgreSQL server not running
 - Wrong host/port configuration
 - Firewall blocking connection
@@ -224,12 +246,14 @@ Error: connect ECONNREFUSED 127.0.0.1:5432
 **Solutions**:
 
 1. **Check PostgreSQL status**:
+
    ```bash
    pg_isready -h hostname -p 5432
    systemctl status postgresql
    ```
 
 2. **Test connection**:
+
    ```bash
    psql "postgresql://user:password@host:port/database" -c "SELECT 1;"
    ```
@@ -242,11 +266,13 @@ Error: connect ECONNREFUSED 127.0.0.1:5432
 #### Issue: `password authentication failed`
 
 **Symptoms**:
+
 ```
 Error: password authentication failed for user "minsky_user"
 ```
 
 **Causes**:
+
 - Wrong username/password
 - User doesn't exist
 - Authentication method mismatch
@@ -254,15 +280,17 @@ Error: password authentication failed for user "minsky_user"
 **Solutions**:
 
 1. **Verify credentials**:
+
    ```sql
    -- As PostgreSQL superuser
    \du minsky_user
-   
+
    -- Reset password if needed
    ALTER USER minsky_user PASSWORD 'new_password';
    ```
 
 2. **Check pg_hba.conf**:
+
    ```bash
    sudo cat /etc/postgresql/*/main/pg_hba.conf | grep minsky
    ```
@@ -275,11 +303,13 @@ Error: password authentication failed for user "minsky_user"
 #### Issue: `relation "sessions" does not exist`
 
 **Symptoms**:
+
 ```
 Error: relation "sessions" does not exist
 ```
 
 **Causes**:
+
 - Database schema not initialized
 - Connected to wrong database
 - Schema was dropped
@@ -287,11 +317,13 @@ Error: relation "sessions" does not exist
 **Solutions**:
 
 1. **Initialize schema**:
+
    ```bash
    minsky sessiondb init --backend postgres --force
    ```
 
 2. **Check database**:
+
    ```sql
    \l                    -- List databases
    \c minsky_sessions    -- Connect to correct database
@@ -307,43 +339,45 @@ Error: relation "sessions" does not exist
 
 ### JSON Backend Error Codes
 
-| Code | Description | Recovery Action |
-|------|-------------|-----------------|
-| `ENOENT` | File not found | Initialize database or fix path |
-| `EACCES` | Permission denied | Fix file permissions |
-| `SyntaxError` | Corrupted JSON | Restore from backup or repair |
-| `EMFILE` | Too many open files | Close other processes or increase limits |
+| Code          | Description         | Recovery Action                          |
+| ------------- | ------------------- | ---------------------------------------- |
+| `ENOENT`      | File not found      | Initialize database or fix path          |
+| `EACCES`      | Permission denied   | Fix file permissions                     |
+| `SyntaxError` | Corrupted JSON      | Restore from backup or repair            |
+| `EMFILE`      | Too many open files | Close other processes or increase limits |
 
 ### SQLite Error Codes
 
-| Code | Description | Recovery Action |
-|------|-------------|-----------------|
-| `SQLITE_BUSY` | Database locked | Kill blocking processes, remove lock files |
-| `SQLITE_CORRUPT` | Database corrupted | Run recovery tools or restore from backup |
-| `SQLITE_READONLY` | Read-only database | Fix permissions or move to writable location |
-| `SQLITE_CANTOPEN` | Cannot open database | Check path and permissions |
-| `SQLITE_FULL` | Disk full | Free up space or move to larger partition |
+| Code              | Description          | Recovery Action                              |
+| ----------------- | -------------------- | -------------------------------------------- |
+| `SQLITE_BUSY`     | Database locked      | Kill blocking processes, remove lock files   |
+| `SQLITE_CORRUPT`  | Database corrupted   | Run recovery tools or restore from backup    |
+| `SQLITE_READONLY` | Read-only database   | Fix permissions or move to writable location |
+| `SQLITE_CANTOPEN` | Cannot open database | Check path and permissions                   |
+| `SQLITE_FULL`     | Disk full            | Free up space or move to larger partition    |
 
 ### PostgreSQL Error Codes
 
-| Code | Description | Recovery Action |
-|------|-------------|-----------------|
-| `ECONNREFUSED` | Connection refused | Start PostgreSQL or check network |
-| `28P01` | Invalid password | Fix credentials |
-| `3D000` | Invalid database | Check database name |
-| `42P01` | Relation not found | Initialize schema |
-| `53300` | Too many connections | Increase connection limits |
+| Code           | Description          | Recovery Action                   |
+| -------------- | -------------------- | --------------------------------- |
+| `ECONNREFUSED` | Connection refused   | Start PostgreSQL or check network |
+| `28P01`        | Invalid password     | Fix credentials                   |
+| `3D000`        | Invalid database     | Check database name               |
+| `42P01`        | Relation not found   | Initialize schema                 |
+| `53300`        | Too many connections | Increase connection limits        |
 
 ## Performance Issues
 
 ### Slow Session Operations
 
 **Symptoms**:
+
 - Long delays when listing sessions
 - Timeouts during session creation
 - High CPU usage during operations
 
 **Diagnostic Commands**:
+
 ```bash
 # Profile operations
 time minsky session list
@@ -358,34 +392,37 @@ psql -c "SELECT * FROM pg_stat_activity WHERE datname = 'minsky_sessions';"
 **Solutions**:
 
 1. **SQLite optimizations**:
+
    ```sql
    -- Enable WAL mode
    PRAGMA journal_mode = WAL;
-   
+
    -- Increase cache size
    PRAGMA cache_size = 10000;
-   
+
    -- Create indexes
    CREATE INDEX IF NOT EXISTS idx_sessions_task_id ON sessions(task_id);
    ```
 
 2. **PostgreSQL optimizations**:
+
    ```sql
    -- Update statistics
    ANALYZE sessions;
-   
+
    -- Create indexes
    CREATE INDEX CONCURRENTLY idx_sessions_created_at ON sessions(created_at);
-   
+
    -- Check query plans
    EXPLAIN ANALYZE SELECT * FROM sessions WHERE task_id = 'task123';
    ```
 
 3. **General optimizations**:
+
    ```bash
    # Clean up old sessions
    minsky session clean --older-than 30d
-   
+
    # Vacuum database (SQLite)
    sqlite3 ~/.local/state/minsky/sessions.db "VACUUM;"
    ```
@@ -393,6 +430,7 @@ psql -c "SELECT * FROM pg_stat_activity WHERE datname = 'minsky_sessions';"
 ### High Memory Usage
 
 **Symptoms**:
+
 - Minsky process using excessive RAM
 - System becomes slow during operations
 - Out of memory errors
@@ -400,22 +438,25 @@ psql -c "SELECT * FROM pg_stat_activity WHERE datname = 'minsky_sessions';"
 **Solutions**:
 
 1. **Limit result sets**:
+
    ```bash
    # Use pagination for large lists
    minsky session list --limit 50 --offset 0
    ```
 
 2. **Configure connection pooling (PostgreSQL)**:
+
    ```bash
    minsky config set sessiondb.maxConnections 5
    minsky config set sessiondb.idleTimeout 30000
    ```
 
 3. **Monitor memory usage**:
+
    ```bash
    # Check process memory
    ps aux | grep minsky
-   
+
    # Use memory profiler
    valgrind --tool=massif minsky session list
    ```
@@ -602,4 +643,4 @@ Include this information:
 - Full error message
 - Steps to reproduce
 - Diagnostic script output
-- Configuration (sanitized) 
+- Configuration (sanitized)

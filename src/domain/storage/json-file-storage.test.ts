@@ -117,7 +117,10 @@ describe("JsonFileStorage Core Tests", () => {
 
       // Create then update
       await storage.createEntity(entity);
-      const updated = await storage.updateEntity("test2", { name: "Updated Name", value: DEFAULT_DISPLAY_LENGTH });
+      const updated = await storage.updateEntity("test2", {
+        name: "Updated Name",
+        value: DEFAULT_DISPLAY_LENGTH,
+      });
 
       expect(updated).toEqual({
         id: "test2",

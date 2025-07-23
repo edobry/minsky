@@ -41,10 +41,7 @@ export class CommandRegistryMigrationAdapter {
    * @param commandDef Command definition
    * @param options Registration options
    */
-  registerCommand<
-    T extends CommandParameterMap = CommandParameterMap,
-    R = any,
-  >(
+  registerCommand<T extends CommandParameterMap = CommandParameterMap, R = any>(
     commandDef: NewCommandDefinition<T, R>,
     options: { allowOverwrite?: boolean } = {}
   ): void {
@@ -59,10 +56,7 @@ export class CommandRegistryMigrationAdapter {
    * @param options Registration options
    * @deprecated Use registerCommand instead
    */
-  registerLegacyCommand<
-    T extends CommandParameterMap = CommandParameterMap,
-    R = any,
-  >(
+  registerLegacyCommand<T extends CommandParameterMap = CommandParameterMap, R = any>(
     commandDef: CommandDefinition<T, R>,
     options: { allowOverwrite?: boolean } = {}
   ): void {
@@ -80,7 +74,7 @@ export class CommandRegistryMigrationAdapter {
     if (this.migratedCommands.has(id)) {
       return this.newRegistry.getCommand(id);
     }
-    
+
     // Fall back to legacy registry
     return this.legacyRegistry.getCommand(id);
   }
@@ -137,4 +131,4 @@ export function createCommandRegistryMigrationAdapter(
   legacyRegistry?: SharedCommandRegistry
 ): CommandRegistryMigrationAdapter {
   return new CommandRegistryMigrationAdapter(legacyRegistry);
-} 
+}

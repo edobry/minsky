@@ -13,23 +13,23 @@ export async function pushChanges(
   deps?: { gitService?: any }
 ): Promise<PushResult> {
   const gitService = deps?.gitService || createGitService();
-  
+
   const options: PushOptions = {
     repoPath: params.workdir,
     remote: params.remote,
     force: params.force,
   };
-  
+
   const result = await gitService.push(options);
-  
-  log.debug("Changes pushed successfully", { 
+
+  log.debug("Changes pushed successfully", {
     workdir: params.workdir,
     branch: params.branch,
     remote: params.remote,
     force: params.force,
-    result 
+    result,
   });
-  
+
   return result;
 }
 
@@ -44,7 +44,7 @@ export async function pushFromParams(params: {
   debug?: boolean;
 }): Promise<PushResult> {
   const gitService = createGitService();
-  
+
   const options: PushOptions = {
     session: params.session,
     repoPath: params.repo,
@@ -52,18 +52,18 @@ export async function pushFromParams(params: {
     force: params.force,
     debug: params.debug,
   };
-  
+
   const result = await gitService.push(options);
-  
+
   if (params.debug) {
-    log.debug("Changes pushed successfully", { 
+    log.debug("Changes pushed successfully", {
       session: params.session,
       repo: params.repo,
       remote: params.remote,
       force: params.force,
-      result 
+      result,
     });
   }
-  
+
   return result;
-} 
+}

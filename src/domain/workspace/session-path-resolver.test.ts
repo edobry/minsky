@@ -36,14 +36,20 @@ describe("SessionPathResolver", () => {
     });
 
     it("should allow absolute paths within session", () => {
-      const result = resolver.validateAndResolvePath(sessionDir, "/test/session/workspace/src/file.ts");
+      const result = resolver.validateAndResolvePath(
+        sessionDir,
+        "/test/session/workspace/src/file.ts"
+      );
       expect(result).toBe("/test/session/workspace/src/file.ts");
     });
   });
 
   describe("isPathWithinSession", () => {
     it("should return true for paths within session", () => {
-      const result = resolver.isPathWithinSession(sessionDir, "/test/session/workspace/src/file.ts");
+      const result = resolver.isPathWithinSession(
+        sessionDir,
+        "/test/session/workspace/src/file.ts"
+      );
       expect(result).toBe(true);
     });
 
@@ -123,4 +129,4 @@ describe("SessionPathResolver", () => {
       }).toThrow(InvalidPathError);
     });
   });
-}); 
+});

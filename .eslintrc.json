@@ -2,7 +2,7 @@
   "extends": ["@typescript-eslint/recommended"],
   "parser": "@typescript-eslint/parser",
   "plugins": ["@typescript-eslint"],
-    "rules": {
+  "rules": {
     // Prevent underscore-prefixed variables that are actually used
     "@typescript-eslint/no-unused-vars": [
       "error",

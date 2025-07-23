@@ -27,7 +27,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // Get provider-specific config from the unified configuration
       const providerConfig = config.ai?.providers?.[provider];
-      
+
       // If no provider config exists, return null
       if (!providerConfig) {
         return null;
@@ -35,7 +35,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // Extract API key from unified config (automatically populated by environment variable mapping)
       const apiKey = providerConfig.api_key;
-      
+
       // If no API key is available, we can't use this provider
       if (!apiKey) {
         return null;

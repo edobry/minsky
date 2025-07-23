@@ -5,12 +5,14 @@
 The `ConfigurationLoader.loadConfiguration()` method has a misleading parameter name `cliFlags` that does not accurately reflect its actual purpose or usage:
 
 ### Current Issues:
+
 1. **Misleading Name**: Parameter is called `cliFlags` but is never used for actual CLI flag parsing
 2. **Conceptual Confusion**: Name suggests CLI-specific functionality when it's actually a generic configuration override mechanism
 3. **Poor Developer Ergonomics**: Developers must understand that "cliFlags" actually means "high-priority config overrides"
 4. **Test Confusion**: Test code uses `cliFlags` to inject test configuration, which is conceptually incorrect
 
 ### Evidence:
+
 - **No CLI Usage**: Zero instances found of CLI commands parsing flags and passing them to this parameter
 - **Primary Usage**: Used almost exclusively in tests for dependency injection
 - **Production Usage**: All production code calls `loadConfiguration(workingDir)` without the second parameter
@@ -18,15 +20,18 @@ The `ConfigurationLoader.loadConfiguration()` method has a misleading parameter 
 ## Proposed Solution
 
 ### 1. Rename Parameter
+
 Rename `cliFlags` to a more accurate name that reflects its actual purpose:
 
 **Options:**
+
 - `configOverrides` (recommended)
 - `highPriorityConfig`
 - `injectedConfig`
 - `runtimeConfig`
 
 ### 2. Update Method Signature
+
 ```typescript
 // Current (misleading)
 async loadConfiguration(
@@ -42,14 +47,17 @@ async loadConfiguration(
 ```
 
 ### 3. Review Configuration System API Design
+
 Evaluate the overall configuration system for developer ergonomics:
 
 #### Consider Adding:
+
 - **Dedicated test configuration helper**: `createTestConfiguration(overrides)`
 - **Builder pattern**: `ConfigurationBuilder.withOverrides(config).build()`
 - **Separate methods**: `loadConfigurationWithOverrides(workingDir, overrides)`
 
 #### Documentation Improvements:
+
 - Clear JSDoc explaining the parameter's purpose
 - Examples showing proper usage for testing
 - Clarification of precedence hierarchy
@@ -57,12 +65,15 @@ Evaluate the overall configuration system for developer ergonomics:
 ## Implementation Plan
 
 ### Phase 1: Parameter Rename
+
 1. **Update ConfigurationLoader**:
+
    - Rename `cliFlags` parameter to `configOverrides`
    - Update JSDoc documentation
    - Update internal variable names
 
 2. **Update All Callers**:
+
    - Update test files using the parameter
    - Update any production code (if found)
    - Update type definitions
@@ -73,12 +84,15 @@ Evaluate the overall configuration system for developer ergonomics:
    - Document precedence hierarchy
 
 ### Phase 2: API Design Review
+
 1. **Evaluate Current API**:
+
    - Review all configuration loading patterns
    - Identify pain points in test setup
    - Assess developer ergonomics
 
 2. **Design Improvements**:
+
    - Consider helper methods for common use cases
    - Evaluate builder pattern benefits
    - Design test-specific utilities
@@ -89,7 +103,9 @@ Evaluate the overall configuration system for developer ergonomics:
    - Update documentation
 
 ### Phase 3: Migration and Testing
+
 1. **Comprehensive Testing**:
+
    - Verify all existing tests still pass
    - Add tests for new functionality
    - Test configuration loading in various scenarios
@@ -110,15 +126,18 @@ Evaluate the overall configuration system for developer ergonomics:
 ## Files to Modify
 
 ### Core Files:
+
 - `src/domain/configuration/config-loader.ts`
 - `src/domain/configuration/types.ts`
 - `src/domain/configuration/configuration-service.ts`
 
 ### Test Files:
+
 - `src/domain/configuration/__tests__/sessiondb-config.test.ts`
 - Any other test files using the parameter
 
 ### Documentation:
+
 - Configuration system documentation
 - API documentation
 - Test setup guides
@@ -128,6 +147,7 @@ Evaluate the overall configuration system for developer ergonomics:
 **Low Risk**: This is primarily a naming change with no functional impact. The parameter's behavior remains identical.
 
 **Mitigation**:
+
 - Comprehensive testing to ensure no regressions
 - Clear documentation of the change
 - Gradual rollout if needed
@@ -151,6 +171,7 @@ This task emerged from investigating test isolation issues in Task #244, where t
 During Task #244, we discovered that tests were incorrectly using `process.env` pollution instead of the configuration system's built-in dependency injection capabilities:
 
 **Problem Pattern**:
+
 ```typescript
 // ❌ WRONG: Tests were doing this (causes global state interference)
 process.env.MINSKY_SESSIONDB_BACKEND = "sqlite";
@@ -159,6 +180,7 @@ const config = await loader.loadConfiguration(testDir);
 ```
 
 **Correct Pattern**:
+
 ```typescript
 // ✅ CORRECT: Tests should do this (proper dependency injection)
 const testConfig: Partial<ResolvedConfig> = {
@@ -175,6 +197,7 @@ The misleading `cliFlags` parameter name contributed to developers not understan
 ### Impact on Test Isolation
 
 The proper use of the configuration override parameter (currently `cliFlags`) is critical for test isolation because:
+
 - It avoids `process.env` pollution that affects other tests
 - It provides explicit, scoped configuration injection
 - It follows the configuration system's designed precedence hierarchy

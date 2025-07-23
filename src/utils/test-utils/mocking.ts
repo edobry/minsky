@@ -340,7 +340,9 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
   });
   const mockFs = {
     // Sync methods
-    existsSync: createMock((path: unknown) => files.has(String(path)) || directories.has(String(path))),
+    existsSync: createMock(
+      (path: unknown) => files.has(String(path)) || directories.has(String(path))
+    ),
     readFileSync: createMock((path: unknown) => {
       if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
@@ -437,7 +439,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
  */
 export function createPartialMock<T extends object>(implementations: Partial<T> = {}): T {
   // Create a base object with the provided implementations
-  const base = { ...implementations } as unknown;
+  const base = { ...implementations } as any;
   // Create a proxy that will handle method calls
   return new Proxy(base, {
     get: (target, prop: string | symbol) => {

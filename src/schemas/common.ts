@@ -13,7 +13,8 @@ import { normalizeTaskIdForStorage } from "../domain/tasks/task-id-utils";
  */
 export const pathSchema = z
   .string()
-  .min(1, "Path cannot be empty").describe("File or directory path");
+  .min(1, "Path cannot be empty")
+  .describe("File or directory path");
 
 /**
  * Schema for Git repository paths
@@ -23,7 +24,8 @@ export const pathSchema = z
  */
 export const repoPathSchema = z
   .string()
-  .min(1, "Repository URI cannot be empty").describe("Repository URI");
+  .min(1, "Repository URI cannot be empty")
+  .describe("Repository URI");
 
 /**
  * Schema for session names
@@ -43,7 +45,8 @@ export const taskIdSchema = z
     return normalizeTaskIdForStorage(val);
   })
   .refine((val) => val !== null, {
-    message: "Task ID must be a valid number (with or without # prefix, e.g., '283', '#283', 'task#283')",
+    message:
+      "Task ID must be a valid number (with or without # prefix, e.g., '283', '#283', 'task#283')",
   })
   .transform((val) => val as string); // Type assertion since we know it's not null after refine
 
@@ -68,7 +71,8 @@ export const commonCommandOptionsSchema = z
     repo: repoPathSchema.optional().describe("Repository URI"),
     workspace: pathSchema.optional().describe("URI of the upstream repository"),
     task: taskIdSchema.optional().describe("Task ID"),
-  }).partial();
+  })
+  .partial();
 
 /**
  * Type for common command options

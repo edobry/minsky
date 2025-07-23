@@ -22,7 +22,8 @@ const FORBIDDEN_MESSAGES = [
   "change",
 ];
 
-const CONVENTIONAL_COMMIT_PATTERN = /^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .{1,50}/;
+const CONVENTIONAL_COMMIT_PATTERN =
+  /^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert|merge)(\(.+\))?: .{1,50}/;
 
 function getCurrentBranch(): string {
   try {
@@ -49,7 +50,7 @@ function validateCommitMessage(message: string): { valid: boolean; error?: strin
   if (FORBIDDEN_MESSAGES.includes(normalizedMessage)) {
     return {
       valid: false,
-      error: `Forbidden placeholder message: "${message}". Please use a descriptive conventional commit message.`
+      error: `Forbidden placeholder message: "${message}". Please use a descriptive conventional commit message.`,
     };
   }
 
@@ -60,7 +61,7 @@ function validateCommitMessage(message: string): { valid: boolean; error?: strin
     if (currentBranch === "main" || currentBranch === "master") {
       return {
         valid: false,
-        error: `Merge commits into ${currentBranch} must use conventional commit format. Use squash merge or reword the commit message.`
+        error: `Merge commits into ${currentBranch} must use conventional commit format. Use squash merge or reword the commit message.`,
       };
     }
 
@@ -77,7 +78,8 @@ function validateCommitMessage(message: string): { valid: boolean; error?: strin
 Examples:
   feat(auth): add user authentication
   fix(#123): resolve login validation issue
-  docs: update README with new features`
+  merge(#276): integrate main branch changes
+  docs: update README with new features`,
     };
   }
 

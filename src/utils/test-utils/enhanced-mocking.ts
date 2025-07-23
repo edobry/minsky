@@ -1,12 +1,12 @@
 /**
  * Enhanced mocking utilities with improved isolation and state management.
- * 
+ *
  * This module provides advanced mocking capabilities including:
  * - Isolated mock filesystem with automatic state reset
  * - Enhanced module mocking with dependency tracking
  * - Automatic mock validation and cleanup
  * - Cross-test contamination prevention
- * 
+ *
  * @module enhanced-mocking
  */
 
@@ -43,7 +43,7 @@ export class EnhancedMockFileSystem {
       directories: new Set(),
       metadata: new Map(),
       isolated: true,
-      testId: testId || `test-${Date.now()}-${Math.random().toString(36).substring(7)}`
+      testId: testId || `test-${Date.now()}-${Math.random().toString(36).substring(7)}`,
     };
 
     // Initialize with provided files
@@ -66,7 +66,7 @@ export class EnhancedMockFileSystem {
     this.state.metadata.set(filePath, {
       mtime: new Date(),
       size: content.length,
-      mode: 0o644
+      mode: 0o644,
     });
 
     // Ensure parent directories exist
@@ -120,8 +120,8 @@ export class EnhancedMockFileSystem {
         // Remove all files and subdirectories within this directory
         const toRemove = Array.from(this.state.files.keys())
           .concat(Array.from(this.state.directories))
-          .filter(path => path.startsWith(`${itemPath}/`));
-        
+          .filter((path) => path.startsWith(`${itemPath}/`));
+
         for (const path of toRemove) {
           this.state.files.delete(path);
           this.state.directories.delete(path);
@@ -172,13 +172,23 @@ export class EnhancedMockFileSystem {
   /**
    * Get file/directory stats
    */
-  stat(itemPath: string): { isFile: () => boolean; isDirectory: () => boolean; mtime: Date; size: number; mode: number } {
+  stat(itemPath: string): {
+    isFile: () => boolean;
+    isDirectory: () => boolean;
+    mtime: Date;
+    size: number;
+    mode: number;
+  } {
     if (this.state.files.has(itemPath)) {
-      const metadata = this.state.metadata.get(itemPath) || { mtime: new Date(), size: 0, mode: 0o644 };
+      const metadata = this.state.metadata.get(itemPath) || {
+        mtime: new Date(),
+        size: 0,
+        mode: 0o644,
+      };
       return {
         isFile: () => true,
         isDirectory: () => false,
-        ...metadata
+        ...metadata,
       };
     } else if (this.state.directories.has(itemPath)) {
       return {
@@ -186,7 +196,7 @@ export class EnhancedMockFileSystem {
         isDirectory: () => true,
         mtime: new Date(),
         size: 0,
-        mode: 0o755
+        mode: 0o755,
       };
     } else {
       throw new Error(`ENOENT: no such file or directory, stat "${itemPath}"`);
@@ -199,7 +209,7 @@ export class EnhancedMockFileSystem {
   createFSMocks(): {
     fs: any;
     fsPromises: any;
-    } {
+  } {
     const fsMock = {
       existsSync: (path: string) => this.exists(path),
       readFileSync: (path: string, encoding?: string) => {
@@ -220,7 +230,7 @@ export class EnhancedMockFileSystem {
       },
       readdirSync: (path: string) => this.readdir(path),
       statSync: (path: string) => this.stat(path),
-      lstatSync: (path: string) => this.stat(path)
+      lstatSync: (path: string) => this.stat(path),
     };
 
     const fsPromisesMock = {
@@ -247,7 +257,7 @@ export class EnhancedMockFileSystem {
         if (!this.exists(path)) {
           throw new Error(`ENOENT: no such file or directory, access "${path}"`);
         }
-      }
+      },
     };
 
     return { fs: fsMock, fsPromises: fsPromisesMock };
@@ -276,7 +286,7 @@ export class EnhancedMockFileSystem {
 
     return {
       isValid: errors.length === 0,
-      errors
+      errors,
     };
   }
 
@@ -304,7 +314,7 @@ export class EnhancedMockFileSystem {
     return {
       fileCount: this.state.files.size,
       directoryCount: this.state.directories.size,
-      testId: this.state.testId
+      testId: this.state.testId,
     };
   }
 
@@ -314,7 +324,7 @@ export class EnhancedMockFileSystem {
   }
 
   private ensureDirectory(dirPath: string): void {
-    const parts = dirPath.split("/").filter(part => part.length > 0);
+    const parts = dirPath.split("/").filter((part) => part.length > 0);
     let currentPath = "";
 
     for (const part of parts) {
@@ -359,9 +369,13 @@ export class EnhancedModuleMocker {
   /**
    * Mock a module with enhanced tracking
    */
-  static mockModule<T = any>(modulePath: string, mockImplementation: () => T, testId?: string): void {
+  static mockModule<T = any>(
+    modulePath: string,
+    mockImplementation: () => T,
+    testId?: string
+  ): void {
     const id = testId || `test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    
+
     // Store original module if not already stored
     if (!EnhancedModuleMocker.activeModules.has(modulePath)) {
       try {
@@ -371,7 +385,7 @@ export class EnhancedModuleMocker {
           originalModule,
           mockImplementation: mockImplementation(),
           isActive: true,
-          testId: id
+          testId: id,
         });
       } catch (error) {
         // Module might not exist yet, that's okay
@@ -379,7 +393,7 @@ export class EnhancedModuleMocker {
           modulePath,
           mockImplementation: mockImplementation(),
           isActive: true,
-          testId: id
+          testId: id,
         });
       }
     }
@@ -414,12 +428,12 @@ export class EnhancedModuleMocker {
    */
   static getActiveMockStats(): { total: number; active: number; modules: string[] } {
     const activeModules = Array.from(EnhancedModuleMocker.activeModules.values());
-    const activeCount = activeModules.filter(m => m.isActive).length;
-    
+    const activeCount = activeModules.filter((m) => m.isActive).length;
+
     return {
       total: activeModules.length,
       active: activeCount,
-      modules: activeModules.map(m => m.modulePath)
+      modules: activeModules.map((m) => m.modulePath),
     };
   }
 }
@@ -427,7 +441,9 @@ export class EnhancedModuleMocker {
 /**
  * Create an enhanced mock filesystem with automatic cleanup
  */
-export function createEnhancedMockFileSystem(initialFiles: Record<string, string> = {}): EnhancedMockFileSystem {
+export function createEnhancedMockFileSystem(
+  initialFiles: Record<string, string> = {}
+): EnhancedMockFileSystem {
   return new EnhancedMockFileSystem(initialFiles);
 }
 
@@ -438,11 +454,11 @@ export function setupEnhancedMocking(): {
   mockFS: EnhancedMockFileSystem;
   mockModule: typeof EnhancedModuleMocker.mockModule;
   resetMocks: () => void;
-  } {
+} {
   EnhancedModuleMocker.setupAutoCleanup();
-  
+
   const mockFS = new EnhancedMockFileSystem();
-  
+
   const resetMocks = () => {
     mockFS.reset();
     EnhancedModuleMocker.resetAllMocks();
@@ -454,7 +470,7 @@ export function setupEnhancedMocking(): {
   return {
     mockFS,
     mockModule: EnhancedModuleMocker.mockModule,
-    resetMocks
+    resetMocks,
   };
 }
 
@@ -478,6 +494,6 @@ export function validateMockIsolation(): { isIsolated: boolean; issues: string[]
 
   return {
     isIsolated: issues.length === 0,
-    issues
+    issues,
   };
-} 
+}

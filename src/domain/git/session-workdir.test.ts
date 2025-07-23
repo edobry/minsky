@@ -4,11 +4,7 @@
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { GitService } from "../git";
-import {
-  createMock,
-  setupTestMocks,
-  mockModule,
-} from "../../utils/test-utils/mocking";
+import { createMock, setupTestMocks, mockModule } from "../../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -60,4 +56,4 @@ describe("GitService - Session Workdir Tests", () => {
     expect(workdir1.includes("sessions")).toBe(true);
     expect(workdir1.endsWith("sessions/test-session")).toBe(true);
   });
-}); 
+});

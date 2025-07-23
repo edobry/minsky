@@ -3,6 +3,7 @@
 ## Context
 
 During task #138 implementation, a bug was discovered in the session PR functionality where:
+
 1. The system incorrectly creates a `pr-title.txt` file that is not needed for the `minsky git pr` command
 2. There are import issues in the session PR workflow that may involve dynamic imports
 
@@ -28,4 +29,4 @@ During task #138 implementation, a bug was discovered in the session PR function
 - [ ] Session PR workflow does not create `pr-title.txt` files
 - [ ] Session PR workflow uses proper `--task` flag for git pr command
 - [ ] No dynamic imports in session PR related code
-- [ ] End-to-end session PR workflow test passes 
+- [ ] End-to-end session PR workflow test passes

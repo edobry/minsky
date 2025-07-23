@@ -145,16 +145,12 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
 
     // Launch the inspector with the server command
     // The inspector will start its own instance of the server and connect to it
-    const inspectorProcess = spawn(
-      "npx",
-      ["@modelcontextprotocol/inspector", ...serverCommand],
-      {
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: false,
-        env,
-        cwd: process.cwd(), // Ensure we're in the right directory for bun run
-      }
-    );
+    const inspectorProcess = spawn("npx", ["@modelcontextprotocol/inspector", ...serverCommand], {
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: false,
+      env,
+      cwd: process.cwd(), // Ensure we're in the right directory for bun run
+    });
 
     // Check for immediate launch errors
     if (!inspectorProcess.pid) {
@@ -190,12 +186,15 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
       error: getErrorMessage(error as any),
-      stack: error instanceof Error ? (error as any).stack as any : undefined as any,
+      stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
     });
 
     return {
       success: false,
-      error: error instanceof Error ? (error as any).message as any : "Unknown error launching MCP Inspector" as any,
+      error:
+        error instanceof Error
+          ? ((error as any).message as any)
+          : ("Unknown error launching MCP Inspector" as any),
     };
   }
 }

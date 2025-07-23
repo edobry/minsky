@@ -6,6 +6,7 @@ import { exec } from "child_process";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { GitService } from "../git";
+import { execGitWithTimeout } from "../../utils/git-exec";
 import type { RepositoryStatus, ValidationResult } from "../repository";
 import type {
   RepositoryBackend,
@@ -164,7 +165,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
     try {
       // Create branch using direct Git command since GitService doesn't have createBranch
-      await execAsync(`git -C ${workdir} checkout -b ${branch}`);
+      await execGitWithTimeout("github-create-branch", `checkout -b ${branch}`, { workdir });
 
       return {
         workdir,
@@ -221,11 +222,15 @@ Repository: https://github.com/${this.owner}/${this.repo}
       }
 
       // Get remote information
-      const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote -v`);
+      const { stdout: remoteOutput } = await execGitWithTimeout("github-remote-list", "remote -v", {
+        workdir,
+      });
       const remotes = remoteOutput
         .trim()
         .split("\n")
-        .filter(Boolean).map((line: string) => line.split("\t")[0] || "").filter((name, index, self) => name && self.indexOf(name) === index);
+        .filter(Boolean)
+        .map((line: string) => line.split("\t")[0] || "")
+        .filter((name, index, self) => name && self.indexOf(name) === index);
 
       const dirty =
         gitStatus.modified.length > 0 ||
@@ -473,7 +478,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
-      await execAsync(`git -C ${workdir} checkout ${branch}`);
+      await execGitWithTimeout("github-checkout-branch", `checkout ${branch}`, { workdir });
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       throw new Error(`Failed to checkout branch: ${normalizedError.message}`);

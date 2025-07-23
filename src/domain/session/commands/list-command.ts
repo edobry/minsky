@@ -1,10 +1,6 @@
 import type { SessionListParams } from "../../schemas/session";
 import { createSessionProvider } from "../../session";
-import {
-  Session,
-  SessionProviderInterface,
-  SessionDependencies
-} from "../types";
+import { Session, SessionProviderInterface, SessionDependencies } from "../types";
 
 /**
  * Lists all sessions based on parameters

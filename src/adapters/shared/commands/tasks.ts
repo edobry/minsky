@@ -677,9 +677,9 @@ const tasksDeleteRegistration = {
       session: params.session,
     });
 
-    const message = (result).success
-      ? `Task ${(result).taskId} deleted successfully`
-      : `Failed to delete task ${(result).taskId}`;
+    const message = result.success
+      ? `Task ${result.taskId} deleted successfully`
+      : `Failed to delete task ${result.taskId}`;
 
     // Return different formats based on --json flag
     if ((params as TasksDeleteParams).json) {

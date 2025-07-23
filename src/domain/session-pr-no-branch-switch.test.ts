@@ -1,106 +1,72 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { preparePrFromParams } from "./git";
 import { createMock } from "../utils/test-utils/mocking";
 
-// Track git commands globally
-let gitCommands: string[] = [];
-
-// Module-level mocks for execution utilities
-mock.module("../utils/exec", () => ({
-  execAsync: mock(async (command: string) => {
-    gitCommands.push(command);
-    
-    const sessionBranch = "task#228";
-    const prBranch = "pr/task#228";
-    
-    // Simulate different command responses
-    if (command.includes("git -C") && command.includes("rev-parse --abbrev-ref HEAD")) {
-      return { stdout: sessionBranch, stderr: "" };
-    }
-    if (command.includes("symbolic-ref refs/remotes/origin/HEAD")) {
-      return { stdout: "origin/main", stderr: "" };
-    }
-    if (command.includes("fetch origin")) {
-      return { stdout: "", stderr: "" };
-    }
-    if (command.includes("rev-parse --verify")) {
-      return { stdout: "abcdef123", stderr: "" };
-    }
-    if (command.includes(`branch ${prBranch}`)) {
-      return { stdout: "", stderr: "" };
-    }
-    if (command.includes(`switch ${prBranch}`)) {
-      return { stdout: "", stderr: "" };
-    }
-    if (command.includes("merge --no-ff")) {
-      return { stdout: "", stderr: "" };
-    }
-    if (command.includes(`switch ${sessionBranch}`)) {
-      return { stdout: "", stderr: "" };
-    }
-    if (command.includes(`push origin ${prBranch}`)) {
-      return { stdout: "", stderr: "" };
-    }
-
-    return { stdout: "", stderr: "" };
-  })
-}));
-
-mock.module("../utils/git-exec", () => ({
-  execGitWithTimeout: mock((command: string) => {
-    gitCommands.push(`git ${command}`);
-    return Promise.resolve({ stdout: "", stderr: "" });
-  }),
-  gitFetchWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" }))
-}));
-
-// Module-level mocks to prevent real storage and session provider access
-mock.module("../domain/storage/backends/json-file-storage", () => ({
-  JsonFileStorage: class MockJsonFileStorage {
-    async getEntity() {
-      return {
-        session: "task#228",
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        taskId: "#228",
-      };
-    }
-    async saveEntity() {
-      return Promise.resolve();
-    }
-    async getAllEntities() {
-      return [{
-        session: "task#228",
-        repoName: "test-repo",
-        repoUrl: "/test/repo",
-        taskId: "#228",
-      }];
-    }
-  }
-}));
-
-mock.module("../domain/session", () => ({
-  createSessionProvider: () => ({
-    getSession: () => Promise.resolve({
-      session: "task#228",
-      repoName: "test-repo",
-      repoUrl: "/test/repo",
-      taskId: "#228",
-    }),
-    getSessionWorkdir: () => Promise.resolve("/test/session/workdir"),
-  })
-}));
-
 describe("Session PR Command Branch Behavior", () => {
-  beforeEach(() => {
-    // Reset git commands tracking
-    gitCommands = [];
-  });
-
   test("should never switch user to PR branch during session pr creation", async () => {
+    const gitCommands: string[] = [];
     const sessionBranch = "task#228";
     const prBranch = "pr/task#228";
+
+    // Mock execAsync to capture all git commands
+    const mockExecAsync = createMock(async (...args: unknown[]) => {
+      const command = args[0] as string;
+      gitCommands.push(command);
+
+      // Simulate different command responses
+      if (command.includes("git -C") && command.includes("rev-parse --abbrev-ref HEAD")) {
+        return { stdout: sessionBranch, stderr: "" };
+      }
+      if (command.includes("symbolic-ref refs/remotes/origin/HEAD")) {
+        return { stdout: "origin/main", stderr: "" };
+      }
+      if (command.includes("fetch origin")) {
+        return { stdout: "", stderr: "" };
+      }
+      if (command.includes("rev-parse --verify")) {
+        return { stdout: "abcdef123", stderr: "" };
+      }
+      if (command.includes(`branch ${prBranch}`)) {
+        return { stdout: "", stderr: "" };
+      }
+      if (command.includes(`switch ${prBranch}`)) {
+        return { stdout: "", stderr: "" };
+      }
+      if (command.includes("merge --no-ff")) {
+        return { stdout: "", stderr: "" };
+      }
+      if (command.includes(`switch ${sessionBranch}`)) {
+        return { stdout: "", stderr: "" };
+      }
+      if (command.includes(`push origin ${prBranch}`)) {
+        return { stdout: "", stderr: "" };
+      }
+
+      return { stdout: "", stderr: "" };
+    });
+
+    // Mock session database
+    const mockSessionDb = {
+      getSession: createMock(
+        (): Promise<any> =>
+          Promise.resolve({
+            session: "task#228",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            taskId: "#228",
+          })
+      ),
+    };
+
+    // Mock dependencies
+    const mockDeps = {
+      execAsync: mockExecAsync,
+      getSession: mockSessionDb.getSession,
+      getSessionWorkdir: createMock(() => "/test/session/workdir"),
+      mkdir: createMock(() => Promise.resolve()),
+      readdir: createMock(() => Promise.resolve(["file1.txt"])),
+      access: createMock(() => Promise.resolve()),
+    };
 
     // Execute preparePr which is called by session pr
     await preparePrFromParams({
@@ -111,46 +77,40 @@ describe("Session PR Command Branch Behavior", () => {
     });
 
     // Verify the correct sequence of git commands
-    const relevantCommands = gitCommands.filter(cmd => 
-      cmd.includes("branch ") || 
-      cmd.includes("switch ") || 
-      cmd.includes("checkout ")
+    const relevantCommands = gitCommands.filter(
+      (cmd) => cmd.includes("branch ") || cmd.includes("switch ") || cmd.includes("checkout ")
     );
 
     console.log("Git branch/switch commands executed:", relevantCommands);
 
     // CRITICAL ASSERTIONS: Verify proper branch handling
-    
+
     // 1. PR branch should be created without checking it out
-    const createPrBranchCommand = gitCommands.find(cmd => 
-      cmd.includes(`branch ${prBranch}`) && !cmd.includes("switch")
+    const createPrBranchCommand = gitCommands.find(
+      (cmd) => cmd.includes(`branch ${prBranch}`) && !cmd.includes("switch")
     );
     expect(createPrBranchCommand).toBeTruthy();
     expect(createPrBranchCommand).toContain(`branch ${prBranch}`);
 
     // 2. Should temporarily switch to PR branch ONLY for merge operation
-    const switchToPrCommand = gitCommands.find(cmd => 
-      cmd.includes(`switch ${prBranch}`)
-    );
+    const switchToPrCommand = gitCommands.find((cmd) => cmd.includes(`switch ${prBranch}`));
     expect(switchToPrCommand).toBeTruthy();
-    
+
     // 3. Should switch back to session branch after merge
-    const switchBackCommand = gitCommands.find(cmd => 
-      cmd.includes(`switch ${sessionBranch}`)
-    );
+    const switchBackCommand = gitCommands.find((cmd) => cmd.includes(`switch ${sessionBranch}`));
     expect(switchBackCommand).toBeTruthy();
 
     // 4. CRITICAL: Verify order - switch to PR, then merge, then switch back
     const switchToPrIndex = gitCommands.indexOf(switchToPrCommand!);
-    const mergeCommandIndex = gitCommands.findIndex(cmd => cmd.includes("merge --no-ff"));
+    const mergeCommandIndex = gitCommands.findIndex((cmd) => cmd.includes("merge --no-ff"));
     const switchBackIndex = gitCommands.indexOf(switchBackCommand!);
 
     expect(switchToPrIndex).toBeLessThan(mergeCommandIndex);
     expect(mergeCommandIndex).toBeLessThan(switchBackIndex);
 
     // 5. Should NOT use `git switch -C` which creates and checks out simultaneously
-    const badCreateAndSwitchCommand = gitCommands.find(cmd => 
-      cmd.includes("switch -C") || cmd.includes("checkout -b")
+    const badCreateAndSwitchCommand = gitCommands.find(
+      (cmd) => cmd.includes("switch -C") || cmd.includes("checkout -b")
     );
     expect(badCreateAndSwitchCommand).toBeFalsy();
   });
@@ -195,7 +155,7 @@ describe("Session PR Command Branch Behavior", () => {
       await preparePrFromParams({
         session: "task#228",
         title: "Test PR",
-        body: "Test body",  
+        body: "Test body",
         baseBranch: "main",
       });
     }).toThrow(/Failed to switch back to session branch/);
@@ -213,10 +173,10 @@ describe("Session PR Command Branch Behavior", () => {
     const newBehavior = {
       description: "Create PR branch without checking out, only switch temporarily for merge",
       commands: [
-        "git branch pr/session-name origin/main",  // Create without checkout
-        "git switch pr/session-name",              // Temporary switch for merge
-        "git merge --no-ff session-name",          // Perform merge
-        "git switch session-name",                 // CRITICAL: Switch back
+        "git branch pr/session-name origin/main", // Create without checkout
+        "git switch pr/session-name", // Temporary switch for merge
+        "git merge --no-ff session-name", // Perform merge
+        "git switch session-name", // CRITICAL: Switch back
       ],
       benefit: "User always stays on session branch, PR branch only used programmatically",
     };
@@ -228,4 +188,4 @@ describe("Session PR Command Branch Behavior", () => {
     expect(newBehavior.commands[0]).toContain("branch pr/");
     expect(newBehavior.commands[3]).toContain("switch session-name");
   });
-}); 
+});

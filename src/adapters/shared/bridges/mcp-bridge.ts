@@ -14,7 +14,7 @@ import {
   type McpCommandRequest,
   type McpCommandResponse,
   type ParameterDefinition,
-  type ZodParseResult
+  type ZodParseResult,
 } from "../../../schemas/runtime";
 import { validateError } from "../../../schemas/error";
 import { ensureError } from "../../../errors/index";

@@ -67,7 +67,7 @@ class CliCommandFactory {
    */
   customizeCommand(commandId: ValidCommandId, options: CliCommandOptions): void {
     this.ensureInitialized();
-    cliBridge.registerCommandCustomization(commandId!, options as unknown);
+    cliBridge.registerCommandCustomization(commandId!, options);
   }
 
   /**
@@ -78,7 +78,7 @@ class CliCommandFactory {
    */
   customizeCategory(category: CommandCategory, options: CategoryCommandOptions): void {
     this.ensureInitialized();
-    cliBridge.registerCategoryCustomization(category, options as unknown);
+    cliBridge.registerCategoryCustomization(category, options);
   }
 
   /**
@@ -139,7 +139,7 @@ const cliFactory = new CliCommandFactory();
  * @deprecated Use cliFactory.customizeCommand() instead
  */
 export function customizeCommand(commandId: string, options: CliCommandOptions): void {
-  cliFactory.customizeCommand(commandId!, options as unknown);
+  cliFactory.customizeCommand(commandId!, options);
 }
 
 /**
@@ -150,7 +150,7 @@ export function customizeCategory(
   category: CommandCategory,
   options: CategoryCommandOptions
 ): void {
-  cliFactory.customizeCategory(category, options as unknown);
+  cliFactory.customizeCategory(category, options);
 }
 
 /**
@@ -299,7 +299,8 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           },
           task: {
             alias: "t",
-            description: "Task ID to associate with the session (required if --description not provided)",
+            description:
+              "Task ID to associate with the session (required if --description not provided)",
           },
           description: {
             alias: "d",
@@ -351,7 +352,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
             log.cli("💡 Next steps:");
             log.cli("   • Your session workspace is ready for editing");
             log.cli("   • All changes will be tracked on your session branch");
-            log.cli("   • Run \"minsky session pr\" when ready to create a pull request");
+            log.cli('   • Run "minsky session pr" when ready to create a pull request');
           } else {
             // Fallback to JSON output if result structure is unexpected
             log.cli(JSON.stringify(result as any, null, 2));
@@ -489,11 +490,11 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
               output += formatFlattenedConfiguration(result.resolved);
             }
 
-            log.cli(output as unknown);
+            log.cli(output);
           } else if (result.error) {
             log.cli(`Failed to load configuration: ${result.error}`);
           } else {
-            log.cli(JSON.stringify(result as unknown, null, 2));
+            log.cli(JSON.stringify(result, null, 2));
           }
         },
       },
@@ -501,7 +502,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
         outputFormatter: (result: any) => {
           // Check if JSON output was requested
           if (result.json) {
-            log.cli(JSON.stringify(result as unknown, null, 2));
+            log.cli(JSON.stringify(result, null, 2));
             return;
           }
 
@@ -516,11 +517,11 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
               output += formatResolvedConfiguration(result.configuration);
             }
 
-            log.cli(output as unknown);
+            log.cli(output);
           } else if (result.error) {
             log.cli(`Failed to load configuration: ${result.error}`);
           } else {
-            log.cli(JSON.stringify(result as unknown, null, 2));
+            log.cli(JSON.stringify(result, null, 2));
           }
         },
       },
@@ -597,7 +598,7 @@ function formatResolvedConfiguration(resolved: any): string {
     const authServices = [];
     for (const [service, creds] of Object.entries(resolved.credentials)) {
       if (creds && typeof creds === "object") {
-        const credsObj = creds as unknown;
+        const credsObj = creds as any;
         const serviceName = service === "github" ? "GitHub" : service;
         const source = credsObj.source === "environment" ? "env" : credsObj.source;
         authServices.push(`${serviceName} (${source})`);
@@ -625,62 +626,62 @@ function formatResolvedConfiguration(resolved: any): string {
 
 function getBackendDisplayName(backend: string): string {
   switch (backend) {
-  case "markdown":
-    return "Markdown files (process/tasks.md)";
-  case "json-file":
-    return "JSON files";
-  case "github-issues":
-    return "GitHub Issues";
-  default:
-    return backend;
+    case "markdown":
+      return "Markdown files (process/tasks.md)";
+    case "json-file":
+      return "JSON files";
+    case "github-issues":
+      return "GitHub Issues";
+    default:
+      return backend;
   }
 }
 
 function getSessionBackendDisplayName(backend: string): string {
   switch (backend) {
-  case "json":
-    return "JSON files";
-  case "sqlite":
-    return "SQLite database";
-  case "postgres":
-    return "PostgreSQL database";
-  default:
-    return backend;
+    case "json":
+      return "JSON files";
+    case "sqlite":
+      return "SQLite database";
+    case "postgres":
+      return "PostgreSQL database";
+    default:
+      return backend;
   }
 }
 
 function formatDetectionCondition(condition: string): string {
   switch (condition) {
-  case "tasks_md_exists":
-    return "If process/tasks.md exists";
-  case "json_file_exists":
-    return "If JSON task files exist";
-  case "always":
-    return "As default fallback";
-  default:
-    return condition;
+    case "tasks_md_exists":
+      return "If process/tasks.md exists";
+    case "json_file_exists":
+      return "If JSON task files exist";
+    case "always":
+      return "As default fallback";
+    default:
+      return condition;
   }
 }
 
 function formatConfigSection(config: any): string {
-  if (!config || Object.keys(config as unknown).length === 0) {
+  if (!config || Object.keys(config).length === 0) {
     return "  (empty)";
   }
 
   let output = "";
-  for (const [key, value] of Object.entries(config as unknown)) {
-    if (Array.isArray(value as unknown)) {
+  for (const [key, value] of Object.entries(config)) {
+    if (Array.isArray(value)) {
       output += `  ${key}: (${value.length} items)\n`;
       value.forEach((item, index) => {
         if (typeof item === "object" && item !== null) {
-          output += `    ${index}: ${JSON.stringify(item as unknown)}\n`;
+          output += `    ${index}: ${JSON.stringify(item)}\n`;
         } else {
           output += `    ${index}: ${item}\n`;
         }
       });
     } else if (typeof value === "object" && value !== null) {
       output += `  ${key}:\n`;
-      for (const [subKey, subValue] of Object.entries(value as unknown)) {
+      for (const [subKey, subValue] of Object.entries(value)) {
         if (typeof subValue === "object" && subValue !== null) {
           // Special handling for credentials
           if (key === "credentials") {
@@ -718,21 +719,21 @@ function formatFlattenedConfiguration(resolved: any): string {
   const flatten = (obj: any, prefix = ""): string[] => {
     const result: string[] = [];
 
-    for (const [key, value] of Object.entries(obj as unknown)) {
+    for (const [key, value] of Object.entries(obj)) {
       const fullKey = prefix ? `${prefix}.${key}` : key;
 
       if (value === null || value === undefined) {
         result.push(`${fullKey}=(null)`);
-      } else if (typeof value === "object" && !Array.isArray(value as unknown)) {
+      } else if (typeof value === "object" && !Array.isArray(value)) {
         // Recursively flatten objects
-        result.push(...flatten(value as unknown, fullKey));
-      } else if (Array.isArray(value as unknown)) {
+        result.push(...flatten(value, fullKey));
+      } else if (Array.isArray(value)) {
         if (value.length === 0) {
           result.push(`${fullKey}=(empty array)`);
         } else {
           value.forEach((item, index) => {
             if (typeof item === "object") {
-              result.push(...flatten(item as unknown, `${fullKey}[${index}]`));
+              result.push(...flatten(item, `${fullKey}[${index}]`));
             } else {
               result.push(`${fullKey}[${index}]=${item}`);
             }
@@ -765,7 +766,7 @@ function flattenObjectToKeyValue(obj: any): any {
       for (const key of keys) {
         const fullKey = prefix ? `${prefix}.${key}` : key;
         if (typeof current[key] === "object" && current[key] !== null) {
-          flatten((current as unknown)[key], fullKey);
+          flatten(current[key], fullKey);
         } else {
           flattened[fullKey] = current[key];
         }
@@ -773,7 +774,7 @@ function flattenObjectToKeyValue(obj: any): any {
     }
   }
 
-  flatten(obj as unknown);
+  flatten(obj);
   return flattened;
 }
 
@@ -784,7 +785,7 @@ function flattenObjectToKeyValue(obj: any): any {
  */
 export function initializeCliCommands(program: Command, config?: Partial<CliFactoryConfig>): void {
   // Initialize the factory
-  cliFactory.initialize(config as unknown);
+  cliFactory.initialize(config);
 
   // Setup common customizations
   setupCommonCommandCustomizations(program);

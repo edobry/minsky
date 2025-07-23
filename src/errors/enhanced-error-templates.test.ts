@@ -1,6 +1,6 @@
 /**
  * Tests for Task 223 Enhanced Error Message Templates
- * 
+ *
  * This test suite verifies that the enhanced error messages provide clear,
  * actionable feedback for the specific error scenarios identified in Task 209.
  */
@@ -18,14 +18,10 @@ import {
 describe("Task 223 Enhanced Error Messages", () => {
   describe("createSessionPrBranchErrorMessage", () => {
     test("should create helpful error message for PR branch restriction", () => {
-      const result = createSessionPrBranchErrorMessage(
-        "pr/task-123-feature",
-        "task-123",
-        [
-          { label: "Current directory", value: "/Users/test/sessions/223" },
-          { label: "Current branch", value: "pr/task-123-feature" }
-        ]
-      );
+      const result = createSessionPrBranchErrorMessage("pr/task-123-feature", "task-123", [
+        { label: "Current directory", value: "/Users/test/sessions/223" },
+        { label: "Current branch", value: "pr/task-123-feature" },
+      ]);
 
       expect(result)!.toContain("Cannot Run Session PR from PR Branch");
       expect(result)!.toContain("pr/task-123-feature");
@@ -35,11 +31,7 @@ describe("Task 223 Enhanced Error Messages", () => {
     });
 
     test("should handle undefined session name gracefully", () => {
-      const result = createSessionPrBranchErrorMessage(
-        "pr/feature-branch",
-        undefined,
-        []
-      );
+      const result = createSessionPrBranchErrorMessage("pr/feature-branch", undefined, []);
 
       expect(result)!.toContain("Cannot Run Session PR from PR Branch");
       expect(result)!.toContain("pr/feature-branch");
@@ -47,14 +39,10 @@ describe("Task 223 Enhanced Error Messages", () => {
     });
 
     test("should include context information when provided", () => {
-      const result = createSessionPrBranchErrorMessage(
-        "pr/test",
-        "test-session",
-        [
-          { label: "Working directory", value: "/path/to/session" },
-          { label: "Git status", value: "clean" }
-        ]
-      );
+      const result = createSessionPrBranchErrorMessage("pr/test", "test-session", [
+        { label: "Working directory", value: "/path/to/session" },
+        { label: "Git status", value: "clean" },
+      ]);
 
       expect(result)!.toContain("Working directory: /path/to/session");
       expect(result)!.toContain("Git status: clean");
@@ -63,13 +51,10 @@ describe("Task 223 Enhanced Error Messages", () => {
 
   describe("createTaskIdParsingErrorMessage", () => {
     test("should show supported task ID formats", () => {
-      const result = createTaskIdParsingErrorMessage(
-        "invalid-task-id",
-        [
-          { label: "Operation", value: "get task" },
-          { label: "Input", value: "invalid-task-id" }
-        ]
-      );
+      const result = createTaskIdParsingErrorMessage("invalid-task-id", [
+        { label: "Operation", value: "get task" },
+        { label: "Input", value: "invalid-task-id" },
+      ]);
 
       expect(result)!.toContain("Invalid Task ID Format");
       expect(result)!.toContain("invalid-task-id");
@@ -84,13 +69,10 @@ describe("Task 223 Enhanced Error Messages", () => {
     });
 
     test("should include operation context", () => {
-      const result = createTaskIdParsingErrorMessage(
-        "xyz",
-        [
-          { label: "Operation", value: "set task status" },
-          { label: "Status", value: "DONE" }
-        ]
-      );
+      const result = createTaskIdParsingErrorMessage("xyz", [
+        { label: "Operation", value: "set task status" },
+        { label: "Status", value: "DONE" },
+      ]);
 
       expect(result)!.toContain("Operation: set task status");
       expect(result)!.toContain("Status: DONE");
@@ -131,7 +113,9 @@ describe("Task 223 Enhanced Error Messages", () => {
       expect(result)!.toContain("Variable Declaration/Usage Mismatch");
       expect(result)!.toContain("sessionName");
       expect(result)!.toContain("declared without underscore but used with underscore prefix");
-      expect(result)!.toContain("Add underscore to declaration (line 20) or remove from usage (line 25)");
+      expect(result)!.toContain(
+        "Add underscore to declaration (line 20) or remove from usage (line 25)"
+      );
     });
 
     test("should include file path and line numbers when provided", () => {
@@ -154,12 +138,7 @@ describe("Task 223 Enhanced Error Messages", () => {
 
   describe("createGitTimeoutErrorMessage", () => {
     test("should provide troubleshooting steps for git timeouts", () => {
-      const result = createGitTimeoutErrorMessage(
-        "fetch",
-        30000,
-        "/path/to/repo",
-        []
-      );
+      const result = createGitTimeoutErrorMessage("fetch", 30000, "/path/to/repo", []);
 
       expect(result)!.toContain("Git Operation Timeout");
       expect(result)!.toContain("Git fetch operation timed out after 30 seconds");
@@ -171,12 +150,9 @@ describe("Task 223 Enhanced Error Messages", () => {
     });
 
     test("should include timeout duration in context", () => {
-      const result = createGitTimeoutErrorMessage(
-        "clone",
-        120000,
-        "/path/to/repo",
-        [{ label: "Repository", value: "https://github.com/user/repo.git" }]
-      );
+      const result = createGitTimeoutErrorMessage("clone", 120000, "/path/to/repo", [
+        { label: "Repository", value: "https://github.com/user/repo.git" },
+      ]);
 
       expect(result)!.toContain("Timeout: 120 seconds");
       expect(result)!.toContain("Working directory: /path/to/repo");
@@ -190,7 +166,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const conflictTypes = {
         "src/file1.ts": "modify/modify" as const,
         "src/file2.ts": "add/add" as const,
-        "README.md": "delete/modify" as const
+        "README.md": "delete/modify" as const,
       };
 
       const result = createMergeConflictErrorMessage(
@@ -233,7 +209,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const availableBackends = ["markdown", "json-file", "github-issues"];
       const requirements = {
         "github-issues": ["GitHub token", "Repository access"],
-        "json-file": ["Write permissions"]
+        "json-file": ["Write permissions"],
       };
 
       const result = createBackendDetectionErrorMessage(
@@ -255,13 +231,7 @@ describe("Task 223 Enhanced Error Messages", () => {
     });
 
     test("should provide default backend list when no backends provided", () => {
-      const result = createBackendDetectionErrorMessage(
-        undefined,
-        [],
-        {},
-        "/workspace",
-        []
-      );
+      const result = createBackendDetectionErrorMessage(undefined, [], {}, "/workspace", []);
 
       expect(result)!.toContain("Failed to automatically detect appropriate task backend");
       expect(result)!.toContain("• markdown (default)");
@@ -287,10 +257,30 @@ describe("Task 223 Enhanced Error Messages", () => {
     test("should use consistent emoji patterns across all error types", () => {
       const sessionPrError = createSessionPrBranchErrorMessage("pr/test", "test", []);
       const taskIdError = createTaskIdParsingErrorMessage("invalid", []);
-      const variableError = createVariableNamingErrorMessage("var", "with_underscore", "without_underscore", "file.ts", 1, 2, []);
+      const variableError = createVariableNamingErrorMessage(
+        "var",
+        "with_underscore",
+        "without_underscore",
+        "file.ts",
+        1,
+        2,
+        []
+      );
       const gitError = createGitTimeoutErrorMessage("fetch", 30000, "/repo", []);
-      const mergeError = createMergeConflictErrorMessage("merge", ["file.txt"], { "file.txt": "modify/modify" }, "/repo", []);
-      const backendError = createBackendDetectionErrorMessage("test", ["markdown"], {}, "/workspace", []);
+      const mergeError = createMergeConflictErrorMessage(
+        "merge",
+        ["file.txt"],
+        { "file.txt": "modify/modify" },
+        "/repo",
+        []
+      );
+      const backendError = createBackendDetectionErrorMessage(
+        "test",
+        ["markdown"],
+        {},
+        "/workspace",
+        []
+      );
 
       // All error messages should have consistent formatting
       expect(sessionPrError)!.toMatch(/^🚫/);
@@ -303,11 +293,11 @@ describe("Task 223 Enhanced Error Messages", () => {
 
     test("should provide actionable command suggestions", () => {
       const error = createTaskIdParsingErrorMessage("xyz", []);
-      
+
       // Should contain specific commands users can run
       expect(error as Error).toMatch(/minsky tasks get \d+/);
       expect(error as Error).toMatch(/minsky tasks list/);
-      
+
       // Commands should be preceded by emojis for consistency
       const hasCommandEmoji = error.includes("⚡") && error.includes("minsky tasks");
       const hasListEmoji = error.includes("📋") && error.includes("minsky tasks");
@@ -318,7 +308,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const context = [
         { label: "File", value: "/path/to/file.ts" },
         { label: "Line", value: "42" },
-        { label: "Function", value: "processTask" }
+        { label: "Function", value: "processTask" },
       ];
 
       const error = createVariableNamingErrorMessage(
@@ -336,4 +326,4 @@ describe("Task 223 Enhanced Error Messages", () => {
       expect(error as Error).toContain("Function: processTask");
     });
   });
-}); 
+});

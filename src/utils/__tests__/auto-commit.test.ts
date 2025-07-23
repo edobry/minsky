@@ -18,4 +18,4 @@ describe("autoCommitTaskChanges", () => {
     const result = autoCommitTaskChanges("/tmp", "test commit");
     expect(result).toBeInstanceOf(Promise);
   });
-}); 
+});

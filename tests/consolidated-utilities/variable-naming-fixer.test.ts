@@ -250,10 +250,10 @@ function test(_param: unknown, _another: string) {
       console.log = originalLog;
 
       // Check that metrics were logged
-      const metricsLog = logs.find(log => log.includes("Variable Naming Fix Results"));
+      const metricsLog = logs.find((log) => log.includes("Variable Naming Fix Results"));
       expect(metricsLog).toBeDefined();
 
-      const fixesLog = logs.find(log => log.includes("Total fixes applied"));
+      const fixesLog = logs.find((log) => log.includes("Total fixes applied"));
       expect(fixesLog).toContain("2"); // Should have fixed 2 variables
     });
   });

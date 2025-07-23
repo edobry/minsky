@@ -28,7 +28,7 @@ export enum SemanticErrorCode {
 
   // Generic errors
   OPERATION_FAILED = "OPERATION_FAILED",
-  INVALID_INPUT = "INVALID_INPUT"
+  INVALID_INPUT = "INVALID_INPUT",
 }
 
 /**
@@ -46,14 +46,14 @@ export interface RecoveryAction {
  */
 export interface SemanticErrorResponse {
   success: false;
-  error: string;           // Human-readable message
+  error: string; // Human-readable message
   errorCode: SemanticErrorCode; // Semantic error type
-  reason?: string;         // Technical details
-  solutions: string[];     // Actionable recovery steps
-  retryable: boolean;      // Can operation be retried
+  reason?: string; // Technical details
+  solutions: string[]; // Actionable recovery steps
+  retryable: boolean; // Can operation be retried
   relatedTools?: string[]; // Tools that might help
-  path?: string;          // Affected file/directory path
-  session?: string;       // Session context if applicable
+  path?: string; // Affected file/directory path
+  session?: string; // Session context if applicable
 }
 
 /**
@@ -92,10 +92,10 @@ export const FILESYSTEM_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     solutions: [
       "Check the file path for typos",
       "Use file_search to locate the file",
-      "Create the file first if it should exist"
+      "Create the file first if it should exist",
     ],
     retryable: false,
-    relatedTools: ["file_search", "session_write_file"]
+    relatedTools: ["file_search", "session_write_file"],
   },
 
   ENOENT_DIR: {
@@ -104,10 +104,10 @@ export const FILESYSTEM_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     solutions: [
       "Set createDirs: true to auto-create directories",
       "Create parent directory first using create_directory tool",
-      "Check the directory path for typos"
+      "Check the directory path for typos",
     ],
     retryable: true,
-    relatedTools: ["session_create_directory"]
+    relatedTools: ["session_create_directory"],
   },
 
   EACCES: {
@@ -116,9 +116,9 @@ export const FILESYSTEM_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     solutions: [
       "Check file permissions and ownership",
       "Use a different path with write access",
-      "Run with appropriate permissions"
+      "Run with appropriate permissions",
     ],
-    retryable: false
+    retryable: false,
   },
 
   EEXIST: {
@@ -127,10 +127,10 @@ export const FILESYSTEM_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     solutions: [
       "Use a different file/directory name",
       "Delete the existing file first if replacement intended",
-      "Use force flag if available"
+      "Use force flag if available",
     ],
     retryable: false,
-    relatedTools: ["session_delete_file"]
+    relatedTools: ["session_delete_file"],
   },
 
   EINVAL: {
@@ -139,10 +139,10 @@ export const FILESYSTEM_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     solutions: [
       "Check path format and avoid special characters",
       "Use relative paths within session workspace",
-      "Ensure path separators are correct for the system"
+      "Ensure path separators are correct for the system",
     ],
-    retryable: false
-  }
+    retryable: false,
+  },
 };
 
 /**
@@ -155,10 +155,10 @@ export const SESSION_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     solutions: [
       "Use session_list to see available sessions",
       "Verify session name or ID",
-      "Create a new session if needed"
+      "Create a new session if needed",
     ],
     retryable: false,
-    relatedTools: ["session_list", "session_start"]
+    relatedTools: ["session_list", "session_start"],
   },
 
   SESSION_WORKSPACE_INVALID: {
@@ -167,11 +167,11 @@ export const SESSION_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     solutions: [
       "Check session status with session_inspect",
       "Recreate session if corrupted",
-      "Verify session directory permissions"
+      "Verify session directory permissions",
     ],
     retryable: false,
-    relatedTools: ["session_inspect", "session_start"]
-  }
+    relatedTools: ["session_inspect", "session_start"],
+  },
 };
 
 /**
@@ -184,10 +184,10 @@ export const GIT_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     solutions: [
       "Use conflict resolution flags",
       "Manually resolve conflicts first",
-      "Use git status to check current state"
+      "Use git status to check current state",
     ],
     retryable: true,
-    relatedTools: ["session_commit"]
+    relatedTools: ["session_commit"],
   },
 
   GIT_AUTH_FAILED: {
@@ -196,8 +196,8 @@ export const GIT_ERROR_MAPPINGS: Record<string, ErrorMapping> = {
     solutions: [
       "Check git credentials",
       "Set up SSH keys or personal access token",
-      "Verify repository access permissions"
+      "Verify repository access permissions",
     ],
-    retryable: true
-  }
+    retryable: true,
+  },
 };

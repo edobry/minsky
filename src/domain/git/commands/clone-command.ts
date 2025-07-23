@@ -15,22 +15,22 @@ export async function cloneFromParams(params: {
   branch?: string;
 }): Promise<CloneResult> {
   const gitService = createGitService();
-  
+
   const options: CloneOptions = {
     repoUrl: params.url,
     workdir: params.workdir,
     session: params.session,
     branch: params.branch,
   };
-  
+
   const result = await gitService.clone(options);
-  
-  log.info("Repository cloned successfully", { 
+
+  log.info("Repository cloned successfully", {
     url: params.url,
     workdir: result.workdir,
     session: result.session,
-    branch: params.branch 
+    branch: params.branch,
   });
-  
+
   return result;
-} 
+}

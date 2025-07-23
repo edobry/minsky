@@ -1,6 +1,6 @@
 /**
  * Project Configuration Source
- * 
+ *
  * Loads configuration from project-level configuration files that are committed
  * to the git repository. These provide project-specific defaults and overrides.
  */
@@ -15,7 +15,7 @@ import type { PartialConfiguration } from "../schemas";
  */
 export const projectConfigFiles = [
   "config/local.yaml",
-  "config/local.yml", 
+  "config/local.yml",
   "config/local.json",
   ".minsky/config.yaml",
   ".minsky/config.yml",
@@ -33,11 +33,11 @@ export function loadProjectConfiguration(workingDir?: string): Partial<PartialCo
   if (!projectRoot) {
     return {};
   }
-  
+
   // Try each configuration file in order
   for (const configFile of projectConfigFiles) {
     const configPath = join(projectRoot, configFile);
-    
+
     if (existsSync(configPath)) {
       try {
         const config = loadConfigFile(configPath);
@@ -50,7 +50,7 @@ export function loadProjectConfiguration(workingDir?: string): Partial<PartialCo
       }
     }
   }
-  
+
   return {};
 }
 
@@ -61,18 +61,18 @@ function loadConfigFile(filePath: string): any {
   try {
     const content = readFileSync(filePath, "utf8") as string;
     const extension = filePath.split(".").pop()?.toLowerCase();
-    
+
     switch (extension) {
-    case "json":
-      return JSON.parse(content);
-      
-    case "yaml":
-    case "yml":
-      return parse(content);
-      
-    default:
-      console.warn(`Warning: Unsupported config file format: ${extension}`);
-      return null;
+      case "json":
+        return JSON.parse(content);
+
+      case "yaml":
+      case "yml":
+        return parse(content);
+
+      default:
+        console.warn(`Warning: Unsupported config file format: ${extension}`);
+        return null;
     }
   } catch (error) {
     console.warn(`Warning: Failed to parse config file ${filePath}:`, error);
@@ -85,7 +85,7 @@ function loadConfigFile(filePath: string): any {
  */
 function findProjectRoot(startDir?: string): string | null {
   let currentDir = resolve(startDir || process.cwd());
-  
+
   // Look for project root indicators
   const rootIndicators = [
     "package.json",
@@ -95,21 +95,21 @@ function findProjectRoot(startDir?: string): string | null {
     "package-lock.json",
     "yarn.lock",
   ];
-  
+
   while (currentDir !== resolve(currentDir, "..")) {
     // Check if this directory contains any root indicators
-    const hasRootIndicator = rootIndicators.some(indicator => 
+    const hasRootIndicator = rootIndicators.some((indicator) =>
       existsSync(join(currentDir, indicator))
     );
-    
+
     if (hasRootIndicator) {
       return currentDir;
     }
-    
+
     // Move up one directory
     currentDir = resolve(currentDir, "..");
   }
-  
+
   return null;
 }
 
@@ -128,13 +128,13 @@ export function getProjectConfiguration(workingDir?: string): {
   const searchedPaths: string[] = [];
   let configFile: string | null = null;
   let config: any = {};
-  
+
   if (projectRoot) {
     // Try each configuration file and track searched paths
     for (const relativeConfigFile of projectConfigFiles) {
       const configPath = join(projectRoot, relativeConfigFile);
       searchedPaths.push(configPath);
-      
+
       if (existsSync(configPath)) {
         try {
           const loadedConfig = loadConfigFile(configPath);
@@ -149,7 +149,7 @@ export function getProjectConfiguration(workingDir?: string): {
       }
     }
   }
-  
+
   return {
     config,
     metadata: {
@@ -171,33 +171,33 @@ export function validateProjectConfigFile(filePath: string): {
   if (!existsSync(filePath)) {
     return { valid: false, error: "File does not exist" };
   }
-  
+
   try {
     const extension = filePath.split(".").pop()?.toLowerCase();
-    
+
     if (!["json", "yaml", "yml"].includes(extension || "")) {
       return { valid: false, error: `Unsupported file format: ${extension}` };
     }
-    
+
     const content = readFileSync(filePath, "utf8") as string;
-    
+
     switch (extension) {
-    case "json":
-      JSON.parse(content);
-      return { valid: true, format: "json" };
-      
-    case "yaml":
-    case "yml":
-      parse(content);
-      return { valid: true, format: "yaml" };
-      
-    default:
-      return { valid: false, error: `Unknown format: ${extension}` };
+      case "json":
+        JSON.parse(content);
+        return { valid: true, format: "json" };
+
+      case "yaml":
+      case "yml":
+        parse(content);
+        return { valid: true, format: "yaml" };
+
+      default:
+        return { valid: false, error: `Unknown format: ${extension}` };
     }
   } catch (error) {
-    return { 
-      valid: false, 
-      error: `Parse error: ${error instanceof Error ? error.message : String(error)}` 
+    return {
+      valid: false,
+      error: `Parse error: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }
@@ -206,15 +206,15 @@ export function validateProjectConfigFile(filePath: string): {
  * Create a project configuration file with default content
  */
 export function createProjectConfigFile(
-  projectRoot: string, 
+  projectRoot: string,
   config: PartialConfiguration,
   format: "json" | "yaml" = "yaml"
 ): string {
   const fileName = format === "json" ? "minsky.config.json" : "minsky.config.yaml";
   const filePath = join(projectRoot, fileName);
-  
+
   let content: string;
-  
+
   if (format === "json") {
     content = JSON.stringify(config, null, 2);
   } else {
@@ -224,7 +224,7 @@ export function createProjectConfigFile(
 
 ${objectToYaml(config)}`;
   }
-  
+
   return filePath;
 }
 
@@ -234,12 +234,12 @@ ${objectToYaml(config)}`;
 function objectToYaml(obj: any, indent: number = 0): string {
   const spaces = " ".repeat(indent);
   let result = "";
-  
+
   for (const [key, value] of Object.entries(obj)) {
     if (value === undefined || value === null) {
       continue;
     }
-    
+
     if (typeof value === "object" && !Array.isArray(value)) {
       result += `${spaces}${key}:\n`;
       result += objectToYaml(value, indent + 2);
@@ -257,7 +257,7 @@ function objectToYaml(obj: any, indent: number = 0): string {
       result += `${spaces}${key}: ${JSON.stringify(value)}\n`;
     }
   }
-  
+
   return result;
 }
 
@@ -266,7 +266,7 @@ function objectToYaml(obj: any, indent: number = 0): string {
  */
 export const projectSourceMetadata = {
   name: "project",
-  description: "Project-level configuration files", 
+  description: "Project-level configuration files",
   priority: 25, // Medium-low priority
   required: false,
-} as const; 
+} as const;

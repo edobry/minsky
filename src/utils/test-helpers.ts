@@ -35,10 +35,7 @@ export function mockExistsSync(path: string): boolean {
 }
 
 // Mock rmSync for testing (since rmSync is a newer Node.js API)
-export function mockRmSync(
-  path: string,
-  options?: { recursive?: boolean; force?: boolean }
-): void {
+export function mockRmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void {
   log.debug(`[MOCK] Removing ${path}`);
 
   // If recursive, remove all children first

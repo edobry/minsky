@@ -7,11 +7,13 @@ This PR extends the ConflictDetectionService to provide comprehensive conflict p
 ### Added
 
 - **Branch switching warnings**:
+
   - Detection of uncommitted changes that would conflict with target branch
   - Warnings before checkout when switching would cause conflicts
   - Suggested stash/commit strategies before branch operations
 
 - **Rebase conflict prediction**:
+
   - Simulation of rebase operations to detect conflicts before execution
   - Identification of problematic commits in rebase sequence
   - Complexity analysis and resolution time estimates
@@ -37,6 +39,7 @@ This PR extends the ConflictDetectionService to provide comprehensive conflict p
 ## Testing
 
 The implementation has been tested with various git operations including:
+
 - Branch switching with uncommitted changes
 - Rebase operations with conflicting commits
 - Merge operations with different conflict types

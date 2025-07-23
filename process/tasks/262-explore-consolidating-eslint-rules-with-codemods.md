@@ -211,7 +211,6 @@ Currently we have two parallel approaches for automated code fixes:
 3. Implement proof of concept for highest-overlap area
 4. Make data-driven decision on consolidation approach
 
-
 ## Requirements
 
 [To be filled in]

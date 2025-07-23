@@ -1,104 +1,91 @@
-import { describe, test, expect, mock } from "bun:test";
-import {
-  detectPackageManager,
-  getInstallCommand,
-  installDependencies,
-  type PackageManagerDependencies,
-} from "./package-manager";
+import { describe, test, expect, spyOn, beforeEach, afterEach, mock } from "bun:test";
+import * as fs from "fs";
+import * as childProcess from "child_process";
+
+// Mock the logger module
+mock.module("../logger.js", () => ({
+  log: {
+    debug: () => {},
+    error: () => {},
+    cliWarn: () => {},
+  },
+}));
+
+import { detectPackageManager, getInstallCommand, installDependencies } from "./package-manager";
 
 describe("Package Manager Utilities", () => {
+  // Mock fs.existsSync
+  let existsSyncMock = spyOn(fs, "existsSync");
+  // Mock childProcess.execSync
+  let execSyncMock = spyOn(childProcess, "execSync");
+
+  beforeEach(() => {
+    // Reset mocks before each test
+    existsSyncMock.mockReset();
+    execSyncMock.mockReset();
+  });
+
+  afterEach(() => {
+    // Reset mocks after each test
+    existsSyncMock.mockReset();
+    execSyncMock.mockReset();
+  });
+
   describe("detectPackageManager", () => {
     test("detects bun from bun.lock", () => {
-      const mockDeps: PackageManagerDependencies = {
-        fs: {
-          existsSync: mock((filepath: string) => {
-            return filepath.includes("bun.lock");
-          }),
-        },
-        process: {
-          execSync: mock(() => Buffer.from("Success")),
-        },
-      };
+      existsSyncMock = mock((filepath) => {
+        if (filepath.toString().includes("bun.lock")) return true;
+        return false;
+      });
 
-      const result = detectPackageManager("/fake/repo", mockDeps);
+      const result = detectPackageManager("/fake/repo");
       expect(result).toBe("bun");
     });
 
     test("detects yarn from yarn.lock", () => {
-      const mockDeps: PackageManagerDependencies = {
-        fs: {
-          existsSync: mock((filepath: string) => {
-            return filepath.includes("yarn.lock");
-          }),
-        },
-        process: {
-          execSync: mock(() => Buffer.from("Success")),
-        },
-      };
+      existsSyncMock = mock((filepath) => {
+        if (filepath.toString().includes("yarn.lock")) return true;
+        return false;
+      });
 
-      const result = detectPackageManager("/fake/repo", mockDeps);
+      const result = detectPackageManager("/fake/repo");
       expect(result).toBe("yarn");
     });
 
     test("detects pnpm from pnpm-lock.yaml", () => {
-      const mockDeps: PackageManagerDependencies = {
-        fs: {
-          existsSync: mock((filepath: string) => {
-            return filepath.includes("pnpm-lock.yaml");
-          }),
-        },
-        process: {
-          execSync: mock(() => Buffer.from("Success")),
-        },
-      };
+      existsSyncMock = mock((filepath) => {
+        if (filepath.toString().includes("pnpm-lock.yaml")) return true;
+        return false;
+      });
 
-      const result = detectPackageManager("/fake/repo", mockDeps);
+      const result = detectPackageManager("/fake/repo");
       expect(result).toBe("pnpm");
     });
 
     test("detects npm from package-lock.json", () => {
-      const mockDeps: PackageManagerDependencies = {
-        fs: {
-          existsSync: mock((filepath: string) => {
-            return filepath.includes("package-lock.json");
-          }),
-        },
-        process: {
-          execSync: mock(() => Buffer.from("Success")),
-        },
-      };
+      existsSyncMock = mock((filepath) => {
+        if (filepath.toString().includes("package-lock.json")) return true;
+        return false;
+      });
 
-      const result = detectPackageManager("/fake/repo", mockDeps);
+      const result = detectPackageManager("/fake/repo");
       expect(result).toBe("npm");
     });
 
     test("defaults to npm if only package.json exists", () => {
-      const mockDeps: PackageManagerDependencies = {
-        fs: {
-          existsSync: mock((filepath: string) => {
-            return filepath.includes("package.json");
-          }),
-        },
-        process: {
-          execSync: mock(() => Buffer.from("Success")),
-        },
-      };
+      existsSyncMock = mock((filepath) => {
+        if (filepath.toString().includes("package.json")) return true;
+        return false;
+      });
 
-      const result = detectPackageManager("/fake/repo", mockDeps);
+      const result = detectPackageManager("/fake/repo");
       expect(result).toBe("npm");
     });
 
     test("returns undefined if no package files exist", () => {
-      const mockDeps: PackageManagerDependencies = {
-        fs: {
-          existsSync: mock(() => false),
-        },
-        process: {
-          execSync: mock(() => Buffer.from("Success")),
-        },
-      };
+      existsSyncMock = mock(() => false);
 
-      const result = detectPackageManager("/fake/repo", mockDeps);
+      const result = detectPackageManager("/fake/repo");
       expect(result).toBeUndefined();
     });
   });
@@ -127,97 +114,82 @@ describe("Package Manager Utilities", () => {
 
   describe("installDependencies", () => {
     test("successfully installs dependencies", async () => {
-      const mockDeps: PackageManagerDependencies = {
-        fs: {
-          existsSync: mock((filepath: string) => {
-            return filepath.includes("package.json");
-          }),
-        },
-        process: {
-          execSync: mock(() => Buffer.from("Success")),
-        },
-        logger: {
-          debug: mock(() => {}),
-          error: mock(() => {}),
-        },
-      };
+      existsSyncMock = mock((filepath) => {
+        if (filepath.toString().includes("package.json")) return true;
+        return false;
+      });
 
-      const result = await installDependencies("/fake/repo", {}, mockDeps);
+      execSyncMock = mock(() => Buffer.from("Success"));
+
+      const result = await installDependencies("/fake/repo");
       expect(result.success).toBe(true);
-      expect(mockDeps.process.execSync).toHaveBeenCalledWith("npm install", {
+      expect(execSyncMock).toHaveBeenCalledWith("npm install", {
         cwd: "/fake/repo",
         stdio: "inherit",
       });
     });
 
     test("uses provided package manager if specified", async () => {
-      const mockDeps: PackageManagerDependencies = {
-        fs: {
-          existsSync: mock(() => true),
-        },
-        process: {
-          execSync: mock(() => Buffer.from("Success")),
-        },
-        logger: {
-          debug: mock(() => {}),
-          error: mock(() => {}),
-        },
-      };
+      execSyncMock = mock(() => Buffer.from("Success"));
 
-      const result = await installDependencies(
-        "/fake/repo",
-        { packageManager: "yarn" },
-        mockDeps
-      );
+      const result = await installDependencies("/fake/repo", {
+        packageManager: "bun",
+      });
+
       expect(result.success).toBe(true);
-      expect(mockDeps.process.execSync).toHaveBeenCalledWith("yarn", {
+      expect(execSyncMock).toHaveBeenCalledWith("bun install", {
         cwd: "/fake/repo",
         stdio: "inherit",
       });
     });
 
-    test("handles installation errors", async () => {
-      const mockDeps: PackageManagerDependencies = {
-        fs: {
-          existsSync: mock((filepath: string) => {
-            return filepath.includes("package.json");
-          }),
-        },
-        process: {
-          execSync: mock(() => {
-            throw new Error("Installation failed");
-          }),
-        },
-        logger: {
-          debug: mock(() => {}),
-          error: mock(() => {}),
-        },
-      };
+    test("handles no package manager detected", async () => {
+      existsSyncMock = mock(() => false);
 
-      const result = await installDependencies("/fake/repo", {}, mockDeps);
+      const result = await installDependencies("/fake/repo");
+
       expect(result.success).toBe(false);
-      expect(result.error).toContain("Installation failed");
+      expect(result.error).toBe("No package manager detected for this project");
+      expect(execSyncMock).not.toHaveBeenCalled();
+    });
+
+    test("handles unsupported package manager", async () => {
+      const result = await installDependencies("/fake/repo", {
+        packageManager: undefined,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("No package manager detected for this project");
+      expect(execSyncMock).not.toHaveBeenCalled();
+    });
+
+    test("handles installation errors", async () => {
+      existsSyncMock = mock((filepath) => {
+        if (filepath.toString().includes("package.json")) return true;
+        return false;
+      });
+
+      execSyncMock = mock(() => {
+        throw new Error("Installation failed");
+      });
+
+      const result = await installDependencies("/fake/repo");
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Installation failed");
     });
 
     test("respects quiet option for stdio", async () => {
-      const mockDeps: PackageManagerDependencies = {
-        fs: {
-          existsSync: mock((filepath: string) => {
-            return filepath.includes("package.json");
-          }),
-        },
-        process: {
-          execSync: mock(() => Buffer.from("Success")),
-        },
-        logger: {
-          debug: mock(() => {}),
-          error: mock(() => {}),
-        },
-      };
+      existsSyncMock = mock((filepath) => {
+        if (filepath.toString().includes("package.json")) return true;
+        return false;
+      });
 
-      const result = await installDependencies("/fake/repo", { quiet: true }, mockDeps);
-      expect(result.success).toBe(true);
-      expect(mockDeps.process.execSync).toHaveBeenCalledWith("npm install", {
+      execSyncMock = mock(() => Buffer.from("Success"));
+
+      await installDependencies("/fake/repo", { quiet: true });
+
+      expect(execSyncMock).toHaveBeenCalledWith("npm install", {
         cwd: "/fake/repo",
         stdio: "ignore",
       });

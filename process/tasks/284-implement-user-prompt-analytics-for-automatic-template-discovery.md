@@ -37,17 +37,20 @@ Users often repeat similar prompt patterns without realizing it, making it diffi
 ### Technical Requirements
 
 1. **Data Collection**
+
    - Capture user prompts from CLI interactions
    - Store interaction context (task IDs, session info, timestamps)
    - Configurable data retention policies
 
 2. **Embeddings and Similarity**
+
    - Generate embeddings for prompt text using appropriate models
    - Implement similarity search and clustering algorithms
    - Support for semantic similarity detection
    - Configurable similarity thresholds
 
 3. **Pattern Discovery**
+
    - Identify recurring prompt structures
    - Detect variable substitution opportunities (task IDs, paths, etc.)
    - Recognize common prompt prefixes/suffixes
@@ -62,12 +65,14 @@ Users often repeat similar prompt patterns without realizing it, making it diffi
 ### Analytics Features
 
 1. **Usage Metrics**
+
    - Most frequently used prompt patterns
    - Prompt complexity analysis
    - Time-based usage trends
    - User-specific pattern analysis
 
 2. **Template Opportunity Identification**
+
    - Prompts with high similarity but manual repetition
    - Common variable substitution patterns
    - Frequently modified prompt structures
@@ -84,6 +89,7 @@ Users often repeat similar prompt patterns without realizing it, making it diffi
 ### Phase 1: Data Collection Infrastructure
 
 1. **Prompt Capture System**
+
    - Add hooks to capture user prompts from CLI interactions
    - Implement storage backend for prompt data
    - Add privacy controls and user consent mechanisms
@@ -111,12 +117,14 @@ Users often repeat similar prompt patterns without realizing it, making it diffi
 ### Phase 2: Embeddings and Similarity
 
 1. **Embedding Generation**
+
    - Integrate with embedding models (OpenAI, local models, etc.)
    - Implement batch processing for efficient embedding generation
    - Cache embeddings to avoid recomputation
    - Handle embedding model versioning
 
 2. **Similarity Search**
+
    - Implement vector similarity search (cosine similarity, etc.)
    - Create clustering algorithms for grouping similar prompts
    - Add configurable similarity thresholds
@@ -131,6 +139,7 @@ Users often repeat similar prompt patterns without realizing it, making it diffi
 ### Phase 3: Template Discovery and Generation
 
 1. **Template Candidate Generation**
+
    - Analyze prompt clusters to extract templates
    - Automatically identify variable placeholders
    - Generate template metadata and descriptions
@@ -145,6 +154,7 @@ Users often repeat similar prompt patterns without realizing it, making it diffi
 ### Phase 4: Analytics and Insights
 
 1. **Analytics Dashboard**
+
    - Create CLI commands for viewing analytics
    - Implement usage metrics and reporting
    - Add template opportunity identification
@@ -185,7 +195,7 @@ analytics:
   enabled: true
   retention_days: 90
   embeddings:
-    provider: "openai"  # or "local", "huggingface"
+    provider: "openai" # or "local", "huggingface"
     model: "text-embedding-ada-002"
   similarity:
     threshold: 0.75
@@ -261,18 +271,21 @@ analytics:
 This prompt analytics system complements the Chain-of-Thought monitoring work in **Task #258** by providing data foundation for improved AI supervision:
 
 **Prompt Analytics → CoT Monitoring Flow:**
+
 1. **Pattern Discovery**: Identify frequently used prompt structures and problematic patterns
 2. **Embedding Reuse**: Share embedding models and similarity search infrastructure
 3. **Rule Enhancement**: Feed discovered patterns into `.cursor/rules` enhancement for real-time enforcement
 4. **Intervention Patterns**: Discover common user correction patterns that can inform automated interventions
 
 **Shared Technical Infrastructure:**
+
 - **Embeddings Pipeline**: Both systems use embeddings for semantic pattern matching
 - **Pattern Recognition**: Similar algorithms for detecting problematic vs. beneficial patterns
 - **Real-time Processing**: Analytics can inform real-time CoT monitoring decisions
 - **Rule Integration**: Both systems enhance existing `.cursor/rules` enforcement
 
 **Example Integration Scenarios:**
+
 - **Prohibited Pattern Detection**: Prompt analytics discovers user frequently corrects "linter error limit" mentions → feeds into CoT monitoring for real-time intervention
 - **Template Quality**: CoT monitoring tracks template usage success → feeds back into analytics for template ranking
 - **Correction Patterns**: Analytics discovers common user corrections → CoT system learns intervention patterns

@@ -36,7 +36,7 @@
  * - Could potentially modify strings within comments or unusual contexts
  * - Does not perform AST analysis for guaranteed accuracy
  * - May not handle all possible string escape sequences correctly
- * 
+ *
  * **STATUS**: This codemod appears to be non-functional due to regex issues
  */
 
@@ -67,18 +67,21 @@ for (const file of files) {
         const escaped = inner.replace(/"/g, '\\"');
         return `"${escaped}"`;
       },
-      description: "Convert single quotes to double quotes"
-    }
+      description: "Convert single quotes to double quotes",
+    },
   ];
 
   for (const fix of fixes) {
     const matches = Array.from(newContent.matchAll(fix.pattern));
     if (matches.length > 0) {
       const beforeReplace = newContent;
-      if (typeof fix.replacement === 'function') {
+      if (typeof fix.replacement === "function") {
         for (const match of matches.reverse()) {
           const replacement = fix.replacement(match[0]);
-          newContent = newContent.slice(0, match.index!) + replacement + newContent.slice(match.index! + match[0].length);
+          newContent =
+            newContent.slice(0, match.index!) +
+            replacement +
+            newContent.slice(match.index! + match[0].length);
         }
       } else {
         newContent = newContent.replace(fix.pattern, fix.replacement);
@@ -98,4 +101,4 @@ for (const file of files) {
   }
 }
 
-console.log(`\nTotal: ${totalChanges} changes across ${changedFiles.size} files`); 
+console.log(`\nTotal: ${totalChanges} changes across ${changedFiles.size} files`);

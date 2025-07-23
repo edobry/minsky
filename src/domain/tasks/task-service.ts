@@ -1,6 +1,6 @@
 /**
  * Task Service
- * 
+ *
  * Central service for task management operations.
  * Extracted from tasks.ts to improve modularity and maintainability.
  */
@@ -9,13 +9,13 @@ import { normalizeTaskId } from "./utils";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { MarkdownTaskBackend } from "./markdown-task-backend";
 import { GitHubTaskBackend } from "./github-task-backend";
-import type { 
-  TaskBackend, 
-  Task, 
-  TaskListOptions, 
-  CreateTaskOptions, 
+import type {
+  TaskBackend,
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
   DeleteTaskOptions,
-  TaskServiceOptions 
+  TaskServiceOptions,
 } from "./types";
 
 export class TaskService {
@@ -92,4 +92,4 @@ export class TaskService {
   async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
     return this.currentBackend.deleteTask(id, options);
   }
-} 
+}

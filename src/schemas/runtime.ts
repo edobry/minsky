@@ -1,6 +1,6 @@
 /**
  * Runtime Environment Schema Definitions
- * 
+ *
  * This module provides Zod schemas for validating runtime environment APIs,
  * replacing unsafe `Bun.argv` patterns with proper validation.
  */
@@ -80,12 +80,15 @@ export const execResultSchema = z.object({
 export const commandDefinitionSchema = z.object({
   name: z.string(),
   description: z.string(),
-  parameters: z.record(z.string(), z.object({
-    schema: z.any(), // Zod schema
-    required: z.boolean().optional(),
-    defaultValue: z.any().optional(),
-    description: z.string().optional(),
-  })),
+  parameters: z.record(
+    z.string(),
+    z.object({
+      schema: z.any(), // Zod schema
+      required: z.boolean().optional(),
+      defaultValue: z.any().optional(),
+      description: z.string().optional(),
+    })
+  ),
   category: z.string().optional(),
   handler: z.function().optional(),
 });
@@ -128,12 +131,14 @@ export const mcpCommandRequestSchema = z.object({
 export const mcpCommandResponseSchema = z.object({
   success: z.boolean(),
   result: z.any().optional(),
-  error: z.object({
-    message: z.string(),
-    type: z.string().optional(),
-    details: z.any().optional(),
-    stack: z.string().optional(),
-  }).optional(),
+  error: z
+    .object({
+      message: z.string(),
+      type: z.string().optional(),
+      details: z.any().optional(),
+      stack: z.string().optional(),
+    })
+    .optional(),
 });
 
 /**
@@ -157,11 +162,13 @@ export const zodParseResultSchema = z.union([
   z.object({
     success: z.literal(false),
     error: z.object({
-      errors: z.array(z.object({
-        message: z.string(),
-        code: z.string().optional(),
-        path: z.array(z.union([z.string(), z.number()])).optional(),
-      })),
+      errors: z.array(
+        z.object({
+          message: z.string(),
+          code: z.string().optional(),
+          path: z.array(z.union([z.string(), z.number()])).optional(),
+        })
+      ),
     }),
   }),
 ]);
@@ -187,25 +194,29 @@ export type ZodParseResult = z.infer<typeof zodParseResultSchema>;
  */
 export function validateBunRuntime(runtime: unknown): BunRuntime {
   const result = bunRuntimeSchema.safeParse(runtime);
-  
+
   if (result.success) {
     return result.data;
   }
-  
+
   // Fallback for minimal Bun runtime
   return {
-    argv: typeof runtime === "object" && runtime && "argv" in runtime && Array.isArray(runtime.argv) 
-      ? runtime.argv as string[]
-      : [],
-    version: typeof runtime === "object" && runtime && "version" in runtime 
-      ? String(runtime.version)
-      : "unknown",
-    revision: typeof runtime === "object" && runtime && "revision" in runtime 
-      ? String(runtime.revision)
-      : "unknown",
-    env: typeof runtime === "object" && runtime && "env" in runtime 
-      ? runtime.env as Record<string, string | undefined>
-      : {},
+    argv:
+      typeof runtime === "object" && runtime && "argv" in runtime && Array.isArray(runtime.argv)
+        ? (runtime.argv as string[])
+        : [],
+    version:
+      typeof runtime === "object" && runtime && "version" in runtime
+        ? String(runtime.version)
+        : "unknown",
+    revision:
+      typeof runtime === "object" && runtime && "revision" in runtime
+        ? String(runtime.revision)
+        : "unknown",
+    env:
+      typeof runtime === "object" && runtime && "env" in runtime
+        ? (runtime.env as Record<string, string | undefined>)
+        : {},
   };
 }
 
@@ -214,34 +225,37 @@ export function validateBunRuntime(runtime: unknown): BunRuntime {
  */
 export function validateProcess(proc: unknown): ProcessEnv {
   const result = processSchema.safeParse(proc);
-  
+
   if (result.success) {
     return result.data;
   }
-  
+
   // Fallback for minimal process object
   return {
-    argv: typeof proc === "object" && proc && "argv" in proc && Array.isArray(proc.argv) 
-      ? proc.argv as string[]
-      : [],
-    env: typeof proc === "object" && proc && "env" in proc 
-      ? proc.env as Record<string, string | undefined>
-      : {},
-    cwd: typeof proc === "object" && proc && "cwd" in proc && typeof proc.cwd === "function"
-      ? proc.cwd as () => string
-      : () => "/",
-    pid: typeof proc === "object" && proc && "pid" in proc && typeof proc.pid === "number"
-      ? proc.pid
-      : 0,
-    platform: typeof proc === "object" && proc && "platform" in proc 
-      ? String(proc.platform)
-      : "unknown",
-    version: typeof proc === "object" && proc && "version" in proc 
-      ? String(proc.version)
-      : "unknown",
-    versions: typeof proc === "object" && proc && "versions" in proc 
-      ? proc.versions as Record<string, string>
-      : {},
+    argv:
+      typeof proc === "object" && proc && "argv" in proc && Array.isArray(proc.argv)
+        ? (proc.argv as string[])
+        : [],
+    env:
+      typeof proc === "object" && proc && "env" in proc
+        ? (proc.env as Record<string, string | undefined>)
+        : {},
+    cwd:
+      typeof proc === "object" && proc && "cwd" in proc && typeof proc.cwd === "function"
+        ? (proc.cwd as () => string)
+        : () => "/",
+    pid:
+      typeof proc === "object" && proc && "pid" in proc && typeof proc.pid === "number"
+        ? proc.pid
+        : 0,
+    platform:
+      typeof proc === "object" && proc && "platform" in proc ? String(proc.platform) : "unknown",
+    version:
+      typeof proc === "object" && proc && "version" in proc ? String(proc.version) : "unknown",
+    versions:
+      typeof proc === "object" && proc && "versions" in proc
+        ? (proc.versions as Record<string, string>)
+        : {},
   };
 }
 
@@ -250,11 +264,11 @@ export function validateProcess(proc: unknown): ProcessEnv {
  */
 export function validateFileStats(stats: unknown): FileStats {
   const result = fileStatsSchema.safeParse(stats);
-  
+
   if (result.success) {
     return result.data;
   }
-  
+
   // This is a complex fallback - in practice, fs.statSync should return valid stats
   // We'll throw if validation fails since this indicates a serious runtime issue
   throw new Error("Invalid file stats object received from fs.statSync");
@@ -265,16 +279,16 @@ export function validateFileStats(stats: unknown): FileStats {
  */
 export function validateDirectoryContents(contents: unknown): DirectoryContents {
   const result = directoryContentsSchema.safeParse(contents);
-  
+
   if (result.success) {
     return result.data;
   }
-  
+
   // Fallback for non-array contents
   if (Array.isArray(contents)) {
-    return contents.map(item => String(item));
+    return contents.map((item) => String(item));
   }
-  
+
   return [];
 }
 
@@ -283,21 +297,17 @@ export function validateDirectoryContents(contents: unknown): DirectoryContents 
  */
 export function validateExecResult(result: unknown): ExecResult {
   const parsed = execResultSchema.safeParse(result);
-  
+
   if (parsed.success) {
     return parsed.data;
   }
-  
+
   // Fallback for minimal exec result
   return {
-    stdout: typeof result === "object" && result && "stdout" in result 
-      ? String(result.stdout)
-      : "",
-    stderr: typeof result === "object" && result && "stderr" in result 
-      ? String(result.stderr)
-      : "",
+    stdout: typeof result === "object" && result && "stdout" in result ? String(result.stdout) : "",
+    stderr: typeof result === "object" && result && "stderr" in result ? String(result.stderr) : "",
   };
-} 
+}
 
 /**
  * Validate command definition from unknown source
@@ -307,18 +317,20 @@ export function validateCommandDefinition(def: unknown): CommandDefinition {
   if (result.success) {
     return result.data;
   }
-  
+
   // Create a fallback object with required fields if validation fails
   if (typeof def === "object" && def !== null) {
     const obj = def as Record<string, unknown>;
     return {
       name: typeof obj.name === "string" ? obj.name : "unknown",
       description: typeof obj.description === "string" ? obj.description : "No description",
-      parameters: typeof obj.parameters === "object" && obj.parameters !== null ? 
-        obj.parameters as Record<string, any> : {},
+      parameters:
+        typeof obj.parameters === "object" && obj.parameters !== null
+          ? (obj.parameters as Record<string, any>)
+          : {},
     };
   }
-  
+
   throw new Error(`Invalid command definition: ${result.error?.message}`);
 }
 
@@ -330,7 +342,7 @@ export function validateCommandRegistry(registry: unknown): CommandRegistry {
   if (result.success) {
     return result.data;
   }
-  
+
   throw new Error(`Invalid command registry: ${result.error?.message}`);
 }
 
@@ -342,10 +354,10 @@ export function validateCliOptions(options: unknown): CliOptions {
   if (result.success) {
     return result.data;
   }
-  
+
   // Return empty object if validation fails
   return {};
-} 
+}
 
 /**
  * Validate MCP command request
@@ -355,7 +367,7 @@ export function validateMcpCommandRequest(request: unknown): McpCommandRequest {
   if (result.success) {
     return result.data;
   }
-  
+
   throw new Error(`Invalid MCP command request: ${result.error.message}`);
 }
 
@@ -367,7 +379,7 @@ export function validateParameterDefinition(paramDef: unknown): ParameterDefinit
   if (result.success) {
     return result.data;
   }
-  
+
   // Create fallback with minimal schema
   return {
     schema: z.any(),
@@ -383,7 +395,7 @@ export function validateZodParseResult(parseResult: unknown): ZodParseResult {
   if (result.success) {
     return result.data;
   }
-  
+
   // Return failure result if validation fails
   return {
     success: false,
@@ -391,4 +403,4 @@ export function validateZodParseResult(parseResult: unknown): ZodParseResult {
       errors: [{ message: "Invalid parse result structure" }],
     },
   };
-} 
+}

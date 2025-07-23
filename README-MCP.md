@@ -30,6 +30,54 @@ minsky mcp start --with-inspector
 minsky mcp start --with-inspector --inspector-port 7000
 ```
 
+## CLI Commands for MCP Interaction
+
+Minsky provides convenient CLI commands for interacting with your MCP server:
+
+### List Available Tools
+
+```bash
+# List all available MCP tools
+minsky mcp tools
+
+# List tools for a specific repository
+minsky mcp tools --repo /path/to/repository
+```
+
+### Call MCP Tools
+
+```bash
+# Call a tool without arguments
+minsky mcp call tasks.list
+
+# Call a tool with arguments
+minsky mcp call tasks.list --arg filter=TODO
+
+# Call a tool with multiple arguments
+minsky mcp call session.start --arg name=my-session --arg task=#123
+
+# Call with repository context
+minsky mcp call tasks.list --repo /path/to/repository --arg filter=IN-PROGRESS
+```
+
+### Advanced MCP Inspection
+
+```bash
+# List resources
+minsky mcp inspect --method resources/list
+
+# List prompts
+minsky mcp inspect --method prompts/list
+
+# Call tools with custom arguments
+minsky mcp inspect --method tools/call --arg tool-name=tasks.get --arg tool-arg=taskId=#123
+
+# Use with specific repository
+minsky mcp inspect --method tools/list --repo /path/to/repository
+```
+
+These commands provide a convenient CLI interface that wraps the MCP Inspector's CLI mode, allowing you to interact with your MCP server directly from the command line without needing to remember the underlying `npx @modelcontextprotocol/inspector` syntax.
+
 ## Transport Options
 
 The Minsky MCP server supports multiple transport mechanisms:

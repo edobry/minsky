@@ -30,10 +30,8 @@ export function generateResolutionStrategies(
         type: "automatic",
         description: "Accept deletions (recommended for removed files)",
         commands: [
-          ...conflictFiles
-            .filter((f) => f.deletionInfo)
-            .map((f) => `git rm ${f.path}`),
-          "git commit -m \"resolve conflicts: accept file deletions\"",
+          ...conflictFiles.filter((f) => f.deletionInfo).map((f) => `git rm ${f.path}`),
+          'git commit -m "resolve conflicts: accept file deletions"',
         ],
         riskLevel: "low",
       });
@@ -48,7 +46,7 @@ export function generateResolutionStrategies(
       "git status",
       "# Edit conflicted files to resolve <<<<<<< ======= >>>>>>> markers",
       "git add .",
-      "git commit -m \"resolve merge conflicts\"",
+      'git commit -m "resolve merge conflicts"',
     ],
     riskLevel: "medium",
   });
@@ -65,11 +63,9 @@ export function generateUserGuidance(
   conflictFiles: ConflictFile[]
 ): string {
   switch (conflictType) {
-  case ConflictType.DELETE_MODIFY: {
-    const deletedFiles = conflictFiles
-      .filter((f) => f.deletionInfo)
-      .map((f) => f.path);
-    return `
+    case ConflictType.DELETE_MODIFY: {
+      const deletedFiles = conflictFiles.filter((f) => f.deletionInfo).map((f) => f.path);
+      return `
 🗑️  Deleted file conflicts detected
 
 Files deleted in main branch but modified in your session:
@@ -80,14 +76,12 @@ The files were removed for a reason (likely part of refactoring or cleanup).
 
 Recommended action: Accept the deletions and remove your changes to these files.
         `.trim();
-  }
-  case ConflictType.CONTENT_CONFLICT:
-    return `
+    }
+    case ConflictType.CONTENT_CONFLICT:
+      return `
 ✏️  Content conflicts detected
 
-${
-  conflictFiles.length
-} file(s) have conflicting changes between your session and main branch.
+${conflictFiles.length} file(s) have conflicting changes between your session and main branch.
 These require manual resolution by editing the files and choosing which changes to keep.
 
 📋 Next Steps:
@@ -108,19 +102,19 @@ Look for conflict markers:
   >>>>>>> main (main branch changes)
         `.trim();
 
-  case ConflictType.ALREADY_MERGED:
-    return `
+    case ConflictType.ALREADY_MERGED:
+      return `
 ✅ Changes already merged
 
 Your session changes appear to already be present in the main branch.
 You can skip the update step and proceed directly to PR creation.
         `.trim();
 
-  default:
-    return `
+    default:
+      return `
 ⚠️  Conflicts detected
 
 Manual resolution is required. Please review the conflicted files and resolve them manually.
         `.trim();
   }
-} 
+}

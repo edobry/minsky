@@ -4,7 +4,7 @@ const TEST_VALUE = 123;
  * Tests for interface-agnostic task functions
  * @migrated Migrated to native Bun patterns
  */
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import {
   listTasksFromParams,
   getTaskFromParams,
@@ -23,61 +23,62 @@ const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
 // Set up automatic mock cleanup
 setupTestMocks();
 
-// Mock task data
+// Mock dependencies
 const mockTask: Task = {
-  id: "#123",
+  id: "#TEST_VALUE",
   title: "Test Task",
-  description: "Test Description",
   status: TASK_STATUS.TODO,
-  specPath: "process/tasks/123.md",
+  description: "This is a test task",
 };
 
-const mockTaskService = createMockTaskService({
-  getTaskStatus: () => Promise.resolve(TASK_STATUS.TODO),
-  mockGetTask: (id: unknown) => {
-    const taskId = id as string;
-    if (taskId === "#123" || taskId === "123") {
-      return Promise.resolve(mockTask);
-    }
-    return Promise.resolve(null);
-  },
-  setTaskStatus: mock(() => Promise.resolve()),
-  listTasks: () => Promise.resolve([mockTask]),
-});
+// Create a default implementation for getTask that works for all tests
+const defaultGetTaskMock = (id: unknown) => Promise.resolve(id === "#TEST_VALUE" ? mockTask : null);
 
-// Create completely isolated mock dependencies that bypass all real systems
+const mockTaskService = {
+  listTasks: createMock(() => Promise.resolve([mockTask])),
+  getTask: createMock(defaultGetTaskMock),
+  getTaskStatus: createMock((id: unknown) =>
+    Promise.resolve(id === "#TEST_VALUE" ? TASK_STATUS.TODO : null)
+  ),
+  setTaskStatus: createMock(() => Promise.resolve()),
+  backends: [],
+  currentBackend: {},
+  getWorkspacePath: createMock(() => "/mock/workspace/path"),
+  createTask: createMock((_specPath: unknown) => Promise.resolve({ ...mockTask, id: "#new" })),
+};
+
 const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
-const mockResolveTaskWorkspacePath = createMock(() => Promise.resolve("/mock/task/workspace/path"));
+const mockResolveMainWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
+const mockCreateTaskService = createMock(() => mockTaskService);
 
-// Create a mock createTaskService that returns our mockTaskService without any configuration calls
-const mockCreateTaskService = createMock((options: any) => {
-  // Return the pre-configured mock task service directly
-  // This completely bypasses createConfiguredTaskService and the configuration system
-  return Promise.resolve(mockTaskService);
-});
-
-// Type assertion for mock dependencies - ensuring we never call real functions
+// Type assertion for mock dependencies
 const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
-  resolveTaskWorkspacePath: mockResolveTaskWorkspacePath,
+  resolveMainWorkspacePath: mockResolveMainWorkspacePath,
   createTaskService: mockCreateTaskService,
+  resolveTaskWorkspacePath: createMock(() => Promise.resolve("/mock/task/workspace/path")),
 } as any; // Cast to any to avoid TypeScript errors with the deps parameter
 
 describe("interface-agnostic task functions", () => {
-  // TEMPORARILY SKIPPED: These tests are causing infinite loops due to complex dependency injection issues
-  // TODO: Fix infinite loop in task command dependencies (Task #276)
-  
-  describe.skip("listTasksFromParams", () => {
+  // No beforeEach needed - setupTestMocks() handles automatic cleanup after each test
+
+  describe("listTasksFromParams", () => {
     test("should list tasks with valid parameters", async () => {
       const params = {
-        all: true,
+        filter: TASK_STATUS.TODO,
         backend: "markdown",
+        all: false,
       };
 
       const result = await listTasksFromParams(params, mockDeps);
 
       expect(result).toEqual([mockTask]);
-      // Note: mock call verification depends on internal implementation details
+      expect(mockResolveMainWorkspacePath.mock.calls.length > 0).toBe(true);
+      expect(mockCreateTaskService).toHaveBeenCalledWith({
+        workspacePath: "/mock/workspace/path",
+        backend: "markdown",
+      });
+      expect(mockTaskService.listTasks).toHaveBeenCalledWith();
     });
 
     test("should filter out DONE tasks when all is false", async () => {
@@ -85,7 +86,8 @@ describe("interface-agnostic task functions", () => {
         Promise.resolve([
           { ...mockTask, status: TASK_STATUS.TODO },
           { ...mockTask, id: "#124", status: TASK_STATUS.DONE },
-        ]));
+        ])
+      );
 
       const params = { all: false };
 
@@ -96,17 +98,17 @@ describe("interface-agnostic task functions", () => {
     });
   });
 
-  describe.skip("getTaskFromParams", () => {
+  describe("getTaskFromParams", () => {
     test("should get a task with valid parameters", async () => {
       const params = {
-        taskId: "#123",
+        taskId: "#TEST_VALUE",
         backend: "markdown",
       };
 
       const result = await getTaskFromParams(params, mockDeps);
 
       expect(result).toEqual(mockTask);
-      expect(mockTaskService.getTask).toHaveBeenCalledWith("#123");
+      expect(mockTaskService.getTask).toHaveBeenCalledWith("#TEST_VALUE");
     });
 
     test("should throw ResourceNotFoundError when task is not found", async () => {
@@ -123,27 +125,28 @@ describe("interface-agnostic task functions", () => {
       }
     });
 
-    test("should normalize non-canonical task IDs (e.g., '123' -> '#123')", async () => {
+    test("should normalize non-canonical task IDs (e.g., 'TEST_VALUE' -> '#TEST_VALUE')", async () => {
       const params = {
-        taskId: "123", // non-canonical, missing '#'
+        taskId: "TEST_VALUE", // non-canonical, missing '#'
         backend: "markdown",
       };
 
       const result = await getTaskFromParams(params, mockDeps);
 
       expect(result).toEqual(mockTask);
-      expect(mockTaskService.getTask).toHaveBeenCalledWith("#123");
+      expect(mockTaskService.getTask).toHaveBeenCalledWith("#TEST_VALUE");
     });
 
     test("should handle task IDs without leading zeros", async () => {
       // Modify mock implementation to return task with ID 'TEST_VALUE' for both '#TEST_VALUE' and '#23'
       // This simulates the updated MarkdownTaskBackend.getTask behavior
-      mockTaskService.getTask = mock((id: unknown) =>
+      mockTaskService.getTask = mock((id) =>
         Promise.resolve(
-          parseInt((id as string).replace(/^#/, ""), 10) === TASK_ID_WITHOUT_LEADING_ZEROS
+          parseInt(id.replace(/^#/, ""), 10) === TASK_ID_WITHOUT_LEADING_ZEROS
             ? { ...mockTask, id: "#023" }
             : null
-        ));
+        )
+      );
 
       const params = {
         taskId: "23", // without leading zeros
@@ -157,17 +160,17 @@ describe("interface-agnostic task functions", () => {
     });
   });
 
-  describe.skip("getTaskStatusFromParams", () => {
+  describe("getTaskStatusFromParams", () => {
     test("should get task status with valid parameters", async () => {
       const params = {
-        taskId: "#123",
+        taskId: "#TEST_VALUE",
         backend: "markdown",
       };
 
       const result = await getTaskStatusFromParams(params, mockDeps);
 
-      expect(result).toEqual(TASK_STATUS.TODO);
-      expect(mockTaskService.getTaskStatus).toHaveBeenCalledWith("#123");
+      expect(result).toBe(TASK_STATUS.TODO);
+      expect(mockTaskService.getTask).toHaveBeenCalledWith("#TEST_VALUE");
     });
 
     test("should throw ResourceNotFoundError when task status is not found", async () => {
@@ -185,17 +188,23 @@ describe("interface-agnostic task functions", () => {
     });
   });
 
-  describe.skip("setTaskStatusFromParams", () => {
+  describe("setTaskStatusFromParams", () => {
     test("should set task status with valid parameters", async () => {
+      // Reset getTask mock to its default implementation for this test
+      mockTaskService.getTask = mock(defaultGetTaskMock);
+
       const params = {
-        taskId: "#123",
+        taskId: "#TEST_VALUE",
         status: TASK_STATUS.IN_PROGRESS,
         backend: "markdown",
       };
 
       await setTaskStatusFromParams(params, mockDeps);
 
-      expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", TASK_STATUS.IN_PROGRESS);
+      expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith(
+        "#TEST_VALUE",
+        TASK_STATUS.IN_PROGRESS
+      );
     });
 
     test("should throw ValidationError when status is invalid", async () => {

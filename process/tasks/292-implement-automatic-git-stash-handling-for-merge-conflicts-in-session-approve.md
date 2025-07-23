@@ -35,16 +35,19 @@ Explore and implement automatic `git stash` handling in the session approve work
 ## Implementation Considerations
 
 ### Stashing Strategy Options
+
 - **Conservative**: Always stash before merge, restore after
 - **Smart**: Only stash if merge would fail, selective restoration
 - **Interactive**: Prompt user for stash decisions
 
 ### Conflict Resolution
+
 - Handle cases where restoring stashed changes creates new conflicts
 - Provide guidance for manual conflict resolution
 - Consider leaving stashed changes for manual handling in complex cases
 
 ### Integration Points
+
 - Session approve workflow (`minsky session approve`)
 - Git merge operations in session management
 - Error handling in git commands

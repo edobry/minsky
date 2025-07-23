@@ -44,7 +44,7 @@ type NewSessionRecord = typeof sessionsTable.$inferInsert;
  * SQLite storage implementation using Drizzle ORM with Bun's native driver
  */
 export class SqliteStorage<TEntity extends Record<string, any>, TState>
-implements DatabaseStorage<TEntity, TState>
+  implements DatabaseStorage<TEntity, TState>
 {
   private db: Database | null = null;
   private drizzleDb: ReturnType<typeof drizzle> | null = null;
@@ -122,7 +122,9 @@ implements DatabaseStorage<TEntity, TState>
       // and possibly other fields like baseDir
       const state = {
         sessions,
-        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky`,
+        baseDir: process.env.XDG_STATE_HOME
+          ? `${process.env.XDG_STATE_HOME}/minsky`
+          : `${process.env.HOME}/.local/state/minsky`,
       };
 
       return { success: true, data: state };
@@ -181,7 +183,8 @@ implements DatabaseStorage<TEntity, TState>
       const result = await this.drizzleDb
         .select()
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id)).limit(1);
+        .where(eq(sessionsTable.session, id))
+        .limit(1);
 
       return (result[0] as TEntity) || null;
     } catch (error) {
@@ -289,7 +292,8 @@ implements DatabaseStorage<TEntity, TState>
 
       await this.drizzleDb
         .update(sessionsTable)
-        .set(updateData).where(eq(sessionsTable.session, id));
+        .set(updateData)
+        .where(eq(sessionsTable.session, id));
 
       // Return updated entity
       return { ...existing, ...updates };
@@ -325,7 +329,8 @@ implements DatabaseStorage<TEntity, TState>
       const result = await this.drizzleDb
         .select({ count: sessionsTable.session })
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id)).limit(1);
+        .where(eq(sessionsTable.session, id))
+        .limit(1);
 
       return result.length > 0;
     } catch (error) {

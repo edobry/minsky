@@ -21,8 +21,9 @@ The configuration audit revealed significant inconsistencies in how configuratio
 ### Phase 1: Critical Storage and Session Fixes
 
 1. **Centralize Path Resolution**
+
    - Extend `src/utils/paths.ts` with all path utilities
-   - Replace all direct `process.env.HOME/.local/state` access  
+   - Replace all direct `process.env.HOME/.local/state` access
    - Fix typo: `XDGSTATE_HOME` → `XDG_STATE_HOME`
    - Update these critical files:
      - `src/adapters/shared/commands/sessiondb.ts`
@@ -30,6 +31,7 @@ The configuration audit revealed significant inconsistencies in how configuratio
      - `src/domain/session/session-adapter.ts`
 
 2. **Standardize Configuration Loading**
+
    - All components MUST use `configurationService.loadConfiguration()`
    - Remove direct `config.get()` calls outside configuration system
    - Fix `src/domain/tasks/taskService.ts` to use ConfigurationService not direct node-config
@@ -43,6 +45,7 @@ The configuration audit revealed significant inconsistencies in how configuratio
 ### Phase 2: Environment Variable Cleanup
 
 1. **Audit All Process.env Access**
+
    - Replace direct `process.env` access in session-related files
    - Channel environment variables through configuration system
    - Add proper fallbacks and validation
@@ -63,6 +66,7 @@ The configuration audit revealed significant inconsistencies in how configuratio
 ## Success Criteria
 
 ### Phase 1 Completion Criteria
+
 - [x] All components use `configurationService.loadConfiguration()`
 - [x] No direct `process.env.HOME/.local/state` access in critical files
 - [x] No hardcoded `session-db.json` or `sessions.db` paths
@@ -71,12 +75,14 @@ The configuration audit revealed significant inconsistencies in how configuratio
 - [ ] All tests pass after changes
 
 ### Phase 2 Completion Criteria
+
 - [ ] All environment variables channeled through config system
 - [ ] Database backend selection consistent across all commands
 - [ ] Session commands use unified configuration loading
 - [ ] No direct `process.env` access except in utils/configuration layers
 
 ### Phase 3 Completion Criteria
+
 - [x] Configuration schema defined and validated
 - [x] Runtime configuration validation implemented
 - [x] Comprehensive error messages for misconfigurations
@@ -85,11 +91,13 @@ The configuration audit revealed significant inconsistencies in how configuratio
 ## Testing Requirements
 
 1. **Configuration Integration Tests**
+
    - Test all configuration sources work together
    - Verify precedence order (CLI > env > user > repo > defaults)
    - Test with missing configuration files
 
 2. **Path Resolution Tests**
+
    - Test XDG_STATE_HOME variations
    - Test HOME directory edge cases
    - Verify consistent behavior across OS
@@ -110,6 +118,7 @@ The configuration audit revealed significant inconsistencies in how configuratio
 ## Files to Update (Priority Order)
 
 ### Critical (Phase 1)
+
 1. `src/utils/paths.ts` - Extend with centralized path utilities
 2. `src/adapters/shared/commands/sessiondb.ts` - Replace hardcoded paths
 3. `src/domain/session/session-db-io.ts` - Use centralized path resolution
@@ -117,12 +126,14 @@ The configuration audit revealed significant inconsistencies in how configuratio
 5. `src/domain/tasks/taskService.ts` - Use ConfigurationService not direct node-config
 
 ### Important (Phase 2)
+
 6. All storage backend files - Consistent configuration loading
 7. `src/utils/logger.ts` - Use configuration for log mode
 8. All session-related commands - Consistent backend detection
 9. Test files - Use proper configuration mocking
 
 ### Future (Phase 3)
+
 10. Configuration schema definition
 11. Runtime validation implementation
 12. Documentation generation
@@ -132,14 +143,16 @@ The configuration audit revealed significant inconsistencies in how configuratio
 ### ✅ Phase 1: Completed (Commit 5ef1f11f)
 
 **Critical Configuration Fixes:**
+
 - **Fixed `src/domain/session/session-adapter.ts`**: Replaced hardcoded XDG_STATE_HOME paths with `getDefaultJsonDbPath()` and `getMinskyStateDir()`
 - **Fixed `src/domain/storage/storage-backend-factory.ts`**: Added centralized path utilities import, replaced hardcoded paths in `getDefaultStorageConfig()` and `createStorageBackend()`
 - **Fixed `src/domain/tasks/taskService.ts`**: Removed unused direct node-config import (already using ConfigurationService properly)
 - **Fixed `src/domain/workspace.ts`**: Replaced 3 instances of hardcoded XDG_STATE_HOME paths with `getSessionsDir()`
-- **Fixed `src/domain/session.ts`**: Replaced hardcoded session directory path with `getSessionDir(sessionName)`  
+- **Fixed `src/domain/session.ts`**: Replaced hardcoded session directory path with `getSessionDir(sessionName)`
 - **Fixed `src/domain/git.ts`**: Replaced hardcoded baseDir path with `getMinskyStateDir()`
 
 **Centralized Path Utilities Now Used:**
+
 - All critical components now use functions from `src/utils/paths.ts`
 - No more direct `process.env.XDG_STATE_HOME` access in core files
 - No more hardcoded `.local/state/minsky` paths
@@ -148,6 +161,7 @@ The configuration audit revealed significant inconsistencies in how configuratio
 ### 🔄 Phase 2: In Progress - Environment Variable Cleanup
 
 **Priority Files Identified:**
+
 - `src/domain/storage/enhanced-storage-backend-factory.ts` - 3 hardcoded XDG_STATE_HOME instances
 - `src/utils/logger.ts` - Direct MINSKY_LOG_MODE access
 - `src/domain/session.ts` - 1 remaining XDG_STATE_HOME instance (line 345)
@@ -165,6 +179,7 @@ The configuration audit revealed significant inconsistencies in how configuratio
 **Key Validation Features Implemented:**
 
 1. **SessionDB Configuration Validation:**
+
    - Backend type validation (json, sqlite, postgres)
    - SQLite path validation with existence and permission checking
    - PostgreSQL connection string format validation
@@ -172,6 +187,7 @@ The configuration audit revealed significant inconsistencies in how configuratio
    - Missing configuration warnings and error handling
 
 2. **AI Configuration Validation:**
+
    - Provider validation (openai, anthropic, google, cohere, mistral)
    - Credential source validation (environment, file, prompt)
    - Model parameter validation (max_tokens: >0, temperature: 0-2)
@@ -179,6 +195,7 @@ The configuration audit revealed significant inconsistencies in how configuratio
    - Provider-specific configuration validation
 
 3. **Enhanced Path Validation:**
+
    - File path existence and permission checking
    - Directory validation with read/write permissions
    - Environment variable expansion validation
@@ -186,6 +203,7 @@ The configuration audit revealed significant inconsistencies in how configuratio
    - Invalid character detection and security validation
 
 4. **Connection String Validation:**
+
    - PostgreSQL connection string format validation using regex
    - Security warnings for plain-text credentials in connection strings
    - Comprehensive error messages with expected format examples
@@ -217,7 +235,7 @@ The configuration audit revealed significant inconsistencies in how configuratio
 **Documentation Delivered:**
 
 - [x] Create configuration precedence guide (node-config vs environment variables)
-- [x] Write migration guide for transitioning from hardcoded paths  
+- [x] Write migration guide for transitioning from hardcoded paths
 - [x] Document all validation error codes and their meanings
 - [x] Create configuration examples and best practices guide
 

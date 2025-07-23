@@ -5,11 +5,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import type {
-  ConfigurationProvider,
-  ConfigurationFactory,
-  ConfigurationOverrides,
-} from "./index";
+import type { ConfigurationProvider, ConfigurationFactory, ConfigurationOverrides } from "./index";
 import {
   CustomConfigFactory,
   createTestProvider,
@@ -21,31 +17,13 @@ import {
 
 describe("Custom Configuration System", () => {
   let provider: ConfigurationProvider;
-  let originalGlobalProvider: any;
 
   beforeEach(async () => {
-    // Store original global state
-    try {
-      originalGlobalProvider = getConfiguration();
-    } catch {
-      originalGlobalProvider = null;
-    }
-
-    // Create provider with the expected overrides for the test suite
-    provider = await createTestProvider({
-      backend: "json-file",
-      sessiondb: {
-        backend: "sqlite",
-        dbPath: "/tmp/test.db"
-      }
-    });
+    provider = await createTestProvider({});
   });
 
-  afterEach(async () => {
-    // Reset global configuration state to prevent test pollution
-    if (originalGlobalProvider) {
-      await initializeConfiguration(new CustomConfigFactory());
-    }
+  afterEach(() => {
+    // Reset global configuration state if needed
   });
 
   describe("CustomConfigurationProvider", () => {
@@ -118,11 +96,11 @@ describe("Custom Configuration System", () => {
     test("should support configuration overrides", async () => {
       const factory = new CustomConfigFactory();
       await initializeConfiguration(factory, {
-        overrides: { backend: "github-issues" }
+        overrides: { backend: "custom-override" },
       });
 
       const config = getConfiguration();
-      expect(config.backend).toBe("github-issues");
+      expect(config.backend).toBe("custom-override");
     });
   });
 
@@ -186,12 +164,12 @@ describe("Custom Configuration System", () => {
     test("should create provider with custom options", async () => {
       const factory = new CustomConfigFactory();
       const provider = await factory.createProvider({
-        overrides: { backend: "markdown" },
-        enableCache: false
+        overrides: { backend: "test-backend" },
+        enableCache: false,
       });
 
       const config = provider.getConfig();
-      expect(config.backend).toBe("markdown");
+      expect(config.backend).toBe("test-backend");
     });
   });
 });

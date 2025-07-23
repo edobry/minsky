@@ -14,12 +14,12 @@ let mockExecAsync = mock(() => mockExecAsyncImpl());
 // Override the imports with mocks
 mock.module("../../utils/git-exec", () => ({
   execGitWithTimeout: mockExecGitWithTimeout,
-  gitFetchWithTimeout: mockGitFetchWithTimeout
+  gitFetchWithTimeout: mockGitFetchWithTimeout,
 }));
 
 // Mock the exec utility that conflict detection actually uses
 mock.module("../../utils/exec", () => ({
-  execAsync: mockExecAsync
+  execAsync: mockExecAsync,
 }));
 
 mock.module("../../utils/logger", () => ({
@@ -27,8 +27,8 @@ mock.module("../../utils/logger", () => ({
     debug: mock(() => {}),
     info: mock(() => {}),
     warn: mock(() => {}),
-    error: mock(() => {})
-  }
+    error: mock(() => {}),
+  },
 }));
 
 describe("ConflictDetectionService", () => {
@@ -69,7 +69,9 @@ describe("ConflictDetectionService", () => {
       };
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
-        testRepoPath, sessionBranch, baseBranch
+        testRepoPath,
+        sessionBranch,
+        baseBranch
       );
 
       expect(result).toEqual({
@@ -80,7 +82,7 @@ describe("ConflictDetectionService", () => {
         lastCommonCommit: "abc123",
         divergenceType: "ahead",
         sessionChangesInBase: false,
-        recommendedAction: "none"
+        recommendedAction: "none",
       });
     });
 
@@ -108,7 +110,9 @@ describe("ConflictDetectionService", () => {
       };
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
-        testRepoPath, sessionBranch, baseBranch
+        testRepoPath,
+        sessionBranch,
+        baseBranch
       );
 
       expect(result.sessionChangesInBase).toBe(true);
@@ -130,7 +134,9 @@ describe("ConflictDetectionService", () => {
       };
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
-        testRepoPath, sessionBranch, baseBranch
+        testRepoPath,
+        sessionBranch,
+        baseBranch
       );
 
       expect(result.divergenceType).toBe("behind");
@@ -152,7 +158,9 @@ describe("ConflictDetectionService", () => {
       };
 
       const result = await ConflictDetectionService.analyzeBranchDivergence(
-        testRepoPath, sessionBranch, baseBranch
+        testRepoPath,
+        sessionBranch,
+        baseBranch
       );
 
       expect(result.divergenceType).toBe("diverged");
@@ -185,11 +193,13 @@ describe("ConflictDetectionService", () => {
       };
 
       const result = await ConflictDetectionService.predictConflicts(
-        testRepoPath, sessionBranch, baseBranch
+        testRepoPath,
+        sessionBranch,
+        baseBranch
       );
 
       expect(result.hasConflicts).toBe(false);
       expect(result.conflictType).toBe(ConflictType.ALREADY_MERGED);
     });
   });
-}); 
+});

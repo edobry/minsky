@@ -77,66 +77,84 @@ describe("Git Commands Integration Tests", () => {
     // Set up proper temporary directory management
     fsCleanup = new FileSystemTestCleanup();
     tempWorkdir = fsCleanup.createTempDir("git-test-workdir");
-      
+
     // Reset all mocks
     mockExecAsync.mockReset();
     mockCreateGitService.mockReset();
     mockSessionProvider.getSession.mockReset();
-      
+
     // Set up mock GitService to return our mocked instance
     mockCreateGitService = mock(() => mockGitService);
-      
+
     // Set up successful mock responses for git operations
-    mockGitService.clone = mock(() => Promise.resolve({
-      workdir: tempWorkdir,
-      session: "test-session",
-      repoPath: tempWorkdir,
-    }));
-      
-    mockGitService.createBranch = mock(() => Promise.resolve({
-      success: true,
-      branchName: "feature-branch",
-    }));
-      
-    mockGitService.commitChanges = mock(() => Promise.resolve({
-      success: true,
-      commitHash: "abc123",
-    }));
-      
-    mockGitService.push = mock(() => Promise.resolve({
-      success: true,
-      pushed: true,
-    }));
-      
-    mockGitService.merge = mock(() => Promise.resolve({
-      success: true,
-      merged: true,
-    }));
-      
-    mockGitService.checkout = mock(() => Promise.resolve({
-      success: true,
-      branch: "feature-branch",
-    }));
-      
-    mockGitService.rebase = mock(() => Promise.resolve({
-      success: true,
-      rebased: true,
-    }));
-      
-    mockGitService.createPullRequest = mock(() => Promise.resolve({
-      success: true,
-      prUrl: "https://github.com/test/repo/pull/1",
-    }));
-      
+    mockGitService.clone = mock(() =>
+      Promise.resolve({
+        workdir: tempWorkdir,
+        session: "test-session",
+        repoPath: tempWorkdir,
+      })
+    );
+
+    mockGitService.createBranch = mock(() =>
+      Promise.resolve({
+        success: true,
+        branchName: "feature-branch",
+      })
+    );
+
+    mockGitService.commitChanges = mock(() =>
+      Promise.resolve({
+        success: true,
+        commitHash: "abc123",
+      })
+    );
+
+    mockGitService.push = mock(() =>
+      Promise.resolve({
+        success: true,
+        pushed: true,
+      })
+    );
+
+    mockGitService.merge = mock(() =>
+      Promise.resolve({
+        success: true,
+        merged: true,
+      })
+    );
+
+    mockGitService.checkout = mock(() =>
+      Promise.resolve({
+        success: true,
+        branch: "feature-branch",
+      })
+    );
+
+    mockGitService.rebase = mock(() =>
+      Promise.resolve({
+        success: true,
+        rebased: true,
+      })
+    );
+
+    mockGitService.createPullRequest = mock(() =>
+      Promise.resolve({
+        success: true,
+        prUrl: "https://github.com/test/repo/pull/1",
+      })
+    );
+
     mockGitService.getSessionWorkdir = mock(() => tempWorkdir);
-      
+
     // Mock session provider responses
-    mockSessionProvider.getSession = mock(() => Promise.resolve({
-      session: "test-session",
-      repoPath: tempWorkdir,
-      taskId: "#123",
-    }));
-      
+    mockSessionProvider.getSession = mock(() =>
+      Promise.resolve({
+        session: "test-session",
+        repoPath: tempWorkdir,
+        taskId: "#123",
+      })
+    );
+
     // Mock execAsync for any direct usage
     mockExecAsync = mock((command: string) => {
       return Promise.resolve({
@@ -156,7 +174,7 @@ describe("Git Commands Integration Tests", () => {
       const params = {
         url: "https://github.com/test/repo.git",
         workdir: tempWorkdir,
-        session: "test-session"
+        session: "test-session",
       };
 
       // Updated: Test expects error due to real git execution constraints
@@ -168,10 +186,10 @@ describe("Git Commands Integration Tests", () => {
     test("should create branch successfully", async () => {
       const params = {
         session: "test-session",
-        name: "feature-branch"
+        name: "feature-branch",
       };
 
-      // Updated: Test expects error due to storage backend issues  
+      // Updated: Test expects error due to storage backend issues
       await expect(branchFromParams(params)).rejects.toThrow(); // Updated to match actual service behavior
     });
   });
@@ -189,7 +207,7 @@ describe("Git Commands Integration Tests", () => {
       const params = {
         repo: tempWorkdir,
         message: "Test commit",
-        all: true
+        all: true,
       };
 
       // Updated: Test expects error due to git repository constraints
@@ -201,7 +219,7 @@ describe("Git Commands Integration Tests", () => {
     test("should push changes successfully", async () => {
       const params = {
         repo: tempWorkdir,
-        remote: "origin"
+        remote: "origin",
       };
 
       // Updated: Test expects error due to git repository constraints
@@ -214,7 +232,7 @@ describe("Git Commands Integration Tests", () => {
       const params = {
         repo: tempWorkdir,
         sourceBranch: "feature-branch",
-        targetBranch: "main"
+        targetBranch: "main",
       };
 
       // Updated: Test expects error due to git repository constraints
@@ -226,7 +244,7 @@ describe("Git Commands Integration Tests", () => {
     test("should checkout branch successfully", async () => {
       const params = {
         branch: "main",
-        repo: tempWorkdir
+        repo: tempWorkdir,
       };
 
       // Updated: Test expects error due to git repository constraints
@@ -238,7 +256,7 @@ describe("Git Commands Integration Tests", () => {
     test("should rebase changes successfully", async () => {
       const params = {
         baseBranch: "main",
-        repo: tempWorkdir
+        repo: tempWorkdir,
       };
 
       // Updated: Test expects error due to git repository constraints
@@ -263,7 +281,7 @@ describe("Git Commands Integration Tests", () => {
 
       const params = {
         repo: tempWorkdir,
-        branch: "feature-branch"
+        branch: "feature-branch",
       };
 
       const result = await createPullRequestFromParams(params);
@@ -295,11 +313,13 @@ describe("Git Commands Integration Tests", () => {
       });
 
       // Updated: Test expects error due to git repository constraints in workflow
-      await expect(cloneFromParams({
-        url: "https://github.com/test/repo.git",
-        workdir: tempWorkdir,
-        session: "test-session"
-      })).rejects.toThrow("Failed to clone git repository"); // Updated to match actual service behavior
+      await expect(
+        cloneFromParams({
+          url: "https://github.com/test/repo.git",
+          workdir: tempWorkdir,
+          session: "test-session",
+        })
+      ).rejects.toThrow("Failed to clone git repository"); // Updated to match actual service behavior
     });
   });
-}); 
+});

@@ -1,19 +1,20 @@
 import {
+  ResourceNotFoundError,
   ValidationError,
-} from "../../errors/index";
-import { taskIdSchema } from "../../schemas/common";
-import {
-  type SessionDeleteParams,
-  type SessionListParams,
-  type SessionDirParams,
-  type SessionGetParams,
-} from "../../schemas/session";
-import { resolveSessionContextWithFeedback } from "./session-context-resolver";
-import { getCurrentSessionContext } from "../workspace";
-import {
-  createSessionProvider,
-  type SessionProviderInterface,
-} from "./session-db-adapter";
+} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/errors/index";
+import { taskIdSchema } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/common";
+import type {
+  SessionGetParams,
+  SessionListParams,
+  SessionDeleteParams,
+  SessionDirParams,
+} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/session";
+import { resolveSessionContextWithFeedback } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session/session-context-resolver";
+import { getCurrentSessionContext } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/workspace";
+import type {
+  SessionProviderInterface,
+  Session,
+} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
 
 /**
  * Gets session details based on parameters
@@ -21,11 +22,11 @@ import {
  * Now includes auto-detection capabilities via unified session context resolver
  */
 export async function getSessionImpl(
-  params: { name: string; task: string; repo: string },
+  params: SessionGetParams,
   deps: {
     sessionDB: SessionProviderInterface;
   }
-): Promise<any | null> {
+): Promise<Session | null> {
   const { name, task, repo } = params;
 
   try {
@@ -43,7 +44,7 @@ export async function getSessionImpl(
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
-      throw new Error(
+      throw new ResourceNotFoundError(
         "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
@@ -60,7 +61,7 @@ export async function listSessionsImpl(
   deps: {
     sessionDB: SessionProviderInterface;
   }
-): Promise<any[]> {
+): Promise<Session[]> {
   return deps.sessionDB.listSessions();
 }
 
@@ -91,7 +92,7 @@ export async function deleteSessionImpl(
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
-      throw new Error(
+      throw new ResourceNotFoundError(
         "No session detected. Please provide a session name (--name), task ID (--task), or run this command from within a session workspace."
       );
     }
@@ -117,14 +118,14 @@ export async function getSessionDirImpl(
     const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
 
     if (!session) {
-      throw new Error(`No session found for task ID "${normalizedTaskId}"`);
+      throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
     }
 
     sessionName = session.session;
   } else if (params.name) {
     sessionName = params.name;
   } else {
-    throw new Error(`🚫 Session Directory: Missing Required Parameter
+    throw new ResourceNotFoundError(`🚫 Session Directory: Missing Required Parameter
 
 You must provide either a session name or task ID to get the session directory.
 
@@ -146,7 +147,7 @@ You must provide either a session name or task ID to get the session directory.
   const session = await deps.sessionDB.getSession(sessionName);
 
   if (!session) {
-    throw new Error(`Session "${sessionName}" not found`);
+    throw new ResourceNotFoundError(`Session "${sessionName}" not found`);
   }
 
   // Get repo path from session using the getRepoPath method which has fallback logic
@@ -159,19 +160,19 @@ You must provide either a session name or task ID to get the session directory.
  * Inspects current session based on workspace location
  */
 export async function inspectSessionImpl(
-  _params: SessionGetParams,
+  _params: { json?: boolean },
   deps: {
     sessionDB: SessionProviderInterface;
   }
-): Promise<any | null> {
+): Promise<Session | null> {
   // Auto-detect the current session from the workspace
   const context = await getCurrentSessionContext(process.cwd());
 
   if (!context?.sessionId) {
-    throw new Error("No session detected for the current workspace");
+    throw new ResourceNotFoundError("No session detected for the current workspace");
   }
 
   const session = await deps.sessionDB.getSession(context.sessionId);
 
   return session;
-} 
+}

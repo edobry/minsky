@@ -31,7 +31,7 @@ export interface PrDependencies {
 }
 
 export async function prWithDependenciesImpl(
-  options: PrOptions, 
+  options: PrOptions,
   deps: PrDependencies
 ): Promise<PrResult> {
   await deps.ensureBaseDir();
@@ -48,8 +48,12 @@ export async function prWithDependenciesImpl(
     log.debug(`Using branch: ${branch}`);
   }
 
-  const { baseBranch, mergeBase, comparisonDescription } =
-    await determineBaseBranchAndMergeBase(workdir, branch, options, deps);
+  const { baseBranch, mergeBase, comparisonDescription } = await determineBaseBranchAndMergeBase(
+    workdir,
+    branch,
+    options,
+    deps
+  );
 
   if (options.debug) {
     log.debug(`Using merge base: ${mergeBase}`);
@@ -194,9 +198,7 @@ async function findBaseBranch(
 
   // Check if master exists
   try {
-    await deps.execAsync(
-      `git -C ${workdir} show-ref --verify refs/remotes/origin/master`
-    );
+    await deps.execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/master`);
     log.debug("Using master as base branch");
     return "master";
   } catch (err) {
@@ -238,9 +240,7 @@ async function determineBaseBranchAndMergeBase(
 
     // If merge-base fails, get the first commit of the branch
     try {
-      const { stdout } = await deps.execAsync(
-        `git -C ${workdir} rev-list --max-parents=0 HEAD`
-      );
+      const { stdout } = await deps.execAsync(`git -C ${workdir} rev-list --max-parents=0 HEAD`);
       mergeBase = stdout.trim();
       comparisonDescription = "Showing changes from first commit";
       log.debug("Using first commit as base", { mergeBase });
@@ -277,8 +277,7 @@ async function generatePrMarkdown(
 
   // Check if we have any working directory changes
   const hasWorkingDirChanges =
-    untrackedFiles.trim().length > 0 ||
-    uncommittedChanges.trim().length > 0;
+    untrackedFiles.trim().length > 0 || uncommittedChanges.trim().length > 0;
 
   return buildPrMarkdown(
     branch,
@@ -411,10 +410,7 @@ async function collectRepositoryData(
   );
 
   // Get working directory changes
-  const { uncommittedChanges, untrackedFiles } = await getWorkingDirectoryChanges(
-    workdir,
-    deps
-  );
+  const { uncommittedChanges, untrackedFiles } = await getWorkingDirectoryChanges(workdir, deps);
 
   // Get changes stats
   const stats = await getChangeStats(
@@ -561,4 +557,4 @@ async function getChangeStats(
   }
 
   return stats;
-} 
+}

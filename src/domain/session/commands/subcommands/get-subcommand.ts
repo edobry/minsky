@@ -37,7 +37,11 @@ export const sessionGetCommandParams: CommandParameterMap = {
  * Execute the session get command
  */
 export async function executeSessionGetCommand(
-  parameters: { [K in keyof typeof sessionGetCommandParams]: z.infer<typeof sessionGetCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof sessionGetCommandParams]: z.infer<
+      (typeof sessionGetCommandParams)[K]["schema"]
+    >;
+  },
   context: CommandExecutionContext
 ): Promise<any> {
   const { name, task, repo, json } = parameters;
