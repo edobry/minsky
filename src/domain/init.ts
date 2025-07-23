@@ -187,8 +187,16 @@ async function generateRulesWithTemplateSystem(
     outputDir: rulesDirPath
   };
   
-  // Generate the core workflow rules
-  const selectedRules = ["minsky-workflow", "index"];
+  // Generate the comprehensive core workflow rules
+  const selectedRules = [
+    "minsky-workflow",
+    "index", 
+    "minsky-workflow-orchestrator",
+    "task-implementation-workflow",
+    "minsky-session-management", 
+    "task-status-protocol",
+    "pr-preparation-workflow"
+  ];
   if (mcpEnabled) {
     selectedRules.push("mcp-usage");
   }

@@ -2,11 +2,99 @@
 
 ## Status
 
-BACKLOG
+IN-PROGRESS
 
 ## Priority
 
 MEDIUM
+
+## Current Implementation Status
+
+### ✅ COMPLETED PHASES (Major Progress)
+
+**Template System Infrastructure**: Complete and fully functional
+
+#### ✅ Phase 1: Investigation and Architecture (COMPLETED)
+- ✅ Analyzed existing rules for CLI command patterns
+- ✅ Created comprehensive CLI-to-MCP command mapping via CommandGeneratorService
+- ✅ Extracted rule generation logic from init domain to rules domain
+- ✅ Identified and implemented template variable system
+
+#### ✅ Phase 2: Rules Domain Enhancement (COMPLETED)
+- ✅ Moved rule generation logic to `src/domain/rules/rule-template-service.ts`
+- ✅ Created `RuleTemplateService` class with template registry and management
+- ✅ Implemented template literal evaluation system with helpers
+- ✅ Added configuration-driven content generation
+- ✅ Created template composition patterns
+
+#### ✅ Phase 3: Template Conversion (COMPLETED)
+- ✅ Created 8 comprehensive workflow templates:
+  - `minsky-workflow` - Basic workflow template
+  - `minsky-workflow-orchestrator` - High-level workflow overview  
+  - `task-implementation-workflow` - Complete task implementation process
+  - `minsky-session-management` - Session creation and management
+  - `task-status-protocol` - Status management procedures
+  - `pr-preparation-workflow` - PR creation and management
+  - `index` - Rules navigation and overview
+  - `mcp-usage` - MCP protocol guidelines
+
+#### ✅ Phase 4: Rules Generation Command (COMPLETED)
+- ✅ Implemented `minsky rules generate` command with all options
+- ✅ Added interface preference configuration (CLI/MCP/hybrid)
+- ✅ Implemented rule selection, filtering, dry-run, overwrite options
+- ✅ Added comprehensive error handling and validation
+- ✅ Created 18-test comprehensive test suite (all passing)
+
+#### ✅ Phase 5: Init Command Integration (COMPLETED)
+- ✅ Updated init command to use template system
+- ✅ Configured rule generation based on init parameters
+- ✅ Maintained backward compatibility
+- ✅ Init now generates 7 core workflow rules from templates
+
+### ✅ CORE FUNCTIONALITY ACHIEVED
+
+**Dynamic CLI/MCP Command Generation**: Fully working
+- ✅ **CLI Mode**: Generates `minsky tasks list [options]` syntax
+- ✅ **MCP Mode**: Generates `<invoke name="mcp_minsky-server_tasks_list">` XML format  
+- ✅ **Hybrid Mode**: Selects appropriate format based on configuration
+- ✅ **Template Helpers**: Conditional sections, command conversion, parameter docs
+
+### ⚠️ REMAINING WORK (Minor Issues)
+
+#### ⚠️ Template Formatting Cleanup (IN-PROGRESS)
+**Current Issue**: Some templates generate malformed markdown
+
+1. **Double Code Blocks** ❌
+   - Some templates still generate nested ```bash blocks
+   - Example: `\`\`\`bash\n\`\`\`bash\ncommand\n\`\`\`\n\`\`\``
+   - Root cause: `helpers.codeBlock()` used inside existing code blocks
+
+2. **Specific Fixes Needed** ❌
+   - ❌ Fix remaining MCP usage template examples
+   - ❌ Remove incorrect `helpers.codeBlock()` calls from templates
+   - ❌ Verify all templates generate clean markdown without nesting issues
+
+#### ⚠️ Final Validation (PENDING)
+1. **Complete End-to-End Testing** ❌
+   - ❌ Test full init workflow with all 7 generated rules
+   - ❌ Verify generated rules work properly in cursor/AI environments
+   - ❌ Validate rule functionality matches original static rules
+
+2. **Cleanup and Documentation** ❌  
+   - ❌ Remove deprecated static rule generation functions
+   - ❌ Update documentation to reflect template-based generation
+   - ❌ Add troubleshooting guide for template issues
+
+### 🎯 SUCCESS CRITERIA STATUS
+
+- ✅ **Template system infrastructure complete and robust**
+- ✅ **Rules conditionally reference CLI commands or MCP tools based on configuration**
+- ✅ **`minsky rules generate` command successfully generates and installs rules**
+- ✅ **Init command integrates with template system maintaining backward compatibility**
+- ⚠️ **Generated rules maintain effectiveness** (needs validation testing)
+- ✅ **Template system supports all current rule types and metadata**
+- ✅ **Comprehensive test coverage for template generation** (18/18 tests passing)
+- ❌ **Clean template formatting** (double code blocks issue)
 
 ## Description
 
@@ -283,14 +371,31 @@ const commandMappings = {
 
 ## Success Criteria
 
-- [ ] All existing rule content can be generated via template system
-- [ ] Rules can conditionally reference CLI commands or MCP tools based on configuration
-- [ ] `minsky rules generate` command successfully generates and installs rules
-- [ ] Init command integrates with new template system maintaining backward compatibility
-- [ ] Generated rules maintain the same effectiveness as current static rules
-- [ ] Template system supports all current rule types and metadata
-- [ ] Comprehensive test coverage for template generation and rule installation
-- [ ] Documentation clearly explains template system and generation options
+- [x] **All existing rule content can be generated via template system** ✅
+  - 8 comprehensive templates covering all core workflows
+  - Template system handles YAML frontmatter and markdown content generation
+- [x] **Rules can conditionally reference CLI commands or MCP tools based on configuration** ✅
+  - CLI mode: `minsky tasks list [options]`
+  - MCP mode: `<invoke name="mcp_minsky-server_tasks_list">`
+  - Hybrid mode with intelligent selection
+- [x] **`minsky rules generate` command successfully generates and installs rules** ✅
+  - Full CLI implementation with all options (interface, rules, dry-run, overwrite, etc.)
+  - Comprehensive error handling and validation
+- [x] **Init command integrates with new template system maintaining backward compatibility** ✅
+  - Init now generates 7 core workflow rules from templates
+  - Maintains all existing functionality while using template system
+- [ ] **Generated rules maintain the same effectiveness as current static rules** ⚠️
+  - Template functionality works, but needs end-to-end validation testing
+  - Minor formatting issues need cleanup (double code blocks)
+- [x] **Template system supports all current rule types and metadata** ✅
+  - Full YAML frontmatter support (name, description, tags, globs, etc.)
+  - Flexible content generation with helper functions
+- [x] **Comprehensive test coverage for template generation and rule installation** ✅
+  - 18/18 tests passing covering all functionality
+  - Template registration, generation, configuration presets, file operations
+- [ ] **Documentation clearly explains template system and generation options** ❌
+  - Implementation complete but documentation needs updating
+  - Need troubleshooting guide for template formatting issues
 
 ## Future Enhancements
 
