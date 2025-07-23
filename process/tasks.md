@@ -552,7 +552,7 @@
 
 - [ ] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
 
-- [+] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
+- [-] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
 
 - [ ] Implement External Task Database for Metadata Storage [#315](process/tasks/315-implement-external-task-database-for-metadata-storage.md)
 
