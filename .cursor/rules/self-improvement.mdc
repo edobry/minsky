@@ -465,3 +465,10 @@ Assistant: [searches for task specification, finds it in special workspace, inve
 1. Stop creating separate status files immediately
 2. Update task specification file directly with current status
 3. Remove any incorrectly created status documents
+
+**Violation Pattern**: Incomplete implementation when user gives specific instructions
+**User Signal**: "the issue is that you stopped before you were done"
+**Required Response**:
+1. Stop making excuses immediately
+2. Update relevant rule with complete implementation requirements
+3. Then finish the implementation as specifically requested by user

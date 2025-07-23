@@ -36,7 +36,7 @@ export {
 } from "./tasks-modular";
 
 // Export all modular task command components for full access
-export * from "./tasks";
+export * from "./tasks/";
 
 // Export for backward compatibility
 export { ModularTasksCommandManager as TasksCommandManager };
