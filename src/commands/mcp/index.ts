@@ -18,6 +18,8 @@ import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launc
 import { createProjectContext } from "../../types/project";
 import { exit } from "../../utils/process";
 import express from "express";
+import { spawn } from "child_process";
+import { promisify } from "util";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -28,6 +30,60 @@ const INSPECTOR_PORT = 5173;
 // Note: These imports are made dynamic to avoid loading issues during CLI initialization
 // import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
+
+/**
+ * Execute the MCP inspector CLI with the given arguments
+ * @param args Arguments to pass to the inspector CLI
+ * @param options Execution options
+ * @returns Promise that resolves with the output
+ */
+async function runInspectorCli(
+  args: string[],
+  options: {
+    repo?: string;
+    cwd?: string;
+  } = {}
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // Build the command to run the inspector CLI against our MCP server
+    const serverArgs = ["mcp", "start"];
+    if (options.repo) {
+      serverArgs.push("--repo", options.repo);
+    }
+
+    const inspectorArgs = [
+      "@modelcontextprotocol/inspector",
+      "--cli",
+      "minsky",
+      ...serverArgs,
+      ...args,
+    ];
+
+    log.debug("Running MCP inspector CLI", {
+      command: "npx",
+      args: inspectorArgs,
+      cwd: options.cwd,
+    });
+
+    const child = spawn("npx", inspectorArgs, {
+      stdio: "inherit",
+      cwd: options.cwd || process.cwd(),
+      env: { ...process.env },
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Inspector CLI exited with code ${code}`));
+      }
+    });
+
+    child.on("error", (error) => {
+      reject(error);
+    });
+  });
+}
 
 /**
  * Create the MCP command
@@ -290,7 +346,133 @@ export function createMCPCommand(): Command {
       }
     });
 
+  // Tools command - list available tools
+  const toolsCommand = new Command("tools");
+  toolsCommand.description("List all available MCP tools on the server");
+  toolsCommand
+    .option(
+      "--repo <path>",
+      "Repository path for operations that require repository context (default: current directory)"
+    )
+    .action(async (options) => {
+      try {
+        log.cli("Listing available MCP tools...");
+        await runInspectorCli(["--method", "tools/list"], {
+          repo: options.repo,
+        });
+      } catch (error) {
+        log.cliError(`Failed to list tools: ${getErrorMessage(error)}`);
+        exit(1);
+      }
+    });
+
+  // Call command - call a specific tool
+  const callCommand = new Command("call");
+  callCommand.description("Call a specific MCP tool");
+  callCommand
+    .argument("<tool-name>", "Name of the tool to call")
+    .option(
+      "--repo <path>",
+      "Repository path for operations that require repository context (default: current directory)"
+    )
+    .option(
+      "--arg <key=value>",
+      "Tool arguments in key=value format (can be used multiple times)",
+      (value: string, previous: string[] = []) => {
+        return [...previous, value];
+      },
+      []
+    )
+    .action(async (toolName: string, options) => {
+      try {
+        log.cli(`Calling tool: ${toolName}`);
+
+        const inspectorArgs = ["--method", "tools/call", "--tool-name", toolName];
+
+        // Add tool arguments
+        if (options.arg && options.arg.length > 0) {
+          for (const arg of options.arg) {
+            inspectorArgs.push("--tool-arg", arg);
+          }
+        }
+
+        await runInspectorCli(inspectorArgs, {
+          repo: options.repo,
+        });
+      } catch (error) {
+        log.cliError(`Failed to call tool '${toolName}': ${getErrorMessage(error)}`);
+        exit(1);
+      }
+    });
+
+  // Inspect command - general CLI inspection
+  const inspectCommand = new Command("inspect");
+  inspectCommand.description("Run MCP inspector CLI with custom method and arguments");
+  inspectCommand
+    .option(
+      "--repo <path>",
+      "Repository path for operations that require repository context (default: current directory)"
+    )
+    .option(
+      "--method <method>",
+      "MCP method to call (e.g., tools/list, resources/list, prompts/list)"
+    )
+    .option(
+      "--arg <key=value>",
+      "Method arguments in key=value format (can be used multiple times)",
+      (value: string, previous: string[] = []) => {
+        return [...previous, value];
+      },
+      []
+    )
+    .addHelpText(
+      "after",
+      `
+Examples:
+  minsky mcp inspect --method tools/list
+  minsky mcp inspect --method resources/list
+  minsky mcp inspect --method tools/call --arg tool-name=tasks.list --arg tool-arg=filter=TODO
+  minsky mcp inspect --method prompts/list
+`
+    )
+    .action(async (options) => {
+      try {
+        if (!options.method) {
+          log.cliError("Method is required. Use --method to specify what to inspect.");
+          log.cli("Common methods: tools/list, tools/call, resources/list, prompts/list");
+          exit(1);
+        }
+
+        log.cli(`Inspecting MCP server with method: ${options.method}`);
+
+        const inspectorArgs = ["--method", options.method];
+
+        // Add method arguments
+        if (options.arg && options.arg.length > 0) {
+          for (const arg of options.arg) {
+            const [key, value] = arg.split("=", 2);
+            if (value === undefined) {
+              log.cliError(`Invalid argument format: ${arg}. Use key=value format.`);
+              exit(1);
+            }
+            inspectorArgs.push(`--${key}`, value);
+          }
+        }
+
+        await runInspectorCli(inspectorArgs, {
+          repo: options.repo,
+        });
+      } catch (error) {
+        log.cliError(`Failed to inspect MCP server: ${getErrorMessage(error)}`);
+        exit(1);
+      }
+    });
+
+  // Add all subcommands
   mcpCommand.addCommand(startCommand);
+  mcpCommand.addCommand(toolsCommand);
+  mcpCommand.addCommand(callCommand);
+  mcpCommand.addCommand(inspectCommand);
 
   return mcpCommand;
 }
