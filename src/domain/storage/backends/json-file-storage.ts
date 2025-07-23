@@ -46,7 +46,11 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async readState(): Promise<DatabaseReadResult<SessionDbState>> {
     try {
-      const state = readSessionDbFile(this.getFileOptions());
+      const sessions = readSessionDbFile(this.getFileOptions());
+      const state: SessionDbState = {
+        sessions,
+        baseDir: this.baseDir,
+      };
       return {
         success: true,
         data: state,
@@ -63,10 +67,10 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async writeState(state: SessionDbState): Promise<DatabaseWriteResult> {
     try {
-      const success = writeSessionDbFile(state, this.getFileOptions());
+      await writeSessionsToFile(state.sessions, this.getFileOptions());
       return {
-        success,
-        bytesWritten: success ? JSON.stringify(state.sessions).length : 0,
+        success: true,
+        bytesWritten: JSON.stringify(state.sessions).length,
       };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error as any));
@@ -84,10 +88,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return null;
     }
 
-    return (
-      result.data!.sessions.find((session) => session.session === id) ||
-      null
-    );
+    return result.data!.sessions.find((session) => session.session === id) || null;
   }
 
   async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
@@ -110,9 +111,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
         });
       }
       if (options.repoName) {
-        sessions = sessions.filter(
-          (s) => s.repoName === options.repoName
-        );
+        sessions = sessions.filter((s) => s.repoName === options.repoName);
       }
       if (options.branch) {
         sessions = sessions.filter((s) => s.branch === options.branch);
@@ -135,7 +134,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
     const writeResult = await this.writeState(newState);
     if (!writeResult.success) {
-      throw new Error(`Failed to create entity: ${writeResult.error.message}`);
+      throw new Error(`Failed to create entity: ${writeResult.error?.message || "Unknown error"}`);
     }
 
     return entity;
@@ -156,14 +155,14 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
     const safeUpdates: Partial<Omit<SessionRecord, "session">> = {};
     Object.entries(updates).forEach(([key, value]) => {
       if (key !== "session") {
-        (safeUpdates as unknown)[key] = value;
+        safeUpdates[key] = value;
       }
     });
 
     const updatedSession: SessionRecord = {
-      ...result.data.sessions[sessionIndex],
+      ...result.data.sessions[sessionIndex]!,
       ...safeUpdates,
-    };
+    } as SessionRecord;
 
     const newSessions = [...result.data.sessions];
     newSessions[sessionIndex] = updatedSession;
@@ -175,7 +174,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
     const writeResult = await this.writeState(newState);
     if (!writeResult.success) {
-      throw new Error(`Failed to update entity: ${writeResult.error.message}`);
+      throw new Error(`Failed to update entity: ${writeResult.error?.message || "Unknown error"}`);
     }
 
     return updatedSession;

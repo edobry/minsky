@@ -3,7 +3,7 @@ import { normalizeRepoName } from "../repo-utils";
 import { createSessionProvider } from "../../session";
 import { TaskService, TASK_STATUS } from "../tasks";
 import { log } from "../../../utils/logger";
-import { createGitService } from "../git";
+import { createGitService } from "../../git";
 import {
   PrOptions,
   PrResult,
@@ -35,11 +35,11 @@ export async function createPullRequestFromParams(params: {
   };
 
   const result = await gitService.pr(options);
-  
+
   if (params.debug) {
     log("Pull request created successfully", { result });
   }
-  
+
   return {
     markdown: result.markdown,
     statusUpdateResult: result.statusUpdateResult,
@@ -70,11 +70,11 @@ export async function preparePrFromParams(params: {
   };
 
   const result = await gitService.preparePr(options);
-  
+
   if (params.debug) {
     log("Pull request prepared successfully", { result });
   }
-  
+
   return result;
 }
 
@@ -97,6 +97,6 @@ export async function mergePrFromParams(params: {
 
   const result = await gitService.mergePr(options);
   log("Pull request merged successfully", { result });
-  
+
   return result;
-} 
+}

@@ -15,9 +15,8 @@ export function registerInitTools(commandMapper: CommandMapper): void {
   registerInitCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      // MCP-specific optimizations
       init: {
-        description: "Initialize a project for Minsky (MCP optimized)",
+        description: "Initialize a project for Minsky",
       },
     },
   });

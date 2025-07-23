@@ -232,11 +232,9 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   };
 
   // Create the Bun mock function with our implementation
-  const bunMockFn = mock(implementationFn);
-
-  // Instead of trying to modify Bun"s mock function directly (which may be read-only),
+  const _bunMockFn;
   // create a new function that delegates to it
-  const mockFn = function (...args: Parameters<T>): ReturnType<T> {
+  let mockFn = function (...args: Parameters<T>): ReturnType<T> {
     // Call the original function directly instead of through bunMockFn
     return implementationFn(...args);
   } as CompatMockFunction<ReturnType<T>, Parameters<T>>;
@@ -304,7 +302,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
 
   // Add mockReturnValue method
   mockFn.mockReturnValue = function (value) {
-    return mockFn.mockImplementation(() => value);
+    return (mockFn = mock(() => value));
   };
 
   // Add mockReturnValueOnce method
@@ -315,38 +313,30 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   // Add mockResolvedValue method
   mockFn.mockResolvedValue = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
-    return mockFn.mockImplementation(
-      () => Promise.resolve(value) as unknown as ReturnType<T>
-    ) as unknown;
+    return (mockFn = mock(() => Promise.resolve(value) as ReturnType<T>));
   };
 
   // Add mockResolvedValueOnce method
   mockFn.mockResolvedValueOnce = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
-    return mockFn.mockImplementationOnce(
-      () => Promise.resolve(value) as unknown as ReturnType<T>
-    ) as unknown;
+    return mockFn.mockImplementationOnce(() => Promise.resolve(value) as ReturnType<T>);
   };
 
   // Add mockRejectedValue method
   mockFn.mockRejectedValue = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
-    return mockFn.mockImplementation(
-      () => Promise.reject(value) as unknown as ReturnType<T>
-    ) as unknown;
+    return (mockFn = mock(() => Promise.reject(value) as ReturnType<T>));
   };
 
   // Add mockRejectedValueOnce method
   mockFn.mockRejectedValueOnce = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don"t match
-    return mockFn.mockImplementationOnce(
-      () => Promise.reject(value) as unknown as ReturnType<T>
-    ) as unknown;
+    return mockFn.mockImplementationOnce(() => Promise.reject(value) as ReturnType<T>);
   };
 
   // If there"s an initial implementation, set it
   if (implementation) {
-    mockFn.mockImplementation(implementation);
+    mockFn = mock(implementation);
   }
 
   return mockFn;
@@ -381,7 +371,7 @@ export function spyOn<T extends object, M extends keyof T>(
   const original = object[method];
 
   // Create a mock function that wraps the original
-  const mockFn = createCompatMock((...args: unknown[]) => {
+  let mockFn = createCompatMock((...args: unknown[]) => {
     if (typeof original === "function") {
       return (original as Function).apply(object, args);
     }
@@ -392,7 +382,7 @@ export function spyOn<T extends object, M extends keyof T>(
   mockFn.mock.originalImplementation = original;
 
   // Replace the method with our mock
-  (object as unknown)[method] = mockFn;
+  object[method] = mockFn;
 
   return mockFn;
 }
@@ -418,7 +408,7 @@ export function resetAllMocks(): void {
  * @returns An auto-mocked version of the module
  */
 export function autoMockModule<T extends object>(module: T): T {
-  const mockedModule = { ...module } as unknown;
+  const mockedModule = { ...module };
 
   // Recursively replace all functions with mocks
   for (const key in mockedModule) {

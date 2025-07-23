@@ -138,30 +138,29 @@ export class TasksCreateCommand extends BaseTaskCommand {
     // Validate required parameters
     const title = this.validateRequired(params.title, "title");
 
-    let result: any;
+    // Validate that either description or descriptionPath is provided
+    if (!params.description && !params.descriptionPath) {
+      throw new ValidationError("Either --description or --description-path must be provided");
+    }
 
-    if (params.description || params.descriptionPath) {
-      // Use the detailed creation function
-      result = await createTaskFromParams({
-        ...this.createTaskParams(params),
-        title,
-        description: params.description,
-        descriptionPath: params.descriptionPath,
-        force: params.force,
-      });
-    } else {
-      // Use the simple title-only creation function
-      result = await createTaskFromTitleAndDescription(
-        title,
-        undefined, // no description
-        {
-          backend: params.backend,
-          repo: params.repo,
-          workspace: params.workspace,
-          session: params.session,
-        }
+    // Both description and descriptionPath provided is an error
+    if (params.description && params.descriptionPath) {
+      throw new ValidationError(
+        "Cannot provide both --description and --description-path - use one or the other"
       );
     }
+
+    // Create the task using the same function as main branch
+    const result = await createTaskFromTitleAndDescription({
+      title: params.title,
+      description: params.description,
+      descriptionPath: params.descriptionPath,
+      force: params.force ?? false,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+    });
 
     this.debug("Task created successfully");
 

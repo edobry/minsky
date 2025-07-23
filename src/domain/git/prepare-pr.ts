@@ -108,7 +108,10 @@ export async function preparePr(
             try {
               const allSessions = await deps.sessionDb.listSessions();
               log.debug(
-                `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions.map((s) => s.session).slice(0, 10).join(", ")}, searchedFor=${options.session}`
+                `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
+                  .map((s) => s.session)
+                  .slice(0, 10)
+                  .join(", ")}, searchedFor=${options.session}`
               );
             } catch (listError) {
               log.error(`Failed to list sessions for debugging: ${listError}`);
@@ -149,7 +152,10 @@ Session requested: "${options.session}"
           try {
             const allSessions = await deps.sessionDb.listSessions();
             log.debug(
-              `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions.map((s) => s.session).slice(0, 10).join(", ")}, searchedFor=${options.session}`
+              `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
+                .map((s) => s.session)
+                .slice(0, 10)
+                .join(", ")}, searchedFor=${options.session}`
             );
           } catch (listError) {
             log.error(`Failed to list sessions for debugging: ${listError}`);
@@ -190,7 +196,10 @@ Session requested: "${options.session}"
         try {
           const allSessions = await deps.sessionDb.listSessions();
           log.debug(
-            `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions.map((s) => s.session).slice(0, 10).join(", ")}, searchedFor=${options.session}`
+            `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
+              .map((s) => s.session)
+              .slice(0, 10)
+              .join(", ")}, searchedFor=${options.session}`
           );
         } catch (listError) {
           log.error(`Failed to list sessions for debugging: ${listError}`);
@@ -229,7 +238,7 @@ Session requested: "${options.session}"
     }
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     workdir = deps.getSessionWorkdir(options.session);
-    
+
     // Get current branch from repo instead of assuming session name is branch name
     try {
       sourceBranch = await deps.execInRepository(workdir, "git branch --show-current");
@@ -267,10 +276,10 @@ Session requested: "${options.session}"
   try {
     // First, ensure we're on the source branch
     await deps.execInRepository(workdir, `git checkout ${sourceBranch}`);
-    
+
     // Create and checkout the PR branch
     await deps.execInRepository(workdir, `git checkout -b ${prBranchName}`);
-    
+
     log.debug("Created PR branch", {
       sourceBranch,
       prBranch: prBranchName,
@@ -285,7 +294,9 @@ Session requested: "${options.session}"
         workdir,
       });
     } catch (checkoutError) {
-      throw new MinskyError(`Failed to create or checkout PR branch ${prBranchName}: ${checkoutError}`);
+      throw new MinskyError(
+        `Failed to create or checkout PR branch ${prBranchName}: ${checkoutError}`
+      );
     }
   }
 
@@ -295,4 +306,4 @@ Session requested: "${options.session}"
     title: options.title,
     body: options.body,
   };
-} 
+}

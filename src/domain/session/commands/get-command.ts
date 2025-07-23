@@ -1,22 +1,15 @@
 import type { SessionGetParams } from "../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { 
-  Session, 
-  SessionProviderInterface,
-  SessionDependencies 
-} from "../types";
-import { 
-  ResourceNotFoundError, 
-  ValidationError,
-} from "../../errors/index";
+import { Session, SessionProviderInterface, SessionDependencies } from "../types";
+import { ResourceNotFoundError, ValidationError } from "../../errors/index";
 
 /**
  * Gets session details based on parameters
  * Using proper dependency injection for better testability
  * Now includes auto-detection capabilities via unified session context resolver
  */
-export async function getSessionFromParams(
+export async function sessionGet(
   params: SessionGetParams,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
@@ -50,4 +43,4 @@ export async function getSessionFromParams(
     }
     throw error;
   }
-} 
+}

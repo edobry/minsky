@@ -91,13 +91,15 @@ export function registerInitCommands() {
       try {
         // Map CLI params to domain params
         const repoPath = params.repo || params.workspacePath || process.cwd();
-        
+
         // Interactive backend selection if not provided
         let backend = params.backend;
         if (!backend) {
           // Check if we're in an interactive environment
           if (!process.stdout.isTTY) {
-            throw new ValidationError("Backend parameter is required in non-interactive mode. Use --backend to specify: markdown, json-file, or github-issues");
+            throw new ValidationError(
+              "Backend parameter is required in non-interactive mode. Use --backend to specify: markdown, json-file, or github-issues"
+            );
           }
 
           const selectedBackend = await select({
@@ -121,11 +123,13 @@ export function registerInitCommands() {
         // Interactive GitHub configuration if github-issues backend selected
         let githubOwner = params.githubOwner;
         let githubRepo = params.githubRepo;
-        
+
         if (backend === "github-issues") {
           if (!githubOwner) {
             if (!process.stdout.isTTY) {
-              throw new ValidationError("GitHub owner is required when using github-issues backend. Use --github-owner to specify.");
+              throw new ValidationError(
+                "GitHub owner is required when using github-issues backend. Use --github-owner to specify."
+              );
             }
 
             const ownerInput = await text({
@@ -149,7 +153,9 @@ export function registerInitCommands() {
 
           if (!githubRepo) {
             if (!process.stdout.isTTY) {
-              throw new ValidationError("GitHub repository name is required when using github-issues backend. Use --github-repo to specify.");
+              throw new ValidationError(
+                "GitHub repository name is required when using github-issues backend. Use --github-repo to specify."
+              );
             }
 
             const repoInput = await text({
@@ -286,10 +292,14 @@ export function registerInitCommands() {
         const overwrite = params.overwrite ?? false;
 
         // Map backend values to what the domain function expects
-        const domainBackend = backend === "markdown" ? "tasks.md" : 
-          backend === "json-file" ? "tasks.md" : // json-file also uses tasks.md for now
-            backend === "github-issues" ? "tasks.md" : // github-issues uses tasks.md base
-              "tasks.md"; // default fallback
+        const domainBackend =
+          backend === "markdown"
+            ? "tasks.md"
+            : backend === "json-file"
+              ? "tasks.md" // json-file also uses tasks.md for now
+              : backend === "github-issues"
+                ? "tasks.md" // github-issues uses tasks.md base
+                : "tasks.md"; // default fallback
 
         await initializeProjectFromParams({
           repoPath,

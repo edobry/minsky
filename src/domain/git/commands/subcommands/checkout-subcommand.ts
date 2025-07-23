@@ -4,7 +4,7 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { checkoutFromParams } from "../checkout-command";
-import { log } from "../../../../../utils/logger";
+import { log } from "../../../../utils/logger";
 import {
   REPO_DESCRIPTION,
   SESSION_DESCRIPTION,
@@ -53,7 +53,9 @@ export const checkoutCommandParams: CommandParameterMap = {
  * Execute the checkout command
  */
 export async function executeCheckoutCommand(
-  parameters: { [K in keyof typeof checkoutCommandParams]: z.infer<typeof checkoutCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof checkoutCommandParams]: z.infer<(typeof checkoutCommandParams)[K]["schema"]>;
+  },
   context: CommandExecutionContext
 ): Promise<any> {
   const { branch, session, repo, preview, autoResolve, conflictStrategy } = parameters;
@@ -72,4 +74,4 @@ export async function executeCheckoutCommand(
   }
 
   return result;
-} 
+}

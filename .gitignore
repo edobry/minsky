@@ -54,3 +54,4 @@ minsky-macos-x64
 minsky-macos-arm64
 minsky-windows-x64.exe
 test-tmp/
+virtual-*.test.ts

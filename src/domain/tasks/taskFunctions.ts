@@ -7,6 +7,11 @@ import type { TaskData, TaskFilter, TaskSpecData } from "../../types/tasks/taskD
 // Import constants and utilities from centralized location
 import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants";
 import type { TaskStatus } from "./taskConstants";
+import {
+  normalizeTaskIdForStorage,
+  formatTaskIdForDisplay,
+  getTaskIdNumber,
+} from "./task-id-utils";
 
 /**
  * Parse tasks from markdown content (pure function)
@@ -72,14 +77,18 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
 export function formatTasksToMarkdown(tasks: TaskData[]): string {
   if (!tasks || tasks.length === 0) return "";
 
-  return tasks.map((task) => {
-    const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
-    const specPath = task.specPath || "#";
-    const taskLine = `- [${checkbox}] ${task.title} [${task.id}](${specPath})`;
+  return tasks
+    .map((task) => {
+      const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
+      const specPath = task.specPath || "#";
+      // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix in markdown display
+      const displayId = formatTaskIdForDisplay(task.id);
+      const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
 
-    // Always return only the task line - descriptions should remain in spec files
-    return taskLine;
-  }).join("\n\n");
+      // Always return only the task line - descriptions should remain in spec files
+      return taskLine;
+    })
+    .join("\n\n");
 }
 
 /**
@@ -119,7 +128,7 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
  * @returns Normalized task ID or null if invalid
  */
 export function normalizeTaskId(id: string): string | undefined {
-  if (!id) return null;
+  if (!id) return undefined;
 
   // If already in #XXX format, validate and return
   if (/^#[a-zA-Z0-9_]+$/.test(id)) {
@@ -137,23 +146,25 @@ export function normalizeTaskId(id: string): string | undefined {
     return `#${match[1]}`;
   }
 
-  return null;
+  return undefined;
 }
 
 /**
  * Calculate the next available task ID (pure function)
  * @param tasks Array of task data objects
- * @returns Next available task ID
+ * @returns Next available task ID in storage format (plain number)
  */
 export function getNextTaskId(tasks: TaskData[]): string {
-  if (!tasks || tasks.length === 0) return "#001";
+  if (!tasks || tasks.length === 0) return "001";
 
   const maxId = tasks.reduce((max, task) => {
-    const id = parseInt(task.id.replace(/^#/, ""), 10);
-    return !isNaN(id) && id > max ? id : max;
+    // Use the new utility to extract numeric value from any format
+    const id = getTaskIdNumber(task.id);
+    return id !== null && id > max ? id : max;
   }, 0);
 
-  return `#${String(maxId + 1).padStart(3, "0")}`;
+  // TASK 283: Return plain format for storage (e.g., "002" instead of "#002")
+  return String(maxId + 1).padStart(3, "0");
 }
 
 /**

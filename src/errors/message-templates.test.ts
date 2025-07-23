@@ -19,7 +19,7 @@ import {
   createErrorContext,
   type CommandSuggestion,
   type ContextInfo,
-  type ErrorTemplate
+  type ErrorTemplate,
 } from "./message-templates";
 
 describe("Error Message Templates", () => {
@@ -41,8 +41,8 @@ describe("Error Message Templates", () => {
       const suggestions: CommandSuggestion[] = [
         {
           description: "List all sessions",
-          command: "minsky sessions list"
-        }
+          command: "minsky sessions list",
+        },
       ];
 
       const result = formatCommandSuggestions(suggestions);
@@ -54,13 +54,13 @@ describe("Error Message Templates", () => {
         {
           description: "List all sessions",
           command: "minsky sessions list",
-          emoji: ErrorEmojis.LIST
+          emoji: ErrorEmojis.LIST,
         },
         {
           description: "Create new session",
           command: "minsky session start test",
-          emoji: ErrorEmojis.CREATE
-        }
+          emoji: ErrorEmojis.CREATE,
+        },
       ];
 
       const result = formatCommandSuggestions(suggestions);
@@ -77,9 +77,7 @@ describe("Error Message Templates", () => {
     });
 
     test("formats single context info", () => {
-      const contexts: ContextInfo[] = [
-        { label: "Session", value: "test-session" }
-      ];
+      const contexts: ContextInfo[] = [{ label: "Session", value: "test-session" }];
 
       const result = formatContextInfo(contexts);
       expect(result).toBe("\nSession: test-session");
@@ -88,7 +86,7 @@ describe("Error Message Templates", () => {
     test("formats multiple context info", () => {
       const contexts: ContextInfo[] = [
         { label: "Session", value: "test-session" },
-        { label: "Directory", value: "/path/to/dir" }
+        { label: "Directory", value: "/path/to/dir" },
       ];
 
       const result = formatContextInfo(contexts);
@@ -103,9 +101,9 @@ describe("Error Message Templates", () => {
         title: "Test Error",
         sections: [
           {
-            content: "Error details here"
-          }
-        ]
+            content: "Error details here",
+          },
+        ],
       };
 
       const result = buildErrorMessage(template);
@@ -119,9 +117,9 @@ describe("Error Message Templates", () => {
         description: "This is a test error description",
         sections: [
           {
-            content: "Error details here"
-          }
-        ]
+            content: "Error details here",
+          },
+        ],
       };
 
       const result = buildErrorMessage(template);
@@ -137,9 +135,9 @@ describe("Error Message Templates", () => {
           {
             title: "What you can do",
             emoji: ErrorEmojis.SUGGESTION,
-            content: "Try these options"
-          }
-        ]
+            content: "Try these options",
+          },
+        ],
       };
 
       const result = buildErrorMessage(template);
@@ -153,14 +151,12 @@ describe("Error Message Templates", () => {
         title: "Test Error",
         sections: [
           {
-            content: "Error details"
-          }
-        ]
+            content: "Error details",
+          },
+        ],
       };
 
-      const context: ContextInfo[] = [
-        { label: "Session", value: "test-session" }
-      ];
+      const context: ContextInfo[] = [{ label: "Session", value: "test-session" }];
 
       const result = buildErrorMessage(template, context);
       expect(result).toContain("Test Error");
@@ -173,17 +169,13 @@ describe("Error Message Templates", () => {
       const suggestions: CommandSuggestion[] = [
         {
           description: "List sessions",
-          command: "minsky sessions list"
-        }
+          command: "minsky sessions list",
+        },
       ];
 
-      const result = createResourceNotFoundMessage(
-        "Session",
-        "test-session",
-        suggestions
-      );
+      const result = createResourceNotFoundMessage("Session", "test-session", suggestions);
 
-      expect(result).toContain("🔍 Session \"test-session\" Not Found");
+      expect(result).toContain('🔍 Session "test-session" Not Found');
       expect(result).toContain("The session you're looking for doesn't exist");
       expect(result).toContain("💡 What you can do:");
       expect(result).toContain("List sessions");
@@ -196,8 +188,8 @@ describe("Error Message Templates", () => {
       const alternatives: CommandSuggestion[] = [
         {
           description: "Specify session",
-          command: "minsky git pr --session name"
-        }
+          command: "minsky git pr --session name",
+        },
       ];
 
       const result = createMissingInfoMessage("create PR", alternatives);
@@ -213,14 +205,10 @@ describe("Error Message Templates", () => {
     test("creates validation error message", () => {
       const validOptions = ["TODO", "IN_PROGRESS", "DONE"];
 
-      const result = createValidationErrorMessage(
-        "status",
-        "INVALID",
-        validOptions
-      );
+      const result = createValidationErrorMessage("status", "INVALID", validOptions);
 
       expect(result).toContain("❌ Invalid status");
-      expect(result).toContain("The provided status \"INVALID\" is not valid");
+      expect(result).toContain('The provided status "INVALID" is not valid');
       expect(result).toContain("📋 Valid options:");
       expect(result).toContain("• TODO");
       expect(result).toContain("• IN_PROGRESS");
@@ -234,14 +222,14 @@ describe("Error Message Templates", () => {
       const suggestions: CommandSuggestion[] = [
         {
           description: "Try with sudo",
-          command: "sudo command"
-        }
+          command: "sudo command",
+        },
       ];
 
       const result = createCommandFailureMessage("git clone", error, suggestions);
 
       expect(result).toContain("❌ Command Failed");
-      expect(result).toContain("The command \"git clone\" failed with error: Permission denied");
+      expect(result).toContain('The command "git clone" failed with error: Permission denied');
       expect(result).toContain("💡 Try these alternatives:");
       expect(result).toContain("Try with sudo");
       expect(result).toContain("sudo command");
@@ -252,10 +240,10 @@ describe("Error Message Templates", () => {
     test("creates not found session error", () => {
       const result = createSessionErrorMessage("test-session", "not_found");
 
-      expect(result).toContain("🔍 Session \"test-session\" Not Found");
+      expect(result).toContain('🔍 Session "test-session" Not Found');
       expect(result).toContain("The session you're trying to access doesn't exist");
       expect(result).toContain("💡 What you can do:");
-      expect(result).toContain("List all available sessions");
+      expect(result).toContain("ℹ️ List available sessions:");
       expect(result).toContain("Create a new session");
       expect(result).toContain("Check session details");
     });
@@ -263,7 +251,7 @@ describe("Error Message Templates", () => {
     test("creates session exists error", () => {
       const result = createSessionErrorMessage("test-session", "exists");
 
-      expect(result).toContain("🚫 Session \"test-session\" Already Exists");
+      expect(result).toContain('🚫 Session "test-session" Already Exists');
       expect(result).toContain("A session with this name already exists");
       expect(result).toContain("Use a different session name");
       expect(result).toContain("Resume existing session");
@@ -273,7 +261,7 @@ describe("Error Message Templates", () => {
     test("creates invalid session error", () => {
       const result = createSessionErrorMessage("test-session", "invalid");
 
-      expect(result).toContain("❌ Invalid Session \"test-session\"");
+      expect(result).toContain('❌ Invalid Session "test-session"');
       expect(result).toContain("The session exists but is in an invalid state");
       expect(result).toContain("Check session status");
       expect(result).toContain("Update session configuration");
@@ -316,18 +304,14 @@ describe("Error Message Templates", () => {
       const suggestions: CommandSuggestion[] = [
         {
           description: "Set configuration value",
-          command: "minsky config set key value"
-        }
+          command: "minsky config set key value",
+        },
       ];
 
-      const result = createConfigErrorMessage(
-        "database.url",
-        "invalid format",
-        suggestions
-      );
+      const result = createConfigErrorMessage("database.url", "invalid format", suggestions);
 
       expect(result).toContain("❌ Configuration Error");
-      expect(result).toContain("Issue with configuration key \"database.url\": invalid format");
+      expect(result).toContain('Issue with configuration key "database.url": invalid format');
       expect(result).toContain("💡 How to fix:");
       expect(result).toContain("Set configuration value");
       expect(result).toContain("minsky config set key value");
@@ -341,9 +325,7 @@ describe("Error Message Templates", () => {
     });
 
     test("adds current directory", () => {
-      const context = createErrorContext()
-        .addCurrentDirectory()
-        .build();
+      const context = createErrorContext().addCurrentDirectory().build();
 
       expect(context).toHaveLength(1);
       expect(context[0].label).toBe("Current directory");
@@ -351,62 +333,52 @@ describe("Error Message Templates", () => {
     });
 
     test("adds session information", () => {
-      const context = createErrorContext()
-        .addSession("test-session")
-        .build();
+      const context = createErrorContext().addSession("test-session").build();
 
       expect(context).toHaveLength(1);
       expect(context[0]).toEqual({
         label: "Session",
-        value: "test-session"
+        value: "test-session",
       });
     });
 
     test("adds repository information", () => {
-      const context = createErrorContext()
-        .addRepository("/path/to/repo")
-        .build();
+      const context = createErrorContext().addRepository("/path/to/repo").build();
 
       expect(context).toHaveLength(1);
       expect(context[0]).toEqual({
         label: "Repository",
-        value: "/path/to/repo"
+        value: "/path/to/repo",
       });
     });
 
     test("adds task information", () => {
-      const context = createErrorContext()
-        .addTask("123")
-        .build();
+      const context = createErrorContext().addTask("123").build();
 
       expect(context).toHaveLength(1);
       expect(context[0]).toEqual({
         label: "Task ID",
-        value: "123"
+        value: "123",
       });
     });
 
     test("adds command information", () => {
-      const context = createErrorContext()
-        .addCommand("git clone")
-        .build();
+      const context = createErrorContext().addCommand("git clone").build();
 
       expect(context).toHaveLength(1);
       expect(context[0]).toEqual({
         label: "Command",
-        value: "git clone"
+        value: "git clone",
       });
     });
 
     test("adds custom information", () => {
-      const context = createErrorContext()
-        .addCustom("Custom Label", "custom value")
-        .build();
+      const context = createErrorContext().addCustom("Custom Label", "custom value").build();
 
       expect(context).toHaveLength(1);
       expect(context[0]).toEqual({
         label: "Custom Label",
-        value: "custom value"
+        value: "custom value",
       });
     });
 
@@ -447,10 +419,10 @@ describe("Error Message Templates", () => {
       const templates = [
         createSessionErrorMessage("test", "not_found"),
         createValidationErrorMessage("field", "value", ["option1"]),
-        createMissingInfoMessage("operation", [{ description: "desc", command: "cmd" }])
+        createMissingInfoMessage("operation", [{ description: "desc", command: "cmd" }]),
       ];
 
-      templates.forEach(template => {
+      templates.forEach((template) => {
         // Should have title line
         const lines = template.split("\n");
         expect(lines[0]).toMatch(/^[🔍❌🚫]/u);
@@ -460,4 +432,4 @@ describe("Error Message Templates", () => {
       });
     });
   });
-}); 
+});

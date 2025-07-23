@@ -4,11 +4,8 @@ import {
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
 import { commitChangesFromParams } from "../commit-command";
-import { log } from "../../../../../utils/logger";
-import {
-  REPO_DESCRIPTION,
-  SESSION_DESCRIPTION,
-} from "../../../../utils/option-descriptions";
+import { log } from "../../../../utils/logger";
+import { REPO_DESCRIPTION, SESSION_DESCRIPTION } from "../../../../utils/option-descriptions";
 
 /**
  * Parameters for the commit command
@@ -71,4 +68,4 @@ export async function executeCommitCommand(
   }
 
   return result;
-} 
+}

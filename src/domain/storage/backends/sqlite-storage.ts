@@ -44,7 +44,7 @@ type NewSessionRecord = typeof sessionsTable.$inferInsert;
  * SQLite storage implementation using Drizzle ORM with Bun's native driver
  */
 export class SqliteStorage<TEntity extends Record<string, any>, TState>
-implements DatabaseStorage<TEntity, TState>
+  implements DatabaseStorage<TEntity, TState>
 {
   private db: Database | null = null;
   private drizzleDb: ReturnType<typeof drizzle> | null = null;
@@ -116,14 +116,16 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const sessions = await (this.drizzleDb.select() as unknown).from(sessionsTable);
+      const sessions = await this.drizzleDb.select().from(sessionsTable);
 
       // Construct state object - this assumes TState has a sessions array
       // and possibly other fields like baseDir
       const state = {
         sessions,
-        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky` as unknown,
-      } as TState;
+        baseDir: process.env.XDG_STATE_HOME
+          ? `${process.env.XDG_STATE_HOME}/minsky`
+          : `${process.env.HOME}/.local/state/minsky`,
+      };
 
       return { success: true, data: state };
     } catch (error) {
@@ -143,7 +145,7 @@ implements DatabaseStorage<TEntity, TState>
       const sessions = state.sessions || [];
 
       // Use Drizzle transaction
-      await (this.drizzleDb as unknown).transaction(async (tx) => {
+      await this.drizzleDb.transaction(async (tx) => {
         // Clear existing sessions
         await tx.delete(sessionsTable);
 
@@ -172,18 +174,19 @@ implements DatabaseStorage<TEntity, TState>
     }
   }
 
-  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<TEntity | null> {
+  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<TEntity | null> {
     if (!this.drizzleDb) {
       return null;
     }
 
     try {
-      const result = await (this.drizzleDb
+      const result = await this.drizzleDb
         .select()
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id)) as unknown).limit(1);
+        .where(eq(sessionsTable.session, id))
+        .limit(1);
 
-      return ((result as unknown)[0] as TEntity) || null;
+      return (result[0] as TEntity) || null;
     } catch (error) {
       const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
@@ -197,7 +200,7 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      let query = (this.drizzleDb.select() as unknown).from(sessionsTable);
+      let query = this.drizzleDb.select().from(sessionsTable);
 
       // Apply filters if provided
       if (options) {
@@ -224,7 +227,7 @@ implements DatabaseStorage<TEntity, TState>
 
         // Apply WHERE conditions if any exist
         if (conditions.length > 0) {
-          query = query.where(and(...conditions)) as unknown;
+          query = query.where(and(...conditions));
         }
       }
 
@@ -287,9 +290,10 @@ implements DatabaseStorage<TEntity, TState>
         return existing; // No updates needed
       }
 
-      await (this.drizzleDb
+      await this.drizzleDb
         .update(sessionsTable)
-        .set(updateData as unknown) as unknown).where(eq(sessionsTable.session, id));
+        .set(updateData)
+        .where(eq(sessionsTable.session, id));
 
       // Return updated entity
       return { ...existing, ...updates };
@@ -305,7 +309,7 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      await (this.drizzleDb.delete(sessionsTable) as unknown).where(eq(sessionsTable.session, id));
+      await this.drizzleDb.delete(sessionsTable).where(eq(sessionsTable.session, id));
 
       // Since Drizzle doesn't return changes count, we'll check if the entity existed
       const entityExists = await this.entityExists(id);
@@ -322,12 +326,13 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const result = await (this.drizzleDb
+      const result = await this.drizzleDb
         .select({ count: sessionsTable.session })
         .from(sessionsTable)
-        .where(eq(sessionsTable.session, id)) as unknown).limit(1);
+        .where(eq(sessionsTable.session, id))
+        .limit(1);
 
-      return result.length > 0 as unknown;
+      return result.length > 0;
     } catch (error) {
       log.error("Failed to check entity existence in SQLite", { error, id });
       return false;
@@ -355,5 +360,5 @@ implements DatabaseStorage<TEntity, TState>
 export function createSqliteStorage<TEntity extends Record<string, any>, TState>(
   config: SqliteStorageConfig
 ): DatabaseStorage<TEntity, TState> {
-  return new SqliteStorage<TEntity, TState>(config as unknown);
+  return new SqliteStorage<TEntity, TState>(config);
 }

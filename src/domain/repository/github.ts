@@ -6,6 +6,7 @@ import { exec } from "child_process";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { GitService } from "../git";
+import { execGitWithTimeout } from "../../utils/git-exec";
 import type { RepositoryStatus, ValidationResult } from "../repository";
 import type {
   RepositoryBackend,
@@ -112,7 +113,7 @@ export class GitHubBackend implements RepositoryBackend {
 
     try {
       // Use GitService's clone method to delegate credential handling to Git
-      const result = await (this.gitService as unknown).clone({
+      const result = await this.gitService.clone({
         repoUrl: this.repoUrl,
         session,
       });
@@ -164,7 +165,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
     try {
       // Create branch using direct Git command since GitService doesn't have createBranch
-      await execAsync(`git -C ${workdir} checkout -b ${branch}`);
+      await execGitWithTimeout("github-create-branch", `checkout -b ${branch}`, { workdir });
 
       return {
         workdir,
@@ -185,7 +186,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async getStatus(): Promise<RepositoryStatus> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -196,7 +197,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const workdir = this.getSessionWorkdir(repoSession.session);
 
       // Use GitService to get repository status
-      const gitStatus = await (this.gitService as unknown).getStatus(workdir);
+      const gitStatus = await this.gitService.getStatus(workdir);
 
       // Get additional information directly
       const { stdout: branchOutput } = await execAsync(
@@ -221,11 +222,15 @@ Repository: https://github.com/${this.owner}/${this.repo}
       }
 
       // Get remote information
-      const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote -v`);
+      const { stdout: remoteOutput } = await execGitWithTimeout("github-remote-list", "remote -v", {
+        workdir,
+      });
       const remotes = remoteOutput
         .trim()
         .split("\n")
-        .filter(Boolean).map((line: string) => line.split("\t")[0] || "").filter((name, index, self) => name && self.indexOf(name) === index);
+        .filter(Boolean)
+        .map((line: string) => line.split("\t")[0] || "")
+        .filter((name, index, self) => name && self.indexOf(name) === index);
 
       const dirty =
         gitStatus.modified.length > 0 ||
@@ -292,7 +297,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
     // If no session is provided, find one for this repository
     try {
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const repoSession = sessions.find((s) => s.repoName === this.repoName);
 
       if (repoSession) {
@@ -378,7 +383,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async push(): Promise<Result> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -421,7 +426,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async pull(): Promise<Result> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -435,7 +440,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService for pulling changes
-      const pullResult = await (this.gitService as unknown).pullLatest(workdir);
+      const pullResult = await this.gitService.pullLatest(workdir);
 
       return {
         success: true,
@@ -461,7 +466,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async checkout(branch: string): Promise<void> {
     try {
       // Find a session for this repository
-      const sessions = await (this.sessionDb as unknown).listSessions();
+      const sessions = await this.sessionDb.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -473,7 +478,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
-      await execAsync(`git -C ${workdir} checkout ${branch}`);
+      await execGitWithTimeout("github-checkout-branch", `checkout ${branch}`, { workdir });
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       throw new Error(`Failed to checkout branch: ${normalizedError.message}`);

@@ -1,8 +1,8 @@
 import { existsSync, rmSync } from "fs";
 import { join } from "path";
-import { 
-  MinskyError, 
-  ResourceNotFoundError, 
+import {
+  MinskyError,
+  ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
@@ -16,6 +16,7 @@ import { TASK_STATUS, type TaskServiceInterface } from "../tasks";
 import { type WorkspaceUtilsInterface } from "../workspace";
 import { createTaskFromDescription } from "../templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
+import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -34,8 +35,18 @@ export async function startSessionImpl(
   deps: StartSessionDependencies
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, description, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
-    params;
+  const {
+    name,
+    repo,
+    task,
+    description,
+    branch,
+    noStatusUpdate,
+    quiet,
+    json,
+    skipInstall,
+    packageManager,
+  } = params;
 
   try {
     log.debug("Starting session with params", {
@@ -132,14 +143,13 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     if (taskId) {
       const existingSessions = await deps.sessionDB.listSessions();
       const taskSession = existingSessions.find((s: SessionRecord) => {
-        const normalizedSessionTaskId = s.taskId?.startsWith("#") ? s.taskId : `#${s.taskId}`;
-        const normalizedInputTaskId = taskId?.startsWith("#") ? taskId : `#${taskId}`;
-        return normalizedSessionTaskId === normalizedInputTaskId;
+        // Both taskId (from schema normalization) and s.taskId should be in plain format
+        return s.taskId === taskId;
       });
 
       if (taskSession) {
         throw new MinskyError(
-          `A session for task ${taskId} already exists: '${taskSession.session}'`
+          `A session for task ${formatTaskIdForDisplay(taskId)} already exists: '${taskSession.session}'`
         );
       }
     }
@@ -294,10 +304,7 @@ Error: ${getErrorMessage(installError)}`
     if (error instanceof MinskyError) {
       throw error;
     } else {
-      throw new MinskyError(
-        `Failed to start session: ${getErrorMessage(error)}`,
-        error
-      );
+      throw new MinskyError(`Failed to start session: ${getErrorMessage(error)}`, error);
     }
   }
-} 
+}

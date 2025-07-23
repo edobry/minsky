@@ -6,8 +6,84 @@
  */
 
 import type { CommandMapper } from "../../mcp/command-mapper";
-import { sharedCommandRegistry, CommandCategory } from "../shared/command-registry";
+import {
+  sharedCommandRegistry,
+  CommandCategory,
+  type CommandExecutionContext,
+  type CommandParameterMap,
+  type CommandParameterDefinition,
+} from "../shared/command-registry";
 import { log } from "../../utils/logger";
+import { z } from "zod";
+
+/**
+ * Convert shared command parameters to a Zod schema that MCP can use
+ */
+function convertParametersToZodSchema(parameters: CommandParameterMap): z.ZodObject<any> {
+  // If no parameters, return empty object schema
+  if (!parameters || Object.keys(parameters).length === 0) {
+    return z.object({});
+  }
+
+  const shape: Record<string, z.ZodTypeAny> = {};
+
+  for (const [key, param] of Object.entries(parameters)) {
+    // Skip the json parameter in MCP context since MCP always returns JSON
+    if (key === "json") {
+      continue;
+    }
+
+    let schema = param.schema;
+
+    // Make optional if not required
+    if (!param.required) {
+      schema = schema.optional();
+    }
+
+    // Add default value if present
+    if (param.defaultValue !== undefined) {
+      schema = schema.default(param.defaultValue);
+    }
+
+    shape[key] = schema;
+  }
+
+  const zodSchema = z.object(shape);
+
+  log.debug("Converting parameters to Zod schema", {
+    parameterCount: Object.keys(parameters).length,
+    parameterKeys: Object.keys(parameters),
+    shapeKeys: Object.keys(shape),
+    zodSchema: zodSchema._def,
+  });
+
+  return zodSchema;
+}
+
+/**
+ * Convert MCP args to the format expected by shared commands
+ */
+function convertMcpArgsToParameters(
+  args: Record<string, any>,
+  parameterDefs: CommandParameterMap
+): Record<string, any> {
+  const result: Record<string, any> = {};
+
+  for (const [key, paramDef] of Object.entries(parameterDefs)) {
+    const value = args[key];
+
+    if (value !== undefined) {
+      // Use the value as-is since it should already be validated by MCP
+      result[key] = value;
+    } else if (paramDef.defaultValue !== undefined) {
+      // Use default value
+      result[key] = paramDef.defaultValue;
+    }
+    // For required parameters, rely on Zod validation to catch missing values
+  }
+
+  return result;
+}
 
 /**
  * Configuration for MCP shared command registration
@@ -61,20 +137,31 @@ export function registerSharedCommandsWithMcp(
       });
 
       // Register command with MCP using the command mapper
-      // The exact method depends on the CommandMapper interface
-      // This is a simplified version - the actual implementation may need
-      // to handle parameter schema conversion from Zod to MCP format
+      // Convert shared command parameters to MCP-compatible format
       commandMapper.addCommand({
         name: command.id,
         description,
-        parameters: command.parameters,
-        execute: command.execute,
+        parameters: convertParametersToZodSchema(command.parameters),
+        handler: async (args: any, projectContext?: any) => {
+          // Create execution context for shared command
+          const context: CommandExecutionContext = {
+            interface: "mcp",
+            debug: args?.debug || false,
+            format: "json", // MCP always returns JSON format
+          };
+
+          // Convert MCP args to expected parameter format, filtering out the json parameter
+          // since MCP always returns JSON regardless of this parameter
+          const filteredArgs = { ...args };
+          delete filteredArgs.json; // Remove json parameter as it's not needed in MCP context
+
+          const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
+
+          // Execute the shared command
+          return await command.execute(parameters, context);
+        },
       });
     });
-  });
-
-  log.debug("Shared command registration complete", {
-    categories: config.categories,
   });
 }
 

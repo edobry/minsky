@@ -1,6 +1,6 @@
 /**
  * Task 223: Enhanced Error Messages and Debugging
- * 
+ *
  * This module provides enhanced error message templates for specific error scenarios
  * identified in Task 209, building on the error template infrastructure from Task 169.
  */
@@ -12,7 +12,7 @@ import {
   formatCommandSuggestions,
   formatContextInfo,
   type CommandSuggestion,
-  type ContextInfo
+  type ContextInfo,
 } from "./message-templates";
 
 /**
@@ -28,18 +28,18 @@ export function createSessionPrBranchErrorMessage(
     {
       description: "Switch to your session branch",
       command: sessionName ? `git switch ${sessionName}` : "git switch <session-branch>",
-      emoji: ErrorEmojis.NEXT_STEP
+      emoji: ErrorEmojis.NEXT_STEP,
     },
     {
       description: "List all branches to find your session branch",
       command: "git branch -a",
-      emoji: ErrorEmojis.LIST
+      emoji: ErrorEmojis.LIST,
     },
     {
       description: "Check current session directory for branch name",
       command: "pwd | grep sessions",
-      emoji: ErrorEmojis.INFO
-    }
+      emoji: ErrorEmojis.INFO,
+    },
   ];
 
   const template: ErrorTemplate = {
@@ -49,12 +49,12 @@ export function createSessionPrBranchErrorMessage(
       {
         title: "How to fix this:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(suggestions)
-      }
-    ]
+        content: formatCommandSuggestions(suggestions),
+      },
+    ],
   };
 
-  return buildErrorMessage(template, context as unknown);
+  return buildErrorMessage(template, context);
 }
 
 /**
@@ -65,37 +65,29 @@ export function createTaskIdParsingErrorMessage(
   invalidTaskId: string,
   context?: ContextInfo[]
 ): string {
-  const validExamples = [
-    "123",
-    "#123", 
-    "077",
-    "#077",
-    "task#123",
-    "ABC123",
-    "#ABC123"
-  ];
+  const validExamples = ["123", "#123", "077", "#077", "task#123", "ABC123", "#ABC123"];
 
   const suggestions: CommandSuggestion[] = [
     {
       description: "Use numeric format",
       command: "minsky tasks get 123",
-      emoji: ErrorEmojis.COMMAND
+      emoji: ErrorEmojis.COMMAND,
     },
     {
       description: "Use with hash prefix",
       command: "minsky tasks get #123",
-      emoji: ErrorEmojis.COMMAND
+      emoji: ErrorEmojis.COMMAND,
     },
     {
       description: "Use alphanumeric format",
       command: "minsky tasks get ABC123",
-      emoji: ErrorEmojis.COMMAND
+      emoji: ErrorEmojis.COMMAND,
     },
     {
       description: "List all tasks to see valid IDs",
       command: "minsky tasks list",
-      emoji: ErrorEmojis.LIST
-    }
+      emoji: ErrorEmojis.LIST,
+    },
   ];
 
   const template: ErrorTemplate = {
@@ -105,17 +97,17 @@ export function createTaskIdParsingErrorMessage(
       {
         title: "Supported formats:",
         emoji: ErrorEmojis.INFO,
-        content: validExamples.map(example => `• ${example}`).join("\n")
+        content: validExamples.map((example) => `• ${example}`).join("\n"),
       },
       {
         title: "Try these commands:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(suggestions)
-      }
-    ]
+        content: formatCommandSuggestions(suggestions),
+      },
+    ],
   };
 
-  return buildErrorMessage(template, context as unknown);
+  return buildErrorMessage(template, context);
 }
 
 /**
@@ -132,7 +124,7 @@ export function createVariableNamingErrorMessage(
   context?: ContextInfo[]
 ): string {
   const isUnderscoreMismatch = declarationType !== usageType;
-  
+
   let description: string;
   let fixSuggestion: CommandSuggestion;
 
@@ -142,14 +134,14 @@ export function createVariableNamingErrorMessage(
       fixSuggestion = {
         description: `Remove underscore from declaration (line ${declarationLine})`,
         command: `const ${variableName} = ...  // instead of const _${variableName} = ...`,
-        emoji: ErrorEmojis.CHECK
+        emoji: ErrorEmojis.CHECK,
       };
     } else {
       description = `Variable '${variableName}' is declared without underscore but used with underscore prefix.`;
       fixSuggestion = {
         description: `Add underscore to declaration (line ${declarationLine}) or remove from usage (line ${usageLine})`,
         command: `const _${variableName} = ...  // or use ${variableName} consistently`,
-        emoji: ErrorEmojis.CHECK
+        emoji: ErrorEmojis.CHECK,
       };
     }
   } else {
@@ -157,7 +149,7 @@ export function createVariableNamingErrorMessage(
     fixSuggestion = {
       description: "Check variable declaration and usage consistency",
       command: `grep -n "\\b${variableName}\\b" ${filePath || "<file>"}`,
-      emoji: ErrorEmojis.INFO
+      emoji: ErrorEmojis.INFO,
     };
   }
 
@@ -166,20 +158,20 @@ export function createVariableNamingErrorMessage(
     {
       description: "Check variable naming protocol rule",
       command: "cursor rules variable-naming-protocol.mdc",
-      emoji: ErrorEmojis.HELP
+      emoji: ErrorEmojis.HELP,
     },
     {
       description: "Run variable naming check script",
       command: "bun scripts/check-variable-naming.ts",
-      emoji: ErrorEmojis.COMMAND
-    }
+      emoji: ErrorEmojis.COMMAND,
+    },
   ];
 
   const contextInfo: ContextInfo[] = [
     ...(context || []),
     ...(filePath ? [{ label: "File", value: filePath }] : []),
     ...(declarationLine ? [{ label: "Declaration line", value: declarationLine.toString() }] : []),
-    ...(usageLine ? [{ label: "Usage line", value: usageLine.toString() }] : [])
+    ...(usageLine ? [{ label: "Usage line", value: usageLine.toString() }] : []),
   ];
 
   const template: ErrorTemplate = {
@@ -189,9 +181,9 @@ export function createVariableNamingErrorMessage(
       {
         title: "How to fix:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(suggestions)
-      }
-    ]
+        content: formatCommandSuggestions(suggestions),
+      },
+    ],
   };
 
   return buildErrorMessage(template, contextInfo);
@@ -208,40 +200,40 @@ export function createGitTimeoutErrorMessage(
   context?: ContextInfo[]
 ): string {
   const timeoutSeconds = Math.round(timeoutMs / 1000);
-  
+
   const suggestions: CommandSuggestion[] = [
     {
       description: "Check network connection",
       command: "ping -c 3 github.com",
-      emoji: ErrorEmojis.INFO
+      emoji: ErrorEmojis.INFO,
     },
     {
       description: "Check git remote status",
       command: "git remote -v",
-      emoji: ErrorEmojis.LIST
+      emoji: ErrorEmojis.LIST,
     },
     {
       description: "Try with increased timeout",
       command: "git config --global http.lowSpeedLimit 0",
-      emoji: ErrorEmojis.COMMAND
+      emoji: ErrorEmojis.COMMAND,
     },
     {
       description: "Check repository size and consider shallow clone",
       command: "git count-objects -v",
-      emoji: ErrorEmojis.INFO
+      emoji: ErrorEmojis.INFO,
     },
     {
       description: "Retry with verbose output",
       command: `git ${operation} --verbose`,
-      emoji: ErrorEmojis.HELP
-    }
+      emoji: ErrorEmojis.HELP,
+    },
   ];
 
   const contextInfo: ContextInfo[] = [
     ...(context || []),
     { label: "Operation", value: operation },
     { label: "Timeout", value: `${timeoutSeconds} seconds` },
-    ...(workdir ? [{ label: "Working directory", value: workdir }] : [])
+    ...(workdir ? [{ label: "Working directory", value: workdir }] : []),
   ];
 
   const template: ErrorTemplate = {
@@ -251,9 +243,9 @@ export function createGitTimeoutErrorMessage(
       {
         title: "Troubleshooting steps:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(suggestions)
-      }
-    ]
+        content: formatCommandSuggestions(suggestions),
+      },
+    ],
   };
 
   return buildErrorMessage(template, contextInfo);
@@ -270,65 +262,68 @@ export function createMergeConflictErrorMessage(
   workdir?: string,
   context?: ContextInfo[]
 ): string {
-  const fileList = conflictingFiles.map(file => {
-    const type = conflictTypes[file] || "other";
-    const typeEmoji = {
-      "modify/modify": "✏️",
-      "add/add": "➕", 
-      "delete/modify": "🗑️",
-      "other": "⚠️"
-    }[type];
-    return `${typeEmoji} ${file} (${type} conflict)`;
-  }).join("\n");
+  const fileList = conflictingFiles
+    .map((file) => {
+      const type = conflictTypes[file] || "other";
+      const typeEmoji = {
+        "modify/modify": "✏️",
+        "add/add": "➕",
+        "delete/modify": "🗑️",
+        other: "⚠️",
+      }[type];
+      return `${typeEmoji} ${file} (${type} conflict)`;
+    })
+    .join("\n");
 
   const suggestions: CommandSuggestion[] = [
     {
       description: "View conflict status",
       command: "git status",
-      emoji: ErrorEmojis.INFO
+      emoji: ErrorEmojis.INFO,
     },
     {
       description: "List conflicted files only",
       command: "git diff --name-only --diff-filter=U",
-      emoji: ErrorEmojis.FILE
+      emoji: ErrorEmojis.FILE,
     },
     {
       description: "Edit conflicts in first file",
-      command: conflictingFiles.length > 0 ? `code ${conflictingFiles[0]}` : "code <conflicted-file>",
-      emoji: ErrorEmojis.FILE
+      command:
+        conflictingFiles.length > 0 ? `code ${conflictingFiles[0]}` : "code <conflicted-file>",
+      emoji: ErrorEmojis.FILE,
     },
     {
       description: "Use merge tool",
       command: "git mergetool",
-      emoji: ErrorEmojis.COMMAND
+      emoji: ErrorEmojis.COMMAND,
     },
     {
       description: "Accept all incoming changes",
       command: "git checkout --theirs .",
-      emoji: ErrorEmojis.NEXT_STEP
+      emoji: ErrorEmojis.NEXT_STEP,
     },
     {
-      description: "Accept all current changes", 
+      description: "Accept all current changes",
       command: "git checkout --ours .",
-      emoji: ErrorEmojis.NEXT_STEP
+      emoji: ErrorEmojis.NEXT_STEP,
     },
     {
       description: "Mark conflicts as resolved",
       command: "git add .",
-      emoji: ErrorEmojis.CHECK
+      emoji: ErrorEmojis.CHECK,
     },
     {
       description: "Complete the merge",
       command: `git ${operation} --continue`,
-      emoji: ErrorEmojis.NEXT_STEP
-    }
+      emoji: ErrorEmojis.NEXT_STEP,
+    },
   ];
 
   const contextInfo: ContextInfo[] = [
     ...(context || []),
     { label: "Operation", value: operation },
     { label: "Conflicted files", value: conflictingFiles.length.toString() },
-    ...(workdir ? [{ label: "Working directory", value: workdir }] : [])
+    ...(workdir ? [{ label: "Working directory", value: workdir }] : []),
   ];
 
   const template: ErrorTemplate = {
@@ -338,14 +333,14 @@ export function createMergeConflictErrorMessage(
       {
         title: "Conflicted files:",
         emoji: ErrorEmojis.FILE,
-        content: fileList
+        content: fileList,
       },
       {
         title: "Resolution steps:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(suggestions)
-      }
-    ]
+        content: formatCommandSuggestions(suggestions),
+      },
+    ],
   };
 
   return buildErrorMessage(template, contextInfo);
@@ -362,67 +357,71 @@ export function createBackendDetectionErrorMessage(
   workspacePath?: string,
   context?: ContextInfo[]
 ): string {
-  const backendsList = availableBackends.length > 0 
-    ? availableBackends.map(backend => {
-      const requirements = (configurationRequirements as unknown)[backend] || [];
-      const reqText = requirements.length > 0 ? ` (requires: ${requirements.join(", ")})` : "";
-      return `• ${backend}${reqText}`;
-    }).join("\n")
-    : "• markdown (default)\n• json-file\n• github-issues (requires GitHub config)";
+  const backendsList =
+    availableBackends.length > 0
+      ? availableBackends
+          .map((backend) => {
+            const requirements = configurationRequirements[backend] || [];
+            const reqText =
+              requirements.length > 0 ? ` (requires: ${requirements.join(", ")})` : "";
+            return `• ${backend}${reqText}`;
+          })
+          .join("\n")
+      : "• markdown (default)\n• json-file\n• github-issues (requires GitHub config)";
 
   const suggestions: CommandSuggestion[] = [
     {
       description: "Check current configuration",
       command: "minsky config show",
-      emoji: ErrorEmojis.INFO
+      emoji: ErrorEmojis.INFO,
     },
     {
       description: "List available backends",
       command: "minsky config list",
-      emoji: ErrorEmojis.LIST
+      emoji: ErrorEmojis.LIST,
     },
     {
       description: "Set backend explicitly",
       command: "minsky config set backend markdown",
-      emoji: ErrorEmojis.COMMAND
+      emoji: ErrorEmojis.COMMAND,
     },
     {
       description: "Check workspace for task files",
       command: "find . -name 'tasks.md' -o -name 'tasks.json' -o -path '*/.minsky/*'",
-      emoji: ErrorEmojis.FILE
+      emoji: ErrorEmojis.FILE,
     },
     {
       description: "Initialize workspace with backend",
       command: "minsky init --backend markdown",
-      emoji: ErrorEmojis.CREATE
-    }
+      emoji: ErrorEmojis.CREATE,
+    },
   ];
 
   const contextInfo: ContextInfo[] = [
     ...(context || []),
     ...(attemptedBackend ? [{ label: "Attempted backend", value: attemptedBackend }] : []),
     { label: "Available backends", value: availableBackends.length.toString() },
-    ...(workspacePath ? [{ label: "Workspace path", value: workspacePath }] : [])
+    ...(workspacePath ? [{ label: "Workspace path", value: workspacePath }] : []),
   ];
 
   const template: ErrorTemplate = {
     title: `${ErrorEmojis.FAILED} Backend Detection Failed`,
-    description: attemptedBackend 
+    description: attemptedBackend
       ? `Failed to configure or detect backend '${attemptedBackend}'.`
       : "Failed to automatically detect appropriate task backend for this workspace.",
     sections: [
       {
         title: "Available backends:",
         emoji: ErrorEmojis.LIST,
-        content: backendsList
+        content: backendsList,
       },
       {
         title: "Configuration options:",
         emoji: ErrorEmojis.SUGGESTION,
-        content: formatCommandSuggestions(suggestions)
-      }
-    ]
+        content: formatCommandSuggestions(suggestions),
+      },
+    ],
   };
 
   return buildErrorMessage(template, contextInfo);
-} 
+}

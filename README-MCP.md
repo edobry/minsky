@@ -100,8 +100,8 @@ minsky mcp start --with-inspector
 This will:
 
 1. Start the MCP server normally
-2. Launch the MCP Inspector on port 6274 (by default)
-3. Open a browser window to the inspector interface
+2. Launch the MCP Inspector on port 5173 (by default)
+3. Automatically open a browser window to the inspector interface with secure authentication
 
 The inspector allows you to:
 
@@ -113,7 +113,15 @@ The inspector allows you to:
 ### Inspector Options
 
 - `--with-inspector`: Enable the MCP Inspector
-- `--inspector-port <port>`: Specify a custom port for the inspector (default: 6274)
+- `--inspector-port <port>`: Specify a custom port for the inspector (default: 5173)
+
+### Security Features
+
+The MCP Inspector (version 0.16.1) includes:
+
+- Secure authentication with automatic browser opening
+- Session token-based security for safe development
+- Local-only binding for security
 
 ### Requirements
 
@@ -141,88 +149,26 @@ The Minsky MCP server exposes the following tools:
 - `session.get`: Get details for a specific session
 - `session.start`: Start a new session
   - Supports repository backend options (see below)
-- `session.commit`: Commit changes in a session
-- `session.push`: Push changes in a session
+- `session.dir`: Get the directory path for a session
+- `session.update`: Update a session with the latest changes
+- `session.pr`: Create a pull request for a session
+- `session.approve`: Approve and merge a session pull request
+- `session.delete`: Delete a session
+- `session.inspect`: Inspect the current session
 
-### Git Operations
+### Session Git Operations
 
-- `git.clone`: Clone a repository
-
-  - Parameters:
-    - `url`: URL of the Git repository to clone (required)
-    - `session`: Session identifier for the clone (optional)
-    - `destination`: Target directory for the clone (optional)
-    - `branch`: Branch to checkout after cloning (optional)
-
-- `git.branch`: Create a branch in a repository
-
-  - Parameters:
-    - `session`: Session to create branch in (required)
-    - `name`: Name of the branch to create (required)
-
-- `git.commit`: Commit changes
-
-  - Parameters:
+- `session.commit`: Commit and push changes within a session (atomic operation)
+  - **Parameters:**
+    - `session`: Session name (required)
     - `message`: Commit message (required)
-    - `session`: Session to commit changes for (optional)
-    - `repo`: Path to the repository (optional)
+    - `all`: Stage all changes including deletions (optional)
     - `amend`: Amend the previous commit (optional)
-    - `all`: Stage all changes (optional)
     - `noStage`: Skip staging changes (optional)
 
-- `git.push`: Push changes to a remote repository
+> **Architecture Note**: Session git operations are atomic - commit always includes push to maintain session consistency. This ensures session workspaces stay synchronized with the remote repository without requiring separate operations.
 
-  - Parameters:
-    - `session`: Session to push changes for (optional)
-    - `repo`: Path to the repository (optional)
-    - `remote`: Remote to push to (defaults to origin) (optional)
-    - `force`: Force push (use with caution) (optional)
-
-- `git.pr`: Create a pull request
-  - Parameters:
-    - `session`: Session to create PR from (optional)
-    - `repo`: Path to the repository (optional)
-    - `branch`: Branch to create PR for (optional)
-    - `taskId`: Task ID associated with this PR (optional)
-    - `debug`: Enable debug logging (optional)
-    - `noStatusUpdate`: Skip updating task status (optional)
-
-### Repository Backend Support
-
-When using the `session.start` tool, you can specify different repository backends:
-
-```json
-{
-  "name": "session.start",
-  "params": {
-    "name": "my-session",
-    "backend": "github",
-    "githubOwner": "octocat",
-    "githubRepo": "hello-world",
-    "githubToken": "ghp_xxxxxxxxxxxx"
-  }
-}
-```
-
-#### Backend Types
-
-- `local` (default): For local filesystem repositories
-- `remote`: For any remote Git repository URL
-- `github`: Special handling for GitHub repositories with API integration
-
-#### Backend-Specific Parameters
-
-For `remote` backend:
-
-- `repoUrl`: URL of the remote repository
-- `authMethod`: Authentication method (`ssh`, `https`, or `token`)
-- `cloneDepth`: Clone depth for shallow clones
-
-For `github` backend:
-
-- `githubOwner`: Owner/organization name
-- `githubRepo`: Repository name
-- `githubToken`: GitHub access token for authentication
+### Configuration and Debugging
 
 ### Rules Management
 

@@ -27,7 +27,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // Get provider-specific config from the unified configuration
       const providerConfig = config.ai?.providers?.[provider];
-      
+
       // If no provider config exists, return null
       if (!providerConfig) {
         return null;
@@ -35,7 +35,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // Extract API key from unified config (automatically populated by environment variable mapping)
       const apiKey = providerConfig.api_key;
-      
+
       // If no API key is available, we can't use this provider
       if (!apiKey) {
         return null;
@@ -43,7 +43,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // Create provider config from unified configuration
       return {
-        provider: provider as unknown,
+        provider: provider,
         apiKey,
         baseURL: providerConfig.base_url,
         defaultModel: providerConfig.default_model,
@@ -52,14 +52,14 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
         models: providerConfig.models || [],
         maxTokens: providerConfig.max_tokens,
         temperature: providerConfig.temperature,
-      } as AIProviderConfig;
+      };
     } catch (error) {
       log.debug(`Failed to get provider config for ${provider}`, { error });
       return null;
     }
   }
 
-  async setProviderConfig(provider: string, config: AIProviderConfig): Promise<void> {
+  async setProviderConfig(_provider: string, _config: AIProviderConfig): Promise<void> {
     // Note: For now, we don't implement writing config back to files
     // This would be a future enhancement to modify YAML config files
     throw new Error("Setting provider config is not yet implemented");
@@ -68,14 +68,14 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
   async getDefaultProvider(): Promise<string> {
     try {
       const result = await (this.configService as any).loadConfiguration((process as any).cwd());
-      return (result.resolved.ai as any).default_provider || "openai" as unknown;
+      return (result.resolved.ai as any).default_provider || "openai";
     } catch (error) {
       log.error("Failed to get default provider", { error });
       return "openai";
     }
   }
 
-  async setDefaultProvider(provider: string): Promise<void> {
+  async setDefaultProvider(_provider: string): Promise<void> {
     // Note: For now, we don't implement writing config back to files
     throw new Error("Setting default provider is not yet implemented");
   }

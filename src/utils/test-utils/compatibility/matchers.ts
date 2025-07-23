@@ -115,11 +115,11 @@ class AnyMatcher extends AsymmetricMatcherBase {
   }
 
   toString(): string {
-    return `Any<${(this.expectedType as unknown)?.name || this.expectedType}>`;
+    return `Any<${this.expectedType?.name || this.expectedType}>`;
   }
 
   toJSON(): string {
-    return `Any<${(this.expectedType as unknown)?.name || this.expectedType}>`;
+    return `Any<${this.expectedType?.name || this.expectedType}>`;
   }
 }
 
@@ -395,8 +395,8 @@ export const asymmetricMatchers = {
 export function registerAsymmetricMatchers(expectObj: unknown): void {
   // Add each matcher to the expect object
   for (const [key, value] of Object.entries(asymmetricMatchers)) {
-    if (!(key in (expectObj as unknown))) {
-      (expectObj as unknown)[key] = value;
+    if (!(key in expectObj)) {
+      expectObj[key] = value;
     }
   }
 }

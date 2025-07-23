@@ -28,7 +28,7 @@ export type InitializeProjectParams = z.infer<typeof initializeProjectParamsSche
  */
 export async function initializeProjectFromParams(params: InitializeProjectParams): Promise<void> {
   // Validate the parameters
-  const validatedParams = initializeProjectParamsSchema.parse(params as unknown);
+  const validatedParams = initializeProjectParamsSchema.parse(params);
 
   // Call the original initialization function
   return initializeProject(validatedParams);

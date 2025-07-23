@@ -66,6 +66,7 @@ Based on investigation findings, evaluate the `--description` auto-creation appr
 - ✅ **Testing Verified** - Created task #230 from description, session properly associated
 
 ### Key Features Delivered:
+
 - Auto-task creation from session description
 - Task spec generation with proper format
 - Session-task association maintained
@@ -83,6 +84,7 @@ Based on investigation findings, evaluate the `--description` auto-creation appr
 - ✅ **All Interfaces Updated** - CLI, MCP, shared commands all enforce requirement
 
 ### Key Features Delivered:
+
 - Task association always required across all interfaces
 - Clean validation with helpful error messages
 - No escape hatches or legacy compatibility issues
@@ -91,6 +93,7 @@ Based on investigation findings, evaluate the `--description` auto-creation appr
 ## 🎯 Phase 3: Complete Integration (READY)
 
 ### Next Steps:
+
 - **Documentation Updates**: Update all documentation to reflect mandatory task association
 - **Legacy Code Cleanup**: Remove any remaining taskless session support code
 - **Advanced Features**: Enhance auto-creation with templates and better categorization

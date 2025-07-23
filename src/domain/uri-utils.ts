@@ -195,7 +195,7 @@ export function validateRepositoryUri(
   options: UriOptions = DEFAULT_URI_OPTIONS
 ): boolean {
   // This will throw if validation fails
-  normalizeRepositoryUri(uri, options as unknown);
+  normalizeRepositoryUri(uri, options);
   return true;
 }
 
@@ -231,14 +231,14 @@ export function convertRepositoryUri(uri: string, targetFormat: UriFormat): stri
   const [org, repo] = normalized.name.split("/");
 
   switch (targetFormat) {
-  case UriFormat.HTTPS:
-    return `https://github.com/${org}/${repo}`;
-  case UriFormat.SSH:
-    return `git@github.com:${org}/${repo}.git`;
-  case UriFormat.SHORTHAND:
-    return `${org}/${repo}`;
-  default:
-    throw new ValidationError(`Cannot convert remote repository to ${targetFormat} format`);
+    case UriFormat.HTTPS:
+      return `https://github.com/${org}/${repo}`;
+    case UriFormat.SSH:
+      return `git@github.com:${org}/${repo}.git`;
+    case UriFormat.SHORTHAND:
+      return `${org}/${repo}`;
+    default:
+      throw new ValidationError(`Cannot convert remote repository to ${targetFormat} format`);
   }
 }
 
@@ -270,8 +270,10 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
   try {
     // This will be implemented with actual Git detection code
     // For now, provide a placeholder implementation
-    const { execAsync } = await import("../utils/exec.js");
-    const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd });
+    const { execGitWithTimeout } = await import("../utils/git-exec.js");
+    const { stdout } = await execGitWithTimeout("rev-parse", "rev-parse --show-toplevel", {
+      workdir: cwd,
+    });
     return stdout.trim();
   } catch (_error) {
     // Not in a Git repository

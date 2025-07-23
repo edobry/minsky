@@ -2,7 +2,11 @@ import { promises as fs } from "fs";
 import { join } from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { createSessionProvider, type SessionProviderInterface } from "./session";
+import {
+  createSessionProvider,
+  type SessionProviderInterface,
+  type SessionRecord,
+} from "./session";
 import { log } from "../utils/logger";
 import { createHash } from "crypto";
 import { readFileSync, existsSync } from "fs";
@@ -39,8 +43,8 @@ export interface TestDependencies {
  */
 export function resolveMainWorkspaceFromRepoUrl(repoUrl: string): string {
   // For file:// URLs, just remove the file:// prefix
-  if ((repoUrl as unknown)!.startsWith("file://")) {
-    return (repoUrl as unknown)!.replace("file://", "");
+  if (repoUrl.startsWith("file://")) {
+    return repoUrl.replace("file://", "");
   }
   // For other URLs, assume they refer to the current directory
   return (process as any).cwd();
@@ -53,7 +57,7 @@ export function resolveMainWorkspaceFromRepoUrl(repoUrl: string): string {
  */
 export function isSessionWorkspace(workspacePath: string): boolean {
   const minskySessionsPath = getSessionsDir();
-  return (workspacePath as unknown)!.startsWith(minskySessionsPath);
+  return workspacePath.startsWith(minskySessionsPath);
 }
 
 /**
@@ -96,13 +100,13 @@ export async function getSessionFromWorkspace(
     const db = sessionDbOverride || createSessionProvider();
     const sessionRecord = await db.getSession(sessionName);
 
-    if (!sessionRecord || !(sessionRecord as unknown)!.repoUrl) {
+    if (!sessionRecord || !sessionRecord.repoUrl) {
       return null;
     }
 
     return {
       session: sessionName,
-      upstreamRepository: (sessionRecord as unknown)!.repoUrl,
+      upstreamRepository: sessionRecord.repoUrl,
       gitRoot,
     };
   } catch (error) {
@@ -158,9 +162,9 @@ export async function resolveMainWorkspacePath(deps: TestDependencies = {}): Pro
         // Use the session database to get the repository URL
         try {
           const sessionProvider = createSessionProvider();
-          const sessionRecord = await (sessionProvider as unknown)!.getSession(sessionName);
-          if (sessionRecord && (sessionRecord as unknown)!.repoUrl) {
-            return (sessionRecord as unknown)!.repoUrl;
+          const sessionRecord = await sessionProvider.getSession(sessionName);
+          if (sessionRecord && sessionRecord.repoUrl) {
+            return sessionRecord.repoUrl;
           }
         } catch (sessionError) {
           // If session DB lookup fails, fall back to current directory
@@ -195,7 +199,7 @@ export async function resolveWorkspacePath(
   if (options?.forTaskOperations) {
     const sessionInfo = await getSessionFromWorkspace((process as any).cwd());
     if (sessionInfo && (sessionInfo as any)!.upstreamRepository) {
-      return resolveMainWorkspaceFromRepoUrl((sessionInfo as unknown)!.upstreamRepository);
+      return resolveMainWorkspaceFromRepoUrl(sessionInfo.upstreamRepository);
     }
     // If not in a session, or session has no upstream, fall through to normal logic.
   }
@@ -237,7 +241,7 @@ export async function getCurrentSession(
   sessionDbOverride?: SessionProviderInterface
 ): Promise<string | undefined> {
   const sessionInfo = await getSessionFromWorkspace(cwd, execAsyncFn, sessionDbOverride);
-  return sessionInfo ? (sessionInfo as unknown)!.session : null;
+  return sessionInfo ? sessionInfo.session : null;
 }
 
 /**
@@ -269,7 +273,7 @@ export async function getCurrentSessionContext(
 
     // Query the SessionDB to get task information
     const sessionDb = sessionDbOverride || createSessionProvider();
-    const sessionRecord = await (sessionDb as unknown)!.getSession(sessionId);
+    const sessionRecord = await sessionDb.getSession(sessionId);
 
     if (!sessionRecord) {
       return null;
@@ -277,7 +281,7 @@ export async function getCurrentSessionContext(
 
     return {
       sessionId,
-      taskId: (sessionRecord as unknown)!.taskId,
+      taskId: sessionRecord.taskId,
     };
   } catch (error) {
     log.error("Error fetching session record", {
@@ -359,18 +363,21 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
     isSessionWorkspace,
     getCurrentSession: async (repoPath: string): Promise<string | undefined> => {
       const sessionInfo = await getSessionFromRepo(repoPath);
-      return sessionInfo ? (sessionInfo as unknown)!.session : null;
+      return sessionInfo ? sessionInfo.session : null;
     },
     getSessionFromWorkspace: async (workspacePath: string): Promise<string | undefined> => {
       const sessionInfo = await getSessionFromWorkspace(workspacePath);
-      return sessionInfo ? (sessionInfo as unknown)!.session : null;
+      return sessionInfo ? sessionInfo.session : null;
     },
     resolveWorkspacePath: resolveWorkspacePath,
   };
 }
 
 export async function getWorkspaceGitRoot(workspacePath: string): Promise<string> {
-  const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd: workspacePath });
+  const { execGitWithTimeout } = await import("../utils/git-exec");
+  const { stdout } = await execGitWithTimeout("rev-parse", "rev-parse --show-toplevel", {
+    workdir: workspacePath,
+  });
   return stdout.trim();
 }
 
@@ -386,7 +393,7 @@ export async function getWorkspaceSession(workspacePath: string): Promise<Worksp
     return {
       gitRoot,
       workspacePath,
-      session: (sessionInfo as unknown)!.session,
+      session: sessionInfo.session,
       sessionDbPath: "", // Placeholder for session DB path
       sessionData: {}, // Placeholder for session data
     };

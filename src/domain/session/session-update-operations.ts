@@ -1,9 +1,13 @@
+import { existsSync } from "fs";
+import { readFile, writeFile, mkdir, access } from "fs/promises";
+import { join } from "path";
 import { getMinskyStateDir, getSessionDir } from "../../utils/paths";
 import {
   MinskyError,
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
+  createCommandFailureMessage,
 } from "../../errors/index";
 import type { SessionUpdateParams } from "../../schemas/session";
 import { log } from "../../utils/logger";
@@ -12,6 +16,8 @@ import { getCurrentSession } from "../workspace";
 import { ConflictDetectionService } from "../git/conflict-detection";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 import { resolveSessionContextWithFeedback } from "./session-context-resolver";
+import { gitFetchWithTimeout } from "../../utils/git-exec";
+import { type WorkspaceUtilsInterface } from "../workspace";
 
 export interface UpdateSessionDependencies {
   gitService: GitServiceInterface;
@@ -27,7 +33,18 @@ export async function updateSessionImpl(
   params: SessionUpdateParams,
   deps: UpdateSessionDependencies
 ): Promise<Session> {
-  let { name, branch, remote, noStash, noPush, force, skipConflictCheck, autoResolveDeleteConflicts, dryRun, skipIfAlreadyMerged } = params;
+  let {
+    name,
+    branch,
+    remote,
+    noStash,
+    noPush,
+    force,
+    skipConflictCheck,
+    autoResolveDeleteConflicts,
+    dryRun,
+    skipIfAlreadyMerged,
+  } = params;
 
   log.debug("updateSessionImpl called", { params });
 
@@ -154,7 +171,7 @@ export async function updateSessionImpl(
       log.debug("Latest changes pulled");
 
       // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
-      const branchToMerge = branch || await deps.gitService.fetchDefaultBranch(workdir);
+      const branchToMerge = branch || (await deps.gitService.fetchDefaultBranch(workdir));
       const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
 
       // Enhanced conflict detection and smart merge handling
@@ -162,16 +179,20 @@ export async function updateSessionImpl(
         log.cli("🔍 Performing dry run conflict check...");
 
         const conflictPrediction = await ConflictDetectionService.predictConflicts(
-          workdir, currentBranch, remoteBranchToMerge
+          workdir,
+          currentBranch,
+          remoteBranchToMerge
         );
 
         if (conflictPrediction.hasConflicts) {
           log.cli("⚠️  Conflicts detected during dry run:");
           log.cli(conflictPrediction.userGuidance);
           log.cli("\n🛠️  Recovery commands:");
-          conflictPrediction.recoveryCommands.forEach(cmd => log.cli(`   ${cmd}`));
+          conflictPrediction.recoveryCommands.forEach((cmd) => log.cli(`   ${cmd}`));
 
-          throw new MinskyError("Dry run detected conflicts. Use the guidance above to resolve them.");
+          throw new MinskyError(
+            "Dry run detected conflicts. Use the guidance above to resolve them."
+          );
         } else {
           log.cli("✅ No conflicts detected. Safe to proceed with update.");
           return {
@@ -197,7 +218,7 @@ export async function updateSessionImpl(
           normalizedBaseBranch,
           {
             skipIfAlreadyMerged,
-            autoResolveConflicts: autoResolveDeleteConflicts
+            autoResolveConflicts: autoResolveDeleteConflicts,
           }
         );
 
@@ -205,8 +226,10 @@ export async function updateSessionImpl(
           log.cli(`✅ ${updateResult.reason}`);
 
           if (updateResult.reason?.includes("already in base")) {
-            log.cli("\n💡 Your session changes are already merged. You can create a PR with --skip-update:");
-            log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
+            log.cli(
+              "\n💡 Your session changes are already merged. You can create a PR with --skip-update:"
+            );
+            log.cli('   minsky session pr --title "Your PR title" --skip-update');
           }
 
           return {
@@ -233,7 +256,7 @@ export async function updateSessionImpl(
 
             if (analysis.sessionChangesInBase) {
               log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
-              log.cli("   minsky session pr --title \"Your PR title\" --skip-update");
+              log.cli('   minsky session pr --title "Your PR title" --skip-update');
             }
           }
 
@@ -248,7 +271,9 @@ export async function updateSessionImpl(
           await deps.gitService.mergeBranch(workdir, normalizedBaseBranch);
           log.debug("Forced merge completed");
         } catch (mergeError) {
-          log.debug("Forced merge failed, but continuing due to force flag", { error: getErrorMessage(mergeError) });
+          log.debug("Forced merge failed, but continuing due to force flag", {
+            error: getErrorMessage(mergeError),
+          });
         }
       }
 
@@ -309,10 +334,7 @@ export async function updateSessionImpl(
     if (error instanceof MinskyError) {
       throw error;
     } else {
-      throw new MinskyError(
-        `Failed to update session: ${getErrorMessage(error)}`,
-        error
-      );
+      throw new MinskyError(`Failed to update session: ${getErrorMessage(error)}`, error);
     }
   }
 }
@@ -364,7 +386,7 @@ function isPrStateStale(prState: { lastChecked: string }): boolean {
   const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
   const lastChecked = new Date(prState.lastChecked).getTime();
   const now = Date.now();
-  return (now - lastChecked) > STALE_THRESHOLD_MS;
+  return now - lastChecked > STALE_THRESHOLD_MS;
 }
 
 /**
@@ -389,7 +411,7 @@ export async function checkPrBranchExistsOptimized(
     log.debug("Using cached PR state", {
       sessionName,
       exists: sessionRecord.prState.exists,
-      lastChecked: sessionRecord.prState.lastChecked
+      lastChecked: sessionRecord.prState.lastChecked,
     });
     return sessionRecord.prState.exists;
   }
@@ -398,7 +420,7 @@ export async function checkPrBranchExistsOptimized(
   log.debug("PR state cache is stale or missing, refreshing", {
     sessionName,
     hasState: !!sessionRecord.prState,
-    isStale: sessionRecord.prState ? isPrStateStale(sessionRecord.prState) : false
+    isStale: sessionRecord.prState ? isPrStateStale(sessionRecord.prState) : false,
   });
 
   const exists = await checkPrBranchExists(sessionName, gitService, currentDir);
@@ -410,7 +432,7 @@ export async function checkPrBranchExistsOptimized(
     exists,
     lastChecked: new Date().toISOString(),
     createdAt: sessionRecord.prState?.createdAt || (exists ? new Date().toISOString() : undefined),
-    mergedAt: sessionRecord.prState?.mergedAt
+    mergedAt: sessionRecord.prState?.mergedAt,
   };
 
   await sessionDB.updateSession(sessionName, { prState: updatedPrState });
@@ -418,7 +440,7 @@ export async function checkPrBranchExistsOptimized(
   log.debug("Updated PR state cache", {
     sessionName,
     exists,
-    lastChecked: updatedPrState.lastChecked
+    lastChecked: updatedPrState.lastChecked,
   });
 
   return exists;
@@ -439,7 +461,7 @@ export async function updatePrStateOnCreation(
     exists: true,
     lastChecked: now,
     createdAt: now,
-    mergedAt: undefined
+    mergedAt: undefined,
   };
 
   await sessionDB.updateSession(sessionName, { prState });
@@ -447,7 +469,7 @@ export async function updatePrStateOnCreation(
   log.debug("Updated PR state on creation", {
     sessionName,
     prBranch,
-    createdAt: now
+    createdAt: now,
   });
 }
 
@@ -470,19 +492,20 @@ export async function updatePrStateOnMerge(
     ...sessionRecord.prState,
     exists: false,
     lastChecked: now,
-    mergedAt: now
+    mergedAt: now,
   };
 
   await sessionDB.updateSession(sessionName, { prState: updatedPrState });
 
   log.debug("Updated PR state on merge", {
     sessionName,
-    mergedAt: now
+    mergedAt: now,
   });
 }
 
 /**
  * Helper function to extract title and body from existing PR branch
+ * Fixed to prevent title duplication in body content
  */
 export async function extractPrDescription(
   sessionName: string,
@@ -503,7 +526,7 @@ export async function extractPrDescription(
 
     if (remoteBranchExists) {
       // Fetch the PR branch to ensure we have latest
-      await gitService.execInRepository(currentDir, `git fetch origin ${prBranch}`);
+      await gitFetchWithTimeout("origin", prBranch, { workdir: currentDir });
 
       // Get the commit message from the remote branch's last commit
       commitMessage = await gitService.execInRepository(
@@ -529,10 +552,29 @@ export async function extractPrDescription(
       }
     }
 
-    // Parse the commit message to extract title and body
+    // Parse the commit message more intelligently to prevent title duplication
     const lines = commitMessage.trim().split("\n");
     const title = lines[0] || "";
-    const body = lines.slice(1).join("\n").trim();
+
+    // Filter out empty lines and prevent title duplication in body
+    const bodyLines = lines.slice(1).filter((line) => line.trim() !== "");
+
+    // Check if first line of body duplicates the title
+    let body = "";
+    if (bodyLines.length > 0) {
+      // If first body line is identical to title, skip it to prevent duplication
+      const firstBodyLine = bodyLines[0]?.trim() || "";
+      if (firstBodyLine === title.trim()) {
+        body = bodyLines.slice(1).join("\n").trim();
+        log.debug("Removed duplicate title from PR body", {
+          sessionName,
+          originalTitle: title,
+          duplicatedLine: firstBodyLine,
+        });
+      } else {
+        body = bodyLines.join("\n").trim();
+      }
+    }
 
     return { title, body };
   } catch (error) {
@@ -543,4 +585,4 @@ export async function extractPrDescription(
     });
     return null;
   }
-} 
+}

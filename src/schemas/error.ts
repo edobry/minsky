@@ -1,8 +1,8 @@
 /**
  * Error Schema Definitions for Type-Safe Error Handling
- * 
+ *
  * This module provides Zod schemas for validating error objects throughout the codebase,
- * replacing unsafe `(err as unknown).message` patterns with proper validation.
+ * replacing unsafe `err.message` patterns with proper validation.
  */
 
 import { z } from "zod";
@@ -40,11 +40,15 @@ export const gitErrorSchema = baseErrorSchema.extend({
  * Validation error schema for schema validation failures
  */
 export const validationErrorSchema = baseErrorSchema.extend({
-  errors: z.array(z.object({
-    path: z.array(z.union([z.string(), z.number()])),
-    message: z.string(),
-    code: z.string(),
-  })).optional(),
+  errors: z
+    .array(
+      z.object({
+        path: z.array(z.union([z.string(), z.number()])),
+        message: z.string(),
+        code: z.string(),
+      })
+    )
+    .optional(),
 });
 
 /**
@@ -71,11 +75,11 @@ export type GenericError = z.infer<typeof genericErrorSchema>;
  */
 export function validateError(error: unknown): BaseError {
   const result = baseErrorSchema.safeParse(error);
-  
+
   if (result.success) {
     return result.data;
   }
-  
+
   // Fallback for non-standard error objects
   if (error instanceof Error) {
     return {
@@ -84,7 +88,7 @@ export function validateError(error: unknown): BaseError {
       stack: error.stack,
     };
   }
-  
+
   // Ultimate fallback
   return {
     message: String(error),
@@ -97,11 +101,11 @@ export function validateError(error: unknown): BaseError {
  */
 export function validateSystemError(error: unknown): SystemError {
   const result = systemErrorSchema.safeParse(error);
-  
+
   if (result.success) {
     return result.data;
   }
-  
+
   // Fallback to base error validation
   return validateError(error);
 }
@@ -111,11 +115,11 @@ export function validateSystemError(error: unknown): SystemError {
  */
 export function validateGitError(error: unknown): GitError {
   const result = gitErrorSchema.safeParse(error);
-  
+
   if (result.success) {
     return result.data;
   }
-  
+
   // Fallback to base error validation
   return validateError(error);
 }
@@ -134,4 +138,4 @@ export function getErrorMessage(error: unknown): string {
 export function getErrorStack(error: unknown): string | undefined {
   const validatedError = validateError(error);
   return validatedError.stack;
-} 
+}

@@ -1,14 +1,8 @@
 import type { SessionDirParams } from "../../schemas/session";
 import { createSessionProvider } from "../../session";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { 
-  SessionProviderInterface,
-  SessionDependencies 
-} from "../types";
-import { 
-  ResourceNotFoundError, 
-  ValidationError,
-} from "../../errors/index";
+import { SessionProviderInterface, SessionDependencies } from "../types";
+import { ResourceNotFoundError, ValidationError } from "../../errors/index";
 
 /**
  * Gets session directory based on parameters
@@ -38,7 +32,7 @@ export async function getSessionDirFromParams(
     });
 
     // Get the session directory using the resolved session name
-    return deps.sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+    return await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionName);
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
@@ -48,4 +42,4 @@ export async function getSessionDirFromParams(
     }
     throw error;
   }
-} 
+}

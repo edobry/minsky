@@ -7,41 +7,43 @@ import { log } from "../../utils/logger";
 
 /**
  * Registers git tools with the MCP command mapper
+ *
+ * Note: All git commands are hidden from MCP to maintain proper separation
+ * of concerns. Use session-scoped commands instead:
+ * - Use session.commit instead of git.commit
+ * - Use session.push instead of git.push
+ * - Use session.pr for pull request workflow
+ * - Use session.start to create sessions with proper git setup
  */
 export function registerGitTools(commandMapper: CommandMapper): void {
   log.debug("Registering git commands via shared command integration");
 
-  // Use the bridge integration to automatically register all git commands
+  // Hide all git commands from MCP - use session commands instead
   registerGitCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      // MCP-specific optimizations
+      // Hide all git operations from MCP
       "git.commit": {
-        description: "Commit changes to the repository (MCP optimized)",
+        hidden: true,
       },
       "git.push": {
-        description: "Push changes to the remote repository (MCP optimized)",
+        hidden: true,
       },
       "git.clone": {
-        description: "Clone a Git repository (MCP optimized)",
-      },
-      "git.branch": {
-        description: "Create a new branch (MCP optimized)",
-      },
-      "git.pr": {
-        description: "Create a pull request (MCP optimized)",
-      },
-      "git.merge": {
-        description: "Merge a branch with conflict detection (MCP optimized)",
+        hidden: true,
       },
       "git.checkout": {
-        description: "Checkout a branch with conflict detection (MCP optimized)",
+        hidden: true,
+      },
+      "git.merge": {
+        hidden: true,
       },
       "git.rebase": {
-        description: "Rebase with conflict detection (MCP optimized)",
+        hidden: true,
+      },
+      "git.branch": {
+        hidden: true,
       },
     },
   });
-
-  log.debug("Git commands registered successfully via shared integration");
 }

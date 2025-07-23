@@ -1,22 +1,15 @@
 /**
- * Test Configuration Manager for Node-Config Integration
+ * Test Configuration Manager for Custom Configuration System
  *
- * Handles configuration overrides for testing while integrating with node-config.
- * Provides a way to override configuration values during testing without 
- * affecting the main configuration system.
+ * Handles configuration overrides for testing while integrating with the new
+ * type-safe configuration system. Provides a way to override configuration
+ * values during testing without affecting the main configuration system.
  */
 
-import config from "config";
+import { get, getConfigurationProvider } from "./index";
+import type { PartialConfiguration } from "./schemas";
 
-export interface TestConfigOverrides {
-  backend?: string;
-  backendConfig?: any;
-  detectionRules?: any[];
-  sessiondb?: any;
-  ai?: any;
-  github?: any;
-  logger?: any;
-}
+export interface TestConfigOverrides extends PartialConfiguration {}
 
 export interface TestConfigManager {
   withOverrides<T>(overrides: TestConfigOverrides, testFn: () => T): T;
@@ -45,7 +38,10 @@ export class DefaultTestConfigManager implements TestConfigManager {
   /**
    * Execute an async test function with configuration overrides
    */
-  async withOverridesAsync<T>(overrides: TestConfigOverrides, testFn: () => Promise<T>): Promise<T> {
+  async withOverridesAsync<T>(
+    overrides: TestConfigOverrides,
+    testFn: () => Promise<T>
+  ): Promise<T> {
     this.applyOverrides(overrides);
     try {
       return await testFn();
@@ -59,7 +55,7 @@ export class DefaultTestConfigManager implements TestConfigManager {
    */
   getConfigValue(path: string): any {
     try {
-      return config.get(path);
+      return get(path);
     } catch (error) {
       return undefined;
     }
@@ -72,7 +68,7 @@ export class DefaultTestConfigManager implements TestConfigManager {
     // Store original value if not already stored
     if (!this.originalValues.has(path)) {
       try {
-        this.originalValues.set(path, config.get(path));
+        this.originalValues.set(path, get(path));
       } catch (error) {
         // Path doesn't exist, store undefined
         this.originalValues.set(path, undefined);
@@ -80,7 +76,7 @@ export class DefaultTestConfigManager implements TestConfigManager {
     }
 
     // Set the override value
-    this.setNestedValue(config as any, path, value);
+    this.setNestedValue(getConfigurationProvider().getConfig(), path, value);
   }
 
   /**
@@ -94,9 +90,9 @@ export class DefaultTestConfigManager implements TestConfigManager {
     // Restore original values
     for (const [path, originalValue] of this.originalValues) {
       if (originalValue === undefined) {
-        this.deleteNestedValue(config as any, path);
+        this.deleteNestedValue(getConfigurationProvider().getConfig(), path);
       } else {
-        this.setNestedValue(config as any, path, originalValue);
+        this.setNestedValue(getConfigurationProvider().getConfig(), path, originalValue);
       }
     }
 
@@ -175,6 +171,9 @@ export function withTestConfig<T>(overrides: TestConfigOverrides, testFn: () => 
 /**
  * Utility function for async testing with configuration overrides
  */
-export async function withTestConfigAsync<T>(overrides: TestConfigOverrides, testFn: () => Promise<T>): Promise<T> {
+export async function withTestConfigAsync<T>(
+  overrides: TestConfigOverrides,
+  testFn: () => Promise<T>
+): Promise<T> {
   return testConfigManager.withOverridesAsync(overrides, testFn);
-} 
+}
