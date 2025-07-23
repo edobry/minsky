@@ -324,7 +324,7 @@
 
 - [x] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
-- [+] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
+- [x] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
 - [+] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
@@ -478,7 +478,7 @@
 
 - [x] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
 
-- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#325](process/tasks/325-resolve-workspace-architecture-inconsistencies.md)
+- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/273-resolve-workspace-architecture-inconsistencies-and-utilize-special-workspace-system.md)
 
 - [x] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
 
@@ -512,7 +512,7 @@
 
 - [x] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
 
-- [+] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
+- [ ] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
 
 - [+] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
 
@@ -548,7 +548,9 @@
 
 - [ ] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
-- [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
+- [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/319-fix-special-workspace-and-main-workspace-synchronization-for-task-operations-renamed-from-310-.md)
+
+- [ ] Research codemod-based approach for session-aware edit file tool [#310b](process/tasks/310-research-codemod-based-approach-for-session-aware-edit-file-tool.md)
 
 - [ ] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
 
@@ -573,9 +575,3 @@
 - [ ] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)
 
 - [ ] Add MCP Client Registration Functionality [#324](process/tasks/324-add-mcp-client-registration-functionality.md)
-
-- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#325](process/tasks/325-resolve-workspace-architecture-inconsistencies.md)
-
-- [ ] Generate ESLint Rulesets from Cursor Rules [#326](process/tasks/326-generate-eslint-rulesets-from-cursor-rules.md)
-
-- [x] Fix Test Failures Found During Task Session [#327](process/tasks/327-fix-test-failures-found-during-task-session.md)

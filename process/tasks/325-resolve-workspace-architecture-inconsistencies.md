@@ -1,4 +1,4 @@
-# Task #273: Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System
+# Task #325: Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System
 
 ## Status
 
