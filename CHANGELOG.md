@@ -2,6 +2,15 @@
 
 ### Enhanced
 
+- **Task #322: Refactored MCP Tools with Type Composition to Eliminate Argument Duplication**
+  - Created shared Zod schema components for reusable parameter validation across MCP tools
+  - Achieved 60%+ reduction in duplicate parameter definitions (17+ sessionName, 15+ path, 6+ line range duplications)
+  - Introduced composed schemas: SessionFileReadSchema, SessionFileWriteSchema, SessionDirectoryListSchema, etc.
+  - Single source of truth for parameter descriptions and validation patterns
+  - Fixed critical sessionNameName bug in session-workspace.ts (7 instances of incorrect variable references)
+  - Improved maintainability with consistent error handling and TypeScript type safety
+  - All existing MCP tool functionality preserved with enhanced validation
+
 - **ESLint Rule**: Added `no-tests-directories` rule to warn against using `__tests__` directories and encourage co-located test files
   - Warns when test files are found in `__tests__` directories
   - Suggests moving tests to be co-located with their modules (e.g., `module.test.ts` next to `module.ts`)
