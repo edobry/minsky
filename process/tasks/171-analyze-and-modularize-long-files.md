@@ -719,6 +719,10 @@ src/domain/git/commands/
    - **Status**: Completed in current session
    - **Module**: `src/domain/session/session-approve-operations.ts`
    - **Features**: PR branch merging, task status updates, branch cleanup
+   - **Architecture**: Triple-layer implementation pattern established:
+     - Core: `approveSessionImpl()` in operations module
+     - Wrapper: `approveSessionFromParams()` in session.ts (backward compatibility)
+     - Interface: `approve-subcommand.ts` (command registry bridge)
 
 5. **`sessionReviewFromParams`** (~232 lines) ✅
    - **Status**: Completed in current session
@@ -844,6 +848,45 @@ src/domain/git/commands/
 - **Import Hub Pattern**: Main test file serves as import aggregator
 - **Mock Compatibility**: Resolved Bun test framework compatibility issues
 - **Test Organization**: Improved test organization with focused modules
+
+### Session Approve Architectural Consolidation ✅
+
+**Issue Discovered**: Multiple conflicting session approve implementations from incomplete Task #171 cleanup
+
+**Problems Found:**
+1. **Broken Implementation**: `commands/approve-command.ts` incorrectly used session workspace instead of main repository
+2. **Architectural Confusion**: 3 different implementations with overlapping responsibilities
+3. **Import Inconsistency**: Subcommands importing wrong implementation
+4. **Incomplete Cleanup**: Old broken implementation never removed after modularization
+
+**Resolution Implemented:**
+1. **Deleted**: `src/domain/session/commands/approve-command.ts` (broken implementation)
+2. **Updated**: `approve-subcommand.ts` to use correct `approveSessionImpl` from operations module
+3. **Cleaned**: Removed broken exports from commands index
+4. **Documented**: Established triple-layer architecture pattern:
+   - **Core Layer**: `session-approve-operations.ts` (extracted business logic)
+   - **Compatibility Layer**: `session.ts` wrappers (backward compatibility)
+   - **Interface Layer**: `subcommands/` (command registry bridges)
+
+**Architectural Pattern Established:**
+```
+┌─ Interface Layer ────────────────────────┐
+│ subcommands/approve-subcommand.ts        │ ← Command registry bridge
+├─ Compatibility Layer ───────────────────┤
+│ session.ts: approveSessionFromParams()   │ ← Backward compatibility wrapper
+├─ Core Layer ────────────────────────────┤
+│ session-approve-operations.ts            │ ← Extracted business logic
+│ approveSessionImpl()                     │
+└──────────────────────────────────────────┘
+```
+
+**Quality Improvements:**
+- ✅ **Single Source of Truth**: All session approve calls now use correct implementation
+- ✅ **Architectural Clarity**: Eliminated confusion between multiple implementations
+- ✅ **Proper Repository Usage**: All operations correctly target main repository
+- ✅ **Interface Consistency**: Subcommands properly bridge to core implementations
+
+**Follow-up Required**: Audit other session commands for similar dual implementation patterns that may need consolidation
 
 ### Current Status Summary
 
