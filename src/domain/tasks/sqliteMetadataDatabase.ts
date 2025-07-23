@@ -7,7 +7,7 @@
  * Uses the existing database storage infrastructure for consistency.
  */
 
-import { SqliteStorage } from "../storage/backends/sqlite-storage";
+import { GenericSqliteStorage } from "../storage/backends/generic-sqlite-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
@@ -62,9 +62,10 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
     this.databasePath = options.databasePath || 
       `${process.env.HOME}/.local/state/minsky/tasks-metadata.db`;
 
-    // Use existing SQLite storage infrastructure
-    this.storage = new SqliteStorage<TaskMetadata, TaskMetadataDbState>({
+    // Use generic SQLite storage infrastructure
+    this.storage = new GenericSqliteStorage<TaskMetadata, TaskMetadataDbState>({
       dbPath: this.databasePath,
+      tableName: "task_metadata",
       enableWAL: options.enableWalMode ?? true,
       timeout: options.timeout ?? 5000,
     });
@@ -122,7 +123,7 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
       if (exists) {
         await this.storage.updateEntity(taskId, metadata);
       } else {
-        await this.storage.createEntity({ ...metadata, taskId });
+        await this.storage.createEntity({ ...metadata, id: taskId, taskId });
       }
 
       log.debug("Task metadata set successfully", { taskId });
@@ -251,8 +252,9 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
       // Read current state and write to backup location
       const state = await this.storage.readState();
       if (state.success && state.data) {
-        const backupStorage = new SqliteStorage<TaskMetadata, TaskMetadataDbState>({
+        const backupStorage = new GenericSqliteStorage<TaskMetadata, TaskMetadataDbState>({
           dbPath: backupPath,
+          tableName: "task_metadata",
           enableWAL: false, // Don't use WAL for backup
         });
         
@@ -275,8 +277,9 @@ export class SqliteMetadataDatabase implements MetadataDatabase {
       log.info("Starting SQLite metadata restore", { backupPath });
 
       // Read from backup and write to current database
-      const backupStorage = new SqliteStorage<TaskMetadata, TaskMetadataDbState>({
+      const backupStorage = new GenericSqliteStorage<TaskMetadata, TaskMetadataDbState>({
         dbPath: backupPath,
+        tableName: "task_metadata",
         enableWAL: false,
       });
       

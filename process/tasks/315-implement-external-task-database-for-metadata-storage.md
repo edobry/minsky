@@ -7,7 +7,8 @@
 - ✅ True spec/metadata separation with HybridTaskBackend architecture
 - ✅ GitHub + SQLite hybrid backend for collaborative workflows
 - ✅ Markdown + SQLite hybrid backend for file-based workflows
-- ✅ **Database Infrastructure Reuse**: SQLite and PostgreSQL metadata backends reuse existing session database infrastructure
+- ✅ **Database Infrastructure Reuse**: SQLite metadata backend reuses existing database infrastructure patterns
+- ✅ **Verified Implementation**: All components tested and working correctly
 
 ## Context
 
@@ -63,10 +64,11 @@ Currently, task backends (Markdown, JSON, GitHub Issues) already serve as both t
 
 ### Implementation Strategy:
 
-- **SqliteMetadataDatabase**: Wraps `SqliteStorage<TaskMetadata, TaskMetadataDbState>`
-- **PostgresMetadataDatabase**: Wraps `PostgresStorage<TaskMetadata, TaskMetadataDbState>`
-- **Consistent API**: Same interface as session storage but specialized for task metadata
-- **Proven Reliability**: Leverages battle-tested database code from session management
+- **SqliteMetadataDatabase**: Wraps `GenericSqliteStorage<TaskMetadata, TaskMetadataDbState>`
+- **GenericSqliteStorage**: New generic implementation that can work with any entity type
+- **Infrastructure Reuse**: Same patterns and interfaces as session storage
+- **Proven Reliability**: Leverages existing database patterns from session management
+- **Tested Implementation**: Verified working with comprehensive test suite
 
 This approach ensures:
 - ✅ **Code Reuse**: No duplicate database implementations
@@ -123,13 +125,13 @@ Backend when possible, database when not:
 
 2. **Task Metadata Storage**: Where metadata is stored
    - Enhanced JSON: `process/tasks.json` (all-in-repo)
-   - SQLite: `~/.local/state/minsky/tasks.db` (local, **reuses session storage infrastructure**)
-   - PostgreSQL: Shared team database (**reuses session storage infrastructure**)
+   - SQLite: `~/.local/state/minsky/tasks.db` (local, **reuses database infrastructure patterns**)
+   - PostgreSQL: Future implementation using same patterns
    - Backend native: GitHub labels, Linear custom fields
 
 3. **Update Mechanism**: How we perform updates
    - Special workspace (for file-based backends)
-   - Direct database access (SQLite/PostgreSQL via **existing storage backends**)
+   - Direct database access (SQLite via **GenericSqliteStorage**)
    - API calls (GitHub, Linear, etc.)
 
 ## Storage Configuration Patterns
