@@ -1470,3 +1470,11 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Added ESLint max-lines rule with two-phase approach (400 lines warning, 1500 lines error) to improve code maintainability
 - Improved session command backward compatibility with new sessionname parameter for MCP interaction
 - Enhanced error messages for session commands to provide more helpful guidance when sessions or task IDs are not found
+
+### Added
+- MCP CLI commands for convenient server interaction
+  - `minsky mcp tools` - List all available MCP tools
+  - `minsky mcp call <tool>` - Execute tools with arguments using `--arg key=value` format
+  - `minsky mcp inspect` - Advanced MCP server inspection with custom methods
+  - All commands support `--repo` option for repository context
+  - Commands wrap the MCP Inspector CLI mode for improved user experience
