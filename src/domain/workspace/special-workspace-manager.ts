@@ -3,11 +3,7 @@ import { join, dirname } from "path";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { execAsync } from "../../utils/exec";
-import {
-  execGitWithTimeout,
-  gitFetchWithTimeout,
-  gitPushWithTimeout,
-} from "../../utils/git-exec";
+import { execGitWithTimeout, gitFetchWithTimeout, gitPushWithTimeout } from "../../utils/git-exec";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
@@ -49,7 +45,10 @@ export class SpecialWorkspaceManager {
   private readonly lockPath: string;
   private readonly lockTimeoutMs: number;
 
-  constructor(private readonly repoUrl: string, options: SpecialWorkspaceOptions) {
+  constructor(
+    private readonly repoUrl: string,
+    options: SpecialWorkspaceOptions
+  ) {
     this.lockTimeoutMs = options!?.lockTimeoutMs ?? 5 * 60 * 1000; // 5 minutes
 
     // Determine workspace paths
@@ -90,15 +89,13 @@ export class SpecialWorkspaceManager {
         // Fetch latest changes (shallow)
         await gitFetchWithTimeout("origin", "main", {
           workdir: this!.workspacePath,
-          timeout: 30000
+          timeout: 30000,
         });
 
         // Reset to latest upstream
-        await execGitWithTimeout(
-          "reset to upstream",
-          "reset --hard origin/main",
-          { workdir: this!.workspacePath }
-        );
+        await execGitWithTimeout("reset to upstream", "reset --hard origin/main", {
+          workdir: this!.workspacePath,
+        });
 
         log.debug("Special workspace updated to latest upstream", {
           workspacePath: this!.workspacePath,
@@ -121,7 +118,7 @@ export class SpecialWorkspaceManager {
       try {
         // Stage all process/ changes
         await execGitWithTimeout("stage process changes", "add process/", {
-          workdir: this!.workspacePath
+          workdir: this!.workspacePath,
         });
 
         // Check if there are any changes to commit
@@ -137,12 +134,10 @@ export class SpecialWorkspaceManager {
         }
 
         // Commit changes
-        const escapedMessage = message.replace(/"/g, "\\\"");
-        await execGitWithTimeout(
-          "commit changes",
-          `commit -m "${escapedMessage}"`,
-          { workdir: this!.workspacePath }
-        );
+        const escapedMessage = message.replace(/"/g, '\\"');
+        await execGitWithTimeout("commit changes", `commit -m "${escapedMessage}"`, {
+          workdir: this!.workspacePath,
+        });
 
         // Push to upstream
         await gitPushWithTimeout(this!.workspacePath);
@@ -169,7 +164,7 @@ export class SpecialWorkspaceManager {
     await this.withLock("rollback", async () => {
       try {
         await execGitWithTimeout("rollback last commit", "reset --hard HEAD~1", {
-          workdir: this!.workspacePath
+          workdir: this!.workspacePath,
         });
 
         log.debug("Successfully rolled back last commit", {
@@ -261,7 +256,7 @@ export class SpecialWorkspaceManager {
 
       // Configure sparse checkout to only include process/ directory
       await execGitWithTimeout("configure sparse checkout", "config core.sparseCheckout true", {
-        workdir: this!.workspacePath
+        workdir: this!.workspacePath,
       });
       await fs.writeFile(
         join(this!.workspacePath, ".git", "info", "sparse-checkout"),
@@ -271,7 +266,7 @@ export class SpecialWorkspaceManager {
 
       // Checkout with sparse checkout applied
       await execGitWithTimeout("checkout main branch", "checkout main", {
-        workdir: this!.workspacePath
+        workdir: this!.workspacePath,
       });
 
       log.debug("Successfully created optimized workspace", {

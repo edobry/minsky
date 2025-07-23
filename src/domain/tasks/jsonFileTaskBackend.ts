@@ -127,9 +127,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
     try {
-      const fullPath = specPath.startsWith("/")
-        ? specPath
-        : join(this.workspacePath, specPath);
+      const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
       const content = String(await readFile(fullPath, "utf8"));
       return {
@@ -266,10 +264,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
     const tempDir = os.tmpdir();
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(
-      tempDir,
-      `temp-task-${normalizedTitle}-${Date.now()}.md`
-    );
+    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
 
     try {
       // Write the spec content to the temporary file
@@ -418,9 +413,7 @@ ${description}
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
     try {
-      const fullPath = specPath.startsWith("/")
-        ? specPath
-        : join(this.workspacePath, specPath);
+      const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
       // Ensure directory exists
       const dir = dirname(fullPath);
@@ -670,39 +663,41 @@ async function configureJsonBackendWorkspace(config: any): Promise<JsonFileTaskB
     return {
       ...config,
       workspacePath: config.workspacePath,
-      dbFilePath
+      dbFilePath,
     };
   }
 
   // 2. Repository URL provided - use special workspace
   if (config.repoUrl) {
-    const { createSpecialWorkspaceManager } = await import("../workspace/special-workspace-manager");
-    const specialWorkspaceManager = createSpecialWorkspaceManager({ 
-      repoUrl: config.repoUrl 
+    const { createSpecialWorkspaceManager } = await import(
+      "../workspace/special-workspace-manager"
+    );
+    const specialWorkspaceManager = createSpecialWorkspaceManager({
+      repoUrl: config.repoUrl,
     });
-    
+
     // Initialize the workspace if it doesn't exist
     await specialWorkspaceManager.initialize();
-    
+
     const workspacePath = specialWorkspaceManager.getWorkspacePath();
     const dbFilePath = config.dbFilePath || join(workspacePath, "process", "tasks.json");
-    
+
     return {
       ...config,
       workspacePath,
-      dbFilePath
+      dbFilePath,
     };
   }
 
   // 3. Check for local tasks.json file in process directory
   const currentDir = (process as any).cwd();
   const localTasksPath = join(currentDir, "process", "tasks.json");
-  
+
   if (existsSync(localTasksPath)) {
     return {
       ...config,
       workspacePath: currentDir,
-      dbFilePath: config.dbFilePath || localTasksPath
+      dbFilePath: config.dbFilePath || localTasksPath,
     };
   }
 
@@ -711,7 +706,7 @@ async function configureJsonBackendWorkspace(config: any): Promise<JsonFileTaskB
   return {
     ...config,
     workspacePath: currentDir,
-    dbFilePath
+    dbFilePath,
   };
 }
 
@@ -720,10 +715,10 @@ async function configureJsonBackendWorkspace(config: any): Promise<JsonFileTaskB
  */
 export async function createJsonBackendWithConfig(config: any): Promise<TaskBackend> {
   const backendConfig = await configureJsonBackendWorkspace(config);
-  
+
   log.debug("JSON backend configured", {
     workspacePath: backendConfig.workspacePath,
-    dbFilePath: backendConfig.dbFilePath
+    dbFilePath: backendConfig.dbFilePath,
   });
 
   return new JsonFileTaskBackend(backendConfig);

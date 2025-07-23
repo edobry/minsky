@@ -52,7 +52,8 @@ export const taskGetParamsSchema = commonCommandOptionsSchema.extend({
     .union([
       taskIdSchema.describe("ID of the task to retrieve"),
       z.array(taskIdSchema).describe("Array of task IDs to retrieve"),
-    ]).describe("Task ID or array of task IDs to retrieve"),
+    ])
+    .describe("Task ID or array of task IDs to retrieve"),
   backend: z
     .string()
     .optional()
@@ -74,7 +75,8 @@ export const taskStatusGetParamsSchema = z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
-  }).merge(commonCommandOptionsSchema);
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for task status get parameters
@@ -92,7 +94,8 @@ export const taskStatusSetParamsSchema = z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
-  }).merge(commonCommandOptionsSchema);
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for task status set parameters
@@ -113,9 +116,10 @@ export const taskCreateParamsSchema = z
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
   })
-  .merge(commonCommandOptionsSchema).refine(
+  .merge(commonCommandOptionsSchema)
+  .refine(
     (data) => {
-    // Either description or descriptionPath must be provided
+      // Either description or descriptionPath must be provided
       return data.description || data.descriptionPath;
     },
     {
@@ -131,7 +135,9 @@ export type TaskCreateParams = z.infer<typeof taskCreateParamsSchema>;
 /**
  * Type for task create from title and description parameters
  */
-export type TaskCreateFromTitleAndDescriptionParams = z.infer<typeof taskCreateFromTitleAndDescriptionParamsSchema>;
+export type TaskCreateFromTitleAndDescriptionParams = z.infer<
+  typeof taskCreateFromTitleAndDescriptionParamsSchema
+>;
 
 /**
  * Schema for task create from title and description parameters
@@ -147,7 +153,8 @@ export const taskCreateFromTitleAndDescriptionParamsSchema = z
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
   })
-  .merge(commonCommandOptionsSchema).refine((data) => data.description || data.descriptionPath, {
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.description || data.descriptionPath, {
     message: "Either 'description' or 'descriptionPath' must be provided",
     path: ["description"],
   });
@@ -166,7 +173,8 @@ export const taskSpecContentParamsSchema = z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
-  }).merge(commonCommandOptionsSchema);
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for task spec content parameters
@@ -184,7 +192,8 @@ export const taskDeleteParamsSchema = z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
-  }).merge(commonCommandOptionsSchema);
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for task delete parameters

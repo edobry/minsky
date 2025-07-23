@@ -194,15 +194,15 @@ export class SessionDbHealthMonitor {
     status: HealthStatus
   ): Promise<void> {
     switch (config.backend) {
-    case "json":
-      await this.checkJsonBackendHealth(config, status);
-      break;
-    case "sqlite":
-      await this.checkSqliteBackendHealth(config, status);
-      break;
-    case "postgres":
-      await this.checkPostgresBackendHealth(config, status);
-      break;
+      case "json":
+        await this.checkJsonBackendHealth(config, status);
+        break;
+      case "sqlite":
+        await this.checkSqliteBackendHealth(config, status);
+        break;
+      case "postgres":
+        await this.checkPostgresBackendHealth(config, status);
+        break;
     }
   }
 
@@ -241,9 +241,7 @@ export class SessionDbHealthMonitor {
         status.details!.directoryWritable = false;
       }
     } catch (error) {
-
       status.warnings?.push(`JSON health check warning: ${getErrorMessage(error as any)}`);
-
     }
   }
 
@@ -283,9 +281,7 @@ export class SessionDbHealthMonitor {
         db.close();
       }
     } catch (error) {
-
       status.warnings?.push(`SQLite health check warning: ${getErrorMessage(error as any)}`);
-
     }
   }
 
@@ -350,7 +346,7 @@ export class SessionDbHealthMonitor {
     averageResponseTime: number;
     successRate: number;
     recentErrors: number;
-    } {
+  } {
     const recentMetrics = this.metrics.slice(-100); // Last 100 operations
 
     if (recentMetrics.length === 0) {
@@ -536,8 +532,9 @@ export class SessionDbHealthMonitor {
     avgResponseTime: number;
   }> {
     const totalOps = this.metrics.length;
-    const errors = this.metrics.filter(m => !m.success).length;
-    const avgResponse = totalOps > 0 ? this.metrics.reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
+    const errors = this.metrics.filter((m) => !m.success).length;
+    const avgResponse =
+      totalOps > 0 ? this.metrics.reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
     const uptime =
       this.metrics && this.metrics[0]
         ? Date.now() - new Date(this.metrics[0].timestamp).getTime()
@@ -546,11 +543,15 @@ export class SessionDbHealthMonitor {
     return {
       status: this.determineOverallHealth(
         { healthy: true, backend: "test", responseTime: 0, timestamp: new Date().toISOString() },
-        { averageResponseTime: avgResponse, successRate: 1 - errors / totalOps, recentErrors: errors }
+        {
+          averageResponseTime: avgResponse,
+          successRate: 1 - errors / totalOps,
+          recentErrors: errors,
+        }
       ),
       uptime,
       totalOperations: totalOps,
-      errorRate: 1 - this.metrics.filter(m => m.success).length / totalOps,
+      errorRate: 1 - this.metrics.filter((m) => m.success).length / totalOps,
       avgResponseTime: avgResponse,
     };
   }

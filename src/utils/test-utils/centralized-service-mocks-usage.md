@@ -13,6 +13,7 @@ The centralized service mock factories eliminate the need for creating duplicate
 Creates a comprehensive mock implementation of `SessionProviderInterface`.
 
 **Basic Usage:**
+
 ```typescript
 import { createMockSessionProvider } from "../utils/test-utils";
 
@@ -21,20 +22,23 @@ const mockSessionProvider = createMockSessionProvider();
 ```
 
 **With Overrides:**
+
 ```typescript
 const mockSessionProvider = createMockSessionProvider({
-  getSession: () => Promise.resolve({
-    session: "test-session",
-    repoName: "test-repo",
-    repoUrl: "https://github.com/test/repo",
-    createdAt: "2023-01-01T00:00:00Z",
-    taskId: "#123",
-    branch: "main",
-    repoPath: "/path/to/repo",
-  }),
-  listSessions: () => Promise.resolve([
-    // ... session array
-  ]),
+  getSession: () =>
+    Promise.resolve({
+      session: "test-session",
+      repoName: "test-repo",
+      repoUrl: "https://github.com/test/repo",
+      createdAt: "2023-01-01T00:00:00Z",
+      taskId: "#123",
+      branch: "main",
+      repoPath: "/path/to/repo",
+    }),
+  listSessions: () =>
+    Promise.resolve([
+      // ... session array
+    ]),
 });
 ```
 
@@ -43,6 +47,7 @@ const mockSessionProvider = createMockSessionProvider({
 Creates a comprehensive mock implementation of `GitServiceInterface`.
 
 **Basic Usage:**
+
 ```typescript
 import { createMockGitService } from "../utils/test-utils";
 
@@ -51,6 +56,7 @@ const mockGitService = createMockGitService();
 ```
 
 **With Overrides:**
+
 ```typescript
 const mockGitService = createMockGitService({
   clone: () => Promise.resolve({ workdir: "/custom/workdir", session: "custom-session" }),
@@ -60,11 +66,12 @@ const mockGitService = createMockGitService({
     }
     return Promise.resolve("mock output");
   },
-  getStatus: () => Promise.resolve({ 
-    modified: ["file1.ts"], 
-    untracked: [], 
-    deleted: [] 
-  }),
+  getStatus: () =>
+    Promise.resolve({
+      modified: ["file1.ts"],
+      untracked: [],
+      deleted: [],
+    }),
 });
 ```
 
@@ -73,6 +80,7 @@ const mockGitService = createMockGitService({
 Creates a comprehensive mock implementation of `TaskServiceInterface`.
 
 **Basic Usage:**
+
 ```typescript
 import { createMockTaskService } from "../utils/test-utils";
 
@@ -81,24 +89,27 @@ const mockTaskService = createMockTaskService();
 ```
 
 **With Overrides:**
+
 ```typescript
 const mockTaskService = createMockTaskService({
-  listTasks: () => Promise.resolve([
-    {
-      id: "#001",
+  listTasks: () =>
+    Promise.resolve([
+      {
+        id: "#001",
+        title: "Test Task",
+        status: "TODO",
+        description: "Test task description",
+        worklog: [],
+      },
+    ]),
+  getTask: (id) =>
+    Promise.resolve({
+      id,
       title: "Test Task",
       status: "TODO",
       description: "Test task description",
       worklog: [],
-    },
-  ]),
-  getTask: (id) => Promise.resolve({
-    id,
-    title: "Test Task",
-    status: "TODO",
-    description: "Test task description",
-    worklog: [],
-  }),
+    }),
 });
 ```
 
@@ -161,6 +172,7 @@ const mockSessionProvider = createMockSessionProvider({
 ## Best Practices
 
 ### 1. Use Centralized Factories as Base
+
 Always start with the centralized factory and only override specific methods:
 
 ```typescript
@@ -177,6 +189,7 @@ const mockService = createPartialMock<GitServiceInterface>({
 ```
 
 ### 2. Override Only What You Need
+
 Only override methods that are relevant to your specific test:
 
 ```typescript
@@ -195,6 +208,7 @@ const mockTaskService = createMockTaskService({
 ```
 
 ### 3. Use Type-Safe Overrides
+
 Leverage TypeScript's type safety when creating overrides:
 
 ```typescript
@@ -215,28 +229,31 @@ const mockSessionProvider = createMockSessionProvider({
 ```
 
 ### 4. Combine with Existing Utilities
+
 Use these factories alongside existing test utilities:
 
 ```typescript
-import { 
-  createMockSessionProvider, 
-  createMockGitService, 
+import {
+  createMockSessionProvider,
+  createMockGitService,
   createTaskData,
-  createSessionData 
+  createSessionData,
 } from "../utils/test-utils";
 
 const mockSessionProvider = createMockSessionProvider({
-  listSessions: () => Promise.resolve([
-    createSessionData({ session: "test-session" }),
-    createSessionData({ session: "another-session" }),
-  ]),
+  listSessions: () =>
+    Promise.resolve([
+      createSessionData({ session: "test-session" }),
+      createSessionData({ session: "another-session" }),
+    ]),
 });
 
 const mockTaskService = createMockTaskService({
-  listTasks: () => Promise.resolve([
-    createTaskData({ id: "#001", title: "First Task" }),
-    createTaskData({ id: "#002", title: "Second Task" }),
-  ]),
+  listTasks: () =>
+    Promise.resolve([
+      createTaskData({ id: "#001", title: "First Task" }),
+      createTaskData({ id: "#002", title: "Second Task" }),
+    ]),
 });
 ```
 
@@ -251,8 +268,9 @@ const mockTaskService = createMockTaskService({
 ## Impact
 
 This change eliminates **200+ lines of duplicated code** across:
+
 - 5+ files with `createMockSessionProvider` duplications
 - 8+ files with `createMockGitService` duplications
 - 4+ files with `createMockTaskService` duplications
 
-Interface changes now only require updates in one central location instead of multiple scattered test files. 
+Interface changes now only require updates in one central location instead of multiple scattered test files.

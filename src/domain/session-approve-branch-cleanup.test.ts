@@ -8,11 +8,11 @@ const mockLog = {
   info: mock(() => {}),
   warn: mock(() => {}),
   error: mock(() => {}),
-  cli: mock(() => {})
+  cli: mock(() => {}),
 };
 
 mock.module("../utils/logger", () => ({
-  log: mockLog
+  log: mockLog,
 }));
 
 // Set up automatic mock cleanup
@@ -73,7 +73,9 @@ describe("Session Approve Branch Cleanup", () => {
       }),
       getCurrentBranch: createMock((_workdir) => Promise.resolve("pr/task#265")),
       pullLatest: createMock((_workdir) => Promise.resolve({ success: true, changes: [] })),
-      mergeBranch: createMock((_workdir, _branch) => Promise.resolve({ success: true, conflicts: [] })),
+      mergeBranch: createMock((_workdir, _branch) =>
+        Promise.resolve({ success: true, conflicts: [] })
+      ),
       push: createMock((_workdir) => Promise.resolve({ success: true })),
     };
 
@@ -244,7 +246,7 @@ describe("Session Approve Branch Cleanup", () => {
         }
         // Simulate merge-base check shows branch is already merged
         if (command.includes("merge-base --is-ancestor")) {
-          return Promise.resolve("");  // Success means it's already merged
+          return Promise.resolve(""); // Success means it's already merged
         }
         return Promise.resolve("");
       }),

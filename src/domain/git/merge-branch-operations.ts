@@ -37,10 +37,7 @@ export async function mergeBranchImpl(
       const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
       log.debug("Git status after failed merge", { status });
 
-      const hasConflicts =
-        status.includes("UU") ||
-        status.includes("AA") ||
-        status.includes("DD");
+      const hasConflicts = status.includes("UU") || status.includes("AA") || status.includes("DD");
       log.debug("Conflict detection result", {
         hasConflicts,
         statusIncludes: {
@@ -77,4 +74,4 @@ export async function mergeBranchImpl(
     });
     throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err as any)}`);
   }
-} 
+}

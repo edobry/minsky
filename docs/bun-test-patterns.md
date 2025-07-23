@@ -7,11 +7,13 @@ This document establishes the required testing patterns for the Minsky codebase 
 ## Required Testing Framework
 
 **✅ REQUIRED: Bun Test Runner**
+
 - Use `bun:test` for all testing
 - Use Bun's native `mock()`, `expect()`, and test tracking
 - Use centralized factory functions for service mocks
 
 **❌ PROHIBITED: Jest Patterns**
+
 - No Jest-style mocking patterns (`.mockImplementation()`, `.mockResolvedValue()`, etc.)
 - No `jest.fn()` or `jest.mock()` usage
 - No Jest-specific test utilities
@@ -27,6 +29,7 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 ### 1. Basic Function Mocks
 
 **✅ Correct Bun Pattern:**
+
 ```typescript
 import { mock } from "bun:test";
 
@@ -40,6 +43,7 @@ expect(mockFunction).toHaveBeenCalledWith("expected-arg");
 ```
 
 **❌ Prohibited Jest Pattern:**
+
 ```typescript
 // DON'T USE THESE
 const mockFunction = jest.fn();
@@ -50,8 +54,13 @@ mockFunction.mockResolvedValue(Promise.resolve("value"));
 ### 2. Service Mocks - Use Centralized Factories
 
 **✅ Correct Pattern - Use Centralized Factories:**
+
 ```typescript
-import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils";
+import {
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+} from "../utils/test-utils";
 
 describe("My Service Tests", () => {
   let mockSessionDB: ReturnType<typeof createMockSessionProvider>;
@@ -65,10 +74,10 @@ describe("My Service Tests", () => {
   test("should work with mocks", () => {
     // Override specific methods if needed
     mockSessionDB.getSession.mockImplementation(() => Promise.resolve(testSession));
-    
+
     // Test your code
     // ...
-    
+
     // Verify calls
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("session-name");
   });
@@ -76,6 +85,7 @@ describe("My Service Tests", () => {
 ```
 
 **❌ Prohibited Pattern - Manual Mock Creation:**
+
 ```typescript
 // DON'T DO THIS - Creates duplication and inconsistency
 const mockSessionDB = {
@@ -88,6 +98,7 @@ const mockSessionDB = {
 ### 3. Module Mocking
 
 **✅ Correct Pattern:**
+
 ```typescript
 import { mock } from "bun:test";
 import { mockLoggerModule } from "../utils/test-utils/logger-mock";
@@ -104,6 +115,7 @@ const mockLog = mockLoggerModule();
 ### 4. Mock Cleanup
 
 **✅ Correct Pattern:**
+
 ```typescript
 import { clearLoggerMocks } from "../utils/test-utils/logger-mock";
 
@@ -112,7 +124,7 @@ describe("Tests", () => {
     // Clear all mocks
     mockFunction.mockClear();
     clearLoggerMocks(mockLog);
-    
+
     // Reset to default implementations if needed
     mockService.method.mockImplementation(() => "default");
   });
@@ -124,7 +136,7 @@ describe("Tests", () => {
 ### Available Factories
 
 1. **`createMockSessionProvider()`** - Complete SessionProvider interface
-2. **`createMockGitService()`** - Complete GitService interface  
+2. **`createMockGitService()`** - Complete GitService interface
 3. **`createMockTaskService()`** - Complete TaskService interface
 4. **`createMockLogger()`** - Complete logger interface
 5. **`mockLoggerModule()`** - Module-level logger mock
@@ -158,9 +170,10 @@ describe("Service Tests", () => {
 ### Jest → Bun Migration Examples
 
 **Before (Jest Pattern):**
+
 ```typescript
 const mockService = {
-  method: jest.fn().mockResolvedValue("result")
+  method: jest.fn().mockResolvedValue("result"),
 };
 
 beforeEach(() => {
@@ -169,9 +182,10 @@ beforeEach(() => {
 ```
 
 **After (Bun Pattern):**
+
 ```typescript
 const mockService = createMockService({
-  method: mock(() => Promise.resolve("result"))
+  method: mock(() => Promise.resolve("result")),
 });
 
 beforeEach(() => {
@@ -182,6 +196,7 @@ beforeEach(() => {
 ## Test Organization
 
 ### File Structure
+
 ```
 src/
   domain/
@@ -196,13 +211,14 @@ src/
 ### Test Description Patterns
 
 **✅ Good:**
+
 ```typescript
 describe("ServiceName", () => {
   describe("methodName", () => {
     test("should handle normal case correctly", () => {
       // Test implementation
     });
-    
+
     test("should throw error when input is invalid", () => {
       // Error case testing
     });
@@ -215,10 +231,11 @@ describe("ServiceName", () => {
 ### Async Error Testing
 
 **✅ Correct Pattern:**
+
 ```typescript
 test("should handle async errors", async () => {
   mockService.method.mockImplementation(() => Promise.reject(new Error("Test error")));
-  
+
   await expect(serviceUnderTest.doSomething()).rejects.toThrow("Test error");
 });
 ```
@@ -226,12 +243,13 @@ test("should handle async errors", async () => {
 ### Synchronous Error Testing
 
 **✅ Correct Pattern:**
+
 ```typescript
 test("should handle sync errors", () => {
   mockService.method.mockImplementation(() => {
     throw new Error("Test error");
   });
-  
+
   expect(() => serviceUnderTest.doSomething()).toThrow("Test error");
 });
 ```
@@ -239,17 +257,19 @@ test("should handle sync errors", () => {
 ## Performance Considerations
 
 ### Mock Reuse
+
 - Use centralized factories to reduce mock creation overhead
 - Clear mocks in `beforeEach` rather than recreating them
 - Avoid unnecessary deep object mocking
 
 ### Test Isolation
+
 ```typescript
 describe("Tests", () => {
   beforeEach(() => {
     // Clear state, don't recreate mocks
     mockService.method.mockClear();
-    
+
     // Reset to known state
     mockService.method.mockImplementation(() => "default");
   });
@@ -261,10 +281,12 @@ describe("Tests", () => {
 ### Common Problems and Solutions
 
 1. **"mockMethod is not a function"**
+
    - Ensure you're using centralized factories
    - Check that all required methods are included in factory
 
 2. **Mock not being called**
+
    - Verify mock is properly injected into service under test
    - Check that dependency injection is working correctly
 
@@ -289,6 +311,7 @@ describe("Tests", () => {
 The Minsky project includes a custom ESLint rule `no-jest-patterns` that detects Jest patterns and provides Bun alternatives. **Currently disabled** pending systematic migration of 265+ existing Jest patterns.
 
 **Rule Configuration:**
+
 ```javascript
 // eslint.config.js - TEMPORARILY DISABLED
 export default [
@@ -308,6 +331,7 @@ export default [
 ```
 
 **Detected Patterns & Auto-fixes:**
+
 - `jest.fn()` → `mock()` (with appropriate import)
 - `.mockReturnValue()` → `mock(() => returnValue)`
 - `.mockResolvedValue()` → `mock(() => Promise.resolve(value))`
@@ -316,11 +340,12 @@ export default [
 - Jest imports → Suggests Bun test imports
 
 **Usage:**
+
 ```bash
 # Check for Jest patterns
 bun lint
 
-# Auto-fix simple patterns  
+# Auto-fix simple patterns
 bun lint --fix
 ```
 
@@ -339,4 +364,4 @@ When migrating a test file:
 - [ ] Update mock clearing to use `mockClear()` not `mockReset()`
 - [ ] Ensure all service dependencies use centralized factories
 - [ ] Test that all tests pass with new patterns
-- [ ] Verify no Jest patterns remain in the file 
+- [ ] Verify no Jest patterns remain in the file

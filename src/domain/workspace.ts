@@ -2,7 +2,11 @@ import { promises as fs } from "fs";
 import { join } from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { createSessionProvider, type SessionProviderInterface, type SessionRecord } from "./session";
+import {
+  createSessionProvider,
+  type SessionProviderInterface,
+  type SessionRecord,
+} from "./session";
 import { log } from "../utils/logger";
 import { createHash } from "crypto";
 import { readFileSync, existsSync } from "fs";

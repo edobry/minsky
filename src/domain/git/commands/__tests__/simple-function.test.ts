@@ -3,7 +3,11 @@ import { describe, test, expect } from "bun:test";
 describe("Git Commands Function Tests", () => {
   test("should be able to define simple git command functions", () => {
     // Simple function definitions that don't depend on complex imports
-    const cloneRepository = async (params: { repoUrl: string; workdir: string; session: string }) => {
+    const cloneRepository = async (params: {
+      repoUrl: string;
+      workdir: string;
+      session: string;
+    }) => {
       return { workdir: params.workdir, session: params.session };
     };
 
@@ -28,17 +32,21 @@ describe("Git Commands Function Tests", () => {
 
   test("should be able to call git command functions", async () => {
     // Simple mock implementations
-    const cloneRepository = async (params: { repoUrl: string; workdir: string; session: string }) => {
+    const cloneRepository = async (params: {
+      repoUrl: string;
+      workdir: string;
+      session: string;
+    }) => {
       return { workdir: params.workdir, session: params.session };
     };
 
     const result = await cloneRepository({
       repoUrl: "https://github.com/test/repo",
       workdir: "/tmp/test",
-      session: "test-session"
+      session: "test-session",
     });
 
     expect(result.workdir).toBe("/tmp/test");
     expect(result.session).toBe("test-session");
   });
-}); 
+});

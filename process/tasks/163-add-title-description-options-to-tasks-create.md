@@ -13,14 +13,16 @@ MEDIUM
 ### ✅ Completed Implementation
 
 **Core Functionality:**
+
 - ✅ **New title/description interface implemented** - `--title` and `--description`/`--descriptionPath` options added
-- ✅ **Legacy spec-path interface removed** - Simplified to single interface approach  
+- ✅ **Legacy spec-path interface removed** - Simplified to single interface approach
 - ✅ **Domain integration completed** - Uses existing `createTaskFromTitleAndDescription` function
 - ✅ **Schema validation working** - Proper parameter validation for new interface
 - ✅ **CLI bridge integration** - Commands work through shared command registry
 - ✅ **Session workspace testing verified** - Implementation tested and functional
 
 **Technical Implementation:**
+
 - ✅ **Updated schemas** (`src/schemas/tasks.ts`) - New `taskCreateParamsSchema` with title/description
 - ✅ **Updated shared commands** (`src/adapters/shared/commands/tasks.ts`) - New parameter map and execution logic
 - ✅ **Updated CLI customizations** (`src/adapters/cli/cli-command-factory.ts`) - Parameter configuration for new interface
@@ -30,12 +32,14 @@ MEDIUM
 ### ✅ Verified Functionality
 
 **Session Workspace Testing:**
-- ✅ **Command execution works** - `bun run ./src/cli.ts tasks create --title "..." --description "..."` 
+
+- ✅ **Command execution works** - `bun run ./src/cli.ts tasks create --title "..." --description "..."`
 - ✅ **Task creation verified** - Successfully created Task #176 during testing
 - ✅ **Parameter validation working** - Proper error handling for missing parameters
 - ✅ **Domain function integration** - Correctly uses `createTaskFromTitleAndDescription`
 
 **Interface Consistency:**
+
 - ✅ **Matches session pr pattern** - Same title/description interface as `minsky session pr`
 - ✅ **CLI and MCP consistency** - Both interfaces support new parameters
 - ✅ **Backward compatibility maintained** - MCP retains legacy spec-path support
@@ -43,6 +47,7 @@ MEDIUM
 ### 🔍 Architecture Discovery
 
 **CLI Bridge Issue Identified:**
+
 - Global CLI installation uses main workspace code, not session workspace changes
 - Session workspace implementation works correctly when tested directly
 - This revealed broader architectural issues leading to Task #177 (shared command registry fixes)
@@ -163,8 +168,9 @@ MEDIUM
 ## Success Criteria
 
 ### ✅ Completed
+
 - ✅ `minsky tasks create --title "Title" --description "Description"` creates a valid task
-- ✅ `minsky tasks create --title "Title" --description-path path/to/description.md` creates a valid task  
+- ✅ `minsky tasks create --title "Title" --description-path path/to/description.md` creates a valid task
 - ✅ `--title` option is always required
 - ✅ Generated task files follow the established format and conventions
 - ✅ Clear error messages are provided for invalid usage (parameter validation working)
@@ -190,7 +196,7 @@ This enhancement successfully improved the developer experience by allowing quic
 ### Files Modified
 
 - `src/schemas/tasks.ts` - Updated parameter schema
-- `src/adapters/shared/commands/tasks.ts` - Updated shared command definition  
+- `src/adapters/shared/commands/tasks.ts` - Updated shared command definition
 - `src/adapters/cli/cli-command-factory.ts` - Updated CLI parameter configuration
 - `src/adapters/mcp/tasks.ts` - Updated MCP adapter (with backward compatibility)
 - `.cursor/rules/creating-tasks.mdc` - Updated documentation

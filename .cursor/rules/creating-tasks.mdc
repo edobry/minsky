@@ -1,15 +1,10 @@
----
-description: Use this when creating a new task
-globs:
-alwaysApply: false
----
 
 # Task Creation Process
 
 ## ⚠️ MANDATORY: Use the Minsky CLI for Task Creation
 
 - The ONLY supported method for creating new tasks is via the `minsky tasks create` command.
-- Manual edits to `process/tasks.md` or direct creation of spec files are NOT permitted except as a last resort (e.g., CLI is broken), and this must be documented in the commit message or task log.
+- Manual edits to `process/tasks.md` or direct creation of spec files are NOT permitted.
 - **NEVER create task specification files directly** - this bypasses ID assignment and can create duplicates
 - All contributors and automations (including AI) MUST use the following workflow:
 
@@ -32,8 +27,6 @@ alwaysApply: false
    - Add the task to `process/tasks.md` in the correct format
    - Output the assigned ID and new file path
 4. Verify the task appears in `process/tasks.md` and the spec file is correctly created
-
-**Manual task creation is only allowed if the CLI is unavailable, and this must be noted in the commit message or task log.**
 
 > **This process is mandatory. Skipping the CLI or editing files directly is a process violation that can cause duplicate tasks and tracking inconsistencies.**
 
@@ -130,7 +123,7 @@ All tasks and work items must be tracked using the canonical process described h
 
 ## Task Creation Methods
 
-### Method 1: Using the `minsky tasks create` Command (Recommended)
+### Using the `minsky tasks create` Command
 
 **New Interface (Preferred):**
 
@@ -179,36 +172,6 @@ The command also supports these options:
 - `--repo <repoPath>`: Specify a repository path (overrides session)
 - `--backend <backend>`: Use a specific task backend
 - `--json`: Output the task in JSON format
-
-### Method 2: Manual Task Creation
-
-If you need to create a task manually, follow these steps:
-
-#### 1. Check for Existing Tasks
-
-- Before starting any new work, check `/process/tasks.md` for an existing task that matches your intended work.
-- If a relevant task exists, follow its linked specification.
-
-#### 2. Add a New Task
-
-- If no relevant task exists, add a new checklist item to `/process/tasks.md` using the following format:
-  ```markdown
-  - [ ] Task Title [#NNN](mdc:tasks/NNN-task-title.md)
-  ```
-  - Use the next available task number (NNN).
-  - The title should be concise but descriptive.
-
-#### 3. Create the Task Specification Document
-
-- Create a new file in `/process/tasks/` named `{NNN}-task-title.md`.
-- The task spec should include:
-  - **Objective**: What is the goal of the task?
-  - **Context**: Background information and why this task is needed
-  - **Requirements**: Specific, detailed requirements
-  - **Implementation Steps**: A checklist of all required steps and substeps
-  - **Verification**: What must be true for the task to be considered complete?
-- Use checkboxes for all actionable items and sub-items.
-- Include any relevant context, links, or references.
 
 ## Complete Example of a Task Specification
 

@@ -56,16 +56,19 @@ The current task system treats all tasks as independent entities. To support eff
 ### Monitorable Task Graph Design
 
 **Multi-Level CoT Architecture:**
+
 - **Strategic Level**: Monitor AI reasoning about high-level task decomposition and planning
 - **Tactical Level**: Monitor AI reasoning about task dependencies, sequencing, and resource allocation
 - **Execution Level**: Monitor AI reasoning about specific implementation approaches and decisions
 
 **Intervention Capabilities:**
+
 - **Subgraph Preemption**: Terminate and restart entire branches of task execution based on CoT analysis
 - **Real-time Redirection**: Interrupt AI task planning mid-stream when problematic reasoning is detected
 - **Context Preservation**: Maintain reasoning context across interventions for seamless resumption
 
 **Safety Through Transparency:**
+
 - All AI reasoning about task hierarchy creation and modification must be observable
 - Decision rationale for task relationships must be externalized and monitorable
 - Alternative approaches considered must be visible for human oversight
@@ -74,18 +77,21 @@ The current task system treats all tasks as independent entities. To support eff
 ### Monitorability Requirements for Task Hierarchy
 
 **Transparent Reasoning:**
+
 - AI must externalize reasoning about task complexity, dependencies, and hierarchy design
 - Parent-child relationship decisions must include observable decision rationale
 - Task decomposition choices must be justified with visible reasoning chains
 - Alternative hierarchy structures considered must be documented
 
 **Intervention Points:**
+
 - Each level of the task hierarchy represents a potential intervention boundary
 - Real-time monitoring can detect problematic hierarchy decisions as they occur
 - Human can redirect AI planning before inappropriate task structures are committed
 - Rollback capabilities allow reverting to previous hierarchy states
 
 **Pattern Detection:**
+
 - Monitor for over-decomposition (unnecessary complexity) or under-decomposition (insufficient breakdown)
 - Detect circular dependencies or inappropriate task relationships
 - Identify scope creep or boundary violations in task definition

@@ -24,6 +24,7 @@ Added an optional `context` parameter to CLI Bridge methods to distinguish betwe
 ### Changes
 
 #### CLI Bridge (`src/adapters/shared/bridges/cli-bridge.ts`)
+
 - **Modified method signatures** to accept optional `context?: { viaFactory?: boolean }` parameter:
   - `generateCommand(commandId, context?)`
   - `generateCategoryCommand(category, context?)`
@@ -32,6 +33,7 @@ Added an optional `context` parameter to CLI Bridge methods to distinguish betwe
 - **Updated internal method calls** to propagate the context parameter
 
 #### CLI Command Factory (`src/adapters/cli/cli-command-factory.ts`)
+
 - **Modified factory methods** to pass `{ viaFactory: true }` context:
   - `createCommand()` → `cliBridge.generateCommand(commandId, { viaFactory: true })`
   - `createCategoryCommand()` → `cliBridge.generateCategoryCommand(category, { viaFactory: true })`
@@ -40,6 +42,7 @@ Added an optional `context` parameter to CLI Bridge methods to distinguish betwe
 ## Testing
 
 Created and ran a test script to verify:
+
 - ✅ CLI initialization in development mode produces no warnings
 - ✅ All commands still function properly
 - ✅ Factory pattern continues to work as expected
@@ -65,4 +68,4 @@ Created and ran a test script to verify:
 
 - `src/adapters/shared/bridges/cli-bridge.ts` - Added context parameter and updated warning logic
 - `src/adapters/cli/cli-command-factory.ts` - Updated to pass factory context
-- Minor test files (automatically generated, will be cleaned up) 
+- Minor test files (automatically generated, will be cleaned up)

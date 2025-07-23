@@ -1,6 +1,6 @@
 /**
  * Session Remaining Commands Tests
- * 
+ *
  * Tests for workspace detection, inspect, list, and PR commands
  */
 
@@ -239,4 +239,4 @@ describe("session pr command", () => {
     expect(branchHistory).toContain(prBranch); // PR branch was created
     expect(branchHistory[branchHistory.length - 1]).toBe(originalBranch); // Last switch was back to session branch
   });
-}); 
+});

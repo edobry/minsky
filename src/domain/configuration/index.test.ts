@@ -5,11 +5,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import type {
-  ConfigurationProvider,
-  ConfigurationFactory,
-  ConfigurationOverrides,
-} from "./index";
+import type { ConfigurationProvider, ConfigurationFactory, ConfigurationOverrides } from "./index";
 import {
   CustomConfigFactory,
   createTestProvider,
@@ -100,7 +96,7 @@ describe("Custom Configuration System", () => {
     test("should support configuration overrides", async () => {
       const factory = new CustomConfigFactory();
       await initializeConfiguration(factory, {
-        overrides: { backend: "custom-override" }
+        overrides: { backend: "custom-override" },
       });
 
       const config = getConfiguration();
@@ -169,7 +165,7 @@ describe("Custom Configuration System", () => {
       const factory = new CustomConfigFactory();
       const provider = await factory.createProvider({
         overrides: { backend: "test-backend" },
-        enableCache: false
+        enableCache: false,
       });
 
       const config = provider.getConfig();

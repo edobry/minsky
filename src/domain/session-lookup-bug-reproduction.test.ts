@@ -23,7 +23,11 @@ import { mkdir, rmdir, access } from "fs/promises";
 import { existsSync } from "fs";
 import { startSessionFromParams, listSessionsFromParams } from "./session";
 import { createMock } from "../utils/test-utils/mocking";
-import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/dependencies";
+import {
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+} from "../utils/test-utils/dependencies";
 import type { SessionProviderInterface } from "./session";
 
 describe("Session Lookup Bug Reproduction (Task #168)", () => {
@@ -150,7 +154,9 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       });
 
       let branchWithoutSessionSpy = createMock();
-      branchWithoutSessionSpy = mock(() => Promise.reject(new Error("fatal: unable to create branch")));
+      branchWithoutSessionSpy = mock(() =>
+        Promise.reject(new Error("fatal: unable to create branch"))
+      );
 
       mockGitService = createMockGitService({
         clone: cloneSpy as any,

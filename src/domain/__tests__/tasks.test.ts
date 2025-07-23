@@ -56,7 +56,7 @@ const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
   resolveMainWorkspacePath: mockResolveMainWorkspacePath,
   createTaskService: mockCreateTaskService,
-  resolveTaskWorkspacePath: createMock(() => Promise.resolve("/mock/task/workspace/path"))
+  resolveTaskWorkspacePath: createMock(() => Promise.resolve("/mock/task/workspace/path")),
 } as any; // Cast to any to avoid TypeScript errors with the deps parameter
 
 describe("interface-agnostic task functions", () => {
@@ -86,7 +86,8 @@ describe("interface-agnostic task functions", () => {
         Promise.resolve([
           { ...mockTask, status: TASK_STATUS.TODO },
           { ...mockTask, id: "#124", status: TASK_STATUS.DONE },
-        ]));
+        ])
+      );
 
       const params = { all: false };
 
@@ -144,7 +145,8 @@ describe("interface-agnostic task functions", () => {
           parseInt(id.replace(/^#/, ""), 10) === TASK_ID_WITHOUT_LEADING_ZEROS
             ? { ...mockTask, id: "#023" }
             : null
-        ));
+        )
+      );
 
       const params = {
         taskId: "23", // without leading zeros
