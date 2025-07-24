@@ -114,7 +114,29 @@ However, practical needs suggest database backends:
 - Data consistency during transition
 - Preserving git history
 
-### 3. Workflow Impact Analysis
+### 3. Limited-Scope Hybrid Approach Analysis
+
+#### Constrained In-Tree Backend Usage
+- **Target scenario**: Very small, early-stage, single-repository projects only
+- **Explicit warnings**: Clear documentation that in-tree backends are not suitable for:
+  - Multi-repository workflows
+  - Team environments
+  - Complex task hierarchies
+  - Cross-repository task dependencies
+- **Migration path**: Built-in tooling to migrate from in-tree to database backends as projects grow
+
+#### Fundamental Viability Questions for Constrained Approach
+- **Single-engineer limitations**: Even on a single machine with a single engineer:
+  - Does the task graph vision require cross-repository visibility?
+  - Can AI-powered task decomposition work effectively with fragmented in-tree storage?
+  - Does the "single pane of glass" requirement make in-tree backends incompatible even in simple scenarios?
+- **Growth trajectory problems**:
+  - At what point does a project outgrow in-tree backends?
+  - How do we detect when migration is necessary?
+  - What happens to existing task relationships during migration?
+- **Feature compatibility**: Which Minsky features are fundamentally incompatible with in-tree storage, even in constrained scenarios?
+
+### 4. Workflow Impact Analysis
 
 #### User Workflows
 - **Individual developers**: Simple, dependency-free setup
@@ -129,7 +151,7 @@ However, practical needs suggest database backends:
 - AI decomposition and intervention
 - Cross-session task relationships
 
-### 4. Philosophical Framework
+### 5. Philosophical Framework
 
 #### Core Design Principles
 - What are Minsky's fundamental values?
@@ -142,7 +164,7 @@ However, practical needs suggest database backends:
 - What are the ripple effects of each approach?
 - How do we maintain conceptual integrity?
 
-### 5. Distributed Database Analysis
+### 6. Distributed Database Analysis
 
 #### Complexity Assessment
 - Analyze the distributed database implications of in-tree backends
@@ -155,7 +177,7 @@ However, practical needs suggest database backends:
 - Analyze operational complexity of distributed task management
 - Compare with centralized approaches used by established project management tools
 
-### 6. Cross-Repository Task Management
+### 7. Cross-Repository Task Management
 
 #### Multi-Repository Workflow Analysis
 - Document common cross-repository task patterns in software development
@@ -177,6 +199,8 @@ A detailed document analyzing:
 - **In-tree backends**: Benefits, costs, complexity, limitations
 - **Database backends**: Benefits, costs, migration path, features
 - **Hybrid approaches**: Feasibility, complexity, benefits
+- **Limited-scope hybrid**: Viability of in-tree backends for tiny projects only, with explicit warnings and migration paths
+- **Feature compatibility matrix**: Which Minsky features work with which backend approaches
 - **Recommendation**: Clear architectural direction with rationale
 
 ### 2. Architectural Decision Records (ADRs)
@@ -232,7 +256,14 @@ A clear statement addressing:
 - [ ] Identify gaps and limitations
 - [ ] Prioritize use cases by importance
 
-### 4. Stakeholder Consultation
+### 4. Limited-Scope Hybrid Feasibility Study
+- [ ] Define precise constraints for in-tree backend usage (project size, complexity, repository count)
+- [ ] Map Minsky features against backend compatibility (which features break with in-tree storage)
+- [ ] Design migration detection and tooling for projects outgrowing in-tree backends
+- [ ] Analyze user experience of constrained in-tree approach vs full database approach
+- [ ] Evaluate whether task graph goals are achievable even in single-repository scenarios with in-tree storage
+
+### 5. Stakeholder Consultation
 - [ ] Document user personas and their needs
 - [ ] Gather input on priority features
 - [ ] Understand tolerance for complexity
@@ -290,6 +321,11 @@ A clear statement addressing:
 14. **Where should parent tasks live when subtasks span multiple repositories?**
 15. **Do cross-repository workflows make in-tree backends fundamentally unviable?**
 16. **How do established project management tools solve the multi-repository problem (and why do they use centralized databases)?**
+17. **Is a limited-scope hybrid approach viable (in-tree for tiny projects only, with explicit warnings)?**
+18. **Even for single engineers on single machines, do task graph goals make in-tree backends incompatible?**
+19. **At what project size/complexity does migration from in-tree to database become necessary?**
+20. **Which core Minsky features are fundamentally incompatible with in-tree storage, even in constrained scenarios?**
+21. **How do we detect when a project has outgrown in-tree backends and guide migration?**
 
 ## Related Context
 
