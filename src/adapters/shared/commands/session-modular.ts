@@ -50,7 +50,7 @@ export class ModularSessionCommandsManager {
       pr: createSessionPrCommand(deps),
       inspect: createSessionInspectCommand(deps),
     };
-    
+
     // Setup the command registry with actual session commands
     this.commandRegistry = setupSessionCommandRegistry(deps);
   }
