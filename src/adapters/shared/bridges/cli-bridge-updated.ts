@@ -293,11 +293,7 @@ export class CliCommandBridge {
     commandDef: SharedCommand,
     options: CliCommandOptions
   ): ParameterMapping[] {
-    return createParameterMappings(commandDef.parameters, {
-      useFirstRequiredParamAsArgument: options.useFirstRequiredParamAsArgument,
-      forceOptions: options.forceOptions,
-      customMappings: options.parameters || {},
-    });
+    return createParameterMappings(commandDef.parameters, options.parameters || {});
   }
 
   /**
@@ -313,8 +309,8 @@ export class CliCommandBridge {
 
     // Map positional arguments based on parameter mappings
     mappings.forEach((mapping, index) => {
-      if (mapping.isArgument && index < positionalArgs.length) {
-        result[mapping.parameterName] = positionalArgs[index];
+      if (mapping.options.asArgument && index < positionalArgs.length) {
+        result[mapping.name] = positionalArgs[index];
       }
     });
 
