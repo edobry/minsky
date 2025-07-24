@@ -96,7 +96,9 @@ export class SpecialWorkspaceManager {
       // Workspace exists, just do a quick health check without locking
       const isHealthy = await this.isHealthy();
       if (!isHealthy) {
-        log.warn("Workspace appears unhealthy for read operation, but skipping repair to avoid hanging");
+        log.warn(
+          "Workspace appears unhealthy for read operation, but skipping repair to avoid hanging"
+        );
         // For read operations, we'll try to use it anyway rather than hang on repair
       }
     }
