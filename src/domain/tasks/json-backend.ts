@@ -18,7 +18,8 @@ import { log } from "../../utils/logger";
  * Resolve workspace path and database file path using configuration
  */
 async function resolveWorkspacePath(
-  config: WorkspaceResolvingJsonConfig
+  config: JsonConfig,
+  isReadOperation: boolean = false
 ): Promise<WorkspaceResolutionResult & { dbFilePath: string }> {
   // 1. Explicit workspace path override
   if (config.workspacePath) {
@@ -37,8 +38,12 @@ async function resolveWorkspacePath(
       repoUrl: config.repoUrl,
     });
 
-    // Initialize the workspace if it doesn't exist
-    await specialWorkspaceManager.initialize();
+    // Use read-only initialization for read operations to avoid locking
+    if (isReadOperation) {
+      await specialWorkspaceManager.initializeReadOnly();
+    } else {
+      await specialWorkspaceManager.initialize();
+    }
 
     const workspacePath = specialWorkspaceManager.getWorkspacePath();
     const dbFilePath = config.dbFilePath || join(workspacePath, "process", "tasks.json");
@@ -59,8 +64,12 @@ async function resolveWorkspacePath(
     lockTimeoutMs: 30000, // Wait up to 30 seconds for lock
   });
 
-  // NO try/catch - let it fail if special workspace can't be initialized
-  await specialWorkspaceManager.initialize();
+  // Use read-only initialization for read operations to avoid locking
+  if (isReadOperation) {
+    await specialWorkspaceManager.initializeReadOnly();
+  } else {
+    await specialWorkspaceManager.initialize();
+  }
   const workspacePath = specialWorkspaceManager.getWorkspacePath();
   const dbFilePath = config.dbFilePath || join(workspacePath, "process", "tasks.json");
 
@@ -107,10 +116,11 @@ export class WorkspaceResolvingJsonBackend extends JsonFileTaskBackend {
  * This factory function handles async workspace resolution before backend creation
  */
 export async function createWorkspaceResolvingJsonBackend(
-  config: WorkspaceResolvingJsonConfig
+  config: JsonConfig,
+  isReadOperation: boolean = false
 ): Promise<TaskBackend> {
   // Resolve workspace path and database file path first
-  const resolutionResult = await resolveWorkspacePath(config);
+  const resolutionResult = await resolveWorkspacePath(config, isReadOperation);
 
   log.debug("JSON workspace resolution completed", {
     method: resolutionResult.method,
