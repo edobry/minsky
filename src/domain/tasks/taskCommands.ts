@@ -175,7 +175,11 @@ export async function getTaskFromParams(
     const task = await taskService.getTask(validParams.taskId);
 
     if (!task) {
-      throw new ResourceNotFoundError(`Task ${validParams.taskId} not found`, "task", validParams.taskId);
+      throw new ResourceNotFoundError(
+        `Task ${validParams.taskId} not found`,
+        "task",
+        validParams.taskId
+      );
     }
 
     return task;

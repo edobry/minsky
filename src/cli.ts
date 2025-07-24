@@ -59,8 +59,8 @@ async function main(): Promise<void> {
   await createCli();
   await cli.parseAsync();
 
-  // Explicitly exit after successful command execution to prevent hanging
-  // This is needed because some commands may leave resources open that keep the event loop alive
+  // Still need explicit exit until all resource leaks are fixed
+  // The improvements to workspace manager help, but there are other sources
   exit(0);
 }
 
