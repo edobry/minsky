@@ -162,22 +162,22 @@ export async function cleanupSessionTestData(tempDir: string): Promise<void> {
 
 export function createGitServiceMock(): GitServiceInterface {
   return {
-    getCurrentBranch: (createMock() = mock(() => Promise.resolve("main"))),
-    getRemoteUrl: (createMock() = mock(() => Promise.resolve("https://github.com/edobry/minsky"))),
-    getRepoPath: (createMock() = mock(() => Promise.resolve("/Users/edobry/Projects/minsky"))),
-    clone: (createMock() = mock(() => Promise.resolve(undefined))),
-    checkout: (createMock() = mock(() => Promise.resolve(undefined))),
-    createBranch: (createMock() = mock(() => Promise.resolve(undefined))),
-    push: (createMock() = mock(() => Promise.resolve(undefined))),
-    pull: (createMock() = mock(() => Promise.resolve(undefined))),
-    merge: (createMock() = mock(() => Promise.resolve(undefined))),
-    getStatus: (createMock() = mock(() => Promise.resolve({ hasChanges: false, changes: [] }))),
-    add: (createMock() = mock(() => Promise.resolve(undefined))),
-    commit: (createMock() = mock(() => Promise.resolve(undefined))),
-    reset: (createMock() = mock(() => Promise.resolve(undefined))),
-    stash: (createMock() = mock(() => Promise.resolve(undefined))),
-    stashPop: (createMock() = mock(() => Promise.resolve(undefined))),
-    getCommitHash: (createMock() = mock(() => Promise.resolve("abc123"))),
+    getCurrentBranch: mock(() => Promise.resolve("main")),
+    getRemoteUrl: mock(() => Promise.resolve("https://github.com/edobry/minsky")),
+    getRepoPath: mock(() => Promise.resolve("/Users/edobry/Projects/minsky")),
+    clone: mock(() => Promise.resolve(undefined)),
+    checkout: mock(() => Promise.resolve(undefined)),
+    createBranch: mock(() => Promise.resolve(undefined)),
+    push: mock(() => Promise.resolve(undefined)),
+    pull: mock(() => Promise.resolve(undefined)),
+    merge: mock(() => Promise.resolve(undefined)),
+    getStatus: mock(() => Promise.resolve({ hasChanges: false, changes: [] })),
+    add: mock(() => Promise.resolve(undefined)),
+    commit: mock(() => Promise.resolve(undefined)),
+    reset: mock(() => Promise.resolve(undefined)),
+    stash: mock(() => Promise.resolve(undefined)),
+    stashPop: mock(() => Promise.resolve(undefined)),
+    getCommitHash: mock(() => Promise.resolve("abc123")),
   } as GitServiceInterface;
 }
 

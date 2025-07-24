@@ -47,10 +47,7 @@ export {
 } from "./management-commands";
 
 // Import management factory functions for internal use
-import {
-  createSessionDeleteCommand,
-  createSessionUpdateCommand,
-} from "./management-commands";
+import { createSessionDeleteCommand, createSessionUpdateCommand } from "./management-commands";
 
 // Workflow commands (re-export)
 export {
