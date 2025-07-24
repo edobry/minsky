@@ -70,12 +70,36 @@ export class SpecialWorkspaceManager {
    */
   async initialize(): Promise<void> {
     await this.withLock("initialize", async () => {
-      if (!existsSync(this!.workspacePath)) {
+      if (!existsSync(this.workspacePath)) {
         await this.createOptimizedWorkspace();
       } else {
         await this.validateWorkspace();
       }
     });
+  }
+
+  /**
+   * Initialize for read-only operations - skips locking for better performance
+   * Only checks if workspace exists and creates it if needed, but doesn't validate/repair
+   */
+  async initializeReadOnly(): Promise<void> {
+    if (!existsSync(this.workspacePath)) {
+      // For read operations, if workspace doesn't exist, we can't read anything
+      // Fall back to creating it (this is the only case where we might need to write)
+      log.debug("Workspace doesn't exist for read operation, creating it");
+      await this.withLock("initialize-read-fallback", async () => {
+        if (!existsSync(this.workspacePath)) {
+          await this.createOptimizedWorkspace();
+        }
+      });
+    } else {
+      // Workspace exists, just do a quick health check without locking
+      const isHealthy = await this.isHealthy();
+      if (!isHealthy) {
+        log.warn("Workspace appears unhealthy for read operation, but skipping repair to avoid hanging");
+        // For read operations, we'll try to use it anyway rather than hang on repair
+      }
+    }
   }
 
   /**
