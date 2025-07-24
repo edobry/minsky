@@ -2,6 +2,32 @@
 
 ### Enhanced
 
+- **Task #325: Completed Task Backend Architecture Analysis** 
+  - **CRITICAL ARCHITECTURAL DECISION**: Comprehensive analysis recommends abandoning in-tree backends for database-first architecture
+  - **Key Findings**:
+    - Special workspace represents 445+ lines of complexity providing negative user value
+    - In-tree backends are essentially a poorly-implemented distributed database
+    - Performance analysis shows 100-1000x improvement with database backends
+    - Cross-repository workflows are fundamentally incompatible with in-tree storage
+    - No user persona actually benefits from in-tree backends
+  - **Delivered Comprehensive Analysis**:
+    - Current implementation complexity documentation
+    - Distributed systems perspective revealing anti-patterns
+    - Cross-repository challenge analysis
+    - Detailed architectural tradeoffs (databases win 9-1)
+    - Limited-scope hybrid approach evaluation (not viable)
+    - Philosophical resolution prioritizing pragmatism over purity
+  - **Created Formal ADRs**:
+    - ADR-001: Database-First Architecture (SQLite default, PostgreSQL for teams)
+    - ADR-002: Explicit Task Status Model with git-derived insights
+    - ADR-003: Gradual Migration Strategy with 6-month deprecation
+  - **Implementation Roadmap**:
+    - Phase 1: SQLite implementation (immediate)
+    - Phase 2: PostgreSQL support (3 months)
+    - Phase 3: In-tree deprecation (6 months)
+    - Phase 4: Legacy code removal (12 months)
+  - **Recommendation**: Abandon in-tree backends completely to enable Minsky's AI-powered vision
+
 - **Task #322: Comprehensive Parameter Deduplication with Type Composition**
   - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
   - **70% CODE REDUCTION**: Reduced ~1000 lines to ~300 lines of parameter definitions (exceeded 60% target)
