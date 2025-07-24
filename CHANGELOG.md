@@ -37,6 +37,15 @@
   - Maintains backward compatibility with existing usage
   - Provides feature parity with Cursor's built-in read_file tool for session workspaces
 
+- **Task #325: Task Backend Architecture Analysis and Design Resolution**: Created comprehensive task for analyzing and resolving fundamental task backend architecture decisions
+  - Documents the core conflict between in-tree task metadata backends (markdown/json) and the complexity of the special workspace workflow
+  - Captures philosophical considerations around git-native task management vs practical needs for database backends
+  - Outlines key architectural questions including task state location, status derivation models, and synchronization approaches
+  - Defines deliverables including tradeoff analysis, ADRs, workflow design, and implementation roadmap
+  - Addresses critical questions about special workspace complexity, single pane of glass capabilities, and team workflows
+  - Establishes foundation for future task system evolution including AI-powered features and distributed team support
+  - Created as proper Minsky task with full specification stored at `process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md`
+
 ### Fixed
 
 - **Task & Session Commands Circular Dependencies**: Completely resolved circular dependency issues and task list display
