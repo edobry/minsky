@@ -1,8 +1,16 @@
 ## [Unreleased]
 
+### Added
+
+- **Task #326: Created task for Outerbase DB explorer integration research**
+  - Created comprehensive task specification for evaluating Outerbase DB explorer integration
+  - Task focuses on providing users with visual database inspection capabilities
+  - Key investigation areas include CLI/web interface embedding, security considerations, and performance implications
+  - Expected deliverables: technical feasibility analysis, integration recommendations, and implementation plan
+
 ### Enhanced
 
-- **Task #325: Completed Task Backend Architecture Analysis** 
+- **Task #325: Completed Task Backend Architecture Analysis**
   - **CRITICAL ARCHITECTURAL DECISION**: Comprehensive analysis recommends abandoning in-tree backends for database-first architecture
   - **Key Findings**:
     - Special workspace represents 445+ lines of complexity providing negative user value
