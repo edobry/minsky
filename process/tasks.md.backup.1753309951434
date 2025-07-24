@@ -512,7 +512,7 @@
 
 - [x] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
 
-- [x] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
+- [+] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
 
 - [-] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
 
@@ -546,7 +546,7 @@
 
 - [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
 
-- [+] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
+- [ ] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
 - [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
 
@@ -573,3 +573,9 @@
 - [ ] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)
 
 - [ ] Add MCP Client Registration Functionality [#324](process/tasks/324-add-mcp-client-registration-functionality.md)
+
+- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#325](process/tasks/325-resolve-workspace-architecture-inconsistencies.md)
+
+- [ ] Generate ESLint Rulesets from Cursor Rules [#326](process/tasks/326-generate-eslint-rulesets-from-cursor-rules.md)
+
+- [x] Fix Test Failures Found During Task Session [#327](process/tasks/327-fix-test-failures-found-during-task-session.md)
