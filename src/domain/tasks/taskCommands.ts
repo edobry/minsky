@@ -161,21 +161,21 @@ export async function getTaskFromParams(
       repoUrl: repoPath,
     });
 
-    // Create task service with explicit backend to avoid configuration issues
-    const taskService = await actualDeps.createTaskService({
-      workspacePath,
-      backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
+    // Create task service with read-only mode for better performance
+    const taskService = await TaskService.createWithEnhancedBackend({
+      backend: (validParams.backend || "markdown") as "markdown" | "json-file",
+      backendConfig: {
+        name: validParams.backend || "markdown",
+        workspacePath,
+      },
+      isReadOperation: true,
     });
 
     // Get the task
     const task = await taskService.getTask(validParams.taskId);
 
     if (!task) {
-      throw new ResourceNotFoundError(
-        `Task ${validParams.taskId} not found`,
-        "task",
-        validParams.taskId
-      );
+      throw new ResourceNotFoundError(`Task ${validParams.taskId} not found`, "task", validParams.taskId);
     }
 
     return task;

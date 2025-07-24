@@ -58,6 +58,10 @@ export async function createCli(): Promise<Command> {
 async function main(): Promise<void> {
   await createCli();
   await cli.parseAsync();
+
+  // Explicitly exit after successful command execution to prevent hanging
+  // This is needed because some commands may leave resources open that keep the event loop alive
+  exit(0);
 }
 
 // Run the CLI

@@ -17,7 +17,10 @@ import { log } from "../../utils/logger";
 /**
  * Resolve workspace path using configuration
  */
-async function resolveWorkspacePath(config: MarkdownConfig, isReadOperation: boolean = false): Promise<WorkspaceResolutionResult> {
+async function resolveWorkspacePath(
+  config: MarkdownConfig,
+  isReadOperation: boolean = false
+): Promise<WorkspaceResolutionResult> {
   // 1. Explicit workspace path override
   if (config.workspacePath) {
     return {
@@ -117,7 +120,10 @@ export class ConfigurableMarkdownBackend extends MarkdownTaskBackend {
 /**
  * Create markdown backend with workspace resolution
  */
-export async function createMarkdownBackend(config: MarkdownConfig, isReadOperation: boolean = false): Promise<TaskBackend> {
+export async function createMarkdownBackend(
+  config: MarkdownConfig,
+  isReadOperation: boolean = false
+): Promise<TaskBackend> {
   // Resolve workspace path first
   const resolutionResult = await resolveWorkspacePath(config, isReadOperation);
 
@@ -139,11 +145,14 @@ export async function createMarkdownBackend(config: MarkdownConfig, isReadOperat
 /**
  * Convenience factory for common use cases
  */
-export async function createSelfContainedMarkdownBackend(config: {
-  name: string;
-  repoUrl?: string;
-  workspacePath?: string;
-  forceSpecialWorkspace?: boolean;
-}, isReadOperation: boolean = false): Promise<TaskBackend> {
+export async function createSelfContainedMarkdownBackend(
+  config: {
+    name: string;
+    repoUrl?: string;
+    workspacePath?: string;
+    forceSpecialWorkspace?: boolean;
+  },
+  isReadOperation: boolean = false
+): Promise<TaskBackend> {
   return createMarkdownBackend(config, isReadOperation);
 }

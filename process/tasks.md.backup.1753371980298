@@ -512,7 +512,7 @@
 
 - [x] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
 
-- [+] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
+- [x] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
 
 - [x] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
 
@@ -568,7 +568,7 @@
 
 - [ ] AI-Powered Project Analysis for Enhanced Init Command [#321](process/tasks/321-ai-powered-project-analysis-for-enhanced-init-command.md)
 
-- [+] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)
+- [x] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)
 
 - [ ] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)
 
