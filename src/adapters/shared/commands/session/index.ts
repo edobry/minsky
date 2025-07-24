@@ -30,10 +30,24 @@ export {
   createSessionDirCommand,
 } from "./basic-commands";
 
+// Import factory functions for internal use
+import {
+  createSessionListCommand,
+  createSessionGetCommand,
+  createSessionStartCommand,
+  createSessionDirCommand,
+} from "./basic-commands";
+
 // Management commands (re-export)
 export {
   SessionDeleteCommand,
   SessionUpdateCommand,
+  createSessionDeleteCommand,
+  createSessionUpdateCommand,
+} from "./management-commands";
+
+// Import management factory functions for internal use
+import {
   createSessionDeleteCommand,
   createSessionUpdateCommand,
 } from "./management-commands";
@@ -48,26 +62,17 @@ export {
   createSessionInspectCommand,
 } from "./workflow-commands";
 
+// Import workflow factory functions for internal use
+import {
+  createSessionApproveCommand,
+  createSessionPrCommand,
+  createSessionInspectCommand,
+} from "./workflow-commands";
+
 // Factory for creating all session commands
 export function createAllSessionCommands(deps?: SessionCommandDependencies) {
-  // Use require to avoid circular dependency issues
-  const {
-    createSessionListCommand,
-    createSessionGetCommand,
-    createSessionStartCommand,
-    createSessionDirCommand,
-  } = require("./basic-commands");
-
-  const {
-    createSessionDeleteCommand,
-    createSessionUpdateCommand,
-  } = require("./management-commands");
-
-  const {
-    createSessionApproveCommand,
-    createSessionPrCommand,
-    createSessionInspectCommand,
-  } = require("./workflow-commands");
+  // Use the already imported factory functions
+  // (These are already imported at the top of the file)
 
   return {
     // Basic commands

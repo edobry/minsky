@@ -6,9 +6,17 @@
  */
 import { SessionCommandRegistry } from "./session/base-session-command";
 import {
-  createAllSessionCommands,
   setupSessionCommandRegistry,
   type SessionCommandDependencies,
+  createSessionListCommand,
+  createSessionGetCommand,
+  createSessionStartCommand,
+  createSessionDirCommand,
+  createSessionDeleteCommand,
+  createSessionUpdateCommand,
+  createSessionApproveCommand,
+  createSessionPrCommand,
+  createSessionInspectCommand,
 } from "./session";
 import { sharedCommandRegistry } from "../command-registry";
 
@@ -26,13 +34,25 @@ const defaultSessionCommandDependencies: SessionCommandDependencies = {
  * Provides a clean interface for registering and managing session commands.
  */
 export class ModularSessionCommandsManager {
-  private commands: ReturnType<typeof createAllSessionCommands>;
+  private commands: any; // Session commands collection
   private commandRegistry: SessionCommandRegistry;
 
   constructor(deps: SessionCommandDependencies = defaultSessionCommandDependencies) {
-    // Simplified initialization to avoid circular dependencies
-    this.commands = {} as any; // Temporary empty object
-    this.commandRegistry = new SessionCommandRegistry();
+    // Create all session commands directly to avoid circular dependency
+    this.commands = {
+      list: createSessionListCommand(deps),
+      get: createSessionGetCommand(deps),
+      start: createSessionStartCommand(deps),
+      dir: createSessionDirCommand(deps),
+      delete: createSessionDeleteCommand(deps),
+      update: createSessionUpdateCommand(deps),
+      approve: createSessionApproveCommand(deps),
+      pr: createSessionPrCommand(deps),
+      inspect: createSessionInspectCommand(deps),
+    };
+    
+    // Setup the command registry with actual session commands
+    this.commandRegistry = setupSessionCommandRegistry(deps);
   }
 
   /**
