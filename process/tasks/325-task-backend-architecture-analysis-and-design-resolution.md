@@ -63,6 +63,27 @@ However, practical needs suggest database backends:
 - At what point does git-based coordination become "reimplementing a database"?
 - Should we embrace existing solutions (like Dolt) instead?
 
+### 5. Distributed Database Reality Check
+
+**The Complexity of Distributed State Management**
+- In-tree task backends essentially constitute a naive distributed database approach
+- Distributed databases are notoriously complex problems that software engineers rarely use in workflows
+- The most successful distributed systems (blockchains) require massive synchronization overhead that's overkill for task management
+- Do we have an actual decentralization requirement, or are we solving a problem that doesn't exist?
+- Is the philosophical elegance of git-native storage worth the distributed database complexity?
+
+### 6. Cross-Repository Task Management
+
+**Multi-Repository Workflow Challenges**
+- Many tasks span multiple repositories (e.g., web app features touching both frontend and backend repos)
+- In-tree storage creates fundamental problems:
+  - **Decomposition complexity**: Breaking tasks into per-repo subtasks adds significant overhead
+  - **Parent task location**: Where does the parent task live when children span repos?
+  - **Coordination overhead**: Synchronizing task state across multiple repository boundaries
+  - **Fragmented view**: No single place to see the complete task hierarchy
+- Does the cross-repository reality effectively eliminate the viability of in-tree backends?
+- How do other project management tools handle this (they use centralized databases)
+
 ## Research Areas
 
 ### 1. In-tree Backend Deep Dive
@@ -120,6 +141,33 @@ However, practical needs suggest database backends:
 - How does task backend choice affect overall system design?
 - What are the ripple effects of each approach?
 - How do we maintain conceptual integrity?
+
+### 5. Distributed Database Analysis
+
+#### Complexity Assessment
+- Analyze the distributed database implications of in-tree backends
+- Research distributed systems complexity in software engineering workflows
+- Compare with established distributed database solutions (blockchain, consensus systems)
+- Evaluate whether the problem requires distributed solutions at all
+
+#### Alternative Distributed Approaches
+- Research existing git-based distributed database solutions
+- Analyze operational complexity of distributed task management
+- Compare with centralized approaches used by established project management tools
+
+### 6. Cross-Repository Task Management
+
+#### Multi-Repository Workflow Analysis
+- Document common cross-repository task patterns in software development
+- Analyze how existing project management tools handle multi-repository tasks
+- Research enterprise workflow patterns for large-scale software projects
+- Evaluate decomposition strategies and their overhead
+
+#### Repository Boundary Challenges
+- Map technical challenges of cross-repository task coordination
+- Analyze parent-child task relationships across repository boundaries
+- Research synchronization patterns for distributed task hierarchies
+- Evaluate user experience implications of fragmented task views
 
 ## Deliverables
 
@@ -236,6 +284,12 @@ A clear statement addressing:
 8. **How do we handle task metadata versioning across branches?**
 9. **What is the minimum viable task backend for MVP?**
 10. **How do we support gradual migration between backends?**
+11. **Are we solving a distributed database problem that doesn't actually require a distributed solution?**
+12. **Does the complexity of distributed state management outweigh the philosophical benefits of git-native storage?**
+13. **How do we handle cross-repository tasks without creating unmanageable complexity?**
+14. **Where should parent tasks live when subtasks span multiple repositories?**
+15. **Do cross-repository workflows make in-tree backends fundamentally unviable?**
+16. **How do established project management tools solve the multi-repository problem (and why do they use centralized databases)?**
 
 ## Related Context
 
