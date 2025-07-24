@@ -3,30 +3,33 @@
 ### Enhanced
 
 - **Task #325: Completed Task Backend Architecture Analysis** 
-  - **CRITICAL ARCHITECTURAL DECISION**: Comprehensive analysis recommends abandoning in-tree backends for database-first architecture
+  - **BALANCED ARCHITECTURAL STRATEGY**: Comprehensive analysis recommends multi-backend approach respecting user priorities
   - **Key Findings**:
-    - Special workspace represents 445+ lines of complexity providing negative user value
-    - In-tree backends are essentially a poorly-implemented distributed database
-    - Performance analysis shows 100-1000x improvement with database backends
-    - Cross-repository workflows are fundamentally incompatible with in-tree storage
-    - No user persona actually benefits from in-tree backends
+    - In-tree backends provide genuine backup/onboarding benefits via automatic git sync
+    - Special workspace serves legitimate purpose coordinating git commits from multiple sessions
+    - Database backends provide 100-1000x performance improvement and enable advanced features
+    - Cross-repository workflows require database backends for practical viability
+    - No middle ground exists without recreating special workspace complexity
+  - **Corrected Analysis**:
+    - Acknowledged tasks.md IS the in-tree markdown backend (corrected initial error)
+    - Recognized automatic backup and zero-friction onboarding as significant advantages
+    - More nuanced tradeoff assessment (6-5 rather than 9-1 against in-tree)
+    - Distributed systems perspective reveals special workspace as git transaction coordinator
   - **Delivered Comprehensive Analysis**:
-    - Current implementation complexity documentation
-    - Distributed systems perspective revealing anti-patterns
-    - Cross-repository challenge analysis
-    - Detailed architectural tradeoffs (databases win 9-1)
-    - Limited-scope hybrid approach evaluation (not viable)
-    - Philosophical resolution prioritizing pragmatism over purity
+    - Current implementation complexity documentation with purpose justification
+    - Distributed systems perspective showing coordination challenges
+    - Cross-repository limitation analysis
+    - Balanced architectural tradeoffs acknowledging legitimate benefits
+    - Limited-scope hybrid approach evaluation (creates same problems)
+    - Philosophical resolution prioritizing user choice over architectural purity
   - **Created Formal ADRs**:
-    - ADR-001: Database-First Architecture (SQLite default, PostgreSQL for teams)
+    - ADR-001: Multi-Backend Architecture Strategy (choice-based approach)
     - ADR-002: Explicit Task Status Model with git-derived insights
-    - ADR-003: Gradual Migration Strategy with 6-month deprecation
-  - **Implementation Roadmap**:
-    - Phase 1: SQLite implementation (immediate)
-    - Phase 2: PostgreSQL support (3 months)
-    - Phase 3: In-tree deprecation (6 months)
-    - Phase 4: Legacy code removal (12 months)
-  - **Recommendation**: Abandon in-tree backends completely to enable Minsky's AI-powered vision
+  - **Implementation Strategy**:
+    - Phase 1: Multi-backend framework and special workspace optimization
+    - Phase 2: Database backend options (SQLite local, hosted services)
+    - Phase 3: Advanced features on database backends (AI, graphs, real-time)
+  - **User-Centric Recommendation**: Provide backend choice based on user priorities - in-tree for backup/simplicity, database for performance/features
 
 - **Task #322: Comprehensive Parameter Deduplication with Type Composition**
   - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
