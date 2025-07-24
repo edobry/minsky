@@ -1543,3 +1543,11 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - **Missing Files Recovered**: Found and copied missing task #315 and #320 files from special workspace locations
   - **Orphaned Files**: Added tasks #310b and #324 to tasks.md for existing spec files
   - **Result**: All task spec files now properly correspond to tasks.md entries
+
+- **CLI Commands Hanging**: Fixed issue where `minsky tasks get`, `minsky tasks list`, and other CLI commands would display output correctly but hang indefinitely instead of returning to shell prompt
+  - Added explicit `process.exit(0)` after successful command execution
+  - Added read-only workspace initialization to reduce lock contention for read operations
+  - Commands now complete properly without leaving resources that keep the event loop alive
+  - Resolves commands timing out due to unclosed file handles, timers, or workspace managers
+
+### Added
