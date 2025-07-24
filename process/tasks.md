@@ -574,4 +574,6 @@
 
 - [ ] Add MCP Client Registration Functionality [#324](process/tasks/324-add-mcp-client-registration-functionality.md)
 
-- [+] Task Backend Architecture Analysis and Design Resolution [#325](process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md)
+- [ ] Task Backend Architecture Analysis and Design Resolution [#325](process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md)
+
+- [ ] Explore embedding Outerbase DB explorer for database inspection [#326](process/tasks/326-explore-embedding-outerbase-db-explorer-for-database-inspection.md)
