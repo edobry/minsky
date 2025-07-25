@@ -4,7 +4,7 @@
  * Tests for session update command functionality
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { mkdir } from "fs/promises";
 import { updateSessionFromParams } from "../../../src/domain/session";

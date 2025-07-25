@@ -7,6 +7,7 @@
 import { join } from "path";
 import { mkdir, rmdir } from "fs/promises";
 import { existsSync } from "fs";
+import { mock } from "bun:test";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";

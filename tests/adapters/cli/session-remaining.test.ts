@@ -4,7 +4,7 @@
  * Tests for workspace detection, inspect, list, and PR commands
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { mkdir } from "fs/promises";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
