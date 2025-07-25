@@ -29,17 +29,30 @@ export class ModularTasksCommandManager {
     try {
       const { createTasksListCommand } = require("./tasks/crud-commands");
       const { createTasksGetCommand } = require("./tasks/crud-commands");
+      const { createTasksCreateCommand } = require("./tasks/crud-commands");
+      const { createTasksDeleteCommand } = require("./tasks/crud-commands");
+      const { createTasksSpecCommand } = require("./tasks/spec-command");
+      const { createTasksStatusGetCommand } = require("./tasks/status-commands");
+      const { createTasksStatusSetCommand } = require("./tasks/status-commands");
 
-      // Register basic list command
+      // Create command instances to get their parameter definitions
+      const listCommand = createTasksListCommand();
+      const getCommand = createTasksGetCommand();
+      const createCommand = createTasksCreateCommand();
+      const deleteCommand = createTasksDeleteCommand();
+      const specCommand = createTasksSpecCommand();
+      const statusGetCommand = createTasksStatusGetCommand();
+      const statusSetCommand = createTasksStatusSetCommand();
+
+      // Register list command
       sharedCommandRegistry.registerCommand({
         id: "tasks.list",
         category: "TASKS" as any,
         name: "list",
         description: "List tasks",
-        parameters: {},
+        parameters: listCommand.parameters,
         execute: async (params: any, context: any) => {
-          const command = createTasksListCommand();
-          return await command.execute(params, context);
+          return await listCommand.execute(params, context);
         },
       });
 
@@ -49,10 +62,69 @@ export class ModularTasksCommandManager {
         category: "TASKS" as any,
         name: "get",
         description: "Get task details",
-        parameters: {},
+        parameters: getCommand.parameters,
         execute: async (params: any, context: any) => {
-          const command = createTasksGetCommand();
-          return await command.execute(params, context);
+          return await getCommand.execute(params, context);
+        },
+      });
+
+      // Register create command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.create",
+        category: "TASKS" as any,
+        name: "create",
+        description: "Create a new task",
+        parameters: createCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await createCommand.execute(params, context);
+        },
+      });
+
+      // Register delete command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.delete",
+        category: "TASKS" as any,
+        name: "delete",
+        description: "Delete a task",
+        parameters: deleteCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await deleteCommand.execute(params, context);
+        },
+      });
+
+      // Register spec command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.spec",
+        category: "TASKS" as any,
+        name: "spec",
+        description: "Get task specification content",
+        parameters: specCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await specCommand.execute(params, context);
+        },
+      });
+
+      // Register status get command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.status.get",
+        category: "TASKS" as any,
+        name: "status get",
+        description: "Get the status of a task",
+        parameters: statusGetCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await statusGetCommand.execute(params, context);
+        },
+      });
+
+      // Register status set command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.status.set",
+        category: "TASKS" as any,
+        name: "status set",
+        description: "Set the status of a task",
+        parameters: statusSetCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await statusSetCommand.execute(params, context);
         },
       });
     } catch (error) {

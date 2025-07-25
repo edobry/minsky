@@ -1,4 +1,4 @@
-# Task 277: Generate ESLint Rulesets from Cursor Rules
+# Task #326: Generate ESLint Rulesets from Cursor Rules
 
 ## Status
 

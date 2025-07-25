@@ -585,13 +585,15 @@ ${description}
     backend: "markdown" | "json-file";
     backendConfig?: any;
     customBackends?: TaskBackend[];
+    isReadOperation?: boolean;
   }): Promise<TaskService> {
-    const { backend, backendConfig, customBackends } = options;
+    const { backend, backendConfig, customBackends, isReadOperation = false } = options;
 
     log.debug("Creating TaskService with enhanced backend", {
       backend,
       hasConfig: !!backendConfig,
       hasCustomBackends: !!customBackends,
+      isReadOperation,
     });
 
     // If custom backends provided, use traditional pattern
@@ -612,7 +614,7 @@ ${description}
         }
 
         const { createMarkdownBackend } = await import("./markdown-backend");
-        resolvedBackend = await createMarkdownBackend(backendConfig);
+        resolvedBackend = await createMarkdownBackend(backendConfig, isReadOperation);
         break;
       }
 
@@ -621,8 +623,8 @@ ${description}
           throw new Error("Backend configuration required for json-file backend");
         }
 
-        const { createJsonBackendWithConfig } = await import("./jsonFileTaskBackend");
-        resolvedBackend = await createJsonBackendWithConfig(backendConfig);
+        const { createWorkspaceResolvingJsonBackend } = await import("./json-backend");
+        resolvedBackend = await createWorkspaceResolvingJsonBackend(backendConfig, isReadOperation);
         break;
       }
 

@@ -324,7 +324,7 @@
 
 - [x] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
-- [x] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
+- [+] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
 - [+] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
@@ -478,7 +478,7 @@
 
 - [x] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
 
-- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/273-resolve-workspace-architecture-inconsistencies-and-utilize-special-workspace-system.md)
+- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#325](process/tasks/325-resolve-workspace-architecture-inconsistencies.md)
 
 - [x] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
 
@@ -514,7 +514,7 @@
 
 - [+] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
 
-- [x] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
+- [+] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
 
 - [ ] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/290-convert-cursor-rules-to-mcp-only-tool-references.md)
 
@@ -546,7 +546,7 @@
 
 - [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
 
-- [+] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
+- [ ] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
 - [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
 
@@ -568,12 +568,14 @@
 
 - [ ] AI-Powered Project Analysis for Enhanced Init Command [#321](process/tasks/321-ai-powered-project-analysis-for-enhanced-init-command.md)
 
-- [+] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)
+- [x] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)
 
 - [ ] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)
 
 - [ ] Add MCP Client Registration Functionality [#324](process/tasks/324-add-mcp-client-registration-functionality.md)
 
-- [ ] Task Backend Architecture Analysis and Design Resolution [#325](process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md)
+- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#325](process/tasks/325-resolve-workspace-architecture-inconsistencies.md)
 
-- [ ] Explore embedding Outerbase DB explorer for database inspection [#326](process/tasks/326-explore-embedding-outerbase-db-explorer-for-database-inspection.md)
+- [ ] Generate ESLint Rulesets from Cursor Rules [#326](process/tasks/326-generate-eslint-rulesets-from-cursor-rules.md)
+
+- [x] Fix Test Failures Found During Task Session [#327](process/tasks/327-fix-test-failures-found-during-task-session.md)
