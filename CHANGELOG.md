@@ -3,33 +3,31 @@
 ### Enhanced
 
 - **Task #325: Completed Task Backend Architecture Analysis** 
-  - **BALANCED ARCHITECTURAL STRATEGY**: Comprehensive analysis recommends multi-backend approach respecting user priorities
-  - **Key Findings**:
-    - In-tree backends provide genuine backup/onboarding benefits via automatic git sync
-    - Special workspace serves legitimate purpose coordinating git commits from multiple sessions
-    - Database backends provide 100-1000x performance improvement and enable advanced features
-    - Cross-repository workflows require database backends for practical viability
-    - No middle ground exists without recreating special workspace complexity
-  - **Corrected Analysis**:
-    - Acknowledged tasks.md IS the in-tree markdown backend (corrected initial error)
-    - Recognized automatic backup and zero-friction onboarding as significant advantages
-    - More nuanced tradeoff assessment (6-5 rather than 9-1 against in-tree)
-    - Distributed systems perspective reveals special workspace as git transaction coordinator
-  - **Delivered Comprehensive Analysis**:
-    - Current implementation complexity documentation with purpose justification
-    - Distributed systems perspective showing coordination challenges
-    - Cross-repository limitation analysis
-    - Balanced architectural tradeoffs acknowledging legitimate benefits
-    - Limited-scope hybrid approach evaluation (creates same problems)
-    - Philosophical resolution prioritizing user choice over architectural purity
+  - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
+  - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
+  - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
+  - **In-Tree Deprecation**: Mark in-tree backends deprecated while preserving code temporarily for learning and safety
+  - **AI-First Architecture Insights**:
+    - Minsky as fundamentally AI-powered tool requiring internet connectivity for core value
+    - Users already accept external dependencies (AI APIs, billing, internet)
+    - Offline concerns secondary for AI-powered workflows
+    - GitHub Issues provide excellent foundation for AI content analysis
+  - **Comprehensive Analysis Delivered**:
+    - AI-first architecture reanalysis changing all priorities
+    - SQLite-to-PostgreSQL upgrade path design (for future reference)
+    - Creative hosted backend exploration (Dolt, Notion API, cloud services)
+    - Offline/onboarding analysis with AI context
+    - GitHub Issues interim strategy with future backend flexibility
   - **Created Formal ADRs**:
-    - ADR-001: Multi-Backend Architecture Strategy (choice-based approach)
-    - ADR-002: Explicit Task Status Model with git-derived insights
-  - **Implementation Strategy**:
-    - Phase 1: Multi-backend framework and special workspace optimization
-    - Phase 2: Database backend options (SQLite local, hosted services)
-    - Phase 3: Advanced features on database backends (AI, graphs, real-time)
-  - **User-Centric Recommendation**: Provide backend choice based on user priorities - in-tree for backup/simplicity, database for performance/features
+    - ADR-001: GitHub Issues Interim Strategy with Future Backend Flexibility
+    - ADR-002: Explicit Task Status Model optimized for GitHub workflows
+    - ADR-003: Deprecate In-Tree Backends (preserve code for learning)
+  - **Updated AI Task Management Approach**: Revised AI task decomposition spec to work with GitHub Issues interim backend
+  - **Three-Phase Strategy**:
+    - Phase 1: GitHub Issues migration and basic AI features (immediate)
+    - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
+    - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
+  - **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
 
 - **Task #322: Comprehensive Parameter Deduplication with Type Composition**
   - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
