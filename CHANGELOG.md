@@ -1,6 +1,47 @@
 ## [Unreleased]
 
+### Added
+
+- Created task #327: Comprehensive multi-agent messaging architecture for collaborative development
+  - Extends current "user interventions" to support both human and AI agents
+  - Enables persistent conversation history with rolling summaries
+  - Supports multiple contexts: tasks, sessions, PR reviews, GitHub issues, chat
+  - Integrates with multi-agent supervision system (#258) and memory architecture (#279)
+  - Provides foundation for iterative collaboration on artifacts across different contexts
+
+- **Task #326: Created task for Outerbase DB explorer integration research**
+  - Created comprehensive task specification for evaluating Outerbase DB explorer integration
+  - Task focuses on providing users with visual database inspection capabilities
+  - Key investigation areas include CLI/web interface embedding, security considerations, and performance implications
+  - Expected deliverables: technical feasibility analysis, integration recommendations, and implementation plan
+
 ### Enhanced
+
+- **Task #325: Completed Task Backend Architecture Analysis**
+  - **CRITICAL ARCHITECTURAL DECISION**: Comprehensive analysis recommends abandoning in-tree backends for database-first architecture
+  - **Key Findings**:
+    - Special workspace represents 445+ lines of complexity providing negative user value
+    - In-tree backends are essentially a poorly-implemented distributed database
+    - Performance analysis shows 100-1000x improvement with database backends
+    - Cross-repository workflows are fundamentally incompatible with in-tree storage
+    - No user persona actually benefits from in-tree backends
+  - **Delivered Comprehensive Analysis**:
+    - Current implementation complexity documentation
+    - Distributed systems perspective revealing anti-patterns
+    - Cross-repository challenge analysis
+    - Detailed architectural tradeoffs (databases win 9-1)
+    - Limited-scope hybrid approach evaluation (not viable)
+    - Philosophical resolution prioritizing pragmatism over purity
+  - **Created Formal ADRs**:
+    - ADR-001: Database-First Architecture (SQLite default, PostgreSQL for teams)
+    - ADR-002: Explicit Task Status Model with git-derived insights
+    - ADR-003: Gradual Migration Strategy with 6-month deprecation
+  - **Implementation Roadmap**:
+    - Phase 1: SQLite implementation (immediate)
+    - Phase 2: PostgreSQL support (3 months)
+    - Phase 3: In-tree deprecation (6 months)
+    - Phase 4: Legacy code removal (12 months)
+  - **Recommendation**: Abandon in-tree backends completely to enable Minsky's AI-powered vision
 
 - **Task #322: Comprehensive Parameter Deduplication with Type Composition**
   - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
@@ -36,6 +77,15 @@
   - Enhanced response format with line count metadata and range information
   - Maintains backward compatibility with existing usage
   - Provides feature parity with Cursor's built-in read_file tool for session workspaces
+
+- **Task #325: Task Backend Architecture Analysis and Design Resolution**: Created comprehensive task for analyzing and resolving fundamental task backend architecture decisions
+  - Documents the core conflict between in-tree task metadata backends (markdown/json) and the complexity of the special workspace workflow
+  - Captures philosophical considerations around git-native task management vs practical needs for database backends
+  - Outlines key architectural questions including task state location, status derivation models, and synchronization approaches
+  - Defines deliverables including tradeoff analysis, ADRs, workflow design, and implementation roadmap
+  - Addresses critical questions about special workspace complexity, single pane of glass capabilities, and team workflows
+  - Establishes foundation for future task system evolution including AI-powered features and distributed team support
+  - Created as proper Minsky task with full specification stored at `process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md`
 
 ### Fixed
 
@@ -1543,3 +1593,11 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - **Missing Files Recovered**: Found and copied missing task #315 and #320 files from special workspace locations
   - **Orphaned Files**: Added tasks #310b and #324 to tasks.md for existing spec files
   - **Result**: All task spec files now properly correspond to tasks.md entries
+
+- **CLI Commands Hanging**: Fixed issue where `minsky tasks get`, `minsky tasks list`, and other CLI commands would display output correctly but hang indefinitely instead of returning to shell prompt
+  - Added explicit `process.exit(0)` after successful command execution
+  - Added read-only workspace initialization to reduce lock contention for read operations
+  - Commands now complete properly without leaving resources that keep the event loop alive
+  - Resolves commands timing out due to unclosed file handles, timers, or workspace managers
+
+### Added

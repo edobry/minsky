@@ -103,7 +103,7 @@ export abstract class BaseTaskCommand {
   }
 
   /**
-   * Format result based on JSON flag
+   * Format command results for output
    */
   protected formatResult(result: any, json: boolean = false): any {
     if (json) {
@@ -128,6 +128,26 @@ export abstract class BaseTaskCommand {
           .join("\n");
 
         return taskList;
+      }
+
+      // Handle individual task details
+      if (typeof result === "object" && result.task && !Array.isArray(result.task)) {
+        const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
+        const task = result.task;
+        const displayId = formatTaskIdForDisplay(task.id);
+
+        let output = `${displayId}: ${task.title}\n`;
+        output += `Status: ${task.status}\n`;
+
+        if (task.description && task.description.trim()) {
+          output += `Description: ${task.description.trim()}\n`;
+        }
+
+        if (task.specPath) {
+          output += `Spec: ${task.specPath}\n`;
+        }
+
+        return output.trim();
       }
 
       // Return simple message for other results

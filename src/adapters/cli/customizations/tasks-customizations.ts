@@ -32,7 +32,7 @@ export function getTasksCustomizations(): {
         },
         "tasks.get": {
           parameters: {
-            id: {
+            taskId: {
               asArgument: true,
             },
           },

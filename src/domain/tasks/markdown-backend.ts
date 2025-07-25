@@ -17,7 +17,10 @@ import { log } from "../../utils/logger";
 /**
  * Resolve workspace path using configuration
  */
-async function resolveWorkspacePath(config: MarkdownConfig): Promise<WorkspaceResolutionResult> {
+async function resolveWorkspacePath(
+  config: MarkdownConfig,
+  isReadOperation: boolean = false
+): Promise<WorkspaceResolutionResult> {
   // 1. Explicit workspace path override
   if (config.workspacePath) {
     return {
@@ -39,7 +42,10 @@ async function resolveWorkspacePath(config: MarkdownConfig): Promise<WorkspaceRe
         setTimeout(() => reject(new Error("Special workspace initialization timeout")), 10000); // 10 second timeout
       });
 
-      const initPromise = specialWorkspaceManager.initialize();
+      // Use read-only initialization for read operations to avoid locking
+      const initPromise = isReadOperation
+        ? specialWorkspaceManager.initializeReadOnly()
+        : specialWorkspaceManager.initialize();
 
       await Promise.race([initPromise, initTimeout]);
 
@@ -67,8 +73,12 @@ async function resolveWorkspacePath(config: MarkdownConfig): Promise<WorkspaceRe
     lockTimeoutMs: 30000, // Wait up to 30 seconds for lock
   });
 
-  // NO try/catch - let it fail if special workspace can't be initialized
-  await specialWorkspaceManager.initialize();
+  // Use read-only initialization for read operations to avoid locking
+  if (isReadOperation) {
+    await specialWorkspaceManager.initializeReadOnly();
+  } else {
+    await specialWorkspaceManager.initialize();
+  }
 
   return {
     workspacePath: specialWorkspaceManager.getWorkspacePath(),
@@ -108,12 +118,14 @@ export class ConfigurableMarkdownBackend extends MarkdownTaskBackend {
 }
 
 /**
- * Create a markdown backend
- * This factory function handles async workspace resolution before backend creation
+ * Create markdown backend with workspace resolution
  */
-export async function createMarkdownBackend(config: MarkdownConfig): Promise<TaskBackend> {
+export async function createMarkdownBackend(
+  config: MarkdownConfig,
+  isReadOperation: boolean = false
+): Promise<TaskBackend> {
   // Resolve workspace path first
-  const resolutionResult = await resolveWorkspacePath(config);
+  const resolutionResult = await resolveWorkspacePath(config, isReadOperation);
 
   log.debug("Workspace resolution completed", {
     method: resolutionResult.method,
@@ -133,11 +145,14 @@ export async function createMarkdownBackend(config: MarkdownConfig): Promise<Tas
 /**
  * Convenience factory for common use cases
  */
-export async function createSelfContainedMarkdownBackend(config: {
-  name: string;
-  repoUrl?: string;
-  workspacePath?: string;
-  forceSpecialWorkspace?: boolean;
-}): Promise<TaskBackend> {
-  return createWorkspaceResolvingMarkdownBackend(config);
+export async function createSelfContainedMarkdownBackend(
+  config: {
+    name: string;
+    repoUrl?: string;
+    workspacePath?: string;
+    forceSpecialWorkspace?: boolean;
+  },
+  isReadOperation: boolean = false
+): Promise<TaskBackend> {
+  return createMarkdownBackend(config, isReadOperation);
 }
