@@ -27,9 +27,9 @@ Our comprehensive analysis examined the task backend architecture from multiple 
 - Task discovery becomes O(n*repos) operation
 
 ### 4. [Architectural Tradeoffs](./architectural-tradeoffs.md)
-- Database backends win 9-1 on key metrics
+- Database backends win 8-2 on key metrics
 - 100-1000x performance improvement with databases
-- Only benefit of in-tree: "no dependencies" (which isn't even true)
+- Honest assessment of database-first limitations
 - Database approach enables all planned Minsky features
 
 ### 5. [Limited-Scope Hybrid Analysis](./limited-scope-hybrid-analysis.md)
@@ -38,7 +38,12 @@ Our comprehensive analysis examined the task backend architecture from multiple 
 - Hybrid approach adds complexity without solving any problem
 - No user persona benefits from in-tree backends
 
-### 6. [Philosophical Resolution](./philosophical-resolution.md)
+### 6. [Alternative Architectures](./alternative-architectures-analysis.md)
+- Analysis of CRDTs, Event Sourcing, and Operational Transform
+- Why sophisticated approaches are overkill for task management
+- Database-first remains optimal despite fascinating alternatives
+
+### 7. [Philosophical Resolution](./philosophical-resolution.md)
 - Engineering pragmatism beats ideological purity
 - User value beats architectural elegance
 - Choose boring technology that works
@@ -100,6 +105,15 @@ The special workspace added massive complexity while making the system worse. Ev
 ### 5. Migration is Growth
 Starting with in-tree backends creates a success trap—growing projects must painfully migrate. Start with the architecture that supports growth.
 
+### 6. Offline-First Doesn't Require In-Tree
+Modern offline-first apps (Linear, Notion) use local databases with sync, not file-based storage. SQLite enables true offline capability with better performance.
+
+### 7. Even VCS-Integrated Tools Use Databases
+Fossil, designed specifically for VCS integration, stores issues in a separate database that syncs independently. This validates the database-first approach.
+
+### 8. Zero Dependencies Has Legitimate Value
+While database backends are superior for 90% of users, air-gapped environments and strict corporate policies create real deployment constraints worth acknowledging.
+
 ## 📈 Expected Outcomes
 
 ### Performance
@@ -122,7 +136,7 @@ Starting with in-tree backends creates a success trap—growing projects must pa
 
 ## 🎬 Conclusion
 
-The analysis is unequivocal: in-tree backends are an architectural mistake that must be corrected. By embracing database-first design, Minsky can:
+The analysis strongly favors database-first architecture, while honestly acknowledging its limitations. In-tree backends represent an architectural mismatch that prevents Minsky from achieving its vision. By embracing database-first design, Minsky can:
 
 1. **Deliver on its vision** of AI-powered task management
 2. **Provide excellent performance** that doesn't interrupt flow
@@ -130,7 +144,9 @@ The analysis is unequivocal: in-tree backends are an architectural mistake that 
 4. **Scale with users** from individuals to enterprises
 5. **Reduce complexity** while adding features
 
-The path forward is clear: **Choose databases. Delete complexity. Delight users.**
+**Acknowledged tradeoffs**: This approach limits applicability to air-gapped environments and pure open source fork workflows (roughly 10-20% of potential users). However, supporting both approaches would significantly increase complexity and prevent delivering on core features.
+
+The path forward is clear: **Choose databases. Optimize for the 90%. Enable the vision.**
 
 ---
 

@@ -15,7 +15,7 @@
 | **Data Integrity** | Git-based (eventual) | ACID transactions | Database |
 | **Developer Experience** | Confusing, slow | Intuitive, fast | Database |
 
-**Clear Winner: Database Backends (9-1)**
+**Clear Winner: Database Backends (8-2)**
 
 ## Detailed Tradeoff Analysis
 
@@ -23,7 +23,7 @@
 
 #### In-Tree Promise
 - "Everything in Git"
-- Self-contained repositories  
+- Self-contained repositories
 - No external dependencies
 - Version control for tasks
 
@@ -81,7 +81,7 @@ minsky init --db-url postgresql://...
 
 **Benchmarks** (10 tasks, 5 repositories):
 - List all tasks: ~2-5 seconds
-- Update task status: ~3-4 seconds  
+- Update task status: ~3-4 seconds
 - Create task with subtasks: ~5-10 seconds
 - Find related tasks: ~1-3 seconds
 
@@ -149,7 +149,7 @@ minsky init --db-url postgresql://...
 **In-Tree**:
 - PM: "What's everyone working on?"
 - Dev 1: "Let me git pull and check..." (30 seconds)
-- Dev 2: "My special workspace is locked..." 
+- Dev 2: "My special workspace is locked..."
 - Dev 3: "I'm getting merge conflicts in tasks.md"
 
 **Database**:
@@ -179,7 +179,7 @@ minsky init --db-url postgresql://...
 
 As project grows:
 - More repositories = more synchronization
-- More developers = more lock contention  
+- More developers = more lock contention
 - More tasks = slower file operations
 - More history = larger git repos
 
@@ -325,3 +325,37 @@ The tradeoffs overwhelmingly favor database backends:
 The in-tree backend approach is a romantic idea that creates practical problems. By trying to avoid a "dependency" on a database, we've created a far more complex dependency on a bespoke distributed synchronization system that performs poorly and confuses users.
 
 Choose boring technology that works.
+
+## Honest Assessment of Database-First Limitations
+
+While database backends are clearly superior for the majority of use cases, we should acknowledge the legitimate gaps:
+
+### 1. Open Source Fork Workflow
+**Challenge**: External contributors can't access central task database
+**Impact**: Limits applicability to pure open source projects
+**Mitigation**: Future federated approaches or GitHub Issues integration
+
+### 2. Air-Gapped Environments
+**Challenge**: Some organizations prohibit external database dependencies
+**Impact**: 10-20% of potential users in government/defense/finance
+**Mitigation**: Could support SQLite-only mode with manual sync
+
+### 3. "Pure Git" Philosophy
+**Challenge**: Some users prefer everything versioned in git
+**Impact**: Loss of philosophical purity and git-native workflows
+**Mitigation**: Database approach enables features impossible with git
+
+### 4. Initial Setup Complexity
+**Challenge**: PostgreSQL requires more setup than "just works"
+**Impact**: Higher barrier for first-time users
+**Mitigation**: SQLite provides zero-setup alternative
+
+### Pragmatic Decision
+
+These limitations affect roughly 10-20% of potential users. Supporting both approaches would:
+- Double implementation complexity
+- Slow feature development significantly
+- Create confusing user experience
+- Prevent achieving Minsky's AI-powered vision
+
+The pragmatic choice is to optimize for the 80-90% of users who benefit from database capabilities while honestly acknowledging the tradeoffs for specialized environments.
