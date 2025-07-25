@@ -43,7 +43,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#160", // Session with task ID
+      taskId: "160", // Session with task ID (storage format)
       branch: "task#160",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#160",
       backendType: "local",
@@ -54,7 +54,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#170", // Session with task ID
+      taskId: "170", // Session with task ID (storage format)
       branch: "task#170",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#170",
       backendType: "local",
@@ -66,7 +66,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#168",
+      taskId: "168", // Storage format
       branch: "test-existing-session",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/test-existing-session",
       backendType: "local",
@@ -77,7 +77,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#42",
+      taskId: "42", // Storage format
       branch: "task#42",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#42",
       backendType: "local",
@@ -88,7 +88,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#236",
+      taskId: "236", // Storage format
       branch: "task#236",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#236",
       backendType: "local",
