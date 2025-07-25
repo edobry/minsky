@@ -100,3 +100,6 @@ Analysis reveals that the in-tree approach essentially reimplements a distribute
 - Analysis: Distributed Systems Perspective
 - Analysis: Cross-Repository Challenges
 - Analysis: Architectural Tradeoffs
+- Analysis: Alternative Architectures (CRDTs, Event Sourcing, Operational Transform)
+- Analysis: Limited-Scope Hybrid Analysis
+- Fossil Bug Tracking Theory: https://fossil-scm.org/home/doc/trunk/www/bugtheory.wiki
