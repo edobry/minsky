@@ -2,6 +2,13 @@
 
 ### Added
 
+- Created task #327: Comprehensive multi-agent messaging architecture for collaborative development
+  - Extends current "user interventions" to support both human and AI agents
+  - Enables persistent conversation history with rolling summaries
+  - Supports multiple contexts: tasks, sessions, PR reviews, GitHub issues, chat
+  - Integrates with multi-agent supervision system (#258) and memory architecture (#279)
+  - Provides foundation for iterative collaboration on artifacts across different contexts
+
 - **Task #326: Created task for Outerbase DB explorer integration research**
   - Created comprehensive task specification for evaluating Outerbase DB explorer integration
   - Task focuses on providing users with visual database inspection capabilities
