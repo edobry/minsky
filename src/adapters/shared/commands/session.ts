@@ -30,7 +30,7 @@ export function registerSessionCommands(): void {
       const { listSessionsFromParams } = await import("../../../domain/session");
       return listSessionsFromParams(params);
     },
-  });
+  }, { allowOverwrite: true });
 
   // Register session get command
   sharedCommandRegistry.registerCommand({
@@ -54,7 +54,7 @@ export function registerSessionCommands(): void {
       const { getSessionFromParams } = await import("../../../domain/session");
       return getSessionFromParams(params);
     },
-  });
+  }, { allowOverwrite: true });
 
   // Register session start command
   sharedCommandRegistry.registerCommand({
@@ -83,7 +83,7 @@ export function registerSessionCommands(): void {
       const { startSessionFromParams } = await import("../../../domain/session");
       return startSessionFromParams(params);
     },
-  });
+  }, { allowOverwrite: true });
 
   // Register session delete command
   sharedCommandRegistry.registerCommand({
@@ -112,7 +112,7 @@ export function registerSessionCommands(): void {
       const { deleteSessionFromParams } = await import("../../domain/session");
       return deleteSessionFromParams(params);
     },
-  });
+  }, { allowOverwrite: true });
 
   // Register session update command
   sharedCommandRegistry.registerCommand({
@@ -141,7 +141,7 @@ export function registerSessionCommands(): void {
       const { updateSessionFromParams } = await import("../../domain/session");
       return updateSessionFromParams(params);
     },
-  });
+  }, { allowOverwrite: true });
 
   // Register session approve command
   sharedCommandRegistry.registerCommand({
@@ -165,7 +165,7 @@ export function registerSessionCommands(): void {
       const { approveSessionFromParams } = await import("../../domain/session");
       return approveSessionFromParams(params);
     },
-  });
+  }, { allowOverwrite: true });
 
   // Register session pr command
   sharedCommandRegistry.registerCommand({
@@ -199,7 +199,7 @@ export function registerSessionCommands(): void {
       const { sessionPrFromParams } = await import("../../domain/session");
       return sessionPrFromParams(params);
     },
-  });
+  }, { allowOverwrite: true });
 
   // Register session dir command
   sharedCommandRegistry.registerCommand({
@@ -223,7 +223,7 @@ export function registerSessionCommands(): void {
       const { getSessionDirFromParams } = await import("../../../domain/session");
       return getSessionDirFromParams(params);
     },
-  });
+  }, { allowOverwrite: true });
 
   // Register session inspect command
   sharedCommandRegistry.registerCommand({
@@ -236,5 +236,5 @@ export function registerSessionCommands(): void {
       const { inspectSessionFromParams } = await import("../../../domain/session");
       return inspectSessionFromParams(params);
     },
-  });
+  }, { allowOverwrite: true });
 }
