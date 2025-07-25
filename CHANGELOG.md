@@ -3,6 +3,7 @@
 ### Added
 
 - Created task #327: Comprehensive multi-agent messaging architecture for collaborative development
+
   - Extends current "user interventions" to support both human and AI agents
   - Enables persistent conversation history with rolling summaries
   - Supports multiple contexts: tasks, sessions, PR reviews, GitHub issues, chat
@@ -17,7 +18,17 @@
 
 ### Enhanced
 
+- **Task #176: CRITICAL - Fixed Comprehensive Session Database Architecture**
+
+  - **RESOLVED CRITICAL ARCHITECTURAL ISSUES**: Fixed fundamental session command registration conflicts blocking core session workflows
+  - **Session Command Registration Fixed**: All 11 session commands now properly registered and functional (`list`, `get`, `start`, `delete`, `update`, `approve`, `pr`, `dir`, `inspect`, `migrate`, `check`)
+  - **Duplicate Registration Conflicts Resolved**: Added `allowOverwrite: true` to prevent CLI bridge registration conflicts
+  - **Unified Database Architecture**: Session database operations confirmed working with 50+ sessions accessible
+  - **CLI Bridge Integration Working**: Command generation and CLI integration now properly connected
+  - **Impact**: Session workflows fully operational in session workspaces, resolving critical user-blocking issues
+
 - **Task #325: Completed Task Backend Architecture Analysis**
+
   - **CRITICAL ARCHITECTURAL DECISION**: Comprehensive analysis recommends abandoning in-tree backends for database-first architecture
   - **Key Findings**:
     - Special workspace represents 445+ lines of complexity providing negative user value
@@ -44,6 +55,7 @@
   - **Recommendation**: Abandon in-tree backends completely to enable Minsky's AI-powered vision
 
 - **Task #322: Comprehensive Parameter Deduplication with Type Composition**
+
   - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
   - **70% CODE REDUCTION**: Reduced ~1000 lines to ~300 lines of parameter definitions (exceeded 60% target)
   - **Created Dual-System Architecture**:
@@ -65,11 +77,13 @@
   - Established robust foundation for maintainable, DRY parameter management across entire codebase
 
 - **ESLint Rule**: Added `no-tests-directories` rule to warn against using `__tests__` directories and encourage co-located test files
+
   - Warns when test files are found in `__tests__` directories
   - Suggests moving tests to be co-located with their modules (e.g., `module.test.ts` next to `module.ts`)
   - Follows Task #270's test architecture improvements promoting co-location over separate test directories
 
 - **Task #312: Enhanced session_read_file tool with line range support**
+
   - Added support for line range parameters matching Cursor's read_file interface
   - Added `start_line_one_indexed`, `end_line_one_indexed_inclusive`, `should_read_entire_file`, and `explanation` parameters
   - Implemented intelligent file size handling with context expansion for small ranges
@@ -90,6 +104,7 @@
 ### Fixed
 
 - **Task & Session Commands Circular Dependencies**: Completely resolved circular dependency issues and task list display
+
   - **FIXED**: `minsky tasks list` now works successfully and displays all 75 tasks with proper formatting
   - **FIXED**: Original "setupTaskCommandRegistry not found" error completely eliminated
   - **FIXED**: Task list formatting now shows actual tasks instead of just count message
@@ -101,6 +116,7 @@
   - Both task and session command systems now load without circular dependency errors
 
 - **Session Commands Consolidation**: Fixed architectural inconsistencies from incomplete Task #171 refactoring
+
   - **Session Approve**: Removed old/broken `approve-command.ts` that incorrectly used session workspace
   - **Import Fixes**: Added missing export aliases for `updateSession` and `deleteSession` in command files
   - **Architecture Clarity**: Established triple-layer pattern (core operations, compatibility wrappers, interface bridges)
@@ -108,6 +124,7 @@
   - **TypeScript Fixes**: Resolved multiple broken imports in subcommand files
 
 - **Session Approve Linter Output**: Improved error handling during automatic task status commits
+
   - Pre-commit hook linter errors now show clean summary instead of raw ESLint dump
   - Displays error/warning counts with helpful guidance on fixing issues
   - Command still fails appropriately when linting issues occur
@@ -1559,6 +1576,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Enhanced error messages for session commands to provide more helpful guidance when sessions or task IDs are not found
 
 ### Added
+
 - MCP CLI commands for convenient server interaction
   - `minsky mcp tools` - List all available MCP tools
   - `minsky mcp call <tool>` - Execute tools with arguments using `--arg key=value` format
@@ -1567,6 +1585,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Commands wrap the MCP Inspector CLI mode for improved user experience
 
 ### Fixed
+
 - **MCP Tool Naming Consistency**: Standardized tool naming to use dots (MCP convention) instead of underscores
   - `session.read_file`, `session.write_file`, `session.edit_file`, etc.
   - Follows MCP namespacing best practices for better organization
@@ -1580,12 +1599,14 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ### Added
 
 - **Cognitive Error Correction**: Fixed implementation-verification-protocol rule after Task #171 false completion claim
+
   - Original error: Trusted task documentation claiming "75% reduction achieved" without verification
   - Reality: session.ts was 2,218 lines (not 464 as claimed), 56 files still over 400 lines
   - Rule now enforces: Never accept completion claims without direct verification
   - Requires evidence-based language instead of claim-based assertions
 
 - **Task Spec File Management**: Comprehensively resolved multiple task specification file duplications and mismatches
+
   - **Task #295**: Resolved multiple spec files claiming same task number by removing duplicate and renaming MCP client registration to #324
   - **Task #309**: Removed duplicate stub file, kept detailed spec referenced by tasks.md
   - **Task #311/#316**: Removed duplicate #311, kept #316 (identical max-lines ESLint rule content)
