@@ -3,7 +3,6 @@
  *
  * Core service for multi-provider AI completions using Vercel AI SDK.
  * Supports OpenAI, Anthropic, Google, and other providers with unified interface.
- * Uses direct configuration access instead of AIConfigurationService abstraction.
  */
 
 import { generateText, streamText, generateObject, LanguageModel } from "ai";
@@ -16,22 +15,26 @@ import {
   AICompletionRequest,
   AICompletionResponse,
   AIModel,
+  AIProviderConfig,
   AICompletionError,
   AIProviderError,
   ValidationResult,
   AIUsage,
 } from "./types";
-import type { AIConfig } from "../configuration/types";
+import { DefaultAIConfigurationService } from "./config-service";
+import { ConfigurationService } from "../configuration/types";
 import { log } from "../../utils/logger";
 
 /**
  * Default AI completion service implementation
- * Works directly with AI configuration instead of using abstraction layer
  */
 export class DefaultAICompletionService implements AICompletionService {
+  private configService: DefaultAIConfigurationService;
   private providerModels: Map<string, LanguageModel> = new Map();
 
-  constructor(private aiConfig: AIConfig) {}
+  constructor(configurationService: ConfigurationService) {
+    this.configService = new DefaultAIConfigurationService(configurationService);
+  }
 
   /**
    * Generate a complete response from AI provider
@@ -41,9 +44,12 @@ export class DefaultAICompletionService implements AICompletionService {
       const model = await this.getLanguageModel(request.provider, request.model);
       const startTime = Date.now();
 
-      log.debug(
-        `Starting AI completion - provider: ${request.provider}, model: ${request.model}, hasTools: ${!!request.tools?.length}, stream: ${request.stream}`
-      );
+      log.debug("Starting AI completion", {
+        provider: request.provider,
+        model: request.model,
+        hasTools: !!request.tools?.length,
+        stream: request.stream,
+      });
 
       // Prepare tools for Vercel AI SDK format
       const tools = request.tools
@@ -71,9 +77,12 @@ export class DefaultAICompletionService implements AICompletionService {
       });
 
       const duration = Date.now() - startTime;
-      log.debug(
-        `AI completion completed - provider: ${request.provider}, model: ${request.model}, duration: ${duration}ms`
-      );
+      log.debug("AI completion completed", {
+        provider: request.provider,
+        model: request.model,
+        duration,
+        usage: result.usage,
+      });
 
       // Transform Vercel AI SDK response to our format
       return {
@@ -117,9 +126,11 @@ export class DefaultAICompletionService implements AICompletionService {
     try {
       const model = await this.getLanguageModel(request.provider, request.model);
 
-      log.debug(
-        `Starting AI streaming completion - provider: ${request.provider}, model: ${request.model}, hasTools: ${!!request.tools?.length}`
-      );
+      log.debug("Starting AI streaming completion", {
+        provider: request.provider,
+        model: request.model,
+        hasTools: !!request.tools?.length,
+      });
 
       // Prepare tools for Vercel AI SDK format
       const tools = request.tools
@@ -191,8 +202,8 @@ export class DefaultAICompletionService implements AICompletionService {
 
       // Get all models from all configured providers
       const allModels: AIModel[] = [];
-      const defaultProvider = this.getDefaultProvider();
-      const providerConfig = this.getProviderConfig(defaultProvider);
+      const defaultProvider = await this.configService.getDefaultProvider();
+      const providerConfig = await this.configService.getProviderConfig(defaultProvider);
 
       if (providerConfig) {
         allModels.push(...(await this.getProviderModels(defaultProvider)));
@@ -213,8 +224,8 @@ export class DefaultAICompletionService implements AICompletionService {
     const warnings: any[] = [];
 
     try {
-      const defaultProvider = this.getDefaultProvider();
-      const providerConfig = this.getProviderConfig(defaultProvider);
+      const defaultProvider = await this.configService.getDefaultProvider();
+      const providerConfig = await this.configService.getProviderConfig(defaultProvider);
 
       if (!providerConfig) {
         errors.push({
@@ -224,11 +235,14 @@ export class DefaultAICompletionService implements AICompletionService {
         });
       } else {
         // Test API key validation
-        const isValid = this.validateProviderKey(defaultProvider, providerConfig.api_key || "");
+        const isValid = await this.configService.validateProviderKey(
+          defaultProvider,
+          providerConfig.apiKey || ""
+        );
 
         if (!isValid) {
           errors.push({
-            field: `providers.${defaultProvider}.api_key`,
+            field: `providers.${defaultProvider}.apiKey`,
             message: `Invalid API key format for provider '${defaultProvider}'`,
             code: "INVALID_API_KEY_FORMAT",
           });
@@ -275,79 +289,12 @@ export class DefaultAICompletionService implements AICompletionService {
   }
 
   /**
-   * Get provider configuration directly from AI config
-   */
-  private getProviderConfig(provider: string) {
-    return this.aiConfig.providers?.[provider as keyof typeof this.aiConfig.providers];
-  }
-
-  /**
-   * Get default provider directly from AI config
-   */
-  private getDefaultProvider(): string {
-    return this.aiConfig.default_provider || "openai";
-  }
-
-  /**
-   * Validate provider API key format
-   */
-  private validateProviderKey(provider: string, apiKey: string): boolean {
-    // Basic format validation for known providers
-    const formatMap: Record<string, RegExp> = {
-      openai: /^sk-[a-zA-Z0-9]{20,}$/,
-      anthropic: /^sk-ant-api03-[a-zA-Z0-9_-]{95}$/,
-      google: /^AIza[0-9A-Za-z_-]{35}$/,
-      cohere: /^[a-zA-Z0-9_-]+$/,
-      mistral: /^[a-zA-Z0-9_-]+$/,
-    };
-
-    const pattern = formatMap[provider];
-    return pattern ? pattern.test(apiKey) : true; // Allow unknown providers
-  }
-
-  /**
-   * Get provider capabilities directly from config
-   */
-  private getProviderCapabilities(provider: string) {
-    // Return known capabilities for each provider
-    const capabilityMap = {
-      openai: [
-        { name: "reasoning" as const, supported: true, maxTokens: 128000 },
-        { name: "tool-calling" as const, supported: true },
-        { name: "structured-output" as const, supported: true },
-        { name: "image-input" as const, supported: true },
-      ],
-      anthropic: [
-        { name: "reasoning" as const, supported: true, maxTokens: 200000 },
-        { name: "tool-calling" as const, supported: true },
-        { name: "prompt-caching" as const, supported: true },
-        { name: "image-input" as const, supported: true },
-      ],
-      google: [
-        { name: "reasoning" as const, supported: true, maxTokens: 1000000 },
-        { name: "tool-calling" as const, supported: true },
-        { name: "image-input" as const, supported: true },
-      ],
-      cohere: [
-        { name: "tool-calling" as const, supported: true },
-        { name: "structured-output" as const, supported: true },
-      ],
-      mistral: [
-        { name: "tool-calling" as const, supported: true },
-        { name: "structured-output" as const, supported: true },
-      ],
-    };
-
-    return capabilityMap[provider as keyof typeof capabilityMap] || [];
-  }
-
-  /**
    * Get language model instance for provider and model
    */
   private async getLanguageModel(provider?: string, modelName?: string): Promise<LanguageModel> {
-    const defaultProvider = this.getDefaultProvider();
+    const defaultProvider = await this.configService.getDefaultProvider();
     const resolvedProvider = provider || defaultProvider;
-    const providerConfig = this.getProviderConfig(resolvedProvider);
+    const providerConfig = await this.configService.getProviderConfig(resolvedProvider);
 
     if (!providerConfig) {
       throw new AIProviderError(
@@ -358,7 +305,7 @@ export class DefaultAICompletionService implements AICompletionService {
     }
 
     const resolvedModel =
-      modelName || providerConfig.default_model || this.getDefaultModel(resolvedProvider);
+      modelName || providerConfig.defaultModel || this.getDefaultModel(resolvedProvider);
     const cacheKey = `${resolvedProvider}:${resolvedModel}`;
 
     // Return cached model if available
@@ -372,22 +319,22 @@ export class DefaultAICompletionService implements AICompletionService {
     switch (resolvedProvider) {
       case "openai":
         model = openai(resolvedModel, {
-          apiKey: providerConfig.api_key,
-          baseURL: providerConfig.base_url,
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseURL,
         });
         break;
 
       case "anthropic":
         model = anthropic(resolvedModel, {
-          apiKey: providerConfig.api_key,
-          baseURL: providerConfig.base_url,
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseURL,
         });
         break;
 
       case "google":
         model = google(resolvedModel, {
-          apiKey: providerConfig.api_key,
-          baseURL: providerConfig.base_url,
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseURL,
         });
         break;
 
@@ -421,13 +368,11 @@ export class DefaultAICompletionService implements AICompletionService {
    * Get available models for a specific provider
    */
   private async getProviderModels(provider: string): Promise<AIModel[]> {
-    const providerConfig = this.getProviderConfig(provider);
+    const providerConfig = await this.configService.getProviderConfig(provider);
 
     if (!providerConfig) {
       return [];
     }
-
-    const capabilities = this.getProviderCapabilities(provider);
 
     // Return hardcoded model definitions for now
     // In the future, this could fetch live model data from provider APIs
@@ -438,7 +383,7 @@ export class DefaultAICompletionService implements AICompletionService {
           provider: "openai",
           name: "GPT-4o",
           description: "Most advanced GPT-4 model with improved reasoning",
-          capabilities,
+          capabilities: providerConfig.supportedCapabilities,
           contextWindow: 128000,
           maxOutputTokens: 4096,
           costPer1kTokens: { input: 0.005, output: 0.015 },
@@ -448,7 +393,7 @@ export class DefaultAICompletionService implements AICompletionService {
           provider: "openai",
           name: "GPT-4o Mini",
           description: "Faster, more cost-efficient GPT-4o variant",
-          capabilities,
+          capabilities: providerConfig.supportedCapabilities,
           contextWindow: 128000,
           maxOutputTokens: 16384,
           costPer1kTokens: { input: 0.00015, output: 0.0006 },
@@ -470,7 +415,7 @@ export class DefaultAICompletionService implements AICompletionService {
           provider: "anthropic",
           name: "Claude 3.5 Sonnet",
           description: "Most intelligent Claude model with enhanced capabilities",
-          capabilities,
+          capabilities: providerConfig.supportedCapabilities,
           contextWindow: 200000,
           maxOutputTokens: 8192,
           costPer1kTokens: { input: 0.003, output: 0.015 },
@@ -480,7 +425,9 @@ export class DefaultAICompletionService implements AICompletionService {
           provider: "anthropic",
           name: "Claude 3.5 Haiku",
           description: "Fast and cost-effective Claude model",
-          capabilities: capabilities.filter((c) => c.name !== "prompt-caching"),
+          capabilities: providerConfig.supportedCapabilities.filter(
+            (c) => c.name !== "prompt-caching"
+          ),
           contextWindow: 200000,
           maxOutputTokens: 8192,
           costPer1kTokens: { input: 0.001, output: 0.005 },
@@ -492,7 +439,7 @@ export class DefaultAICompletionService implements AICompletionService {
           provider: "google",
           name: "Gemini 1.5 Pro",
           description: "Google's most capable multimodal model",
-          capabilities,
+          capabilities: providerConfig.supportedCapabilities,
           contextWindow: 1000000,
           maxOutputTokens: 8192,
           costPer1kTokens: { input: 0.00125, output: 0.005 },
@@ -502,7 +449,7 @@ export class DefaultAICompletionService implements AICompletionService {
           provider: "google",
           name: "Gemini 1.5 Flash",
           description: "Fast and efficient Gemini model",
-          capabilities,
+          capabilities: providerConfig.supportedCapabilities,
           contextWindow: 1000000,
           maxOutputTokens: 8192,
           costPer1kTokens: { input: 0.000075, output: 0.0003 },

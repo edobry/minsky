@@ -5,168 +5,14 @@
  * that supports both repository-level settings (committed) and global user settings.
  */
 
-export interface RepositoryConfig {
-  version: number;
-  backends?: {
-    default?: string;
-    "github-issues"?: {
-      owner: string;
-      repo: string;
-    };
-    markdown?: Record<string, unknown>;
-    "json-file"?: Record<string, unknown>;
-  };
-  repository?: {
-    auto_detect_backend?: boolean;
-    detection_rules?: DetectionRule[];
-  };
-  sessiondb?: {
-    backend?: "json" | "sqlite" | "postgres";
-    sqlite?: {
-      path?: string;
-    };
-    postgres?: {
-      connection_string?: string;
-    };
-    base_dir?: string;
-  };
-  ai?: {
-    default_provider?: string;
-    providers?: {
-      openai?: AIProviderRepoConfig;
-      anthropic?: AIProviderRepoConfig;
-      google?: AIProviderRepoConfig;
-      cohere?: AIProviderRepoConfig;
-      mistral?: AIProviderRepoConfig;
-    };
-  };
+// Component-specific configuration with colocated credentials
+
+export interface GitHubConfig {
+  token?: string;
+  token_file?: string;
+  // Future: other GitHub settings can go here
 }
 
-export interface GlobalUserConfig {
-  version: number;
-  credentials?: {
-    github?: {
-      source: "environment" | "file" | "prompt";
-      token?: string;
-      token_file?: string;
-    };
-    postgres?: {
-      connection_string?: string;
-    };
-    ai?: {
-      openai?: AICredentialConfig;
-      anthropic?: AICredentialConfig;
-      google?: AICredentialConfig;
-      cohere?: AICredentialConfig;
-      mistral?: AICredentialConfig;
-    };
-  };
-  sessiondb?: {
-    sqlite?: {
-      path?: string;
-    };
-    base_dir?: string;
-  };
-  ai?: {
-    default_provider?: string;
-    providers?: {
-      openai?: AIProviderUserConfig;
-      anthropic?: AIProviderUserConfig;
-      google?: AIProviderUserConfig;
-      cohere?: AIProviderUserConfig;
-      mistral?: AIProviderUserConfig;
-    };
-  };
-}
-
-export interface DetectionRule {
-  condition: "json_file_exists" | "tasks_md_exists" | "always";
-  backend: string;
-}
-
-export interface ResolvedConfig {
-  backend: string;
-  backendConfig: BackendConfig;
-  credentials: CredentialConfig;
-  detectionRules: DetectionRule[];
-  sessiondb: SessionDbConfig;
-  ai?: {
-    default_provider?: string;
-    providers?: {
-      openai?: AIProviderUserConfig;
-      anthropic?: AIProviderUserConfig;
-      google?: AIProviderUserConfig;
-      cohere?: AIProviderUserConfig;
-      mistral?: AIProviderUserConfig;
-    };
-  };
-}
-
-export interface BackendConfig {
-  "github-issues"?: {
-    owner: string;
-    repo: string;
-  };
-  markdown?: Record<string, unknown>;
-  "json-file"?: Record<string, unknown>;
-}
-
-export interface CredentialConfig {
-  github?: {
-    token?: string;
-    source: "environment" | "file" | "prompt";
-  };
-  postgres?: {
-    connection_string?: string;
-  };
-  ai?: {
-    openai?: AICredentialConfig;
-    anthropic?: AICredentialConfig;
-    google?: AICredentialConfig;
-    cohere?: AICredentialConfig;
-    mistral?: AICredentialConfig;
-  };
-}
-
-export interface SessionDbConfig {
-  backend: "json" | "sqlite" | "postgres";
-  dbPath?: string;
-  baseDir?: string;
-  connectionString?: string;
-}
-
-export interface ConfigurationLoadResult {
-  resolved: ResolvedConfig;
-  sources: ConfigurationSources;
-}
-
-export interface ConfigurationSources {
-  cliFlags: Partial<ResolvedConfig>;
-  environment: Partial<ResolvedConfig>;
-  globalUser: GlobalUserConfig | null;
-  repository: RepositoryConfig | null;
-  defaults: Partial<ResolvedConfig>;
-}
-
-export interface ValidationResult {
-  valid: boolean;
-  errors: ValidationError[];
-  warnings: ValidationWarning[];
-}
-
-export interface ValidationError {
-  field: string;
-  message: string;
-  code: string;
-}
-
-export interface ValidationWarning {
-  field: string;
-  message: string;
-  code: string;
-}
-
-// AI Configuration Types
 export interface AIProviderConfig {
   api_key?: string;
   api_key_file?: string;
@@ -189,44 +35,149 @@ export interface AIConfig {
   };
 }
 
-// Legacy AI Provider Configuration Types (for backward compatibility)
-export interface AIProviderRepoConfig {
-  default_model?: string;
-  base_url?: string;
-  enabled?: boolean;
-  models?: string[];
+export interface PostgresConfig {
+  connection_string?: string;
 }
 
-export interface AIProviderUserConfig {
-  default_model?: string;
-  base_url?: string;
-  enabled?: boolean;
-  models?: string[];
-  max_tokens?: number;
-  temperature?: number;
+export interface LoggerConfig {
+  mode?: "HUMAN" | "STRUCTURED" | "auto";
+  level?: "debug" | "info" | "warn" | "error";
+  enableAgentLogs?: boolean;
 }
 
-export interface AICredentialConfig {
-  source: "environment" | "file" | "prompt";
-  api_key?: string;
-  api_key_file?: string;
+// Repository and Global User Configuration
+
+export interface RepositoryConfig {
+  version: number;
+  backends?: {
+    default?: string;
+    "github-issues"?: {
+      owner: string;
+      repo: string;
+    };
+    markdown?: Record<string, any>;
+    "json-file"?: Record<string, any>;
+  };
+  repository?: {
+    auto_detect_backend?: boolean;
+    detection_rules?: DetectionRule[];
+  };
+  sessiondb?: {
+    backend?: "json" | "sqlite" | "postgres";
+    sqlite?: {
+      path?: string;
+    };
+    postgres?: {
+      connection_string?: string;
+    };
+    base_dir?: string;
+  };
+  ai?: AIConfig;
+  github?: GitHubConfig;
+  logger?: LoggerConfig;
 }
+
+export interface GlobalUserConfig {
+  version: number;
+  github?: GitHubConfig;
+  sessiondb?: {
+    sqlite?: {
+      path?: string;
+    };
+    base_dir?: string;
+  };
+  ai?: AIConfig;
+  postgres?: PostgresConfig;
+  logger?: LoggerConfig;
+}
+
+// Core Configuration Types
+
+export interface DetectionRule {
+  condition: "json_file_exists" | "tasks_md_exists" | "always";
+  backend: string;
+}
+
+export interface ResolvedConfig {
+  backend: string;
+  backendConfig: BackendConfig;
+  detectionRules: DetectionRule[];
+  sessiondb: SessionDbConfig;
+  github?: GitHubConfig;
+  ai?: AIConfig;
+  postgres?: PostgresConfig;
+  logger?: LoggerConfig;
+}
+
+export interface BackendConfig {
+  "github-issues"?: {
+    owner: string;
+    repo: string;
+  };
+  markdown?: Record<string, any>;
+  "json-file"?: Record<string, any>;
+}
+
+export interface SessionDbConfig {
+  backend: "json" | "sqlite" | "postgres";
+  dbPath?: string;
+  baseDir?: string;
+  connectionString?: string;
+}
+
+// Configuration Management Types
+
+export interface ConfigurationLoadResult {
+  resolved: ResolvedConfig;
+  sources: ConfigurationSources;
+}
+
+/**
+ * Configuration sources in order of precedence (highest to lowest)
+ */
+export interface ConfigurationSources {
+  /** High-priority configuration overrides (e.g., for testing or runtime injection) */
+  configOverrides: Partial<ResolvedConfig>;
+  /** Configuration loaded from environment variables */
+  environment: Partial<ResolvedConfig>;
+  /** Global user configuration from ~/.config/minsky/config.yaml */
+  globalUser: GlobalUserConfig | null;
+  /** Repository-specific configuration from .minsky/config.yaml */
+  repository: RepositoryConfig | null;
+  /** Built-in default configuration values */
+  defaults: Partial<ResolvedConfig>;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: ValidationError[];
+  warnings: ValidationWarning[];
+}
+
+export interface CredentialConfig {}
+
+export interface ValidationError {
+  field: string;
+  message: string;
+  code: string;
+}
+
+export interface ValidationWarning {
+  field: string;
+  message: string;
+  code: string;
+}
+
+// Service Interfaces
 
 export type CredentialSource = "environment" | "file" | "prompt";
 
-export interface ConfigurationService {
-  loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult>;
-  validateRepositoryConfig(_config: RepositoryConfig): ValidationResult;
-  validateGlobalUserConfig(_config: GlobalUserConfig): ValidationResult;
-}
+// ConfigurationService interface removed - use direct config.get() instead
+// For validation, use the functions from config-schemas.ts
 
 export interface CredentialManager {
-  getCredential(_service: "github"): Promise<string | null>;
-  setGlobalCredential(
-    _service: "github",
-    _source: CredentialSource,
-    _value?: string
-  ): Promise<void>;
+  getCredential(_service: "github"): Promise<string | undefined>;
+  setGlobalCredential(_service: "github", source: CredentialSource, _value?: string): Promise<void>;
   promptForCredential(_service: "github"): Promise<string>;
 }
 
@@ -237,10 +188,9 @@ export interface BackendDetector {
 }
 
 // Default configuration values
-export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
+export const _DEFAULT_CONFIG: Partial<ResolvedConfig> = {
   backend: "json-file",
   backendConfig: {},
-  credentials: {},
   detectionRules: [
     { condition: "tasks_md_exists", backend: "markdown" },
     { condition: "json_file_exists", backend: "json-file" },
@@ -252,20 +202,32 @@ export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
     dbPath: undefined,
     connectionString: undefined,
   },
+  logger: {
+    mode: "auto",
+    level: "info",
+    enableAgentLogs: false,
+  },
 };
 
 // Configuration file paths
-export const CONFIG_PATHS = {
+export const _CONFIG_PATHS = {
   REPOSITORY: ".minsky/config.yaml",
   GLOBAL_USER: "~/.config/minsky/config.yaml",
 } as const;
 
 // Environment variable names
-export const ENV_VARS = {
+export const _ENV_VARS = {
   BACKEND: "MINSKY_BACKEND",
   GITHUB_TOKEN: "GITHUB_TOKEN",
+  // AI provider credentials are now handled automatically by node-config
+  // through custom-environment-variables.yaml
+  // SessionDB configuration
   SESSIONDB_BACKEND: "MINSKY_SESSIONDB_BACKEND",
   SESSIONDB_SQLITE_PATH: "MINSKY_SESSIONDB_SQLITE_PATH",
   SESSIONDB_POSTGRES_URL: "MINSKY_SESSIONDB_POSTGRES_URL",
   SESSIONDB_BASE_DIR: "MINSKY_SESSIONDB_BASE_DIR",
+  // Logger configuration
+  LOGGER_MODE: "MINSKY_LOG_MODE",
+  LOGGER_LEVEL: "LOGLEVEL",
+  LOGGER_ENABLE_AGENT_LOGS: "ENABLE_AGENT_LOGS",
 } as const;
