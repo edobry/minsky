@@ -17,7 +17,7 @@ describe("Verification Protocol", () => {
       "grep_search used if needed",
       "fetch_rules used for rule queries",
       "search attempts documented",
-      "exhaustive search completed"
+      "exhaustive search completed",
     ];
 
     // All steps must be completed before negative claims
@@ -31,9 +31,10 @@ describe("Verification Protocol", () => {
     const failureCase = {
       userQuery: "what @self-improvement.mdc",
       incorrectResponse: "It looks like there isn't a rule called `self-improvement.mdc` available",
-      correctResponse: "I found the self-improvement.mdc rule at .cursor/rules/self-improvement.mdc",
+      correctResponse:
+        "I found the self-improvement.mdc rule at .cursor/rules/self-improvement.mdc",
       toolsRequired: ["file_search", "fetch_rules"],
-      rootCause: "Verification Error - failed to use proper search tools"
+      rootCause: "Verification Error - failed to use proper search tools",
     };
 
     expect(failureCase.toolsRequired).toContain("file_search");
@@ -45,7 +46,7 @@ describe("Verification Protocol", () => {
       "File/Resource Search",
       "Content-Based Search",
       "Rule-Specific Verification",
-      "Documentation"
+      "Documentation",
     ];
 
     // All checks must be present in the verification protocol

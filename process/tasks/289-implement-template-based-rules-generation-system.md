@@ -10,16 +10,16 @@ MEDIUM
 
 ## Description
 
-# Task #289: Implement Template-Based Rules Generation System
+# Task #289: Implement Template-Based Rules Generation System ⚠️ IN-PROGRESS
 
 ## Context
 
 Previously, Minsky rules were static `.mdc` files with hardcoded CLI command references. The `init` command generated rules using static content functions in `src/domain/init.ts`, with no way to conditionally reference CLI commands vs MCP tool calls based on project configuration.
 
-This task implements a comprehensive templating system that enables:
+As the MCP ecosystem grows and rules become more sophisticated, we need a templating system that can:
 
 1. ✅ Dynamic rule generation based on project configuration
-2. ✅ Conditional referencing of CLI commands or MCP tool calls
+2. ✅ Conditional referencing of CLI commands or MCP tool calls  
 3. ✅ Template variables and dynamic content generation
 4. ✅ Maintained `.mdc` format compatibility
 
@@ -89,6 +89,16 @@ This task implements a comprehensive templating system that enables:
 - **Impact**: CLI commands cannot access configuration
 - **Required**: Export `configurationService` from domain index
 
+#### **5. Existing Rules Not Converted**
+- **Critical Gap**: Existing rule files (60+) still contain hardcoded CLI commands
+- **Major Work Remaining**: Core workflow rules not converted to templates:
+  - `minsky-workflow-orchestrator.mdc` (contains hardcoded `minsky tasks list`, `minsky git approve`)
+  - `task-implementation-workflow.mdc` (contains hardcoded `minsky tasks get`, `minsky session dir`)
+  - `minsky-cli-usage.mdc` (contains extensive CLI reference patterns)
+  - `minsky-session-management.mdc` (session workflow commands)
+  - `task-status-protocol.mdc` (status management commands)
+  - `pr-preparation-workflow.mdc` (PR workflow commands)
+
 ## **🚧 IMMEDIATE WORK REQUIRED**
 
 ### **Priority 1: Fix CLI Integration**
@@ -113,6 +123,11 @@ bun test src/adapters/shared/commands/rules.test.ts
 - Test `minsky rules generate` end-to-end
 - Verify generated rules are valid
 - Test all CLI options work properly
+
+### **Priority 5: Convert Existing Rules**
+- Update existing 60+ rule files to use template system
+- Convert hardcoded CLI commands to dynamic references
+- Test that generated rules maintain effectiveness
 
 ## **🎯 Success Criteria - PARTIAL COMPLETION**
 
@@ -139,6 +154,7 @@ bun test src/adapters/shared/commands/rules.test.ts
 2. **Test Suite Failing**: Jest/Bun mock incompatibilities and timeouts
 3. **Integration Untested**: No end-to-end verification of rule generation
 4. **Variable Naming Issues**: Causing infinite loops in some test scenarios
+5. **Existing Rules Not Converted**: 60+ rule files still contain hardcoded CLI commands
 
 ## **✅ What Works**
 - Core template system logic
@@ -151,6 +167,7 @@ bun test src/adapters/shared/commands/rules.test.ts
 - Rules command tests
 - End-to-end integration
 - Configuration service access
+- Existing rule files not using template system
 
 ## **📝 Next Steps**
 
@@ -158,7 +175,8 @@ bun test src/adapters/shared/commands/rules.test.ts
 2. **Convert Jest mocks to Bun** to fix test timeouts
 3. **Test CLI integration** end-to-end
 4. **Verify init command** still works with template system
-5. **Document remaining limitations** and create follow-up tasks
+5. **Convert existing rule files** to use template system
+6. **Document remaining limitations** and create follow-up tasks
 
 ## **Task #289 Status: IMPLEMENTATION BLOCKED**
 

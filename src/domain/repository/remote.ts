@@ -4,6 +4,12 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
+import {
+  execGitWithTimeout,
+  gitPushWithTimeout,
+  gitPullWithTimeout,
+  type GitExecOptions,
+} from "../../utils/git-exec";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -149,7 +155,7 @@ Repository: ${this.repoUrl}
 
     try {
       // Create the branch in the specified session's repo
-      await execAsync(`git -C ${workdir} checkout -b ${branch}`);
+      await execGitWithTimeout("remote-create-branch", `checkout -b ${branch}`, { workdir });
 
       return {
         workdir,
@@ -193,11 +199,17 @@ Repository: ${this.repoUrl}
       }
 
       // Check for unstaged changes
-      const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
+      const { stdout: statusOutput } = await execGitWithTimeout(
+        "remote-status-check",
+        "status --porcelain",
+        { workdir }
+      );
       const dirty = statusOutput.trim().length > 0;
 
       // Get remotes
-      const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote`);
+      const { stdout: remoteOutput } = await execGitWithTimeout("remote-list", "remote", {
+        workdir,
+      });
       const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
       return {
@@ -312,41 +324,27 @@ Repository: ${this.repoUrl}
           const branch = branchOutput.trim();
 
           // Push to remote
-          await execAsync(`git -C ${workdir} push origin ${branch}`);
+          await gitPushWithTimeout("origin", branch, { workdir });
         } catch (error) {
           const normalizedError = error instanceof Error ? error : new Error(String(error as any));
           if ((normalizedError?.message as any).includes("Authentication failed")) {
             return {
               success: false,
-              message: "Git authentication failed. Check your credentials or SSH key.",
-              error: error instanceof Error ? error : new Error(String(error)),
-            };
-          } else if ((error as any).message.includes("[rejected]")) {
-            return {
-              success: false,
-              message: "Push rejected. Try pulling changes first or use force push if appropriate.",
-              error: error instanceof Error ? error : new Error(String(error)),
-            };
-          } else {
-            return {
-              success: false,
-              message: `Failed to push to remote repository: ${(error as any).message}`,
-              error: error instanceof Error ? error : new Error(String(error)),
+              error: new Error(
+                "Authentication failed during push operation. Please check your credentials."
+              ),
             };
           }
+          throw normalizedError;
         }
       }
 
-      return {
-        success: true,
-        message: "Successfully pushed changes to remote repository",
-      };
+      return { success: true };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
-        message: `Failed to push to remote repository: ${normalizedError.message}`,
-        error: normalizedError,
+        error: new Error(`Failed to push changes: ${normalizedError.message}`),
       };
     }
   }
@@ -390,7 +388,7 @@ Repository: ${this.repoUrl}
           const branch = branchOutput.trim();
 
           // Pull from remote
-          await execAsync(`git -C ${workdir} pull origin ${branch}`);
+          await gitPullWithTimeout(workdir, branch);
         } catch (error) {
           const normalizedError = error instanceof Error ? error : new Error(String(error as any));
           if ((normalizedError?.message as any).includes("Authentication failed")) {

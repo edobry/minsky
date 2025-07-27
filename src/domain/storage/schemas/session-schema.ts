@@ -6,11 +6,7 @@
  */
 
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import {
-  pgTable,
-  varchar,
-  timestamp,
-} from "drizzle-orm/pg-core";
+import { pgTable, varchar, timestamp } from "drizzle-orm/pg-core";
 import type { SessionRecord } from "../../session/session-db";
 
 // SQLite Schema

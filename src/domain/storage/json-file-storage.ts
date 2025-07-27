@@ -402,22 +402,19 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       return true;
     } catch (error) {
-      log.error(
-        `Error initializing storage: ${getErrorMessage(error as any)}`
-      );
+      log.error(`Error initializing storage: ${getErrorMessage(error as any)}`);
       return false;
     }
   }
 
   /**
-   * Helper method to ensure directory exists
-   * @private
+   * Ensure the directory exists before writing
+   * Fixed: Removed TOCTOU race condition by eliminating existsSync check
+   * mkdirSync with recursive: true is idempotent and safe for concurrent calls
    */
   private ensureDirectory(): void {
     const dir = dirname(this.filePath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
+    mkdirSync(dir, { recursive: true });
   }
 
   /**

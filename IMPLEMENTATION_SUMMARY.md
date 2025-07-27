@@ -7,6 +7,7 @@
 **Issue**: Session commands had different behavior based on `process.cwd()`, mixing interface concerns with domain logic.
 
 **Before** (Problematic):
+
 ```typescript
 // Domain layer mixing interface concerns ❌
 const currentDir = process.cwd();
@@ -19,6 +20,7 @@ if (!sessionName && isSessionWorkspace) {
 ```
 
 **After** (Clean Architecture):
+
 ```typescript
 // Interface layer handles context resolution ✅
 const resolvedParams = CLISessionContextResolver.resolveSessionContext(params, process.cwd());
@@ -39,11 +41,13 @@ export async function sessionPr(params: SessionPrParams) {
 ### **1. Interface-Layer Session Resolution**
 
 **CLI Interface** (`CLISessionContextResolver`):
+
 - Auto-detects session from working directory when possible
 - Maintains backward compatibility for CLI users
 - Example: `/sessions/task#158` → auto-detects `task#158`
 
 **MCP Interface** (`MCPSessionContextResolver`):
+
 - Requires explicit session parameter
 - No auto-detection (prevents confusion in programmatic usage)
 - Clear error messages with examples
@@ -51,6 +55,7 @@ export async function sessionPr(params: SessionPrParams) {
 ### **2. Domain Layer Purification**
 
 **Domain Session Commands** (`domain-session-commands.ts`):
+
 - All functions require session parameters directly
 - No `process.cwd()` inspection
 - Consistent behavior regardless of interface
@@ -58,11 +63,13 @@ export async function sessionPr(params: SessionPrParams) {
 ### **3. Test-Driven Development**
 
 **Failing Tests** (Expose Problems):
+
 - Demonstrate current mixed concerns
 - Show inconsistent behavior between CLI/MCP
 - Force failures until architecture is fixed
 
 **Passing Tests** (Verify Solution):
+
 - 15/15 tests pass for interface-layer resolution
 - Verify CLI auto-detection works correctly
 - Verify MCP requires explicit parameters
@@ -74,16 +81,19 @@ export async function sessionPr(params: SessionPrParams) {
 ### **Activated Tools** (Now Available):
 
 **Phase 1: Cursor-Compatible File Editing**
+
 - ✅ `session_edit_file` - Full Cursor-compatible editing with `// ... existing code ...`
 - ✅ `session_search_replace` - Single occurrence text replacement
 
 **Basic Session File Operations**
+
 - ✅ `session_read_file` - Read files within session workspace
 - ✅ `session_write_file` - Write files within session workspace
 - ✅ `session_list_directory` - List session directory contents
 - ✅ `session_file_exists` - Check file existence in session
 
 **API Fixes Applied**:
+
 - Changed `addTool()` to `addCommand()` for CommandMapper compatibility
 - Changed `execute` property to `handler` in tool definitions
 - Uncommented tool registrations in MCP server
@@ -93,11 +103,13 @@ export async function sessionPr(params: SessionPrParams) {
 ## 📊 **Verification Results**
 
 ### **Test Coverage**:
+
 - ✅ **15/15** interface-layer resolution tests pass
 - ✅ **2/2** failing tests demonstrate architectural problems (as expected)
 - ✅ **2/2** target architecture tests pass
 
 ### **Functionality**:
+
 - ✅ CLI commands maintain auto-detection for backward compatibility
 - ✅ MCP tools require explicit session for programmatic clarity
 - ✅ Domain functions have consistent behavior across interfaces
@@ -108,6 +120,7 @@ export async function sessionPr(params: SessionPrParams) {
 ## 🧭 **Usage Examples**
 
 ### **CLI Usage** (Auto-Detection):
+
 ```bash
 # From session workspace - auto-detects session
 cd /sessions/task#158
@@ -118,12 +131,13 @@ minsky session pr --name task#158 --title "Fix bug"
 ```
 
 ### **MCP Usage** (Explicit Required):
+
 ```typescript
 // ✅ Required: explicit session
-session.pr({ session: "task#158", title: "Fix bug" })
+session.pr({ session: "task#158", title: "Fix bug" });
 
 // ❌ Error: no auto-detection
-session.pr({ title: "Fix bug" }) // throws ValidationError
+session.pr({ title: "Fix bug" }); // throws ValidationError
 ```
 
 ---
@@ -141,12 +155,14 @@ session.pr({ title: "Fix bug" }) // throws ValidationError
 ## 📁 **Files Created/Modified**
 
 ### **New Files**:
+
 - `src/adapters/session-context-resolver.ts` - Interface-layer resolution
 - `src/adapters/__tests__/session-context-resolver.test.ts` - Resolution tests
 - `src/adapters/shared/commands/__tests__/session-context-resolution.test.ts` - Architecture tests
 - `src/domain/session/domain-session-commands.ts` - Clean domain functions
 
 ### **Modified Files**:
+
 - `src/commands/mcp/index.ts` - Activated session tools
 - `src/adapters/mcp/session-edit-tools.ts` - API compatibility fixes
 - `src/adapters/mcp/session-files.ts` - API compatibility fixes
@@ -156,10 +172,11 @@ session.pr({ title: "Fix bug" }) // throws ValidationError
 ## 🚀 **Ready for Production**
 
 The interface-layer session context resolution architecture is now:
+
 - ✅ **Tested**: Comprehensive test coverage with TDD approach
 - ✅ **Documented**: Clear usage examples and architectural diagrams
 - ✅ **Backward Compatible**: CLI behavior unchanged
 - ✅ **Future Compatible**: Works with HTTP MCP transport
 - ✅ **Clean**: No mixed concerns between interface and domain layers
 
-**Next Steps**: This architecture can now be extended to other session-aware tools and commands. 
+**Next Steps**: This architecture can now be extended to other session-aware tools and commands.

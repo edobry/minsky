@@ -17,6 +17,7 @@ import type {
   CreateTaskOptions,
   DeleteTaskOptions,
 } from "../tasks";
+import type { BackendCapabilities } from "./types";
 import type {
   TaskData,
   TaskSpecData,
@@ -47,7 +48,7 @@ import {
 import {
   normalizeTaskIdForStorage,
   formatTaskIdForDisplay,
-  getTaskIdNumber
+  getTaskIdNumber,
 } from "./task-id-utils";
 
 // Helper import to avoid promise conversion issues
@@ -67,6 +68,37 @@ export class MarkdownTaskBackend implements TaskBackend {
     this.workspacePath = config.workspacePath;
     this.tasksFilePath = getTasksFilePath(this.workspacePath);
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
+  }
+
+  // ---- Capability Discovery ----
+
+  getCapabilities(): BackendCapabilities {
+    return {
+      // Core operations - markdown backend supports basic CRUD
+      supportsTaskCreation: true,
+      supportsTaskUpdate: true,
+      supportsTaskDeletion: true,
+
+      // Essential metadata support
+      supportsStatus: true, // Stored in tasks.md with checkboxes
+
+      // Structural metadata - not yet implemented but possible
+      supportsSubtasks: false, // TODO: Future enhancement for Task #238
+      supportsDependencies: false, // TODO: Future enhancement for Task #239
+
+      // Provenance metadata - not yet implemented
+      supportsOriginalRequirements: false, // TODO: Could store in frontmatter
+      supportsAiEnhancementTracking: false, // TODO: Could store in frontmatter
+
+      // Query capabilities - limited in markdown format
+      supportsMetadataQuery: false, // Would require parsing all files
+      supportsFullTextSearch: true, // Can grep through markdown files
+
+      // Update mechanism - markdown backend requires special workspace
+      requiresSpecialWorkspace: true, // Uses task operations workspace
+      supportsTransactions: false, // File-based, no transaction support
+      supportsRealTimeSync: false, // Manual file operations
+    };
   }
 
   // ---- Required TaskBackend Interface Methods ----
@@ -105,7 +137,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     const tasks = this.parseTasks(result.content);
-    console.error("DEBUG stored task IDs:", tasks.map(t => t.id).slice(0, 5));
+    console.error("DEBUG stored task IDs:", tasks.map((t) => t.id).slice(0, 5));
 
     const taskIndex = tasks.findIndex((task) => task.id === id);
     console.error("DEBUG findIndex result:", { searchId: id, taskIndex, found: taskIndex !== -1 });
@@ -183,7 +215,9 @@ export class MarkdownTaskBackend implements TaskBackend {
         // Ignore cleanup errors
       }
     } catch (error) {
-      throw new Error(`Failed to move spec file from ${specPath} to ${properSpecPath}: ${getErrorMessage(error)}`);
+      throw new Error(
+        `Failed to move spec file from ${specPath} to ${properSpecPath}: ${getErrorMessage(error)}`
+      );
     }
 
     const newTaskData: TaskData = {
@@ -237,10 +271,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     const tempDir = os.tmpdir();
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(
-      tempDir,
-      `temp-task-${normalizedTitle}-${Date.now()}.md`
-    );
+    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
 
     try {
       // Write the spec content to the temporary file
@@ -300,10 +331,7 @@ ${description}
       // Parse tasks and find the one to delete
       const tasks = this.parseTasks(tasksResult.content);
       const taskToDelete = tasks.find(
-        (task) =>
-          task.id === id ||
-          task.id === `#${id}` ||
-          task.id.slice(1) === id
+        (task) => task.id === id || task.id === `#${id}` || task.id.slice(1) === id
       );
 
       if (!taskToDelete) {
@@ -359,9 +387,7 @@ ${description}
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = specPath.startsWith("/")
-      ? specPath
-      : join(this.workspacePath, specPath);
+    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
     return readTaskSpecFile(fullPath);
   }
 
@@ -419,9 +445,7 @@ ${description}
   }
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
-    const fullPath = specPath.startsWith("/")
-      ? specPath
-      : join(this.workspacePath, specPath);
+    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
     return writeTaskSpecFile(fullPath, content);
   }
 

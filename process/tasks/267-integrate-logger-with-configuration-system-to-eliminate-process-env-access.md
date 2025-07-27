@@ -15,11 +15,13 @@ The logger currently accesses process.env.MINSKY_LOG_MODE directly, which violat
 ## Background
 
 The current logger implementation in `src/utils/logger.ts` directly accesses several environment variables:
+
 - `process.env.MINSKY_LOG_MODE` (line 23)
-- `process.env.LOGLEVEL` (line 7) 
+- `process.env.LOGLEVEL` (line 7)
 - `process.env.ENABLE_AGENT_LOGS` (line 42)
 
 This creates several issues:
+
 1. **Test isolation violations**: Tests cannot properly mock or isolate logger behavior
 2. **Global state interference**: Changes to environment variables affect other parts of the system
 3. **Bypasses configuration system**: The logger doesn't use the centralized configuration that supports dependency injection
@@ -89,23 +91,27 @@ This creates several issues:
 ## Implementation Plan
 
 ### Phase 1: Configuration Schema
+
 1. Add logger configuration types to `src/domain/configuration/types.ts`
 2. Update `config/default.yaml` with logger defaults
 3. Add environment variable mappings to `config/custom-environment-variables.yaml`
 
 ### Phase 2: Logger Service
+
 1. Create configurable logger factory function
 2. Modify logger.ts to use configuration instead of process.env
 3. Maintain backward compatibility with existing API
 4. Add proper error handling for configuration failures
 
 ### Phase 3: Test Updates
+
 1. Update logger tests to use configuration mocking
 2. Remove direct process.env manipulation
 3. Add tests for configuration-driven behavior
 4. Ensure test isolation works properly
 
 ### Phase 4: Integration Testing
+
 1. Test end-to-end configuration flow
 2. Verify environment variables work through configuration
 3. Test CLI flag overrides

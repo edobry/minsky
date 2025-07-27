@@ -13,10 +13,7 @@ import {
   mockModule,
   createMockFileSystem,
 } from "../utils/test-utils/mocking";
-import {
-  expectToHaveBeenCalled,
-  expectToHaveBeenCalledWith,
-} from "../utils/test-utils/assertions";
+import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
 import { createGitService } from "./git";
 import { commitChangesFromParams, pushFromParams } from "./git";
 
@@ -39,7 +36,7 @@ mockModule("../utils/logger", () => ({
 }));
 
 // Mock the centralized execAsync module at the top level for proper module interception
-const mockExecAsync = createMock();
+let mockExecAsync = createMock();
 mockModule("../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
@@ -121,10 +118,11 @@ describe("GitService", () => {
 
   test("execInRepository should propagate errors", async () => {
     // Override the mock implementation to simulate an error
-    const execInRepoMock = spyOn(GitService.prototype, "execInRepository");
-    execInRepoMock.mockImplementation(async (workdir, command) => {
-      throw new Error("Command execution failed");
-    });
+    const execInRepoMock = spyOn(GitService.prototype, "execInRepository").mockImplementation(
+      async (workdir, command) => {
+        throw new Error("Command execution failed");
+      }
+    );
 
     try {
       await gitService.execInRepository("/mock/repo/path", "rev-parse --abbrev-ref HEAD");
@@ -203,7 +201,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
       await expect(
         gitService.prWithDependencies({ session: "nonexistent" }, mockDeps)
-      ).rejects.toThrow("Session \"nonexistent\" Not Found");
+      ).rejects.toThrow('Session "nonexistent" Not Found');
     });
 
     test("should resolve taskId to session in PR workflow", async () => {
@@ -278,7 +276,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const gitService = new GitService();
 
       await expect(gitService.prWithDependencies({ taskId: "999" }, mockDeps)).rejects.toThrow(
-        "No session found for task ID \"999\""
+        'No session found for task ID "999"'
       );
 
       expectToHaveBeenCalledWith(mockDeps.getSessionByTaskId, "999");
@@ -1056,10 +1054,12 @@ describe("commitChangesFromParams", () => {
 
   test("should commit changes with message and all flag", async () => {
     // Mock git commit command response
-    mockExecAsync.mockResolvedValueOnce({
-      stdout: "[main abc123] test commit message",
-      stderr: ""
-    });
+    mockExecAsync = mock(() =>
+      Promise.resolve({
+        stdout: "[main abc123] test commit message",
+        stderr: "",
+      })
+    );
 
     const params = {
       message: "test commit message",
@@ -1068,7 +1068,7 @@ describe("commitChangesFromParams", () => {
     };
 
     const result = await commitChangesFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.commitHash).toBe("abc123");
     expect(result.message).toBe("test commit message");
@@ -1076,10 +1076,12 @@ describe("commitChangesFromParams", () => {
 
   test("should commit changes with just message", async () => {
     // Mock git commit command response
-    mockExecAsync.mockResolvedValueOnce({
-      stdout: "[main def456] simple commit",
-      stderr: ""
-    });
+    mockExecAsync = mock(() =>
+      Promise.resolve({
+        stdout: "[main def456] simple commit",
+        stderr: "",
+      })
+    );
 
     const params = {
       message: "simple commit",
@@ -1087,7 +1089,7 @@ describe("commitChangesFromParams", () => {
     };
 
     const result = await commitChangesFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.commitHash).toBe("def456");
     expect(result.message).toBe("simple commit");
@@ -1095,10 +1097,12 @@ describe("commitChangesFromParams", () => {
 
   test("should handle commit with custom repo path", async () => {
     // Mock git commit command response
-    mockExecAsync.mockResolvedValueOnce({
-      stdout: "[main ghi789] commit with custom repo",
-      stderr: ""
-    });
+    mockExecAsync = mock(() =>
+      Promise.resolve({
+        stdout: "[main ghi789] commit with custom repo",
+        stderr: "",
+      })
+    );
 
     const params = {
       message: "commit with custom repo",
@@ -1106,14 +1110,14 @@ describe("commitChangesFromParams", () => {
     };
 
     const result = await commitChangesFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.commitHash).toBe("ghi789");
   });
 
   test("should handle commit errors gracefully", async () => {
     // Mock git commit command failure
-    mockExecAsync.mockRejectedValueOnce(new Error("Git command failed"));
+    mockExecAsync = mock(() => Promise.reject(new Error("Git command failed")));
 
     const params = {
       message: "failing commit",
@@ -1133,16 +1137,16 @@ describe("pushFromParams", () => {
 
   test("should push changes successfully", async () => {
     // Mock git push command response
-    mockExecAsync
-      .mockResolvedValueOnce({ stdout: "main", stderr: "" }) // git rev-parse --abbrev-ref HEAD
-      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "main", stderr: "" })) = mock(() =>
+      Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })
+    ); // git push
 
     const params = {
       repo: "/test/repo",
     };
 
     const result = await pushFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.pushed).toBe(true);
     expect(result.workdir).toBe("/test/repo");
@@ -1150,9 +1154,7 @@ describe("pushFromParams", () => {
 
   test("should handle push with custom remote", async () => {
     // Mock git push command response
-    mockExecAsync
-      .mockResolvedValueOnce({ stdout: "main", stderr: "" }) // git rev-parse --abbrev-ref HEAD
-      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
 
     const params = {
       repo: "/test/repo",
@@ -1160,15 +1162,14 @@ describe("pushFromParams", () => {
     };
 
     const result = await pushFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.pushed).toBe(true);
   });
 
   test("should handle push with branch specification", async () => {
     // Mock git push command response
-    mockExecAsync
-      .mockResolvedValueOnce({ stdout: "Everything up-to-date", stderr: "" }); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
 
     const params = {
       repo: "/test/repo",
@@ -1176,14 +1177,14 @@ describe("pushFromParams", () => {
     };
 
     const result = await pushFromParams(params);
-    
+
     expect(result).toBeDefined();
     expect(result.pushed).toBe(true);
   });
 
   test("should handle push errors gracefully", async () => {
     // Mock git push command failure
-    mockExecAsync.mockRejectedValueOnce(new Error("Git push failed"));
+    mockExecAsync = mock(() => Promise.reject(new Error("Git push failed")));
 
     const params = {
       repo: "/nonexistent/repo",

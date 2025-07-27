@@ -58,6 +58,10 @@ export async function createCli(): Promise<Command> {
 async function main(): Promise<void> {
   await createCli();
   await cli.parseAsync();
+
+  // Still need explicit exit until all resource leaks are fixed
+  // The improvements to workspace manager help, but there are other sources
+  exit(0);
 }
 
 // Run the CLI

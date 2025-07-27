@@ -17,7 +17,7 @@ export {
   createCleanTempDir,
   createCleanTempFile,
   cleanupLeftoverTestFiles,
-  cleanupManager
+  cleanupManager,
 } from "./cleanup";
 
 // Enhanced mocking system
@@ -26,15 +26,11 @@ export {
   EnhancedModuleMocker,
   createEnhancedMockFileSystem,
   setupEnhancedMocking,
-  validateMockIsolation
+  validateMockIsolation,
 } from "./enhanced-mocking";
 
 // Test isolation and data factories
-export {
-  TestDataFactory,
-  DatabaseIsolation,
-  testDataFactory
-} from "./test-isolation";
+export { TestDataFactory, DatabaseIsolation, testDataFactory } from "./test-isolation";
 
 // Dependency injection utilities and individual service mock factories
 export {
@@ -52,7 +48,7 @@ export {
   createMockTaskService,
   type MockSessionProviderOptions,
   type MockGitServiceOptions,
-  type MockTaskServiceOptions
+  type MockTaskServiceOptions,
 } from "./dependencies";
 
 // Original utilities (avoid conflicts)
@@ -83,14 +79,16 @@ export function setupCompleteTestEnvironment() {
         isIsolated: mockIsolation.isIsolated && cleanupStats.itemCount === 0,
         issues: [
           ...mockIsolation.issues,
-          ...(cleanupStats.itemCount > 0 ? [`${cleanupStats.itemCount} cleanup items remaining`] : [])
+          ...(cleanupStats.itemCount > 0
+            ? [`${cleanupStats.itemCount} cleanup items remaining`]
+            : []),
         ],
         stats: {
           ...mockIsolation,
-          cleanup: cleanupStats
-        }
+          cleanup: cleanupStats,
+        },
       };
-    }
+    },
   };
 }
 
@@ -106,7 +104,7 @@ export const _compat = {
   },
 
   createCompatMock: (implementation?: (...args: any[]) => any) => {
-    const mockFn = createMock(implementation);
+    let mockFn = createMock(implementation);
 
     // Store the original implementation for "once" functionality
     let originalImplementation = implementation;
@@ -118,7 +116,7 @@ export const _compat = {
     compatMock.mock = mockFn.mock;
     compatMock.mockImplementation = (newImpl: (...args: any[]) => any) => {
       originalImplementation = newImpl;
-      return mockFn.mockImplementation(newImpl);
+      return (mockFn = mock(newImpl));
     };
     compatMock.mockReturnValue = mockFn.mockReturnValue.bind(mockFn);
     compatMock.mockResolvedValue = mockFn.mockResolvedValue.bind(mockFn);
@@ -135,7 +133,7 @@ export const _compat = {
       mockFn.mock.calls.length = 0;
       mockFn.mock.results.length = 0;
       originalImplementation = undefined;
-      mockFn.mockImplementation(() => undefined);
+      mockFn = mock(() => undefined);
       return compatMock;
     };
 
@@ -152,7 +150,7 @@ export const _compat = {
         return originalImplementation ? originalImplementation(...args) : undefined;
       };
 
-      mockFn.mockImplementation(onceWrapper);
+      mockFn = mock(onceWrapper);
       return compatMock;
     };
 
@@ -166,7 +164,7 @@ export const _compat = {
   asymmetricMatchers: {
     anything: () => ({
       asymmetricMatch: (actual: any) => actual !== null && actual !== undefined,
-      toString: () => "anything()"
+      toString: () => "anything()",
     }),
 
     any: (constructor: any) => ({
@@ -178,19 +176,18 @@ export const _compat = {
         if (constructor === Array) return Array.isArray(actual);
         return actual instanceof constructor;
       },
-      toString: () => `any(${constructor.name})`
+      toString: () => `any(${constructor.name})`,
     }),
 
     stringContaining: (substring: string) => ({
-      asymmetricMatch: (actual: any) =>
-        typeof actual === "string" && actual.includes(substring),
-      toString: () => `stringContaining(${substring})`
+      asymmetricMatch: (actual: any) => typeof actual === "string" && actual.includes(substring),
+      toString: () => `stringContaining(${substring})`,
     }),
 
     objectContaining: (obj: any) => ({
       asymmetricMatch: (actual: any) => {
         if (typeof actual !== "object" || actual === null) return false;
-        return Object.keys(obj).every(key => {
+        return Object.keys(obj).every((key) => {
           if (!(key in actual)) return false;
           const expectedValue = obj[key];
           const actualValue = actual[key];
@@ -203,16 +200,16 @@ export const _compat = {
           return actualValue === expectedValue;
         });
       },
-      toString: () => `objectContaining(${JSON.stringify(obj)})`
+      toString: () => `objectContaining(${JSON.stringify(obj)})`,
     }),
 
     arrayContaining: (arr: any[]) => ({
       asymmetricMatch: (actual: any) => {
         if (!Array.isArray(actual)) return false;
-        return arr.every(item => actual.includes(item));
+        return arr.every((item) => actual.includes(item));
       },
-      toString: () => `arrayContaining(${JSON.stringify(arr)})`
-    })
+      toString: () => `arrayContaining(${JSON.stringify(arr)})`,
+    }),
   },
 
   // Jest-style module mocking
@@ -221,11 +218,15 @@ export const _compat = {
       const mockedModule = factory();
       mockModuleRegistry.set(modulePath, mockedModule);
       return mockedModule;
-    }
+    },
   },
 
   // Mock a specific function in a module
-  mockModuleFunction: (modulePath: string, functionName: string, implementation: (...args: any[]) => any) => {
+  mockModuleFunction: (
+    modulePath: string,
+    functionName: string,
+    implementation: (...args: any[]) => any
+  ) => {
     let module = mockModuleRegistry.get(modulePath) || {};
     module[functionName] = implementation;
     mockModuleRegistry.set(modulePath, module);
@@ -242,5 +243,5 @@ export const _compat = {
   // Get a mocked module (for compatibility)
   getMockModule: (modulePath: string) => {
     return mockModuleRegistry.get(modulePath) || {};
-  }
+  },
 };

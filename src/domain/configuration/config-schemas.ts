@@ -1,6 +1,6 @@
 /**
  * Zod validation schemas for Minsky configuration
- * 
+ *
  * These schemas provide type-safe validation for configuration values
  * loaded from node-config, replacing the NodeConfigAdapter anti-pattern
  * with proper idiomatic validation.
@@ -37,13 +37,15 @@ export const AIProviderConfigSchema = z.object({
 // AI configuration schema
 export const AIConfigSchema = z.object({
   default_provider: z.string().optional(),
-  providers: z.object({
-    openai: AIProviderConfigSchema.optional(),
-    anthropic: AIProviderConfigSchema.optional(),
-    google: AIProviderConfigSchema.optional(),
-    cohere: AIProviderConfigSchema.optional(),
-    mistral: AIProviderConfigSchema.optional(),
-  }).optional(),
+  providers: z
+    .object({
+      openai: AIProviderConfigSchema.optional(),
+      anthropic: AIProviderConfigSchema.optional(),
+      google: AIProviderConfigSchema.optional(),
+      cohere: AIProviderConfigSchema.optional(),
+      mistral: AIProviderConfigSchema.optional(),
+    })
+    .optional(),
 });
 
 // GitHub configuration schema
@@ -86,12 +88,14 @@ export const ConfigSchema = z.object({
 // Repository configuration schema
 export const RepositoryConfigSchema = z.object({
   version: z.number(),
-  sessiondb: z.object({
-    backend: SessionDbBackendSchema,
-    base_dir: z.string().optional(),
-    db_path: z.string().optional(),
-    connection_string: z.string().optional(),
-  }).optional(),
+  sessiondb: z
+    .object({
+      backend: SessionDbBackendSchema,
+      base_dir: z.string().optional(),
+      db_path: z.string().optional(),
+      connection_string: z.string().optional(),
+    })
+    .optional(),
   ai: AIConfigSchema.optional(),
   github: GitHubConfigSchema.optional(),
   logger: LoggerConfigSchema.optional(),
@@ -100,11 +104,13 @@ export const RepositoryConfigSchema = z.object({
 // Global user configuration schema
 export const GlobalUserConfigSchema = z.object({
   version: z.number(),
-  sessiondb: z.object({
-    base_dir: z.string().optional(),
-    db_path: z.string().optional(),
-    connection_string: z.string().optional(),
-  }).optional(),
+  sessiondb: z
+    .object({
+      base_dir: z.string().optional(),
+      db_path: z.string().optional(),
+      connection_string: z.string().optional(),
+    })
+    .optional(),
   ai: AIConfigSchema.optional(),
   github: GitHubConfigSchema.optional(),
   logger: LoggerConfigSchema.optional(),
@@ -132,49 +138,49 @@ export interface ValidationWarning {
 // Validation functions
 export function validateConfig(config: any): ValidationResult {
   const result = ConfigSchema.safeParse(config);
-  
+
   if (result.success) {
     return { valid: true, errors: [], warnings: [] };
   }
-  
-  const errors: ValidationError[] = result.error.issues.map(issue => ({
+
+  const errors: ValidationError[] = result.error.issues.map((issue) => ({
     path: issue.path.join("."),
     message: issue.message,
     value: issue.code,
   }));
-  
+
   return { valid: false, errors, warnings: [] };
 }
 
 export function validateRepositoryConfig(config: any): ValidationResult {
   const result = RepositoryConfigSchema.safeParse(config);
-  
+
   if (result.success) {
     return { valid: true, errors: [], warnings: [] };
   }
-  
-  const errors: ValidationError[] = result.error.issues.map(issue => ({
+
+  const errors: ValidationError[] = result.error.issues.map((issue) => ({
     path: issue.path.join("."),
     message: issue.message,
     value: issue.code,
   }));
-  
+
   return { valid: false, errors, warnings: [] };
 }
 
 export function validateGlobalUserConfig(config: any): ValidationResult {
   const result = GlobalUserConfigSchema.safeParse(config);
-  
+
   if (result.success) {
     return { valid: true, errors: [], warnings: [] };
   }
-  
-  const errors: ValidationError[] = result.error.issues.map(issue => ({
+
+  const errors: ValidationError[] = result.error.issues.map((issue) => ({
     path: issue.path.join("."),
     message: issue.message,
     value: issue.code,
   }));
-  
+
   return { valid: false, errors, warnings: [] };
 }
 
@@ -188,4 +194,4 @@ export type DetectionRule = z.infer<typeof DetectionRuleSchema>;
 export type BackendConfig = z.infer<typeof BackendConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>;
-export type GlobalUserConfig = z.infer<typeof GlobalUserConfigSchema>; 
+export type GlobalUserConfig = z.infer<typeof GlobalUserConfigSchema>;

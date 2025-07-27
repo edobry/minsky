@@ -10,7 +10,10 @@ import type { TaskBackend } from "./taskBackend";
 import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
+  TaskData,
+  TaskStatus,
 } from "../../types/tasks/taskData";
+import type { Task } from "./types";
 
 // Create a mock backend for testing
 function createMockBackend(): TaskBackend {
@@ -37,7 +40,7 @@ function createMockBackend(): TaskBackend {
     // Mock pure operations
     parseTasks: mock((content: unknown) => {
       // Simple parsing for testing
-      if ((content).toString().includes("#001")) {
+      if (content.toString().includes("#001")) {
         return [
           { id: "#001", title: "Task 1", status: "TODO" },
           { id: "#002", title: "Task 2", status: "IN-PROGRESS" },
@@ -104,6 +107,16 @@ function createMockBackend(): TaskBackend {
     getTask: mock(() => Promise.resolve(null)),
     getTaskStatus: mock(() => Promise.resolve(undefined)),
     setTaskStatus: mock(() => Promise.resolve()),
+    deleteTask: mock(() => Promise.resolve(true)),
+    createTaskFromTitleAndDescription: mock((title: string, description: string) =>
+      Promise.resolve({
+        id: "#TEST_VALUE",
+        title: title,
+        description: description,
+        status: "TODO",
+        specPath: "process/tasks/123-test-task.md", // Proper spec path, not temporary
+      })
+    ),
   };
 }
 
@@ -274,7 +287,8 @@ describe("TaskService", () => {
 
       // Verify the task has the expected properties
       expect(task.id).toBe("#TEST_VALUE");
-      expect(task.title).toBe("Test Task");
+      expect(task.title).toBe(title); // Should return the actual title passed in
+      expect(task.description).toBe(description); // Should return the actual description passed in
       expect(task.status).toBe("TODO");
     });
 
@@ -312,13 +326,16 @@ describe("TaskService", () => {
 
         // Verify the file actually exists at the proper location
         const fullSpecPath = path.join(tempWorkspace, task.specPath || "");
-        await expect(fs.access(fullSpecPath)).resolves.toBeUndefined();
+        const accessResult = await fs
+          .access(fullSpecPath)
+          .then(() => null)
+          .catch((err) => err);
+        expect(accessResult).toBeNull(); // File access succeeded
 
         // Verify the file content
         const fileContent = await fs.readFile(fullSpecPath, "utf-8");
         expect(fileContent).toContain(title);
         expect(fileContent).toContain(description);
-
       } finally {
         // Clean up the temporary workspace
         try {

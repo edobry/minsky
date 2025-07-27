@@ -6,6 +6,7 @@
  */
 import { execAsync } from "../../utils/exec";
 import { log } from "../../utils/logger";
+import { gitFetchWithTimeout } from "../../utils/git-exec";
 import { predictRebaseConflictsImpl } from "./rebase-conflict-prediction";
 import { generateAdvancedResolutionStrategiesImpl } from "./advanced-resolution-strategies";
 import { simulateMergeImpl } from "./merge-simulation";
@@ -82,12 +83,7 @@ export class ConflictDetectionService {
     }
   ): Promise<EnhancedMergeResult> {
     const service = new ConflictDetectionService();
-    return service.mergeWithConflictPrevention(
-      repoPath,
-      sourceBranch,
-      targetBranch,
-      options
-    );
+    return service.mergeWithConflictPrevention(repoPath, sourceBranch, targetBranch, options);
   }
 
   /**
@@ -103,12 +99,7 @@ export class ConflictDetectionService {
     }
   ): Promise<SmartUpdateResult> {
     const service = new ConflictDetectionService();
-    return service.smartSessionUpdate(
-      repoPath,
-      sessionBranch,
-      baseBranch,
-      options
-    );
+    return service.smartSessionUpdate(repoPath, sessionBranch, baseBranch, options);
   }
 
   /**
@@ -121,12 +112,7 @@ export class ConflictDetectionService {
     targetRef?: string
   ): Promise<GitOperationPreview> {
     const service = new ConflictDetectionService();
-    return service.previewGitOperation(
-      repoPath,
-      operation,
-      sourceRef,
-      targetRef
-    );
+    return service.previewGitOperation(repoPath, operation, sourceRef, targetRef);
   }
 
   /**
@@ -176,11 +162,7 @@ export class ConflictDetectionService {
 
     try {
       // First, analyze branch divergence
-      const divergence = await this.analyzeBranchDivergence(
-        repoPath,
-        sourceBranch,
-        targetBranch
-      );
+      const divergence = await this.analyzeBranchDivergence(repoPath, sourceBranch, targetBranch);
 
       // If already merged, no conflicts
       if (divergence.sessionChangesInBase) {
@@ -204,11 +186,7 @@ export class ConflictDetectionService {
       }
 
       // Simulate merge to detect conflicts
-      const conflictFiles = await this.simulateMerge(
-        repoPath,
-        sourceBranch,
-        targetBranch
-      );
+      const conflictFiles = await this.simulateMerge(repoPath, sourceBranch, targetBranch);
 
       if (conflictFiles.length === 0) {
         return {
@@ -223,21 +201,10 @@ export class ConflictDetectionService {
       }
 
       // Analyze conflict types and severity
-      const { conflictType, severity } =
-        this.analyzeConflictSeverity(conflictFiles);
-      const resolutionStrategies = this.generateResolutionStrategies(
-        conflictFiles,
-        conflictType
-      );
-      const userGuidance = this.generateUserGuidance(
-        conflictType,
-        severity,
-        conflictFiles
-      );
-      const recoveryCommands = this.generateRecoveryCommands(
-        conflictFiles,
-        conflictType
-      );
+      const { conflictType, severity } = this.analyzeConflictSeverity(conflictFiles);
+      const resolutionStrategies = this.generateResolutionStrategies(conflictFiles, conflictType);
+      const userGuidance = this.generateUserGuidance(conflictType, severity, conflictFiles);
+      const recoveryCommands = this.generateRecoveryCommands(conflictFiles, conflictType);
 
       return {
         hasConflicts: true,
@@ -275,10 +242,15 @@ export class ConflictDetectionService {
       const result = await execAsync(
         `git -C ${repoPath} rev-list --left-right --count ${baseBranch}...${sessionBranch}`
       );
-      
+
       // Check if result is valid before destructuring
       if (!result || typeof result.stdout !== "string") {
-        log.warn("Git rev-list command returned invalid result", { result, repoPath, baseBranch, sessionBranch });
+        log.warn("Git rev-list command returned invalid result", {
+          result,
+          repoPath,
+          baseBranch,
+          sessionBranch,
+        });
         return {
           sessionBranch,
           baseBranch,
@@ -287,10 +259,10 @@ export class ConflictDetectionService {
           lastCommonCommit: "",
           sessionChangesInBase: false,
           divergenceType: "none" as const,
-          recommendedAction: "none" as const
+          recommendedAction: "none" as const,
         };
       }
-      
+
       const { stdout: aheadBehind } = result;
       const [behindStr, aheadStr] = aheadBehind.trim().split("\t");
       const behind = Number(behindStr) || 0;
@@ -300,7 +272,7 @@ export class ConflictDetectionService {
       const commonCommitResult = await execAsync(
         `git -C ${repoPath} merge-base ${baseBranch} ${sessionBranch}`
       );
-      
+
       const commonCommit = commonCommitResult?.stdout?.trim() || "";
 
       // Check if session changes are already in base
@@ -371,11 +343,7 @@ export class ConflictDetectionService {
 
       // Step 1: Predict conflicts unless skipped
       if (!options?.skipConflictCheck) {
-        prediction = await this.predictMergeConflicts(
-          repoPath,
-          sourceBranch,
-          targetBranch
-        );
+        prediction = await this.predictMergeConflicts(repoPath, sourceBranch, targetBranch);
 
         if (prediction.hasConflicts && options?.dryRun) {
           return {
@@ -393,28 +361,21 @@ export class ConflictDetectionService {
           prediction.conflictType === ConflictType.DELETE_MODIFY &&
           options?.autoResolveDeleteConflicts
         ) {
-          await this.autoResolveDeleteConflicts(
-            repoPath,
-            prediction.affectedFiles
-          );
+          await this.autoResolveDeleteConflicts(repoPath, prediction.affectedFiles);
         }
       }
 
       // Step 2: Perform actual merge if not dry run
       if (!options?.dryRun) {
-        const beforeHashResult = await execAsync(
-          `git -C ${repoPath} rev-parse HEAD`
-        );
-        
+        const beforeHashResult = await execAsync(`git -C ${repoPath} rev-parse HEAD`);
+
         const beforeHash = beforeHashResult?.stdout?.trim() || "";
 
         try {
           await execAsync(`git -C ${repoPath} merge ${sourceBranch}`);
 
-          const afterHashResult = await execAsync(
-            `git -C ${repoPath} rev-parse HEAD`
-          );
-          
+          const afterHashResult = await execAsync(`git -C ${repoPath} rev-parse HEAD`);
+
           const afterHash = afterHashResult?.stdout?.trim() || "";
           const merged = beforeHash.trim() !== afterHash.trim();
 
@@ -426,23 +387,18 @@ export class ConflictDetectionService {
           };
         } catch (mergeError) {
           // Check for conflicts
-          const statusResult = await execAsync(
-            `git -C ${repoPath} status --porcelain`
-          );
-          
+          const statusResult = await execAsync(`git -C ${repoPath} status --porcelain`);
+
           const status = statusResult?.stdout || "";
           const hasConflicts =
-            status.includes("UU") ||
-            status.includes("AA") ||
-            status.includes("DD");
+            status.includes("UU") || status.includes("AA") || status.includes("DD");
 
           if (hasConflicts) {
             return {
               workdir: repoPath,
               merged: false,
               conflicts: true,
-              conflictDetails:
-                prediction?.userGuidance || "Merge conflicts detected",
+              conflictDetails: prediction?.userGuidance || "Merge conflicts detected",
               prediction,
             };
           }
@@ -489,11 +445,7 @@ export class ConflictDetectionService {
     try {
       // Analyze branch divergence against origin/baseBranch (remote tracking branch)
       const remoteBranch = `origin/${baseBranch}`;
-      const divergence = await this.analyzeBranchDivergence(
-        repoPath,
-        sessionBranch,
-        remoteBranch
-      );
+      const divergence = await this.analyzeBranchDivergence(repoPath, sessionBranch, remoteBranch);
 
       // Check if we should skip update
       if (options?.skipIfAlreadyMerged && divergence.sessionChangesInBase) {
@@ -507,10 +459,7 @@ export class ConflictDetectionService {
       }
 
       // If no update needed
-      if (
-        divergence.divergenceType === "none" ||
-        divergence.divergenceType === "ahead"
-      ) {
+      if (divergence.divergenceType === "none" || divergence.divergenceType === "ahead") {
         return {
           workdir: repoPath,
           updated: false,
@@ -523,7 +472,7 @@ export class ConflictDetectionService {
       // Perform update based on divergence analysis
       if (divergence.recommendedAction === "fast_forward") {
         // Simple fast-forward - merge from the remote branch we analyzed against
-        await execAsync(`git -C ${repoPath} fetch origin ${baseBranch}`);
+        await gitFetchWithTimeout("origin", baseBranch, { workdir: repoPath });
         await execAsync(`git -C ${repoPath} merge --ff-only ${remoteBranch}`);
 
         return {
@@ -790,9 +739,7 @@ export class ConflictDetectionService {
 
       if (deleteConflicts.length > 0) {
         // Commit the resolution
-        await execAsync(
-          `git -C ${repoPath} commit -m "resolve conflicts: accept file deletions"`
-        );
+        await execAsync(`git -C ${repoPath} commit -m "resolve conflicts: accept file deletions"`);
         log.debug("Committed auto-resolved delete conflicts", {
           count: deleteConflicts.length,
         });
@@ -836,21 +783,17 @@ export class ConflictDetectionService {
       conflictFiles
         .filter((f) => f.deletionInfo)
         .forEach((f) => commands.push(`git rm "${f.path}"`));
-      commands.push(
-        "git commit -m \"resolve conflicts: accept file deletions\""
-      );
+      commands.push('git commit -m "resolve conflicts: accept file deletions"');
     } else {
       commands.push("# Check conflict status");
       commands.push("git status");
       commands.push("");
-      commands.push(
-        "# Edit each conflicted file to resolve <<<<<<< ======= >>>>>>> markers"
-      );
+      commands.push("# Edit each conflicted file to resolve <<<<<<< ======= >>>>>>> markers");
       conflictFiles.forEach((f) => commands.push(`# Edit: ${f.path}`));
       commands.push("");
       commands.push("# After editing, add resolved files");
       commands.push("git add .");
-      commands.push("git commit -m \"resolve merge conflicts\"");
+      commands.push('git commit -m "resolve merge conflicts"');
     }
 
     return commands;
@@ -911,9 +854,7 @@ export class ConflictDetectionService {
     return "simple";
   }
 
-  private estimateResolutionTime(
-    conflictingCommits: ConflictingCommit[]
-  ): string {
+  private estimateResolutionTime(conflictingCommits: ConflictingCommit[]): string {
     if (conflictingCommits.length === 0) {
       return "0 minutes";
     }
@@ -936,9 +877,7 @@ export class ConflictDetectionService {
 
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
-    return `${hours} hour${hours > 1 ? "s" : ""}${
-      minutes > 0 ? ` ${minutes} minutes` : ""
-    }`;
+    return `${hours} hour${hours > 1 ? "s" : ""}${minutes > 0 ? ` ${minutes} minutes` : ""}`;
   }
 
   private generateRebaseRecommendations(
@@ -955,9 +894,7 @@ export class ConflictDetectionService {
     ];
 
     if (canAutoResolve) {
-      recommendations.push(
-        "All conflicts appear simple and might be auto-resolvable."
-      );
+      recommendations.push("All conflicts appear simple and might be auto-resolvable.");
     } else if (overallComplexity === "complex") {
       recommendations.push(
         "Consider using interactive rebase (`git rebase -i`) to handle complex conflicts one by one.",
@@ -971,16 +908,10 @@ export class ConflictDetectionService {
     }
 
     // Add specific recommendations for problematic commits
-    const complexCommits = conflictingCommits.filter(
-      (c) => c.complexity === "complex"
-    );
+    const complexCommits = conflictingCommits.filter((c) => c.complexity === "complex");
     if (complexCommits.length > 0) {
-      const commitShas = complexCommits
-        .map((c) => c.sha.substring(0, 8))
-        .join(", ");
-      recommendations.push(
-        `Pay special attention to complex commits: ${commitShas}`
-      );
+      const commitShas = complexCommits.map((c) => c.sha.substring(0, 8)).join(", ");
+      recommendations.push(`Pay special attention to complex commits: ${commitShas}`);
     }
 
     return recommendations;
@@ -1011,10 +942,7 @@ export class ConflictDetectionService {
         );
 
         // If the content is the same when whitespace is removed, it's a formatting-only conflict
-        if (
-          ourContent.trim() === theirContent.trim() &&
-          ourContent.trim() !== fileContent.trim()
-        ) {
+        if (ourContent.trim() === theirContent.trim() && ourContent.trim() !== fileContent.trim()) {
           formattingOnlyFiles.push(file);
         }
       } catch (error) {
@@ -1029,9 +957,7 @@ export class ConflictDetectionService {
     return formattingOnlyFiles;
   }
 
-  private createPackageJsonStrategy(
-    files: ConflictFile[]
-  ): AdvancedResolutionStrategy {
+  private createPackageJsonStrategy(files: ConflictFile[]): AdvancedResolutionStrategy {
     return {
       type: "pattern_based",
       confidence: 0.85,
@@ -1062,21 +988,18 @@ rm ${file.path}.{ours,theirs,deps,devdeps}
 git add ${file.path}`
         ),
         "# After resolving all files:",
-        "git commit -m \"Resolve package.json conflicts with intelligent dependency merge\"",
+        'git commit -m "Resolve package.json conflicts with intelligent dependency merge"',
       ],
       riskLevel: "medium",
       applicableFileTypes: ["package.json"],
     };
   }
 
-  private createLockFileStrategy(
-    files: ConflictFile[]
-  ): AdvancedResolutionStrategy {
+  private createLockFileStrategy(files: ConflictFile[]): AdvancedResolutionStrategy {
     return {
       type: "pattern_based",
       confidence: 0.9,
-      description:
-        "Resolve lock file conflicts by regenerating from the merged package.json",
+      description: "Resolve lock file conflicts by regenerating from the merged package.json",
       commands: [
         "# First, ensure package.json is resolved correctly",
         "# Then regenerate lock files:",
@@ -1092,21 +1015,18 @@ git add ${file.path}`
         "# bun install",
         "# Add the regenerated lock files:",
         ...files.map((file) => `git add ${file.path}`),
-        "git commit -m \"Resolve lock file conflicts by regenerating lock files\"",
+        'git commit -m "Resolve lock file conflicts by regenerating lock files"',
       ],
       riskLevel: "low",
       applicableFileTypes: ["package-lock.json", "yarn.lock", "bun.lock"],
     };
   }
 
-  private createFormattingOnlyStrategy(
-    files: ConflictFile[]
-  ): AdvancedResolutionStrategy {
+  private createFormattingOnlyStrategy(files: ConflictFile[]): AdvancedResolutionStrategy {
     return {
       type: "intelligent",
       confidence: 0.95,
-      description:
-        "Auto-resolve formatting-only conflicts by keeping our version and reformatting",
+      description: "Auto-resolve formatting-only conflicts by keeping our version and reformatting",
       commands: [
         "# For formatting-only conflicts, keep our version:",
         ...files.map((file) => `git checkout --ours ${file.path}`),
@@ -1123,24 +1043,14 @@ git add ${file.path}`
           .map((file) => `npx prettier --write ${file.path}`),
         "# Add the resolved files:",
         ...files.map((file) => `git add ${file.path}`),
-        "git commit -m \"Resolve formatting-only conflicts\"",
+        'git commit -m "Resolve formatting-only conflicts"',
       ],
       riskLevel: "low",
-      applicableFileTypes: [
-        "*.ts",
-        "*.js",
-        "*.tsx",
-        "*.jsx",
-        "*.css",
-        "*.scss",
-        "*.html",
-      ],
+      applicableFileTypes: ["*.ts", "*.js", "*.tsx", "*.jsx", "*.css", "*.scss", "*.html"],
     };
   }
 
-  private createDocumentationStrategy(
-    files: ConflictFile[]
-  ): AdvancedResolutionStrategy {
+  private createDocumentationStrategy(files: ConflictFile[]): AdvancedResolutionStrategy {
     return {
       type: "pattern_based",
       confidence: 0.8,
@@ -1165,21 +1075,18 @@ rm ${file.path}.theirs
 # 4. Add the resolved file
 git add ${file.path}`
         ),
-        "git commit -m \"Resolve documentation conflicts by combining content\"",
+        'git commit -m "Resolve documentation conflicts by combining content"',
       ],
       riskLevel: "low",
       applicableFileTypes: ["*.md", "README*", "CHANGELOG*", "*.txt"],
     };
   }
 
-  private createConfigFileStrategy(
-    files: ConflictFile[]
-  ): AdvancedResolutionStrategy {
+  private createConfigFileStrategy(files: ConflictFile[]): AdvancedResolutionStrategy {
     return {
       type: "pattern_based",
       confidence: 0.75,
-      description:
-        "Resolve config file conflicts by merging JSON/YAML structures",
+      description: "Resolve config file conflicts by merging JSON/YAML structures",
       commands: [
         "# For each config file:",
         ...files.map(
@@ -1212,21 +1119,18 @@ rm ${file.path}.ours ${file.path}.theirs
 # 5. Add the resolved file
 git add ${file.path}`
         ),
-        "git commit -m \"Resolve configuration file conflicts\"",
+        'git commit -m "Resolve configuration file conflicts"',
       ],
       riskLevel: "medium",
       applicableFileTypes: ["*.json", "*.yaml", "*.yml", "*.toml"],
     };
   }
 
-  private createGeneralStrategy(
-    files: ConflictFile[]
-  ): AdvancedResolutionStrategy {
+  private createGeneralStrategy(files: ConflictFile[]): AdvancedResolutionStrategy {
     return {
       type: "user_preference",
       confidence: 0.6,
-      description:
-        "General conflict resolution strategy with clear conflict markers",
+      description: "General conflict resolution strategy with clear conflict markers",
       commands: [
         "# For each conflicted file:",
         ...files.map(
@@ -1237,7 +1141,7 @@ git add ${file.path}`
 git add ${file.path}`
         ),
         "# After resolving all files:",
-        "git commit -m \"Resolve remaining conflicts\"",
+        'git commit -m "Resolve remaining conflicts"',
       ],
       riskLevel: "medium",
       applicableFileTypes: ["*"],

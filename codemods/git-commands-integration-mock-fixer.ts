@@ -2,23 +2,23 @@
 
 /**
  * AST Codemod: Git Commands Integration Tests Mock Infrastructure Fixer
- * 
+ *
  * SYSTEMATIC AST CODEMOD - Git Commands Integration Tests Infrastructure
- * 
+ *
  * Problem: Git Commands Integration Tests are executing real git commands instead of mocks
- * - Issue 1: exec/promisify mocking not working properly 
+ * - Issue 1: exec/promisify mocking not working properly
  * - Issue 2: Storage backend shape mismatch (`result.data.sessions.find is not a function`)
  * - Issue 3: Tests trying to operate on non-git directories
- * 
+ *
  * This codemod:
  * 1. Fixes mock setup to properly intercept git execution
  * 2. Adds proper mock for createGitService to return mocked GitService
  * 3. Fixes storage backend mocking to have correct shape
  * 4. Ensures tests use mocked execution instead of real git commands
- * 
+ *
  * Target Files:
  * - src/domain/git/commands/__tests__/integration.test.ts
- * 
+ *
  * Expected Impact: +8 passing tests (Git Commands Integration Tests)
  */
 
@@ -33,29 +33,29 @@ interface GitMockFixResult {
 export function fixGitCommandsIntegrationMocks(sourceFile: SourceFile): GitMockFixResult {
   const filePath = sourceFile.getFilePath();
   const content = sourceFile.getFullText();
-  
+
   // Only process the specific test file
-  if (!filePath.includes('git/commands/__tests__/integration.test.ts')) {
+  if (!filePath.includes("git/commands/__tests__/integration.test.ts")) {
     return {
       filePath,
       changed: false,
-      reason: 'Not the target git commands integration test file - skipped'
+      reason: "Not the target git commands integration test file - skipped",
     };
   }
-  
+
   let fixed = false;
-  
+
   // Find the mock setup section and replace it with comprehensive mocking
   const imports = sourceFile.getImportDeclarations();
-  
+
   // Find where the mock setup starts (after imports)
   const lastImport = imports[imports.length - 1];
-  
+
   if (lastImport) {
     // Replace the existing mock setup with a comprehensive one
     const newMockSetup = `
 // Mock all git execution paths comprehensively
-const mockExecAsync = createMock() as any;
+let mockExecAsync = createMock() as any;
 const mockGitService = {
   clone: createMock(),
   createBranch: createMock(),
@@ -70,7 +70,7 @@ const mockGitService = {
 } as any;
 
 // Mock the createGitService factory to return our mock
-const mockCreateGitService = createMock() as any;
+let mockCreateGitService = createMock() as any;
 mockCreateGitService.mockReturnValue(mockGitService);
 
 // Mock git execution at multiple levels
@@ -111,7 +111,7 @@ mock.module("../../../utils/logger", () => ({
 
 setupTestMocks();
 `;
-    
+
     // Find where setupTestMocks() is called and replace everything before it
     const mockSetupPattern = /\/\/ Mock.*?setupTestMocks\(\);/s;
     if (mockSetupPattern.test(content)) {
@@ -121,7 +121,7 @@ setupTestMocks();
       console.log(`✅ Updated comprehensive mock setup in ${filePath}`);
     }
   }
-  
+
   // Update beforeEach to set up proper mock behavior
   const functions = sourceFile.getFunctions();
   for (const func of functions) {
@@ -129,7 +129,7 @@ setupTestMocks();
       // This is handled by finding describe blocks and beforeEach calls within them
     }
   }
-  
+
   // Find beforeEach calls and update them
   const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
   for (const callExpr of callExpressions) {
@@ -210,7 +210,7 @@ setupTestMocks();
       });
     });
   }`;
-        
+
         arrowFunction.replaceWithText(newBeforeEach);
         fixed = true;
         console.log(`✅ Updated beforeEach mock setup in ${filePath}`);
@@ -218,20 +218,20 @@ setupTestMocks();
       }
     }
   }
-  
+
   if (fixed) {
     sourceFile.saveSync();
     return {
       filePath,
       changed: true,
-      reason: 'Updated Git Commands Integration Tests with comprehensive mock infrastructure'
+      reason: "Updated Git Commands Integration Tests with comprehensive mock infrastructure",
     };
   }
-  
+
   return {
     filePath,
     changed: false,
-    reason: 'No Git Commands Integration mock setup issues found'
+    reason: "No Git Commands Integration mock setup issues found",
   };
 }
 
@@ -240,35 +240,39 @@ export function fixGitCommandsIntegrationTests(filePaths: string[]): GitMockFixR
     tsConfigFilePath: "./tsconfig.json",
     skipAddingFilesFromTsConfig: true,
   });
-  
+
   // Add source files to project
   for (const filePath of filePaths) {
     project.addSourceFileAtPath(filePath);
   }
-  
+
   const results: GitMockFixResult[] = [];
-  
+
   for (const sourceFile of project.getSourceFiles()) {
     const result = fixGitCommandsIntegrationMocks(sourceFile);
     results.push(result);
   }
-  
+
   return results;
 }
 
 // Self-executing main function for standalone usage
 if (import.meta.main) {
   const gitCommandsTestFiles = [
-    "/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/commands/__tests__/integration.test.ts"
+    "/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/commands/__tests__/integration.test.ts",
   ];
-  
+
   console.log("🔧 Fixing Git Commands Integration Tests mock infrastructure...");
   const results = fixGitCommandsIntegrationTests(gitCommandsTestFiles);
-  
-  const changedCount = results.filter(r => r.changed).length;
-  console.log(`\n🎯 Fixed Git Commands Integration mock infrastructure in ${changedCount} test files!`);
-  
+
+  const changedCount = results.filter((r) => r.changed).length;
+  console.log(
+    `\n🎯 Fixed Git Commands Integration mock infrastructure in ${changedCount} test files!`
+  );
+
   if (changedCount > 0) {
-    console.log("\n🧪 You can now run: bun test src/domain/git/commands/__tests__/integration.test.ts");
+    console.log(
+      "\n🧪 You can now run: bun test src/domain/git/commands/__tests__/integration.test.ts"
+    );
   }
-} 
+}

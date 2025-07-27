@@ -3,13 +3,10 @@ import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
 import { preparePrFromParams } from "../../git";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { 
-  SessionPrResult,
-  SessionProviderInterface,
-} from "../types";
-import { 
-  MinskyError, 
-  ResourceNotFoundError, 
+import { SessionPrResult, SessionProviderInterface } from "../types";
+import {
+  MinskyError,
+  ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
@@ -38,7 +35,7 @@ export async function sessionPr(params: SessionPrParams): Promise<SessionPrResul
 
     // Get the session details using the resolved session name
     const sessionRecord = await sessionDB.getSession(resolvedContext.sessionName);
-    
+
     if (!sessionRecord) {
       throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
     }
@@ -47,12 +44,20 @@ export async function sessionPr(params: SessionPrParams): Promise<SessionPrResul
     const workdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionName);
 
     // Check if PR branch already exists
-    const prBranchExists = await checkPrBranchExists(resolvedContext.sessionName, gitService, workdir);
-    
+    const prBranchExists = await checkPrBranchExists(
+      resolvedContext.sessionName,
+      gitService,
+      workdir
+    );
+
     if (prBranchExists) {
       // Extract existing PR description
-      const existingPr = await extractPrDescription(resolvedContext.sessionName, gitService, workdir);
-      
+      const existingPr = await extractPrDescription(
+        resolvedContext.sessionName,
+        gitService,
+        workdir
+      );
+
       if (existingPr) {
         log.info(`PR branch for session '${resolvedContext.sessionName}' already exists`);
         return {
@@ -104,5 +109,3 @@ async function checkPrBranchExists(
     return false;
   }
 }
-
- 

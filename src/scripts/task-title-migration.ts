@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Task Title Migration Script
- * 
+ *
  * Migrates task specification documents from old title formats to new clean format:
  * - OLD: "# Task #XXX: Title" → NEW: "# Title"
  * - OLD: "# Task: Title" → NEW: "# Title"
@@ -47,7 +47,9 @@ export class TaskTitleMigration {
   /**
    * Migrate all task specification files
    */
-  async migrateAllTasks(options: MigrationOptions = { dryRun: false, backup: true, verbose: false }): Promise<MigrationResult> {
+  async migrateAllTasks(
+    options: MigrationOptions = { dryRun: false, backup: true, verbose: false }
+  ): Promise<MigrationResult> {
     const result: MigrationResult = {
       success: false,
       totalFiles: 0,
@@ -88,7 +90,9 @@ export class TaskTitleMigration {
         }
         if (options.verbose && migrationResult.wasModified) {
           const status = options.dryRun ? "[DRY RUN]" : "[MIGRATED]";
-          console.log(`${status} ${filePath}: "${migrationResult.oldTitle}" → "${migrationResult.newTitle}"`);
+          console.log(
+            `${status} ${filePath}: "${migrationResult.oldTitle}" → "${migrationResult.newTitle}"`
+          );
         }
       }
       result.success = result.errors.length === 0;
@@ -101,7 +105,7 @@ export class TaskTitleMigration {
         console.log(`  Errors: ${result.errors.length}`);
         if (result.errors.length > 0) {
           console.log("\nErrors:");
-          result.errors.forEach(error => console.log(`  - ${error}`));
+          result.errors.forEach((error) => console.log(`  - ${error}`));
         }
       }
     } catch (error) {
@@ -124,9 +128,9 @@ export class TaskTitleMigration {
     try {
       // Read the file
       const content = await readFile(filePath, "utf-8");
-      const lines = (content).toString().split("\n");
+      const lines = content.toString().split("\n");
       // Find the title line
-      const titleLineIndex = lines.findIndex(line => line.startsWith("# "));
+      const titleLineIndex = lines.findIndex((line) => line.startsWith("# "));
       if (titleLineIndex === -1) {
         result.error = "No title line found";
         return result;
@@ -168,7 +172,7 @@ export class TaskTitleMigration {
   private extractCleanTitle(titleLine: string): string | null {
     // Handle different title formats:
     // 1. "# Task #XXX: Title" → "Title"
-    // 2. "# Task: Title" → "Title"  
+    // 2. "# Task: Title" → "Title"
     // 3. "# Title" → "Title" (already clean)
     const titleWithIdMatch = titleLine.match(/^# Task #\d+: (.+)$/);
     if (titleWithIdMatch && titleWithIdMatch[1]) {
@@ -199,7 +203,7 @@ export class TaskTitleMigration {
     }
     try {
       const entries = await readdir(tasksDir, { withFileTypes: true });
-      
+
       for (const entry of entries) {
         if (entry.isFile() && entry.name.endsWith(".md")) {
           // Check if it's a task file (starts with number)
@@ -220,7 +224,7 @@ export class TaskTitleMigration {
     const backupDir = join(this.workspacePath, ".task-migration-backup", this.backupTimestamp);
     await mkdir(backupDir, { recursive: true });
     const taskFiles = await this.findTaskSpecFiles();
-    
+
     for (const filePath of taskFiles) {
       const fileName = filePath.split("/").pop()!;
       const backupPath = join(backupDir, fileName);
@@ -253,8 +257,8 @@ export class TaskTitleMigration {
     for (const filePath of taskFiles) {
       try {
         const content = await readFile(filePath, "utf-8");
-        const lines = (content).toString().split("\n");
-        const titleLine = lines.find(line => line.startsWith("# "));
+        const lines = content.toString().split("\n");
+        const titleLine = lines.find((line) => line.startsWith("# "));
         if (!titleLine) {
           errors.push(`${filePath}: No title line found`);
           continue;
@@ -282,27 +286,30 @@ if (import.meta.main) {
     verbose: args.includes("--verbose") || args.includes("-v"),
     rollback: args.includes("--rollback"),
   };
-  const workspacePath = args.find(arg => arg.startsWith("--workspace="))?.split("=")[1] || process.cwd();
+  const workspacePath =
+    args.find((arg) => arg.startsWith("--workspace="))?.split("=")[1] || process.cwd();
   const migration = new TaskTitleMigration(workspacePath);
   if (options.rollback) {
-    const backupPath = args.find(arg => arg.startsWith("--backup-path="))?.split("=")[1];
+    const backupPath = args.find((arg) => arg.startsWith("--backup-path="))?.split("=")[1];
     if (!backupPath) {
       console.error("Error: --rollback requires --backup-path=<path>");
       exit(1);
     }
-    
-    migration.rollback(backupPath)
+
+    migration
+      .rollback(backupPath)
       .then(() => {
         console.log("Rollback completed successfully");
         exit(0);
       })
-      .catch(error => {
+      .catch((error) => {
         console.error(`Rollback failed: ${error.message}`);
         exit(1);
       });
   } else {
-    migration.migrateAllTasks(options)
-      .then(result => {
+    migration
+      .migrateAllTasks(options)
+      .then((result) => {
         if (result.success) {
           console.log(`Migration ${options.dryRun ? "preview" : "completed"} successfully`);
           exit(0);
@@ -311,9 +318,9 @@ if (import.meta.main) {
           exit(1);
         }
       })
-      .catch(error => {
+      .catch((error) => {
         console.error(`Migration error: ${error.message}`);
         exit(1);
       });
   }
-} 
+}

@@ -1,0 +1,60 @@
+# Enhanced Implementation Verification Protocol
+
+## MANDATORY TRIGGER SYSTEM
+
+**This rule AUTOMATICALLY ACTIVATES when using completion language:**
+- "successfully", "completed", "working", "verified", "implemented", "finished", "done"
+
+## FORCED VERIFICATION PROTOCOL
+
+**BEFORE using ANY completion language, MUST:**
+
+1. **STOP** - Identify what success means quantifiably
+2. **VERIFY** - Run the actual verification command  
+3. **SHOW** - Display the numeric result
+4. **EVALUATE** - Only proceed if result shows success criteria met
+
+## MANDATORY VERIFICATION COMMANDS
+
+**For ESLint rule tasks:**
+```bash
+# MUST show 0 for completion
+bun lint 2>&1 | grep "[rule-name]" | wc -l
+```
+
+**For pattern migration tasks:**
+```bash
+# MUST show 0 for completion  
+grep -r "[pattern]" --include="*.ts" src/ | wc -l
+```
+
+**For test functionality:**
+```bash
+# MUST show passing tests
+bun test [relevant-test-files]
+```
+
+## ENFORCEMENT LANGUAGE
+
+**❌ FORBIDDEN without verification:**
+- "Successfully [anything]"
+- "Working correctly" 
+- "Completed"
+- "Verified working"
+
+**✅ REQUIRED if metrics show incomplete:**
+- "Partial progress: X→Y remaining"
+- "In progress: N issues left"
+- "Code written, needs verification"
+
+**✅ ONLY after showing 0/success metrics:**
+- "Verified complete: [command output showing 0]"
+- "Confirmed working: [test output]"
+
+## SYSTEMATIC PREVENTION
+
+**This rule creates a FORCING FUNCTION:**
+1. Completion language triggers mandatory verification
+2. Must show actual command output
+3. Must demonstrate success criteria met
+4. Cannot proceed without proof

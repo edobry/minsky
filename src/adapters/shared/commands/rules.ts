@@ -398,7 +398,7 @@ export function registerRulesCommands(): void {
     parameters: rulesGetCommandParams,
     execute: async (params: any) => {
       log.debug("Executing rules.get command", { params });
-        
+
       const typedParams = params as RulesGetParams;
 
       try {
@@ -499,7 +499,7 @@ export function registerRulesCommands(): void {
     parameters: rulesCreateCommandParams,
     execute: async (params: any) => {
       log.debug("Executing rules.create command", { params });
-        
+
       const typedParams = params as RulesCreateParams;
 
       try {
@@ -556,7 +556,7 @@ export function registerRulesCommands(): void {
     parameters: rulesUpdateCommandParams,
     execute: async (params: any) => {
       log.debug("Executing rules.update command"!, { params });
-      
+
       const typedParams = params as RulesUpdateParams;
 
       try {

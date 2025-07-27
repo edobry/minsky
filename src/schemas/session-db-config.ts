@@ -1,6 +1,6 @@
 /**
  * Session Database Configuration Schema Definitions
- * 
+ *
  * This module provides Zod schemas for validating session database configuration,
  * replacing unsafe `(config as unknown)` patterns with proper validation.
  */
@@ -108,14 +108,14 @@ export function validateNodeConfig(nodeConfig: unknown): SessionDbConfig {
  */
 export function isValidBackendConfig(config: SessionDbConfig, backend: SessionDbBackend): boolean {
   switch (backend) {
-  case "json":
-    return jsonSessionDbConfigSchema.safeParse(config).success;
-  case "sqlite":
-    return sqliteSessionDbConfigSchema.safeParse(config).success;
-  case "postgres":
-    return postgresSessionDbConfigSchema.safeParse(config).success;
-  default:
-    return false;
+    case "json":
+      return jsonSessionDbConfigSchema.safeParse(config).success;
+    case "sqlite":
+      return sqliteSessionDbConfigSchema.safeParse(config).success;
+    case "postgres":
+      return postgresSessionDbConfigSchema.safeParse(config).success;
+    default:
+      return false;
   }
 }
 
@@ -124,13 +124,13 @@ export function isValidBackendConfig(config: SessionDbConfig, backend: SessionDb
  */
 export function getBackendConfig(config: SessionDbConfig, backend: SessionDbBackend) {
   switch (backend) {
-  case "json":
-    return jsonSessionDbConfigSchema.parse(config);
-  case "sqlite":
-    return sqliteSessionDbConfigSchema.parse(config);
-  case "postgres":
-    return postgresSessionDbConfigSchema.parse(config);
-  default:
-    throw new Error(`Invalid backend: ${backend}`);
+    case "json":
+      return jsonSessionDbConfigSchema.parse(config);
+    case "sqlite":
+      return sqliteSessionDbConfigSchema.parse(config);
+    case "postgres":
+      return postgresSessionDbConfigSchema.parse(config);
+    default:
+      throw new Error(`Invalid backend: ${backend}`);
   }
-} 
+}

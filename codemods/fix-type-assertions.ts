@@ -10,7 +10,7 @@ const fixes: Fix[] = [];
 
 function fixTypeAssertions(): void {
   console.log("🚀 Starting type assertion fixes...");
-  
+
   const project = new Project({
     tsConfigFilePath: "tsconfig.json",
     skipAddingFilesFromTsConfig: true,
@@ -30,7 +30,7 @@ function fixTypeAssertions(): void {
     try {
       // Skip files with syntax errors
       const diagnostics = sourceFile.getPreEmitDiagnostics();
-      const syntaxErrors = diagnostics.filter(d => d.getCategory() === 1); // Error category
+      const syntaxErrors = diagnostics.filter((d) => d.getCategory() === 1); // Error category
       if (syntaxErrors.length > 0) {
         console.log(`⚠️  Skipping ${filePath} due to syntax errors`);
         continue;
@@ -41,30 +41,38 @@ function fixTypeAssertions(): void {
     }
 
     // Find property access expressions that access unknown types
-    const propertyAccessExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression);
-    
+    const propertyAccessExpressions = sourceFile.getDescendantsOfKind(
+      SyntaxKind.PropertyAccessExpression
+    );
+
     for (const propAccess of propertyAccessExpressions) {
       const expression = propAccess.getExpression();
       const propertyName = propAccess.getName();
-      
+
       // Look for common patterns like params.id, args.content, etc.
       if (Node.isIdentifier(expression)) {
         const varName = expression.getText();
-        
+
         // If this is accessing properties on 'params' or 'args' that are unknown
-        if ((varName === "params" || varName === "args") && 
-            (propertyName === "id" || propertyName === "content" || propertyName === "format" || 
-             propertyName === "debug" || propertyName === "name" || propertyName === "description")) {
-          
+        if (
+          (varName === "params" || varName === "args") &&
+          (propertyName === "id" ||
+            propertyName === "content" ||
+            propertyName === "format" ||
+            propertyName === "debug" ||
+            propertyName === "name" ||
+            propertyName === "description")
+        ) {
           // Check if we're in a function that has typed parameters
-          const functionDecl = propAccess.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
-                              propAccess.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
-                              propAccess.getFirstAncestorByKind(SyntaxKind.MethodDeclaration);
-          
+          const functionDecl =
+            propAccess.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
+            propAccess.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
+            propAccess.getFirstAncestorByKind(SyntaxKind.MethodDeclaration);
+
           if (functionDecl) {
             const parameters = functionDecl.getParameters();
-            const paramsParam = parameters.find(p => p.getName() === varName);
-            
+            const paramsParam = parameters.find((p) => p.getName() === varName);
+
             if (paramsParam) {
               const typeNode = paramsParam.getTypeNode();
               if (typeNode && typeNode.getText() === "unknown") {
@@ -72,33 +80,37 @@ function fixTypeAssertions(): void {
                 const block = functionDecl.getBody();
                 if (Node.isBlock(block)) {
                   const statements = block.getStatements();
-                  const typeAssertionStmt = statements.find(stmt => {
+                  const typeAssertionStmt = statements.find((stmt) => {
                     if (Node.isVariableStatement(stmt)) {
                       const declarations = stmt.getDeclarationList().getDeclarations();
-                      return declarations.some(decl => {
+                      return declarations.some((decl) => {
                         const initializer = decl.getInitializer();
-                        return Node.isAsExpression(initializer) && 
-                               Node.isIdentifier(initializer.getExpression()) &&
-                               initializer.getExpression().getText() === varName;
+                        return (
+                          Node.isAsExpression(initializer) &&
+                          Node.isIdentifier(initializer.getExpression()) &&
+                          initializer.getExpression().getText() === varName
+                        );
                       });
                     }
                     return false;
                   });
-                  
+
                   if (typeAssertionStmt) {
                     // Find the typed variable name
-                    const declarations = (typeAssertionStmt as any).getDeclarationList().getDeclarations();
+                    const declarations = (typeAssertionStmt as any)
+                      .getDeclarationList()
+                      .getDeclarations();
                     const typedVarName = declarations[0].getName();
-                    
+
                     // Replace params.property with typedParams.property
                     const newText = `${typedVarName}.${propertyName}`;
                     propAccess.replaceWithText(newText);
                     fileChanged = true;
-                    
+
                     fixes.push({
                       file: filePath,
                       line: propAccess.getStartLineNumber(),
-                      description: `Fixed type assertion: ${varName}.${propertyName} → ${newText}`
+                      description: `Fixed type assertion: ${varName}.${propertyName} → ${newText}`,
                     });
                     totalFixes++;
                   }
@@ -112,31 +124,31 @@ function fixTypeAssertions(): void {
 
     // Find object literal properties that need renaming
     const objectLiterals = sourceFile.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression);
-    
+
     for (const objectLiteral of objectLiterals) {
       const properties = objectLiteral.getProperties();
-      
+
       for (const property of properties) {
         if (Node.isPropertyAssignment(property)) {
           const nameNode = property.getNameNode();
           if (Node.isIdentifier(nameNode)) {
             const propName = nameNode.getText();
-            
+
             // Fix common property name issues
             const propertyFixes: Record<string, string> = {
-              "_parameters": "parameters",
-              "params": "parameters"
+              _parameters: "parameters",
+              params: "parameters",
             };
-            
+
             if (propertyFixes[propName]) {
               const newName = propertyFixes[propName];
               nameNode.replaceWithText(newName);
               fileChanged = true;
-              
+
               fixes.push({
                 file: filePath,
                 line: property.getStartLineNumber(),
-                description: `Fixed property name: ${propName} → ${newName}`
+                description: `Fixed property name: ${propName} → ${newName}`,
               });
               totalFixes++;
             }
@@ -171,4 +183,4 @@ if (fixes.length > 0) {
   });
 }
 
-console.log(`\n✅ Type assertion fix completed!`); 
+console.log(`\n✅ Type assertion fix completed!`);

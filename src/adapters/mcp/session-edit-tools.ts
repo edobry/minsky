@@ -16,7 +16,7 @@ import { getErrorMessage } from "../../errors/index";
  * Interface for edit file operation
  */
 interface EditFileArgs {
-  session: string;
+  sessionName: string;
   path: string;
   instructions: string;
   content: string;
@@ -27,7 +27,7 @@ interface EditFileArgs {
  * Interface for search replace operation
  */
 interface SearchReplaceArgs {
-  session: string;
+  sessionName: string;
   path: string;
   search: string;
   replace: string;
@@ -41,10 +41,10 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
 
   // Session edit file tool
   commandMapper.addCommand({
-    name: "session_edit_file",
+    name: "session.edit_file",
     description: "Edit a file within a session workspace using a diff-like format",
     parameters: z.object({
-      session: z.string().describe("Session identifier (name or task ID)"),
+      sessionName: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
       instructions: z.string().describe("Instructions describing the edit to make"),
       content: z.string().describe("The edit content with '// ... existing code ...' markers"),
@@ -56,7 +56,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
     }),
     handler: async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
         // Check if file exists
         let fileExists = false;
@@ -98,7 +98,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         await writeFile(resolvedPath, finalContent, "utf8");
 
         log.debug("Session file edit successful", {
-          session: args.session,
+          session: args.sessionName,
           path: args.path,
           resolvedPath,
           fileExisted: fileExists,
@@ -108,7 +108,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         return {
           success: true,
           path: args.path,
-          session: args.session,
+          session: args.sessionName,
           edited: true,
           created: !fileExists,
           bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
@@ -116,7 +116,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file edit failed", {
-          session: args.session,
+          session: args.sessionName,
           path: args.path,
           error: errorMessage,
         });
@@ -125,7 +125,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           success: false,
           error: errorMessage,
           path: args.path,
-          session: args.session,
+          session: args.sessionName,
         };
       }
     },
@@ -133,17 +133,17 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
 
   // Session search replace tool
   commandMapper.addCommand({
-    name: "session_search_replace",
+    name: "session.search_replace",
     description: "Replace a single occurrence of text in a file within a session workspace",
     parameters: z.object({
-      session: z.string().describe("Session identifier (name or task ID)"),
+      sessionName: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
       search: z.string().describe("Text to search for (must be unique in the file)"),
       replace: z.string().describe("Text to replace with"),
     }),
     handler: async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
         // Validate file exists
         await pathResolver.validatePathExists(resolvedPath);
@@ -171,7 +171,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         await writeFile(resolvedPath, newContent, "utf8");
 
         log.debug("Session search replace successful", {
-          session: args.session,
+          session: args.sessionName,
           path: args.path,
           resolvedPath,
           searchLength: args.search.length,
@@ -181,7 +181,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         return {
           success: true,
           path: args.path,
-          session: args.session,
+          session: args.sessionName,
           replaced: true,
           searchText: args.search,
           replaceText: args.replace,
@@ -189,7 +189,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session search replace failed", {
-          session: args.session,
+          session: args.sessionName,
           path: args.path,
           error: errorMessage,
         });
@@ -198,7 +198,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           success: false,
           error: errorMessage,
           path: args.path,
-          session: args.session,
+          session: args.sessionName,
         };
       }
     },
@@ -230,8 +230,8 @@ function applyEditPattern(originalContent: string, editContent: string): string 
 
   // Process each pair of before/after content around the markers
   for (let i = 0; i < editParts.length - 1; i++) {
-    const beforeContent = editParts[i].trim() || "";
-    const afterContent = editParts[i + 1].trim() || "";
+    const beforeContent = editParts[i]?.trim() || "";
+    const afterContent = editParts[i + 1]?.trim() || "";
 
     // Find where to apply this edit
     if (i === 0 && beforeContent) {
@@ -245,7 +245,7 @@ function applyEditPattern(originalContent: string, editContent: string): string 
       let endIndex = result.length;
       if (i < editParts.length - 2) {
         // There's another edit section, find where it starts
-        const nextBefore = editParts[i + 2].trim() || "";
+        const nextBefore = editParts[i + 2]?.trim() || "";
         const nextStart = result.indexOf(nextBefore, startIndex + beforeContent.length);
         if (nextStart !== -1) {
           endIndex = nextStart;
