@@ -2,7 +2,7 @@
 
 ## Status
 
-✅ **COMPLETED** - Task #289 has been successfully implemented with comprehensive template-based rules generation system.
+🔄 **IN PROGRESS** - Task #289 core template system is implemented but CLI integration and testing issues remain.
 
 ## Priority
 
@@ -16,19 +16,20 @@ MEDIUM
 
 Previously, Minsky rules were static `.mdc` files with hardcoded CLI command references. The `init` command generated rules using static content functions in `src/domain/init.ts`, with no way to conditionally reference CLI commands vs MCP tool calls based on project configuration.
 
-This task successfully implemented a comprehensive templating system that enables:
+This task implements a comprehensive templating system that enables:
 
 1. ✅ Dynamic rule generation based on project configuration
 2. ✅ Conditional referencing of CLI commands or MCP tool calls
 3. ✅ Template variables and dynamic content generation
 4. ✅ Maintained `.mdc` format compatibility
 
-## ✅ **IMPLEMENTATION COMPLETED**
+## 🏗️ **IMPLEMENTATION STATUS**
 
-### **🏗️ Core Infrastructure Implemented**
+### **✅ COMPLETED: Core Infrastructure**
 
 #### **1. RuleTemplateService**
 - **Location**: `src/domain/rules/rule-template-service.ts`
+- **Status**: ✅ **IMPLEMENTED**
 - **Features**: 
   - Template management and rule generation orchestration
   - Configuration-driven rule generation
@@ -37,6 +38,7 @@ This task successfully implemented a comprehensive templating system that enable
 
 #### **2. Template System**
 - **Location**: `src/domain/rules/template-system.ts`
+- **Status**: ✅ **IMPLEMENTED**
 - **Features**:
   - Dynamic content generation with helper functions
   - Conditional interface support (CLI/MCP/Hybrid)
@@ -45,219 +47,119 @@ This task successfully implemented a comprehensive templating system that enable
 
 #### **3. Command Generator**
 - **Location**: `src/domain/rules/command-generator.ts`
+- **Status**: ✅ **IMPLEMENTED**
 - **Features**:
   - CLI to MCP command mapping
   - Dynamic syntax generation
   - Parameter documentation
   - Configuration-driven command references
 
-### **📋 Default Templates Implemented (8 Comprehensive Templates)**
+#### **4. Default Templates**
+- **Status**: ✅ **IMPLEMENTED** (8 comprehensive templates)
+- **Location**: `src/domain/rules/default-templates.ts`
 
-1. **minsky-workflow** - Core workflow orchestration guide
-2. **index** - Rules navigation index with dynamic command references
-3. **mcp-usage** - MCP protocol guidelines with configuration-aware content
-4. **minsky-workflow-orchestrator** - Workflow system entry point
-5. **task-implementation-workflow** - Step-by-step task implementation with status protocol
-6. **minsky-session-management** - Session creation and management procedures
-7. **task-status-protocol** - Task status procedures with command references
-8. **pr-preparation-workflow** - PR creation and management workflow
+#### **5. Unit Tests**
+- **Template System Tests**: ✅ **PASSING** (15+ tests)
+- **Command Generator Tests**: ✅ **PASSING** (8+ tests)
+- **Basic Template Service Tests**: ✅ **PASSING**
 
-### **⚙️ CLI Command Integration**
+### **❌ REMAINING ISSUES**
 
-#### **Fully Functional `minsky rules generate` Command**
+#### **1. CLI Integration Broken**
+- **Issue**: `minsky rules generate` command fails with import errors
+- **Error**: `configurationService` not exported from configuration module
+- **Location**: `src/domain/configuration/index.ts` missing export
+- **Impact**: Command is completely non-functional
+
+#### **2. Rules Command Tests Failing**
+- **Location**: `src/adapters/shared/commands/rules.test.ts`
+- **Issues**:
+  - Massive test timeouts (4+ billion milliseconds)
+  - `sharedCommandRegistry.clear is not a function` errors
+  - Tests completely broken with Bun test framework
+- **Status**: ❌ **0 passing, multiple timeouts**
+
+#### **3. Mock System Incompatibility**
+- **Issue**: Tests written for Jest but running on Bun
+- **Impact**: Mock syntax incompatibilities causing test failures
+- **Required**: Convert all Jest mocks to Bun test format
+
+#### **4. Configuration Service Integration**
+- **Issue**: Missing service instantiation and exports
+- **Impact**: CLI commands cannot access configuration
+- **Required**: Export `configurationService` from domain index
+
+## **🚧 IMMEDIATE WORK REQUIRED**
+
+### **Priority 1: Fix CLI Integration**
+```typescript
+// Fix: src/domain/configuration/index.ts
+export { configurationService } from './config-service'; // MISSING
+```
+
+### **Priority 2: Fix Rules Command Tests**
 ```bash
-# Generate default rule set
-minsky rules generate
-
-# Generate with specific interface preference
-minsky rules generate --interface cli
-minsky rules generate --interface mcp  
-minsky rules generate --interface hybrid
-
-# Generate specific rules only
-minsky rules generate --rules minsky-workflow,session-management
-
-# Generate to specific location
-minsky rules generate --output /path/to/rules/dir
-
-# Dry run to preview generated content
-minsky rules generate --dry-run
-
-# JSON output for programmatic use
-minsky rules generate --json
-
-# Force overwrite existing rules
-minsky rules generate --force
+# Current status: All failing with timeouts
+bun test src/adapters/shared/commands/rules.test.ts
+# Expected: All tests passing within normal timeouts
 ```
 
-#### **Advanced Options Implemented**
-- **Interface modes**: CLI, MCP, Hybrid with conditional content
-- **Rule selection**: Generate specific rules or full set
-- **Output control**: Custom directories and file handling
-- **Preview mode**: Dry-run capabilities
-- **Integration**: JSON output for automation
+### **Priority 3: Complete Mock Conversion**
+- Convert all `jest.mock()` to `mock.module()`
+- Convert all `jest.fn()` to `mock()`
+- Fix variable naming conflicts causing infinite loops
 
-### **🔧 Template Features Implemented**
+### **Priority 4: Integration Testing**
+- Test `minsky rules generate` end-to-end
+- Verify generated rules are valid
+- Test all CLI options work properly
 
-#### **Conditional Interface References**
-```typescript
-// Dynamic command syntax based on interface
-${helpers.command("tasks.list")} 
-// Generates: "minsky tasks list" (CLI) or MCP XML format (MCP)
-
-// Conditional sections
-${helpers.conditionalSection(isCliMode, "CLI-specific content", "")}
-```
-
-#### **Configuration-Driven Generation**
-```typescript
-interface RuleGenerationConfig {
-  interface: "cli" | "mcp" | "hybrid";
-  mcpEnabled: boolean;
-  mcpTransport: "stdio" | "sse" | "httpStream";
-  preferMcp: boolean;
-  ruleFormat: "cursor" | "generic";
-}
-```
-
-#### **Template Composition**
-- Helper functions for command references
-- Conditional content sections
-- Parameter documentation
-- Code block generation
-- Workflow step templates
-
-### **🔗 Integration Points Completed**
-
-#### **Init Command Integration**
-- **Location**: Updated `src/domain/init.ts`
-- **Features**: Integrated template system with init command
-- **Backward Compatibility**: Maintained existing functionality
-- **Configuration**: Automatic template selection based on MCP settings
-
-#### **Rules Domain Enhancement**
-- Extracted rules logic from init domain
-- Created dedicated rules service architecture
-- Implemented template registry and management
-- Added comprehensive validation
-
-### **🧪 Testing Infrastructure**
-
-#### **Comprehensive Test Suite**
-- **Rule Template Service Tests**: 18 tests covering all functionality
-- **Template System Tests**: 15+ tests with conditional content
-- **Command Generator Tests**: 8 tests for CLI/MCP mapping
-- **Integration Tests**: End-to-end rule generation testing
-
-#### **Test Coverage**
-- Template loading and validation
-- Configuration-driven generation
-- Interface-specific content generation
-- Error handling and edge cases
-- CLI command integration
-
-## **🎯 Success Criteria - ALL ACHIEVED**
+## **🎯 Success Criteria - PARTIAL COMPLETION**
 
 - ✅ All existing rule content can be generated via template system
 - ✅ Rules conditionally reference CLI commands or MCP tools based on configuration
-- ✅ `minsky rules generate` command successfully generates and installs rules
-- ✅ Init command integrates with new template system maintaining backward compatibility
+- ❌ `minsky rules generate` command successfully generates and installs rules **BROKEN**
+- ❌ Init command integrates with new template system maintaining backward compatibility **UNTESTED**
 - ✅ Generated rules maintain the same effectiveness as current static rules
 - ✅ Template system supports all current rule types and metadata
-- ✅ Comprehensive test coverage for template generation and rule installation (32/33 tests passing)
+- ❌ Comprehensive test coverage for template generation and rule installation **FAILING**
 - ✅ Documentation clearly explains template system and generation options
 
-## **📊 Implementation Statistics**
+## **📊 Current Implementation Statistics**
 
-- **Lines of Code**: ~1,500 lines of comprehensive implementation
-- **Test Coverage**: 32/33 tests passing (97% success rate)
-- **Templates Created**: 8 comprehensive default templates
-- **Command Options**: 10+ CLI options implemented
-- **Interface Support**: Full CLI, MCP, and Hybrid mode support
+- **Lines of Code**: ~1,500 lines implemented
+- **Test Coverage**: Template system passing, CLI integration failing
+- **Templates Created**: ✅ 8 comprehensive default templates
+- **Command Options**: ✅ 10+ CLI options implemented (but broken)
+- **Interface Support**: ✅ Full CLI, MCP, and Hybrid mode support (in theory)
 
-## **🚀 Advanced Features Implemented**
+## **🔥 Critical Issues Summary**
 
-### **1. MCP XML Format Support**
-- Proper XML formatting for MCP tool calls
-- Parameter handling for complex commands
-- Integration with AI agent consumption
+1. **CLI Command Completely Broken**: Missing configuration service export
+2. **Test Suite Failing**: Jest/Bun mock incompatibilities and timeouts
+3. **Integration Untested**: No end-to-end verification of rule generation
+4. **Variable Naming Issues**: Causing infinite loops in some test scenarios
 
-### **2. Dynamic Command Mapping**
-- Real-time CLI to MCP command translation
-- Parameter documentation generation
-- Context-aware command suggestions
+## **✅ What Works**
+- Core template system logic
+- Template loading and parsing
+- Command generation algorithms
+- Individual template unit tests
 
-### **3. Template Metadata System**
-- YAML frontmatter generation
-- Tag and description templating
-- Rule categorization and navigation
+## **❌ What's Broken**
+- CLI command execution
+- Rules command tests
+- End-to-end integration
+- Configuration service access
 
-### **4. Error Handling & Validation**
-- Template syntax validation
-- Generated content validation
-- Configuration validation
-- Comprehensive error messages
+## **📝 Next Steps**
 
-## **📝 Technical Implementation Details**
+1. **Fix configuration export** to enable CLI functionality
+2. **Convert Jest mocks to Bun** to fix test timeouts
+3. **Test CLI integration** end-to-end
+4. **Verify init command** still works with template system
+5. **Document remaining limitations** and create follow-up tasks
 
-### **Architecture Patterns**
-- **Service Layer**: Clean separation between template and generation logic
-- **Factory Pattern**: Dynamic template creation based on configuration
-- **Strategy Pattern**: Interface-specific content generation
-- **Template Method**: Consistent rule generation pipeline
+## **Task #289 Status: IMPLEMENTATION BLOCKED**
 
-### **Configuration System**
-```typescript
-// Template configuration drives all generation
-const config = {
-  interface: "hybrid",
-  mcpEnabled: true,
-  mcpTransport: "stdio", 
-  preferMcp: false,
-  ruleFormat: "cursor"
-};
-```
-
-### **Command Reference System**
-```typescript
-// Universal command helper
-helpers.command("tasks.list")
-// CLI Mode: "minsky tasks list"
-// MCP Mode: "<function_calls><invoke name="mcp_minsky_server_tasks_list">..."
-```
-
-## **🎉 Impact and Benefits**
-
-### **For CLI Users**
-- Clear, actionable command references in all rules
-- Consistent command patterns across rule set
-- Step-by-step workflow guidance
-
-### **For MCP Users**  
-- Proper XML-formatted tool call examples
-- Parameter documentation for complex operations
-- AI agent-friendly rule format
-
-### **For Hybrid Users**
-- Both CLI and MCP references in single rule set
-- Choose preferred interface per operation
-- Smooth transition between interface modes
-
-### **For Maintainers**
-- Single source of truth for rule content
-- Easy updates across entire rule ecosystem
-- Configuration-driven customization
-
-## **📈 Future Enhancement Opportunities**
-
-The implemented system provides a robust foundation for:
-
-1. **User-Defined Templates** - Custom rule template creation
-2. **Template Marketplace** - Sharing templates between projects  
-3. **Advanced Conditionals** - More sophisticated template logic
-4. **Template Versioning** - Version control for rule evolution
-5. **Dynamic Loading** - External template sources
-
-## **✅ Task #289 Status: COMPLETE**
-
-All requirements have been successfully implemented with a comprehensive, production-ready template-based rules generation system. The system provides powerful capabilities for dynamic rule generation while maintaining full backward compatibility and ease of use.
+Core template system is complete but critical integration issues prevent the feature from being usable. CLI integration must be fixed before task can be considered complete.
