@@ -12,9 +12,9 @@ import {
 mock.module("./command-generator", () => {
   const mockCommandSyntax = (commandId: string, config: any) => {
     if (config.interfaceMode === "cli") {
-      return `minsky ${commandId.replace(".", " ")}`;
+      return `minsky ${commandId.replace(/\./g, " ")}`;
     } else {
-      return `mcp_minsky_server_${commandId}(...)`;
+      return `<function_calls><invoke name="mcp_minsky-server_${commandId.replace(/\./g, "_")}"></invoke></function_calls>`;
     }
   };
   
@@ -22,15 +22,34 @@ mock.module("./command-generator", () => {
     return `Documentation for ${commandId}`;
   };
   
-  const mockService = {
-    getCommandSyntax: mock(mockCommandSyntax),
-    getCommandsByCategory: mock(),
-    getParameterDocumentation: mock(mockDocumentation),
-    updateConfig: mock()
-  };
+  // Mock the service class
+  class MockCommandGeneratorService {
+    private config: any;
+    
+    constructor(config: any) {
+      this.config = config;
+    }
+    
+    getCommandSyntax(commandId: string): string | null {
+      return mockCommandSyntax(commandId, this.config);
+    }
+    
+    getCommandsByCategory() {
+      return [];
+    }
+    
+    getParameterDocumentation(commandId: string): string {
+      return mockDocumentation(commandId);
+    }
+    
+    updateConfig() {
+      // Mock implementation
+    }
+  }
   
   return {
-    createCommandGeneratorService: mock(() => mockService),
+    createCommandGeneratorService: mock((config: any) => new MockCommandGeneratorService(config)),
+    CommandGeneratorService: MockCommandGeneratorService,
     getCommandSyntax: mock(mockCommandSyntax),
     getParameterDocumentation: mock(mockDocumentation)
   };
@@ -90,7 +109,8 @@ describe("Template System", () => {
     
     test("MCP context should generate MCP command references", () => {
       const result = mcpContext.helpers.command("tasks.list", "list tasks");
-      expect(result).toBe("mcp_minsky_server_tasks.list(...) - list tasks");
+      expect(result).toContain("mcp_minsky-server_tasks_list");
+      expect(result).toContain(" - list tasks");
     });
     
     test("Hybrid context should default to CLI references when preferMcp is false", () => {
@@ -160,7 +180,7 @@ describe("Template System", () => {
     test("should generate MCP workflow step", () => {
       const result = mcpContext.helpers.workflowStep("tasks.list", "List all tasks");
       expect(result).toContain("**List all tasks**");
-      expect(result).toContain("mcp_minsky_server_tasks.list");
+      expect(result).toContain("mcp_minsky-server_tasks_list");
     });
     
     // TODO: Fix mock syntax for this test
@@ -198,3 +218,58 @@ describe("Template System", () => {
     });
   });
 }); 
+// Mock the command generator
+mock.module("./command-generator", () => {
+  const mockCommandSyntax = (commandId: string, config: any) => {
+    // Handle different interface modes based on the command generator config
+    if (config.interfaceMode === "cli") {
+      return `minsky ${commandId.replace(/\./g, " ")}`;
+    } else if (config.interfaceMode === "mcp") {
+      return `<function_calls><invoke name="mcp_minsky-server_${commandId.replace(/\./g, "_")}"></invoke></function_calls>`;
+    } else if (config.interfaceMode === "hybrid") {
+      // For hybrid mode, check preferMcp flag
+      if (config.preferMcp) {
+        return `<function_calls><invoke name="mcp_minsky-server_${commandId.replace(/\./g, "_")}"></invoke></function_calls>`;
+      } else {
+        return `minsky ${commandId.replace(/\./g, " ")}`;
+      }
+    }
+    return `minsky ${commandId.replace(/\./g, " ")}`;
+  };
+  
+  const mockDocumentation = (commandId: string) => {
+    return `Documentation for ${commandId}`;
+  };
+  
+  // Mock the service class
+  class MockCommandGeneratorService {
+    private config: any;
+    
+    constructor(config: any) {
+      this.config = config;
+    }
+    
+    getCommandSyntax(commandId: string): string | null {
+      return mockCommandSyntax(commandId, this.config);
+    }
+    
+    getCommandsByCategory() {
+      return [];
+    }
+    
+    getParameterDocumentation(commandId: string): string {
+      return mockDocumentation(commandId);
+    }
+    
+    updateConfig() {
+      // Mock implementation
+    }
+  }
+  
+  return {
+    createCommandGeneratorService: mock((config: any) => new MockCommandGeneratorService(config)),
+    CommandGeneratorService: MockCommandGeneratorService,
+    getCommandSyntax: mock(mockCommandSyntax),
+    getParameterDocumentation: mock(mockDocumentation)
+  };
+});
