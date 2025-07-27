@@ -166,7 +166,30 @@ export interface ValidationWarning {
   code: string;
 }
 
-// AI Provider Configuration Types
+// AI Configuration Types
+export interface AIProviderConfig {
+  api_key?: string;
+  api_key_file?: string;
+  enabled?: boolean;
+  default_model?: string;
+  base_url?: string;
+  models?: string[];
+  max_tokens?: number;
+  temperature?: number;
+}
+
+export interface AIConfig {
+  default_provider?: string;
+  providers?: {
+    openai?: AIProviderConfig;
+    anthropic?: AIProviderConfig;
+    google?: AIProviderConfig;
+    cohere?: AIProviderConfig;
+    mistral?: AIProviderConfig;
+  };
+}
+
+// Legacy AI Provider Configuration Types (for backward compatibility)
 export interface AIProviderRepoConfig {
   default_model?: string;
   base_url?: string;
