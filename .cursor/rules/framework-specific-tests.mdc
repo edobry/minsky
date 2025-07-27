@@ -15,12 +15,18 @@ import { jest, mock } from "bun:test";
 const mockFn = jest.fn();
 
 // ✅ USE PROJECT UTILITIES
-import { createMock, mockModule, setupTestMocks } from "../../utils/test-utils/mocking";
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
+import { createMockLogger } from "../utils/test-utils/logger-mock";
 setupTestMocks();
 const mockFn = createMock();
+const mockLog = createMockLogger();
 ```
 
-See [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) for comprehensive guidance on using these utilities.
+## Comprehensive Documentation & Enforcement
+
+- **Complete Guide**: See `docs/bun-test-patterns.md` for comprehensive migration guidelines, best practices, and examples
+- **ESLint Enforcement**: Jest patterns are automatically detected and prevented by `src/eslint-rules/no-jest-patterns.js`
+- **Rule Reference**: See [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) for additional guidance on centralized utilities
 
 ## Standard Test Setup
 
@@ -33,7 +39,7 @@ import {
   setupTestMocks,
   createMockObject,
   createMockFileSystem
-} from "../../utils/test-utils/mocking";
+} from "../utils/test-utils/mocking";
 ```
 
 ### Setup Pattern

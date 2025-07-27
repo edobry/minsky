@@ -1,0 +1,1 @@
+Test PR body content from file

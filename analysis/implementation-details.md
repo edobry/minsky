@@ -1,0 +1,633 @@
+# Implementation Details: Session-Task Auto-Creation
+
+## Enhanced Session Start Command Implementation
+
+### Command Schema Changes
+
+**File:** `src/schemas/session.ts`
+
+```typescript
+export const sessionStartParamsSchema = z
+  .object({
+    name: sessionNameSchema.optional().describe("Name for the new session"),
+    repo: repoPathSchema.optional().describe("Repository to start the session in"),
+    task: taskIdSchema.optional().describe("Task ID to associate with the session"),
+
+    // NEW: Auto-creation parameters
+    description: z.string().min(1).optional().describe("Description for auto-created task"),
+    template: z
+      .enum(["bugfix", "feature", "exploration", "maintenance", "hotfix"])
+      .optional()
+      .describe("Template for auto-created task"),
+    cluster: z.string().optional().describe("Cluster name for grouping related work"),
+    purpose: z.string().optional().describe("Purpose for exploration tasks"),
+    notes: z.string().optional().describe("Initial notes for the session"),
+
+    branch: z.string().optional().describe("Branch name to create"),
+    quiet: flagSchema("Suppress output except for the session directory path"),
+    noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task"),
+    skipInstall: flagSchema("Skip automatic dependency installation"),
+    packageManager: z
+      .enum(["bun", "npm", "yarn", "pnpm"])
+      .optional()
+      .describe("Override the detected package manager"),
+  })
+  .merge(commonCommandOptionsSchema)
+  .refine(
+    (data) => {
+      // Either name or task or description must be provided
+      return data.name || data.task || data.description;
+    },
+    {
+      message: "Either session name, task ID, or description must be provided",
+    }
+  );
+```
+
+### Core Logic Implementation
+
+**File:** `src/domain/session.ts`
+
+```typescript
+export async function startSessionFromParams(
+  params: SessionStartParams,
+  depsInput?: SessionStartDeps
+): Promise<Session> {
+  // ... existing validation and setup
+
+  // NEW: Enhanced task association logic
+  let taskId: string | undefined = params.task;
+  let sessionName = params.name;
+
+  if (!taskId && params.description) {
+    // Auto-create task from description
+    const autoTask = await createLightweightTaskFromDescription({
+      description: params.description,
+      template: params.template,
+      cluster: params.cluster,
+      sessionName: sessionName || generateSessionName(),
+      workspacePath: deps.workspaceUtils.getMainWorkspacePath(),
+    });
+
+    taskId = autoTask.id;
+    if (!sessionName) {
+      sessionName = `task${taskId}`;
+    }
+  } else if (!taskId && (params.purpose || params.notes)) {
+    // Create exploration task
+    const explorationTask = await createExplorationTask({
+      purpose: params.purpose || "Investigation",
+      notes: params.notes || "",
+      sessionName: sessionName || generateSessionName(),
+      workspacePath: deps.workspaceUtils.getMainWorkspacePath(),
+    });
+
+    taskId = explorationTask.id;
+    if (!sessionName) {
+      sessionName = `exploration-${Date.now()}`;
+    }
+  } else if (!taskId && !sessionName) {
+    throw new ValidationError("Either session name, task ID, or description must be provided");
+  }
+
+  // Show warnings for taskless sessions
+  if (!taskId) {
+    console.warn("⚠️  Session created without task association");
+    console.warn(
+      "💡 Consider: minsky session start --description 'Brief description' " + sessionName
+    );
+    console.warn("📚 Better tracking: https://docs.minsky.dev/session-task-association");
+  }
+
+  // ... rest of existing session creation logic
+}
+```
+
+## Task Auto-Creation Implementation
+
+### Lightweight Task Creation
+
+**New File:** `src/domain/tasks/lightweightTaskCreation.ts`
+
+```typescript
+import { TaskService } from "./taskService.js";
+import { TASK_TEMPLATES, generateTitleFromDescription } from "./templates.js";
+
+export interface LightweightTaskParams {
+  description: string;
+  template?: string;
+  cluster?: string;
+  sessionName: string;
+  workspacePath: string;
+}
+
+export interface ExplorationTaskParams {
+  purpose: string;
+  notes: string;
+  sessionName: string;
+  workspacePath: string;
+}
+
+export async function createLightweightTaskFromDescription(
+  params: LightweightTaskParams
+): Promise<Task> {
+  const taskService = new TaskService({ workspacePath: params.workspacePath });
+
+  const template = TASK_TEMPLATES[params.template || "general"];
+  const title = generateTitleFromDescription(params.description, template);
+
+  // Create task using existing infrastructure
+  const taskData = await taskService.createTaskFromTitleAndDescription({
+    title,
+    description: template.descriptionTemplate.replace("{description}", params.description),
+    force: false,
+  });
+
+  // Add auto-generation metadata
+  const enhancedTask = {
+    ...taskData,
+    autoGenerated: true,
+    template: params.template || "general",
+    cluster: params.cluster,
+    sessionName: params.sessionName,
+  };
+
+  // Update task with metadata
+  await taskService.setTaskMetadata(enhancedTask.id, {
+    autoGenerated: true,
+    template: params.template || "general",
+    cluster: params.cluster,
+    sessionName: params.sessionName,
+  });
+
+  return enhancedTask;
+}
+
+export async function createExplorationTask(params: ExplorationTaskParams): Promise<Task> {
+  const taskService = new TaskService({ workspacePath: params.workspacePath });
+
+  const title = `Exploration: ${params.purpose}`;
+  const description = `## Investigation Purpose
+${params.purpose}
+
+## Initial Notes
+${params.notes}
+
+## Questions to Answer
+[To be filled in during exploration]
+
+## Findings
+[To be documented as work progresses]
+
+## Next Steps
+[To be determined based on findings]
+
+## Session Context
+- Session: ${params.sessionName}
+- Created: ${new Date().toISOString()}
+- Type: Exploration`;
+
+  const taskData = await taskService.createTaskFromTitleAndDescription({
+    title,
+    description,
+    force: false,
+  });
+
+  return {
+    ...taskData,
+    autoGenerated: true,
+    template: "exploration",
+    sessionName: params.sessionName,
+  };
+}
+```
+
+### Template System
+
+**New File:** `src/domain/tasks/templates.ts`
+
+```typescript
+export interface TaskTemplate {
+  id: string;
+  name: string;
+  titlePrefix?: string;
+  descriptionTemplate: string;
+  defaultStatus: string;
+  suggestedTags: string[];
+}
+
+export const TASK_TEMPLATES: Record<string, TaskTemplate> = {
+  general: {
+    id: "general",
+    name: "General Task",
+    descriptionTemplate: `## Description
+{description}
+
+## Implementation Notes
+[To be filled in]
+
+## Completion Criteria
+[To be filled in]`,
+    defaultStatus: "TODO",
+    suggestedTags: [],
+  },
+
+  bugfix: {
+    id: "bugfix",
+    name: "Bug Fix",
+    titlePrefix: "Fix",
+    descriptionTemplate: `## Bug Description
+{description}
+
+## Steps to Reproduce
+[To be filled in]
+
+## Expected vs Actual Behavior
+[To be filled in]
+
+## Root Cause Analysis
+[To be filled in]
+
+## Resolution
+[To be implemented]
+
+## Testing
+[To be verified]`,
+    defaultStatus: "TODO",
+    suggestedTags: ["bug", "fix"],
+  },
+
+  feature: {
+    id: "feature",
+    name: "Feature Development",
+    titlePrefix: "Add",
+    descriptionTemplate: `## Feature Description
+{description}
+
+## Requirements
+[To be detailed]
+
+## Design Considerations
+[To be filled in]
+
+## Implementation Plan
+[To be created]
+
+## Testing Strategy
+[To be defined]
+
+## Documentation Updates
+[To be identified]`,
+    defaultStatus: "TODO",
+    suggestedTags: ["feature", "enhancement"],
+  },
+
+  maintenance: {
+    id: "maintenance",
+    name: "Maintenance",
+    titlePrefix: "Maintain",
+    descriptionTemplate: `## Maintenance Task
+{description}
+
+## Scope
+[To be defined]
+
+## Impact Analysis
+[To be assessed]
+
+## Dependencies
+[To be identified]
+
+## Rollback Plan
+[If applicable]
+
+## Completion Criteria
+[To be specified]`,
+    defaultStatus: "TODO",
+    suggestedTags: ["maintenance", "chore"],
+  },
+
+  hotfix: {
+    id: "hotfix",
+    name: "Hotfix",
+    titlePrefix: "Hotfix",
+    descriptionTemplate: `## Hotfix Description
+{description}
+
+## Urgency Level
+[Critical/High/Medium]
+
+## Risk Assessment
+[To be evaluated]
+
+## Quick Fix
+[Immediate solution]
+
+## Long-term Solution
+[Follow-up work needed]
+
+## Rollback Plan
+[Emergency rollback procedure]
+
+## Post-Fix Verification
+[Validation checklist]`,
+    defaultStatus: "IN_PROGRESS",
+    suggestedTags: ["hotfix", "urgent"],
+  },
+};
+
+export function generateTitleFromDescription(description: string, template?: TaskTemplate): string {
+  // Clean and truncate description for title
+  const cleanDescription = description
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .substring(0, 80);
+
+  // Apply template prefix if available
+  if (template?.titlePrefix) {
+    // Check if description already starts with the prefix
+    const lowerDesc = cleanDescription.toLowerCase();
+    const lowerPrefix = template.titlePrefix.toLowerCase();
+
+    if (!lowerDesc.startsWith(lowerPrefix)) {
+      return `${template.titlePrefix} ${cleanDescription}`;
+    }
+  }
+
+  // Capitalize first letter
+  return cleanDescription.charAt(0).toUpperCase() + cleanDescription.slice(1);
+}
+
+export function generateSessionName(): string {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 8);
+  return `session-${timestamp}-${random}`;
+}
+```
+
+## Enhanced Task Data Model
+
+### Task Interface Extensions
+
+**File:** `src/domain/tasks.ts`
+
+```typescript
+export interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+  specPath?: string;
+  worklog?: Array<{ timestamp: string; message: string }>;
+
+  // NEW: Auto-generation metadata
+  autoGenerated?: boolean;
+  template?: string;
+  cluster?: string;
+  sessionName?: string;
+  createdAt?: string;
+
+  mergeInfo?: {
+    commitHash?: string;
+    mergeDate?: string;
+    mergedBy?: string;
+    baseBranch?: string;
+    prBranch?: string;
+  };
+}
+```
+
+### Enhanced Task Backend
+
+**File:** `src/domain/tasks/taskService.ts`
+
+```typescript
+export class TaskService {
+  // ... existing methods
+
+  async setTaskMetadata(id: string, metadata: any): Promise<void> {
+    const task = await this.getTask(id);
+    if (!task) {
+      throw new Error(`Task ${id} not found`);
+    }
+
+    const updatedTask = { ...task, ...metadata };
+
+    // Update the task spec file with metadata
+    const specPath = task.specPath;
+    if (specPath) {
+      const content = await fs.readFile(specPath, "utf-8");
+      const metadataSection = `
+## Metadata
+- Auto-generated: ${metadata.autoGenerated || false}
+- Template: ${metadata.template || "none"}
+- Cluster: ${metadata.cluster || "none"}
+- Session: ${metadata.sessionName || "none"}
+- Created: ${metadata.createdAt || new Date().toISOString()}
+`;
+
+      const updatedContent = content + metadataSection;
+      await fs.writeFile(specPath, updatedContent);
+    }
+  }
+
+  async createTaskFromTitleAndDescription(params: {
+    title: string;
+    description: string;
+    force?: boolean;
+  }): Promise<Task> {
+    // Create temporary spec file
+    const tempSpecPath = `temp-task-${Date.now()}.md`;
+    const specContent = `# ${params.title}
+
+## Description
+${params.description}
+
+## Status
+TODO
+
+## Implementation
+[To be filled in]
+`;
+
+    await fs.writeFile(tempSpecPath, specContent);
+
+    try {
+      // Use existing createTask method
+      const task = await this.createTask(tempSpecPath, { force: params.force });
+      return task;
+    } finally {
+      // Cleanup temp file
+      await fs.unlink(tempSpecPath).catch(() => {});
+    }
+  }
+}
+```
+
+## CLI Integration
+
+### Command Registration Updates
+
+**File:** `src/adapters/shared/commands/session.ts`
+
+```typescript
+const sessionStartCommandParams: CommandParameterMap = {
+  // ... existing params
+
+  // NEW: Auto-creation parameters
+  description: {
+    schema: z.string().min(1),
+    description: "Description for auto-created task",
+    required: false,
+  },
+  template: {
+    schema: z.enum(["bugfix", "feature", "exploration", "maintenance", "hotfix"]),
+    description: "Template for auto-created task",
+    required: false,
+  },
+  cluster: {
+    schema: z.string(),
+    description: "Cluster name for grouping related work",
+    required: false,
+  },
+  purpose: {
+    schema: z.string(),
+    description: "Purpose for exploration tasks",
+    required: false,
+  },
+  notes: {
+    schema: z.string(),
+    description: "Initial notes for the session",
+    required: false,
+  },
+};
+```
+
+### CLI Help and Examples
+
+**File:** `src/adapters/cli/cli-command-factory.ts`
+
+```typescript
+cliFactory.customizeCategory(CommandCategory.SESSION, {
+  aliases: ["sess"],
+  commandOptions: {
+    "session.start": {
+      parameters: {
+        name: {
+          asArgument: true,
+          description: "Session name (optional if using --task or --description)",
+        },
+        task: {
+          alias: "t",
+          description: "Task ID to associate with the session",
+        },
+        description: {
+          alias: "d",
+          description: "Description for auto-created task",
+        },
+        template: {
+          description: "Template: bugfix, feature, exploration, maintenance, hotfix",
+        },
+        cluster: {
+          alias: "c",
+          description: "Cluster name for grouping related work",
+        },
+      },
+      examples: [
+        {
+          command: "minsky session start --task 123",
+          description: "Start session with existing task",
+        },
+        {
+          command: "minsky session start --description 'Fix login timeout' login-fix",
+          description: "Auto-create task from description",
+        },
+        {
+          command: "minsky session start --template bugfix --description 'Login fails on mobile'",
+          description: "Use template for structured task creation",
+        },
+        {
+          command: "minsky session start --cluster auth-work --description 'OAuth integration'",
+          description: "Group related work with clusters",
+        },
+      ],
+    },
+  },
+});
+```
+
+## Migration and Rollout Strategy
+
+### Phase 1: Foundation (Week 1-2)
+
+1. Implement enhanced schema and command parameters
+2. Add task template system
+3. Create lightweight task creation functions
+4. Add feature flag for auto-creation
+
+### Phase 2: Optional Auto-Creation (Week 3-4)
+
+1. Enable --description parameter
+2. Add warning messages for taskless sessions
+3. Implement basic templates
+4. User testing and feedback
+
+### Phase 3: Encouraged Adoption (Week 5-6)
+
+1. Make warnings more prominent
+2. Add interactive prompts for missing information
+3. Implement clustering features
+4. Documentation and examples
+
+### Phase 4: Default Behavior (Week 7-8)
+
+1. Require explicit --no-task for taskless sessions
+2. Add comprehensive error messages
+3. Task list filtering by auto-generated status
+4. Performance optimizations
+
+### Phase 5: Full Integration (Week 9-10)
+
+1. Remove taskless session support
+2. Advanced clustering and AI integration
+3. Final cleanup and optimization
+4. Complete documentation
+
+## Testing Strategy
+
+### Unit Tests
+
+- Task auto-creation functions
+- Template system
+- Title generation
+- Session creation with various parameter combinations
+
+### Integration Tests
+
+- End-to-end session start with auto-creation
+- Task-session association verification
+- Cluster functionality
+- Migration path validation
+
+### User Acceptance Tests
+
+- Workflow comparison (before/after)
+- Performance benchmarks
+- User experience validation
+- Documentation completeness
+
+## Risk Mitigation
+
+### Technical Risks
+
+1. **Performance Impact**: Async task creation, optimized ID generation
+2. **Storage Growth**: Retention policies, archival system
+3. **Breaking Changes**: Comprehensive backward compatibility
+
+### User Experience Risks
+
+1. **Learning Curve**: Progressive disclosure, excellent documentation
+2. **Workflow Disruption**: Gradual migration, clear benefits communication
+3. **Feature Complexity**: Smart defaults, interactive help
+
+This implementation provides a solid foundation for the session-task auto-creation workflow while addressing the key requirements for documentation, collaboration, and user experience.

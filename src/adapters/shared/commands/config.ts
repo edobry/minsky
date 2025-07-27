@@ -7,12 +7,14 @@
  */
 
 import { z } from "zod";
+import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../command-registry";
-import { configurationService } from "../../../domain/configuration";
+import { has, get, getConfiguration } from "../../../domain/configuration/index";
 import { log } from "../../../utils/logger";
 
 /**
@@ -32,6 +34,11 @@ const configListParams: CommandParameterMap = {
   json: {
     schema: z.boolean().default(false),
     description: "Output in JSON format",
+    required: false,
+  },
+  sources: {
+    schema: z.boolean().default(false),
+    description: "Show configuration sources and precedence",
     required: false,
   },
 };
@@ -55,6 +62,11 @@ const configShowParams: CommandParameterMap = {
     description: "Output in JSON format",
     required: false,
   },
+  sources: {
+    schema: z.boolean().default(false),
+    description: "Show configuration sources and precedence",
+    required: false,
+  },
 };
 
 /**
@@ -67,29 +79,47 @@ const configListRegistration = {
   description: "Show all configuration from all sources",
   parameters: configListParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    const _workspacePath = params.workspace || process.cwd();
-    
     try {
-      // Load configuration with full details
-      const configResult = await configurationService.loadConfiguration(_workspacePath);
-      
+      // Use custom configuration system to get configuration
+      const { getConfigurationProvider } = await import("../../../domain/configuration/index");
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+      const metadata = provider.getMetadata();
+
+      const resolved = {
+        backend: config.backend,
+        backendConfig: config.backendConfig,
+        sessiondb: config.sessiondb,
+        ai: config.ai,
+        github: config.github,
+      };
+
       return {
         success: true,
-        sources: configResult.sources,
-        resolved: configResult.resolved,
+        json: params.json || false,
+        sources: metadata.sources.map((source) => ({
+          name: source.name,
+          priority: source.priority,
+          loaded: source.loaded,
+          path: source.path,
+          error: source.error,
+        })),
+        resolved,
+        showSources: params.sources || false,
       };
-    } catch {
-      log.error("Failed to load configuration", { 
-        _workspacePath, 
-        error: error instanceof Error ? error.message : String(error) 
+    } catch (error) {
+      log.error("Failed to load configuration", {
+        error: getErrorMessage(error as any),
       });
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        json: params.json || false,
+        error: getErrorMessage(error as any),
+        showSources: (params as any).sources || false,
       };
     }
   },
-};
+} as any;
 
 /**
  * Config show command definition
@@ -101,28 +131,41 @@ const configShowRegistration = {
   description: "Show the final resolved configuration",
   parameters: configShowParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    const _workspacePath = params.workspace || process.cwd();
-    
     try {
-      // Load configuration
-      const configResult = await configurationService.loadConfiguration(_workspacePath);
-      
+      // Use custom configuration system to get resolved configuration
+      const config = getConfiguration();
+      const resolved = {
+        backend: config.backend,
+        backendConfig: config.backendConfig,
+        sessiondb: config.sessiondb,
+        ai: config.ai,
+        github: config.github,
+      };
+
       return {
         success: true,
-        configuration: configResult.resolved,
+        json: params.json || false,
+        configuration: resolved,
+        showSources: params.sources || false,
+        ...(params.sources && {
+          sources: [
+            { name: "custom-config", original: "Custom Configuration System", parsed: resolved },
+          ],
+        }),
       };
-    } catch {
-      log.error("Failed to load configuration", { 
-        _workspacePath, 
-        error: error instanceof Error ? error.message : String(error) 
+    } catch (error) {
+      log.error("Failed to load configuration", {
+        error: getErrorMessage(error as any),
       });
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        json: params.json || false,
+        error: getErrorMessage(error as any),
+        showSources: (params as any).sources || false,
       };
     }
   },
-};
+} as any;
 
 /**
  * Register all config commands
@@ -130,4 +173,4 @@ const configShowRegistration = {
 export function registerConfigCommands() {
   sharedCommandRegistry.registerCommand(configListRegistration);
   sharedCommandRegistry.registerCommand(configShowRegistration);
-} 
+}

@@ -1,4 +1,4 @@
-const COMMIT_HASH_SHORT_LENGTH = 7;
+const _COMMIT_HASH_SHORT_LENGTH = 7;
 
 /**
  * Task I/O operations module
@@ -7,12 +7,12 @@ const COMMIT_HASH_SHORT_LENGTH = 7;
 
 import { promises as fs } from "fs";
 import { join, dirname } from "path";
-import { log } from "../../utils/logger.js";
+import { log } from "../../utils/logger";
 import type {
   TaskWriteOperationResult,
   TaskReadOperationResult,
   TaskFileOperationResult,
-} from "../../types/tasks/taskData.js";
+} from "../../types/tasks/taskData";
 
 /**
  * Read the tasks file
@@ -21,14 +21,14 @@ import type {
  */
 export async function readTasksFile(filePath: string): Promise<TaskReadOperationResult> {
   try {
-    const content = await fs.readFile(filePath, "utf-8");
+    const content = String(await fs.readFile(filePath, "utf-8")) as string;
     return {
       success: true,
       filePath,
       content,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to read tasks file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -55,7 +55,7 @@ export async function writeTasksFile(
       filePath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to write tasks file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -72,14 +72,14 @@ export async function writeTasksFile(
  */
 export async function readTaskSpecFile(filePath: string): Promise<TaskReadOperationResult> {
   try {
-    const content = await fs.readFile(filePath, "utf-8");
+    const content = String(await fs.readFile(filePath, "utf-8")) as string;
     return {
       success: true,
       filePath,
       content,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to read task spec file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -103,13 +103,13 @@ export async function writeTaskSpecFile(
     // Create parent directories if they don't exist
     await createDirectory(dirname(filePath));
 
-    await fs.writeFile(_filePath, _content, "utf-COMMIT_HASH_SHORT_LENGTH");
+    await fs.writeFile(filePath, content, "utf8");
     return {
       success: true,
       filePath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to write task spec file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -128,7 +128,7 @@ export async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;
-  } catch (_error) {
+  } catch (error) {
     return false;
   }
 }
@@ -146,7 +146,7 @@ export async function createDirectory(dirPath: string): Promise<TaskFileOperatio
       filePath: dirPath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to create directory: ${dirPath}`, { error: err });
     return {
       success: false,
@@ -171,7 +171,7 @@ export async function deleteFile(filePath: string): Promise<TaskFileOperationRes
       filePath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error as any));
     log.error(`Failed to delete file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -193,9 +193,9 @@ export async function listFiles(dirPath: string): Promise<string[] | null> {
     return files;
   } catch (error) {
     log.error(`Failed to list files in directory: ${dirPath}`, {
-      error: error instanceof Error ? error : String(error),
+      error: error instanceof Error ? error : String(error as any),
     });
-    return null;
+    return null as any;
   }
 }
 
@@ -204,8 +204,8 @@ export async function listFiles(dirPath: string): Promise<string[] | null> {
  * @param workspacePath Workspace path
  * @returns Path to the tasks file
  */
-export function getTasksFilePath(__workspacePath: string): string {
-  return join(__workspacePath, "process", "tasks.md");
+export function getTasksFilePath(workspacePath: string): string {
+  return join(workspacePath, "process", "tasks.md");
 }
 
 /**
@@ -213,8 +213,8 @@ export function getTasksFilePath(__workspacePath: string): string {
  * @param workspacePath Workspace path
  * @returns Path to the task specs directory
  */
-export function getTaskSpecsDirectoryPath(__workspacePath: string): string {
-  return join(__workspacePath, "process", "tasks");
+export function getTaskSpecsDirectoryPath(workspacePath: string): string {
+  return join(workspacePath, "process", "tasks");
 }
 
 /**
@@ -224,12 +224,28 @@ export function getTaskSpecsDirectoryPath(__workspacePath: string): string {
  * @param workspacePath Workspace path
  * @returns Path to the task spec file
  */
-export function getTaskSpecFilePath(
-  __taskId: string,
-  _title: string,
+export function getTaskSpecFilePath(taskId: string, title: string, workspacePath: string): string {
+  const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
+  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
+}
+
+/**
+ * Get task spec path relative to workspace root
+ * Always returns paths relative to the workspace root, regardless of current directory
+ * @param taskId Task ID (with or without # prefix)
+ * @param title Task title
+ * @param workspacePath Workspace path (not used in path construction, kept for compatibility)
+ * @returns Relative path to the task spec file
+ */
+export function getTaskSpecRelativePath(
+  taskId: string,
+  title: string,
   _workspacePath: string
 ): string {
   const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
   const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  return join(getTaskSpecsDirectoryPath(_workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
+
+  // Always return paths relative to workspace root
+  return join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
 }

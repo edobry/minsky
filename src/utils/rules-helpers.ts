@@ -1,4 +1,4 @@
-const COMMIT_HASH_SHORT_LENGTH = 7;
+const _COMMIT_HASH_SHORT_LENGTH = 7;
 
 /**
  * Shared utility functions for rules operations
@@ -18,7 +18,7 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
       const stats = await fs.stat(contentPath);
       if (stats.isFile()) {
         // If it's a file, read its contents
-        const _content = await fs.readFile(_contentPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const content = String(await fs.readFile(contentPath, "utf-8"));
         return content.toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
@@ -29,7 +29,7 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
     return contentPath;
   } catch (error) {
     // Handle missing files by returning the original path as content
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
       return contentPath;
     }
 
@@ -52,7 +52,7 @@ export function parseGlobs(globsStr?: string): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (_error) {
+  } catch (error) {
     // If JSON parsing fails, fall back to comma-separated string
   }
 

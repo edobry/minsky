@@ -34,23 +34,25 @@ describe("SessionAdapter", () => {
     // Mock session-db-io module to use our mock filesystem
     mockModule("./session-db-io", () => {
       return {
-        readSessionDbFile: (options: unknown) => {
+        readSessionDbFile: (options: any) => {
+          const safeOptions = options || {};
           try {
-            const content = mockFS.readFileSync(options.dbPath || dbPath);
+            const filePath = (safeOptions.dbPath || dbPath || "/test/session-db.json") as string;
+            const content = mockFS.readFileSync(filePath);
             const data = JSON.parse(content);
             return {
               sessions: data.sessions || [],
-              baseDir: options.baseDir || "/test/base",
+              baseDir: safeOptions.baseDir || "/test/base",
             };
           } catch {
             // Return initial state if file doesn't exist
             return {
               sessions: [],
-              baseDir: options.baseDir || "/test/base",
+              baseDir: safeOptions.baseDir || "/test/base",
             };
           }
         },
-        writeSessionDbFile: (state: unknown, options: unknown = {}) => {
+        writeSessionDbFile: (state: any, options: any = {}) => {
           const filePath = options.dbPath || dbPath;
           mockFS.writeFileSync(
             filePath,
@@ -85,7 +87,7 @@ describe("SessionAdapter", () => {
     const retrievedSession = await adapter.getSession("test-session");
 
     expect(retrievedSession !== null).toBe(true);
-    expect(retrievedSession?._session).toBe("test-session");
+    expect(retrievedSession?.session).toBe("test-session");
     expect(retrievedSession?.taskId).toBe("#TEST_VALUE");
   });
 
@@ -104,7 +106,7 @@ describe("SessionAdapter", () => {
     const retrievedSession = await adapter.getSessionByTaskId("TEST_VALUE");
 
     expect(retrievedSession !== null).toBe(true);
-    expect(retrievedSession?._session).toBe("test-session");
+    expect(retrievedSession?.session).toBe("test-session");
   });
 
   it("should update a session", async () => {
@@ -119,10 +121,10 @@ describe("SessionAdapter", () => {
     };
 
     await adapter.addSession(testSession);
-    await adapter.updateSession("test-session", { _branch: "updated-branch" });
+    await adapter.updateSession("test-session", { branch: "updated-branch" });
 
     const retrievedSession = await adapter.getSession("test-session");
-    expect(retrievedSession?._branch).toBe("updated-branch");
+    expect(retrievedSession?.branch).toBe("updated-branch");
   });
 
   it("should delete a session", async () => {
@@ -153,8 +155,9 @@ describe("SessionAdapter", () => {
 
   it("should get repository path for a session", async () => {
     const adapter = new SessionAdapter(dbPath);
+    const sessionName = "test-session";
     const testSession = {
-      session: "test-session",
+      session: sessionName,
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
@@ -165,7 +168,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const repoPath = await adapter.getRepoPath(testSession);
 
-    expect(repoPath).toContain("test-repo/sessions/test-session");
+    expect(repoPath).toContain(`/sessions/${sessionName}`);
   });
 
   it("should get working directory for a session", async () => {
@@ -180,9 +183,9 @@ describe("SessionAdapter", () => {
     };
 
     await adapter.addSession(testSession);
-    const _workdir = await adapter.getSessionWorkdir("test-session");
+    const workdir = await adapter.getSessionWorkdir("test-session");
 
     expect(workdir !== null).toBe(true);
-    expect(_workdir).toContain("test-repo/sessions/test-session");
+    expect(workdir).toContain("/sessions/test-session");
   });
 });

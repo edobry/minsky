@@ -10,9 +10,10 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { log } from "../../utils/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
+import { getErrorMessage } from "../../errors/index";
 
 // Load environment variables from .env file only if it exists
-const envPath = join(process.cwd(), ".env");
+const envPath = join((process as any).cwd(), ".env");
 if (existsSync(envPath)) {
   config({ quiet: true });
 }
@@ -21,7 +22,7 @@ if (existsSync(envPath)) {
  * Extract GitHub repository info from git remote
  */
 function extractGitHubRepoFromRemote(
-  __workspacePath: string
+  workspacePath: string
 ): { owner: string; repo: string } | null {
   try {
     // Get the origin remote URL
@@ -49,10 +50,10 @@ function extractGitHubRepoFromRemote(
     return null;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
-      _workspacePath,
-      error: error instanceof Error ? error.message : String(error),
+      workspacePath,
+      error: getErrorMessage(error as any),
     });
-    return null;
+    return null as any;
   }
 }
 
@@ -60,10 +61,10 @@ function extractGitHubRepoFromRemote(
  * Get GitHub backend configuration from environment and git remote
  */
 export function getGitHubBackendConfig(
-  __workspacePath: string,
-  _options?: { logErrors?: boolean }
+  workspacePath: string,
+  options?: { logErrors?: boolean }
 ): Partial<GitHubIssuesTaskBackendOptions> | null {
-  const { logErrors = false } = _options || {};
+  const { logErrors = false } = options || {};
 
   // Check for GitHub token in environment
   const githubToken = process.env.GITHUBTOKEN || process.env.GH_TOKEN;
@@ -76,7 +77,7 @@ export function getGitHubBackendConfig(
   }
 
   // Try to auto-detect repository from git remote
-  const repoInfo = extractGitHubRepoFromRemote(_workspacePath);
+  const repoInfo = extractGitHubRepoFromRemote(workspacePath);
 
   if (!repoInfo) {
     if (logErrors) {
@@ -87,7 +88,7 @@ export function getGitHubBackendConfig(
 
   return {
     name: "github-issues",
-    _workspacePath,
+    workspacePath,
     githubToken,
     owner: repoInfo.owner,
     repo: repoInfo.repo,
@@ -98,7 +99,7 @@ export function getGitHubBackendConfig(
  * Create labels for a GitHub repository
  */
 export async function createGitHubLabels(
-  _octokit: unknown,
+  octokit: any,
   owner: string,
   repo: string,
   labels: Record<string, string>
@@ -114,9 +115,9 @@ export async function createGitHubLabels(
         });
         log.debug(`Label ${labelName} already exists`);
         continue;
-      } catch (error: unknown) {
+      } catch (error: any) {
         // Label doesn't exist, continue to create it
-        if (error.status !== HTTP_NOT_FOUND) {
+        if ((error as any).status !== HTTP_NOT_FOUND) {
           throw error;
         }
       }
@@ -126,14 +127,14 @@ export async function createGitHubLabels(
         owner,
         repo,
         name: labelName,
-        color: getColorForStatus(_status),
+        color: getColorForStatus(status),
         description: `Minsky task status: ${status}`,
       });
 
       log.debug(`Created GitHub label: ${labelName}`);
     } catch (error) {
       log.error(`Failed to create GitHub label: ${labelName}`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error as any),
       });
     }
   }
@@ -148,6 +149,8 @@ function getColorForStatus(status: string): string {
     "IN-PROGRESS": "fbca04", // Yellow
     "IN-REVIEW": "0052cc", // Blue
     DONE: "5319e7", // Purple
+    BLOCKED: "d73a49", // Red
+    CLOSED: "6c757d", // Gray
   };
 
   return colors[status] || "cccccc"; // Default gray

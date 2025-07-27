@@ -31,7 +31,7 @@ export interface DatabaseWriteResult {
  * Options for querying database entities
  */
 export interface DatabaseQueryOptions {
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 /**
@@ -52,7 +52,7 @@ export interface DatabaseStorage<T, S> {
    * @param state The state to write
    * @returns Promise resolving to the result of the write operation
    */
-  writeState(_state: S): Promise<DatabaseWriteResult>;
+  writeState(state: S): Promise<DatabaseWriteResult>;
 
   /**
    * Get a single entity by ID
@@ -60,21 +60,21 @@ export interface DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to the entity or null if not found
    */
-  getEntity(id: string, _options?: DatabaseQueryOptions): Promise<T | null>;
+  getEntity(id: string, options?: DatabaseQueryOptions): Promise<T | null>;
 
   /**
    * Get all entities that match the query options
    * @param options Query options
    * @returns Promise resolving to array of entities
    */
-  getEntities(_options?: DatabaseQueryOptions): Promise<T[]>;
+  getEntities(options?: DatabaseQueryOptions): Promise<T[]>;
 
   /**
    * Create a new entity in the database
    * @param entity The entity to create
    * @returns Promise resolving to the created entity
    */
-  createEntity(_entity: T): Promise<T>;
+  createEntity(entity: T): Promise<T>;
 
   /**
    * Update an existing entity
@@ -82,7 +82,7 @@ export interface DatabaseStorage<T, S> {
    * @param updates Partial entity with updates
    * @returns Promise resolving to the updated entity or null if not found
    */
-  updateEntity(id: string, _updates: Partial<T>): Promise<T | null>;
+  updateEntity(id: string, updates: Partial<T>): Promise<T | null>;
 
   /**
    * Delete an entity by ID

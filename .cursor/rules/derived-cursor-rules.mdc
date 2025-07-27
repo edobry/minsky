@@ -367,8 +367,10 @@ minsky git pr --session <session-name> [--branch <branch-name>] --path <repo-pat
 ### Session Management
 
 ```bash
-# Start a new session (with optional task ID)
-minsky session start <session-name> --repo <repo-url-or-path>
+# Start a new session (requires task association)
+minsky session start --task <task-id> [session-name]
+# OR create new task automatically
+minsky session start --description "<description>" [session-name]
 
 # List all sessions
 minsky session list
@@ -425,18 +427,20 @@ To query the backlog, use: `minsky tasks list --json`
 ### Basic Development Flow
 
 ```bash
-# Start a new session
-minsky session start feature-123 --repo https://github.com/org/project.git
+# Start a new session (requires task association)
+minsky session start --task 123 feature-session
+# OR create new task automatically
+minsky session start --description "Implement user authentication" auth-feature
 
 # Get session directory
-minsky session dir feature-123
+cd $(minsky session dir feature-session)
 
 # Work on code, then generate PR
-minsky git pr --session feature-123 > PR.md
+minsky session pr > PR.md
 
 # List and update tasks
-minsky tasks list --session feature-123 --json
-minsky tasks status set --session feature-123 #001 DONE
+minsky tasks list --session feature-session
+minsky tasks status set --session feature-session #001 DONE
 ```
 
 ### Multi-Agent Collaboration

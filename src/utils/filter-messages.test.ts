@@ -33,7 +33,7 @@ describe("Filter Messages Utility", () => {
 
   describe("generateFilterMessages", () => {
     test("returns status filter message when status is provided", () => {
-      const messages = generateFilterMessages({ _status: "IN-PROGRESS" });
+      const messages = generateFilterMessages({ status: "IN-PROGRESS" });
       expectToHaveLength(messages, 1);
       expect(messages[0]).toBe("Showing tasks with status 'IN-PROGRESS'");
     });
@@ -50,7 +50,7 @@ describe("Filter Messages Utility", () => {
     });
 
     test("prioritizes status filter over active tasks message", () => {
-      const messages = generateFilterMessages({ _status: "TODO", all: false });
+      const messages = generateFilterMessages({ status: "TODO", all: false });
       expectToHaveLength(messages, 1);
       expect(messages[0]).toBe("Showing tasks with status 'TODO'");
     });

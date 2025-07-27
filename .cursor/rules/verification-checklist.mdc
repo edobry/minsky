@@ -1,0 +1,54 @@
+# Verification Checklist
+
+## Core Principle
+
+**NEVER claim a resource doesn't exist without proper verification using available tools.**
+
+## Mandatory Pre-Response Verification
+
+Before claiming ANY resource doesn't exist, complete this checklist:
+
+### 1. File/Resource Search
+- [ ] Used `file_search` tool with resource name
+- [ ] Checked multiple search terms if initial search fails
+- [ ] Verified search covered appropriate directories
+
+### 2. Content-Based Search
+- [ ] Used `grep_search` for content-based verification if needed
+- [ ] Searched with different patterns/keywords
+- [ ] Checked relevant file extensions
+
+### 3. Rule-Specific Verification
+- [ ] Used `fetch_rules` tool for rule-related queries
+- [ ] Tried alternative rule names if initial fetch fails
+- [ ] Verified rule system is accessible
+
+### 4. Documentation
+- [ ] Documented search attempts in response
+- [ ] Explained what was searched and how
+- [ ] Provided evidence of exhaustive search
+
+## Response Templates
+
+### When Resource Found
+```
+I found the [resource] at [location]. Here's what it contains: [content]
+```
+
+### When Resource Not Found (After Verification)
+```
+I searched for [resource] using [tools used] and checked [locations/patterns searched].
+I was unable to find [resource] in the available workspace.
+```
+
+## Prohibited Responses
+
+❌ "It looks like there isn't a [resource] available"
+❌ "No [resource] found" (without tool usage)
+❌ "[Resource] doesn't exist" (without verification)
+
+## Enforcement
+
+- **First violation**: Immediate correction with proper verification
+- **Repeat violation**: Critical protocol failure requiring task creation
+- **All negative existence claims**: Must show tool usage evidence

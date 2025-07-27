@@ -3,11 +3,9 @@
  * Separates data retrieval, pure operations, and side effects
  */
 
-import type { TaskData, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData.js";
-import type {
-  TaskReadOperationResult,
-  TaskWriteOperationResult,
-} from "../../types/tasks/taskData.js";
+import type { TaskData, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData";
+import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
+import type { BackendCapabilities } from "./types";
 
 /**
  * TaskBackend interface defines operations for task management
@@ -104,6 +102,22 @@ export interface TaskBackend {
    * @returns Promise resolving to true if file exists, false otherwise
    */
   fileExists(path: string): Promise<boolean>;
+
+  /**
+   * Delete a task
+   * @param id Task ID to delete
+   * @param options Delete options
+   * @returns Promise resolving to true if deleted, false otherwise
+   */
+  deleteTask(id: string, options?: { force?: boolean }): Promise<boolean>;
+
+  // ---- Capability Discovery ----
+
+  /**
+   * Get backend capabilities
+   * @returns Backend capabilities object describing what this backend supports
+   */
+  getCapabilities(): BackendCapabilities;
 }
 
 /**

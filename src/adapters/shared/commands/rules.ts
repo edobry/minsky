@@ -7,15 +7,17 @@
  */
 
 import { z } from "zod";
+import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
-} from "../../shared/command-registry.js";
-import { RuleService, type RuleFormat } from "../../../domain/rules.js";
-import { resolveWorkspacePath } from "../../../domain/workspace.js";
-import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers.js";
-import { log } from "../../../utils/logger.js";
+  type CommandParameterMap,
+} from "../../shared/command-registry";
+import { RuleService, type RuleFormat } from "../../../domain/rules";
+import { resolveWorkspacePath } from "../../../domain/workspace";
+import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers";
+import { log } from "../../../utils/logger";
 import {
   RULE_FORMAT_DESCRIPTION,
   RULE_TAGS_DESCRIPTION,
@@ -23,14 +25,21 @@ import {
   RULE_DESCRIPTION_DESCRIPTION,
   RULE_NAME_DESCRIPTION,
   OVERWRITE_DESCRIPTION,
-} from "../../../utils/option-descriptions.js";
+} from "../../../utils/option-descriptions";
 
 /**
  * Parameters for the rules list command
  */
+type RulesListParams = {
+  format?: "cursor" | "generic";
+  tag?: string;
+  json?: boolean;
+  debug?: boolean;
+};
+
 const rulesListCommandParams: CommandParameterMap = {
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.string().optional(),
     description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
@@ -56,6 +65,13 @@ const rulesListCommandParams: CommandParameterMap = {
 /**
  * Parameters for the rules get command
  */
+type RulesGetParams = {
+  id: string;
+  format?: "cursor" | "generic";
+  json?: boolean;
+  debug?: boolean;
+};
+
 const rulesGetCommandParams: CommandParameterMap = {
   id: {
     schema: z.string().min(1),
@@ -63,7 +79,7 @@ const rulesGetCommandParams: CommandParameterMap = {
     required: true,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.string().optional(),
     description: "Preferred rule format (cursor or generic)",
     required: false,
   },
@@ -84,6 +100,18 @@ const rulesGetCommandParams: CommandParameterMap = {
 /**
  * Parameters for the rules create command
  */
+type RulesCreateParams = {
+  id: string;
+  content: string;
+  description?: string;
+  name?: string;
+  globs?: string;
+  tags?: string;
+  format?: "cursor" | "generic";
+  overwrite?: boolean;
+  json?: boolean;
+};
+
 const rulesCreateCommandParams: CommandParameterMap = {
   id: {
     schema: z.string().min(1),
@@ -116,7 +144,7 @@ const rulesCreateCommandParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.string().optional(),
     description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
@@ -137,6 +165,18 @@ const rulesCreateCommandParams: CommandParameterMap = {
 /**
  * Parameters for the rules update command
  */
+type RulesUpdateParams = {
+  id: string;
+  content?: string;
+  description?: string;
+  name?: string;
+  globs?: string;
+  tags?: string;
+  format?: "cursor" | "generic";
+  json?: boolean;
+  debug?: boolean;
+};
+
 const rulesUpdateCommandParams: CommandParameterMap = {
   id: {
     schema: z.string().min(1),
@@ -169,7 +209,7 @@ const rulesUpdateCommandParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.string().optional(),
     description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
@@ -190,6 +230,14 @@ const rulesUpdateCommandParams: CommandParameterMap = {
 /**
  * Parameters for the rules search command
  */
+type RulesSearchParams = {
+  query?: string;
+  tag?: string;
+  format?: "cursor" | "generic";
+  json?: boolean;
+  debug?: boolean;
+};
+
 const rulesSearchCommandParams: CommandParameterMap = {
   query: {
     schema: z.string().optional(),
@@ -197,7 +245,7 @@ const rulesSearchCommandParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]).optional(),
+    schema: z.string().optional(),
     description: "Filter by rule format (cursor or generic)",
     required: false,
   },
@@ -231,13 +279,13 @@ export function registerRulesCommands(): void {
     name: "list",
     description: "List all rules in the workspace",
     parameters: rulesListCommandParams,
-    execute: async (params: unknown) => {
-      log.debug("Executing rules.list _command", { params, _context });
+    execute: async (params: RulesListParams) => {
+      log.debug("Executing rules.list command", { params });
 
       try {
         // Resolve workspace path
-        const _workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(_workspacePath);
+        const workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(workspacePath);
 
         // Convert parameters
         const format = params.format as RuleFormat | undefined;
@@ -253,9 +301,9 @@ export function registerRulesCommands(): void {
           success: true,
           rules,
         };
-      } catch {
+      } catch (error) {
         log.error("Failed to list rules", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
         });
         throw error;
       }
@@ -269,31 +317,33 @@ export function registerRulesCommands(): void {
     name: "get",
     description: "Get a specific rule by ID",
     parameters: rulesGetCommandParams,
-    execute: async (params: unknown) => {
-      log.debug("Executing rules.get _command", { params, _context });
+    execute: async (params: any) => {
+      log.debug("Executing rules.get command", { params });
+
+      const typedParams = params as RulesGetParams;
 
       try {
         // Resolve workspace path
-        const _workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(_workspacePath);
+        const workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(workspacePath);
 
         // Convert parameters
-        const format = params.format as RuleFormat | undefined;
+        const format = typedParams.format as RuleFormat | undefined;
 
         // Call domain function
-        const rule = await ruleService.getRule(params.id, {
+        const rule = await ruleService.getRule(typedParams.id, {
           format,
-          debug: params.debug,
+          debug: typedParams.debug,
         });
 
         return {
           success: true,
           rule,
         };
-      } catch {
+      } catch (error) {
         log.error("Failed to get rule", {
-          error: error instanceof Error ? error.message : String(error),
-          id: params.id,
+          error: getErrorMessage(error),
+          id: typedParams.id,
         });
         throw error;
       }
@@ -307,48 +357,50 @@ export function registerRulesCommands(): void {
     name: "create",
     description: "Create a new rule",
     parameters: rulesCreateCommandParams,
-    execute: async (params: unknown) => {
-      log.debug("Executing rules.create _command", { params, _context });
+    execute: async (params: any) => {
+      log.debug("Executing rules.create command", { params });
+
+      const typedParams = params as RulesCreateParams;
 
       try {
         // Resolve workspace path
-        const _workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(_workspacePath);
+        const workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(workspacePath);
 
         // Process content (could be file path)
-        const _content = await readContentFromFileIfExists(params._content);
+        const content = await readContentFromFileIfExists(typedParams.content);
 
         // Process globs and tags
-        const globs = parseGlobs(params.globs);
-        const tags = params.tags
-          ? params.tags.split(",").map((_tag: unknown) => tag.trim())
+        const globs = parseGlobs(typedParams.globs);
+        const tags = typedParams.tags
+          ? typedParams.tags.split(",").map((tag: string) => tag.trim())
           : undefined;
 
         // Prepare metadata
         const meta = {
-          name: params.name || params.id,
-          description: params.description,
+          name: typedParams.name || typedParams.id,
+          description: typedParams.description,
           globs,
           tags,
         };
 
         // Convert format
-        const format = params.format as RuleFormat | undefined;
+        const format = typedParams.format as RuleFormat | undefined;
 
         // Call domain function
-        const rule = await ruleService.createRule(params.id, _content, meta, {
+        const rule = await ruleService.createRule(typedParams.id, content, meta, {
           format,
-          overwrite: params.overwrite,
+          overwrite: typedParams.overwrite,
         });
 
         return {
           success: true,
           rule,
         };
-      } catch {
+      } catch (error) {
         log.error("Failed to create rule", {
-          error: error instanceof Error ? error.message : String(error),
-          id: params.id,
+          error: getErrorMessage(error),
+          id: typedParams.id,
         });
         throw error;
       }
@@ -362,46 +414,48 @@ export function registerRulesCommands(): void {
     name: "update",
     description: "Update an existing rule",
     parameters: rulesUpdateCommandParams,
-    execute: async (params: unknown) => {
-      log.debug("Executing rules.update _command", { params, _context });
+    execute: async (params: any) => {
+      log.debug("Executing rules.update command"!, { params });
+
+      const typedParams = params as RulesUpdateParams;
 
       try {
         // Resolve workspace path
-        const _workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(_workspacePath);
+        const workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(workspacePath);
 
         // Process content if provided (could be file path)
-        const _content = params.content
-          ? await readContentFromFileIfExists(params._content)
+        const content = typedParams.content
+          ? await readContentFromFileIfExists(typedParams.content)
           : undefined;
 
         // Process globs and tags
-        const globs = params.globs ? parseGlobs(params.globs) : undefined;
-        const tags = params.tags
-          ? params.tags.split(",").map((_tag: unknown) => tag.trim())
+        const globs = typedParams.globs ? parseGlobs(typedParams.globs) : undefined;
+        const tags = typedParams.tags
+          ? typedParams.tags.split(",").map((tag: string) => tag.trim())
           : undefined;
 
         // Prepare metadata updates
-        const meta: Record<string, unknown> = {};
+        const meta: Record<string, any> = {};
 
-        if (params.name !== undefined) meta.name = params.name;
-        if (params.description !== undefined) meta.description = params.description;
+        if (typedParams.name !== undefined) meta.name = typedParams.name;
+        if (typedParams.description !== undefined) meta.description = typedParams.description;
         if (globs !== undefined) meta.globs = globs;
         if (tags !== undefined) meta.tags = tags;
 
         // Convert format
-        const format = params.format as RuleFormat | undefined;
+        const format = typedParams.format as RuleFormat | undefined;
 
         // Call domain function
         const rule = await ruleService.updateRule(
-          params.id,
+          typedParams.id,
           {
-            _content,
+            content,
             meta: Object.keys(meta).length > 0 ? meta : undefined,
           },
           {
             format,
-            debug: params.debug,
+            debug: typedParams.debug,
           }
         );
 
@@ -409,10 +463,10 @@ export function registerRulesCommands(): void {
           success: true,
           rule,
         };
-      } catch {
+      } catch (error) {
         log.error("Failed to update rule", {
-          error: error instanceof Error ? error.message : String(error),
-          id: params.id,
+          error: getErrorMessage(error),
+          id: typedParams.id,
         });
         throw error;
       }
@@ -426,34 +480,32 @@ export function registerRulesCommands(): void {
     name: "search",
     description: "Search for rules by content or metadata",
     parameters: rulesSearchCommandParams,
-    execute: async (params: unknown) => {
-      log.debug("Executing rules.search _command", { params, _context });
+    execute: async (params: any) => {
+      log.debug("Executing rules.search command", { params });
 
       try {
         // Resolve workspace path
-        const _workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(_workspacePath);
+        const workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(workspacePath);
 
-        // Convert format
+        // Convert parameters
         const format = params.format as RuleFormat | undefined;
 
         // Call domain function
         const rules = await ruleService.searchRules({
-          query: params.query,
           format,
           tag: params.tag,
+          query: params.query,
         });
 
         return {
           success: true,
           rules,
-          query: params.query,
-          matchCount: rules.length,
         };
-      } catch {
+      } catch (error) {
         log.error("Failed to search rules", {
-          error: error instanceof Error ? error.message : String(error),
-          query: params.query,
+          error: getErrorMessage(error as any),
+          query: (params as any).query,
         });
         throw error;
       }

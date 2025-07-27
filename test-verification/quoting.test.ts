@@ -2,25 +2,19 @@ import { promises as fs } from "fs";
 import { RuleService } from "../src/domain/rules";
 import { join } from "path";
 import { log } from "../src/utils/logger";
+import { createCleanTempDir } from "../src/utils/test-utils/cleanup";
 
 describe("Rule description quoting fix", () => {
-  const tempDir = join(process.cwd(), "test-verification-tmp");
+  let tempDir: string;
   let ruleService: RuleService;
 
   beforeAll(async () => {
-    // Create a temporary directory for testing
-    await fs.mkdir(tempDir, { recursive: true });
+    // Create a unique temporary directory for testing
+    tempDir = createCleanTempDir("minsky-quoting-test-");
     ruleService = new RuleService(tempDir);
   });
 
-  afterAll(async () => {
-    // Clean up temporary directory
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch (error) {
-      log.cliError("Error cleaning up:", error);
-    }
-  });
+  // Cleanup handled automatically by createCleanTempDir
 
   test("createRule should use double quotes for descriptions with special characters", async () => {
     // Create a rule with a description containing text that might trigger quotes

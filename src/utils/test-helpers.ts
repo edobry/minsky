@@ -8,18 +8,18 @@ import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import type { SpawnSyncReturns, SpawnSyncOptionsWithStringEncoding } from "child_process";
 import type { WriteFileOptions } from "fs";
-import { log } from "./logger.js";
+import { log } from "./logger";
 
 // Create a virtual filesystem for testing
 const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
 
 // Mock filesystem operations for testing
-export function mockMkdirSync(path: string, _options?: { recursive?: boolean }): void {
+export function mockMkdirSync(path: string, options?: { recursive?: boolean }): void {
   log.debug(`[MOCK] Creating directory ${path}`);
   virtualFS.set(path, { isDirectory: true });
 
   // If recursive, create parent directories
-  if (_options?.recursive) {
+  if (options?.recursive) {
     let parent = dirname(path);
     while (parent && parent !== "." && parent !== "/") {
       virtualFS.set(parent, { isDirectory: true });
@@ -34,14 +34,12 @@ export function mockExistsSync(path: string): boolean {
   return exists;
 }
 
-export function mockRmSync(
-  path: string,
-  _options?: { recursive?: boolean; force?: boolean }
-): void {
+// Mock rmSync for testing (since rmSync is a newer Node.js API)
+export function mockRmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void {
   log.debug(`[MOCK] Removing ${path}`);
 
   // If recursive, remove all children first
-  if (_options?.recursive) {
+  if (options?.recursive) {
     const children = Array.from(virtualFS.keys()).filter((key) => key.startsWith(`${path}/`));
     for (const child of children) {
       virtualFS.delete(child);
@@ -65,10 +63,10 @@ export function mockWriteFileSync(path: string, data: string, _options?: WriteFi
 export function mockReadFileSync(path: string, _options?: { encoding?: BufferEncoding }): string {
   log.debug(`[MOCK] Reading file ${path}`);
   const file = virtualFS.get(path);
-  if (!file || file.isDirectory) {
+  if (!file || file?.isDirectory) {
     throw new Error(`ENOENT: no such file or directory, open '${path}'`);
   }
-  return file.content || "";
+  return file?.content || "";
 }
 
 // Use function type assertions to avoid TypeScript errors with type compatibility
@@ -82,7 +80,7 @@ type FS = {
 };
 
 // Setup to use real or mock filesystem based on environment
-const useVirtualFS = true; // Set to true to use virtual filesystem
+const _useVirtualFS = true; // Set to true to use virtual filesystem
 
 // Interface for test environment setup
 export interface MinskyTestEnv {
@@ -97,16 +95,16 @@ export interface MinskyTestEnv {
  * Creates a unique test directory name
  */
 export function createUniqueTestDir(prefix: string): string {
-  return `/tmp/${prefix}-${process.pid || 0}-${Date.now()}-${Math.random().toString(UUID_LENGTH).substring(2, SHORT_ID_LENGTH)}`;
+  return `/tmp/${prefix}-${(process as any)?.pid || 0}-${(Date as any).now()}-${Math.random().toString(UUID_LENGTH).substring(2, SHORT_ID_LENGTH)}`;
 }
 
 /**
  * Creates a standard minsky test environment with proper directory structure.
  * Using hardcoded paths for tests to avoid filesystem issues.
- * @param _baseDir The base test directory (ignored)
+ * @param baseDir The base test directory (ignored)
  * @returns Object containing paths to the various test directories
  */
-export function setupMinskyTestEnv(baseDir: string): MinskyTestEnv {
+export function setupMinskyTestEnv(_baseDir: string): MinskyTestEnv {
   // This is stubbed for test purposes - we'll return fixed paths
   // that don't rely on filesystem operations
   const basePath = "/virtual/test-dir";
@@ -143,7 +141,7 @@ export function createTestEnv(
   additionalEnv: Record<string, string> = {}
 ): Record<string, string> {
   return {
-    ...process.env,
+    ...(process as any).env,
     XDG_STATE_HOME: stateHome,
     ...additionalEnv,
   };
@@ -161,7 +159,7 @@ export function standardSpawnOptions(): SpawnSyncOptionsWithStringEncoding {
 }
 
 // Export the mock functions for tests that need to use them directly
-export const mockFS = {
+export const _mockFS = {
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,
   rmSync: mockRmSync,

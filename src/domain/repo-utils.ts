@@ -1,8 +1,8 @@
-import { SessionDB, type SessionProviderInterface } from "./session";
+import { createSessionProvider, type SessionProviderInterface } from "./session";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { getCurrentWorkingDirectory } from "../utils/process.js";
-import { normalizeRepoName } from "./repository-uri.js";
+import { getCurrentWorkingDirectory } from "../utils/process";
+import { normalizeRepoName } from "./repository-uri";
 const execAsync = promisify(exec);
 
 export interface RepoResolutionOptions {
@@ -31,7 +31,7 @@ export async function resolveRepoPath(
 ): Promise<string> {
   // Set up default dependencies if not provided
   const deps: RepoUtilsDependencies = {
-    sessionProvider: depsInput?.sessionProvider || new SessionDB(),
+    sessionProvider: depsInput?.sessionProvider || createSessionProvider(),
     execCwd: depsInput?.execCwd || execAsync,
     getCurrentDirectory: depsInput?.getCurrentDirectory || getCurrentWorkingDirectory,
   };

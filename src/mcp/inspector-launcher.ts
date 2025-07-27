@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from "child_process";
-import { log } from "../utils/logger.js";
+import { log } from "../utils/logger";
+import { getErrorMessage } from "../errors/index";
 
 /**
  * Configuration options for the MCP Inspector
@@ -7,7 +8,7 @@ import { log } from "../utils/logger.js";
 export interface InspectorOptions {
   /**
    * Port for the inspector to listen on
-   * @default 6274
+   * @default 5173
    */
   port?: number;
 
@@ -68,7 +69,7 @@ export function isInspectorAvailable(): boolean {
     const { existsSync } = require("fs");
     const { join } = require("path");
 
-    const binPath = join(process.cwd(), "node_modules", ".bin", "mcp-inspector");
+    const binPath = join((process as any).cwd(), "node_modules", ".bin", "mcp-inspector");
     return existsSync(binPath);
   } catch (error) {
     return false;
@@ -81,7 +82,7 @@ export function isInspectorAvailable(): boolean {
  * @returns Inspector launch result
  */
 export function launchInspector(options: InspectorOptions): InspectorLaunchResult {
-  const { port = 6274, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = options;
+  const { port = 5173, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = options;
 
   if (!isInspectorAvailable()) {
     return {
@@ -92,41 +93,64 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
   }
 
   try {
-    // For the new MCP inspector, we use the client start script
-    // and configure it to connect to our existing server
+    // Build the MCP server command that the inspector will launch
+    // Use bun run to execute the minsky command properly
+    const serverCommand = ["bun", "run", "minsky", "mcp", "start"];
+
+    // Add transport-specific arguments
+    if (mcpTransportType === "httpStream") {
+      serverCommand.push("--http");
+      if (mcpPort) {
+        serverCommand.push("--port", mcpPort.toString());
+      }
+      if (mcpHost) {
+        serverCommand.push("--host", mcpHost);
+      }
+    } else {
+      // Default to stdio
+      serverCommand.push("--stdio");
+    }
+
+    // Configure environment variables for the inspector
+    // Inspector needs its own proxy port that doesn't conflict with MCP server
+    // Use a more dynamic approach to avoid port conflicts
+    const basePort = mcpPort ? parseInt(mcpPort.toString()) : 3000;
+    const inspectorProxyPort = (basePort + 3277).toString(); // Use a larger offset to avoid conflicts
     const env: Record<string, string | undefined> = {
       ...process.env,
       CLIENT_PORT: port.toString(),
-      SERVER_PORT: (port + 3).toString(), // Use a different port for the inspector server
+      SERVER_PORT: inspectorProxyPort, // Dynamic proxy port to avoid conflicts
     };
 
     // Configure auto-open based on openBrowser option
+    // The inspector now supports auto-open with authentication enabled by default
     if (!openBrowser) {
       env.MCP_AUTO_OPEN_ENABLED = "false";
+    } else {
+      // Enable auto-open with authentication (recommended approach)
+      env.MCP_AUTO_OPEN_ENABLED = "true";
     }
 
-    // For security, we'll need to set this for auto-open to work
-    env.DANGEROUSLY_OMIT_AUTH = "true";
+    // Remove DANGEROUSLY_OMIT_AUTH as it's not recommended and auto-open now works with auth
 
     log.debug("Launching MCP Inspector", {
       clientPort: port,
-      serverPort: port + 3,
+      inspectorProxyPort,
       openBrowser,
       mcpTransportType,
       mcpPort,
       mcpHost,
+      serverCommand,
     });
 
-    // Use the client start script directly
-    const inspectorProcess = spawn(
-      "node",
-      ["node_modules/@modelcontextprotocol/inspector/client/bin/start.js"],
-      {
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: false,
-        env,
-      }
-    );
+    // Launch the inspector with the server command
+    // The inspector will start its own instance of the server and connect to it
+    const inspectorProcess = spawn("npx", ["@modelcontextprotocol/inspector", ...serverCommand], {
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: false,
+      env,
+      cwd: process.cwd(), // Ensure we're in the right directory for bun run
+    });
 
     // Check for immediate launch errors
     if (!inspectorProcess.pid) {
@@ -139,8 +163,8 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     // Handle process events
     inspectorProcess.on("error", (error) => {
       log.error("MCP Inspector process error", {
-        error: error.message,
-        stack: error.stack,
+        error: (error as any).message as any,
+        stack: (error as any).stack as any,
       });
     });
 
@@ -161,13 +185,16 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
   } catch (error) {
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: getErrorMessage(error as any),
+      stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
     });
 
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error launching MCP Inspector",
+      error:
+        error instanceof Error
+          ? ((error as any).message as any)
+          : ("Unknown error launching MCP Inspector" as any),
     };
   }
 }

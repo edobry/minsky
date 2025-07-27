@@ -20,7 +20,7 @@ export interface AICapability {
   name: "reasoning" | "tool-calling" | "prompt-caching" | "image-input" | "structured-output";
   supported: boolean;
   maxTokens?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, any>;
 }
 
 // AI completion request types
@@ -40,14 +40,14 @@ export interface AICompletionRequest {
 export interface AIContext {
   type: "text" | "image" | "file";
   content: string;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, any>;
 }
 
 export interface AITool {
   name: string;
   description: string;
-  parameters: Record<string, unknown>;
-  execute?: (args: Record<string, unknown>) => Promise<unknown>;
+  parameters: Record<string, any>;
+  execute?: (args: Record<string, any>) => Promise<any>;
 }
 
 // Response types
@@ -59,7 +59,7 @@ export interface AICompletionResponse {
   toolCalls?: AIToolCall[];
   steps?: AIStep[];
   finishReason: "stop" | "length" | "tool-calls" | "error";
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, any>;
 }
 
 export interface AIUsage {
@@ -72,8 +72,8 @@ export interface AIUsage {
 export interface AIToolCall {
   id: string;
   name: string;
-  arguments: Record<string, unknown>;
-  result?: unknown;
+  arguments: Record<string, any>;
+  result?: any;
 }
 
 export interface AIStep {
@@ -121,7 +121,7 @@ export class AICompletionError extends Error {
     public provider: string,
     public model: string,
     public code: string,
-    public details?: Record<string, unknown>
+    public details?: Record<string, any>
   ) {
     super(message);
     this.name = "AICompletionError";
@@ -133,7 +133,7 @@ export class AIProviderError extends Error {
     message: string,
     public provider: string,
     public code: string,
-    public details?: Record<string, unknown>
+    public details?: Record<string, any>
   ) {
     super(message);
     this.name = "AIProviderError";

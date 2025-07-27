@@ -41,20 +41,22 @@ export class DefaultAICompletionService implements AICompletionService {
       const model = await this.getLanguageModel(request.provider, request.model);
       const startTime = Date.now();
 
-      log.debug(`Starting AI completion - provider: ${request.provider}, model: ${request.model}, hasTools: ${!!request.tools?.length}, stream: ${request.stream}`);
+      log.debug(
+        `Starting AI completion - provider: ${request.provider}, model: ${request.model}, hasTools: ${!!request.tools?.length}, stream: ${request.stream}`
+      );
 
       // Prepare tools for Vercel AI SDK format
       const tools = request.tools
         ? Object.fromEntries(
-          request.tools.map((tool) => [
-            tool.name,
-            {
-              description: tool.description,
-              parameters: tool.parameters,
-              execute: tool.execute,
-            },
-          ])
-        )
+            request.tools.map((tool) => [
+              tool.name,
+              {
+                description: tool.description,
+                parameters: tool.parameters,
+                execute: tool.execute,
+              },
+            ])
+          )
         : undefined;
 
       // Use generateText for non-streaming completions
@@ -69,7 +71,9 @@ export class DefaultAICompletionService implements AICompletionService {
       });
 
       const duration = Date.now() - startTime;
-      log.debug(`AI completion completed - provider: ${request.provider}, model: ${request.model}, duration: ${duration}ms`);
+      log.debug(
+        `AI completion completed - provider: ${request.provider}, model: ${request.model}, duration: ${duration}ms`
+      );
 
       // Transform Vercel AI SDK response to our format
       return {
@@ -113,20 +117,22 @@ export class DefaultAICompletionService implements AICompletionService {
     try {
       const model = await this.getLanguageModel(request.provider, request.model);
 
-      log.debug(`Starting AI streaming completion - provider: ${request.provider}, model: ${request.model}, hasTools: ${!!request.tools?.length}`);
+      log.debug(
+        `Starting AI streaming completion - provider: ${request.provider}, model: ${request.model}, hasTools: ${!!request.tools?.length}`
+      );
 
       // Prepare tools for Vercel AI SDK format
       const tools = request.tools
         ? Object.fromEntries(
-          request.tools.map((tool) => [
-            tool.name,
-            {
-              description: tool.description,
-              parameters: tool.parameters,
-              execute: tool.execute,
-            },
-          ])
-        )
+            request.tools.map((tool) => [
+              tool.name,
+              {
+                description: tool.description,
+                parameters: tool.parameters,
+                execute: tool.execute,
+              },
+            ])
+          )
         : undefined;
 
       const stream = streamText({
@@ -364,33 +370,33 @@ export class DefaultAICompletionService implements AICompletionService {
     let model: LanguageModel;
 
     switch (resolvedProvider) {
-    case "openai":
-      model = openai(resolvedModel, {
-        apiKey: providerConfig.api_key,
-        baseURL: providerConfig.base_url,
-      });
-      break;
+      case "openai":
+        model = openai(resolvedModel, {
+          apiKey: providerConfig.api_key,
+          baseURL: providerConfig.base_url,
+        });
+        break;
 
-    case "anthropic":
-      model = anthropic(resolvedModel, {
-        apiKey: providerConfig.api_key,
-        baseURL: providerConfig.base_url,
-      });
-      break;
+      case "anthropic":
+        model = anthropic(resolvedModel, {
+          apiKey: providerConfig.api_key,
+          baseURL: providerConfig.base_url,
+        });
+        break;
 
-    case "google":
-      model = google(resolvedModel, {
-        apiKey: providerConfig.api_key,
-        baseURL: providerConfig.base_url,
-      });
-      break;
+      case "google":
+        model = google(resolvedModel, {
+          apiKey: providerConfig.api_key,
+          baseURL: providerConfig.base_url,
+        });
+        break;
 
-    default:
-      throw new AIProviderError(
-        `Unsupported provider: ${resolvedProvider}`,
-        resolvedProvider,
-        "UNSUPPORTED_PROVIDER"
-      );
+      default:
+        throw new AIProviderError(
+          `Unsupported provider: ${resolvedProvider}`,
+          resolvedProvider,
+          "UNSUPPORTED_PROVIDER"
+        );
     }
 
     // Cache the model
@@ -584,4 +590,4 @@ export class DefaultAICompletionService implements AICompletionService {
       { originalError: error }
     );
   }
-} 
+}

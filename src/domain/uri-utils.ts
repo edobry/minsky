@@ -4,7 +4,7 @@
  */
 import { existsSync } from "fs";
 import { basename } from "path";
-import { ValidationError } from "../errors/index.js";
+import { ValidationError } from "../errors/index";
 /**
  * Supported repository URI formats
  */
@@ -97,7 +97,7 @@ export function normalizeRepositoryUri(
 
   // 1. Handle HTTPS URLs
   if (normalizedUri.startsWith("https://")) {
-    format = UriFormat.HTTPS;
+    format = UriFormat?.HTTPS;
     // Extract org/repo from the URL
     const match = normalizedUri.match(/https:\/\/[^\/]+\/([^\/]+)\/([^\/]+?)(\.git)?$/);
     if (!match || !match[1] || !match[2]) {
@@ -112,7 +112,7 @@ export function normalizeRepositoryUri(
   }
   // 2. Handle SSH URLs
   else if (normalizedUri.includes("@") && normalizedUri.includes(":")) {
-    format = UriFormat.SSH;
+    format = UriFormat?.SSH;
     // Extract org/repo from the URL
     const match = normalizedUri.match(/[^@]+@[^:]+:([^\/]+)\/([^\/]+?)(\.git)?$/);
     if (!match || !match[1] || !match[2]) {
@@ -127,24 +127,24 @@ export function normalizeRepositoryUri(
   }
   // 3. Handle local file:// URIs
   else if (normalizedUri.startsWith("file://")) {
-    format = UriFormat.FILE;
+    format = UriFormat?.FILE;
     isLocal = true;
     // Extract local path
-    const _path = normalizedUri.replace(/^file:\/\//, "");
-    // For local repos, use local/<basename> as the name
-    normalizedName = `local/${basename(path)}`;
+    const localPath = normalizedUri.replace(/^file:\/\//, "");
+    // For local repos, use local-<basename> as the name (filesystem-safe)
+    normalizedName = `local-${basename(localPath)}`;
 
     // Validate that the path exists if requested
-    if (validateLocalExists && !existsSync(path)) {
-      throw new ValidationError(`Local repository does not exist: ${path}`);
+    if (validateLocalExists && !existsSync(localPath)) {
+      throw new ValidationError(`Local repository does not exist: ${localPath}`);
     }
   }
   // 4. Handle plain filesystem paths
   else if (normalizedUri.startsWith("/") || normalizedUri.match(/^[A-Z]:\\/i)) {
-    format = UriFormat.PATH;
+    format = UriFormat?.PATH;
     isLocal = true;
-    // For local repos, use local/<basename> as the name
-    normalizedName = `local/${basename(normalizedUri)}`;
+    // For local repos, use local-<basename> as the name (filesystem-safe)
+    normalizedName = `local-${basename(normalizedUri)}`;
 
     // Validate that the path exists if requested
     if (validateLocalExists && !existsSync(normalizedUri)) {
@@ -154,19 +154,19 @@ export function normalizeRepositoryUri(
     // Convert to file:// URI if requested
     if (ensureFullyQualified) {
       normalizedUri = `file://${normalizedUri}`;
-      format = UriFormat.FILE;
+      format = UriFormat?.FILE;
     }
   }
   // DEFAULT_RETRY_COUNT. Handle GitHub shorthand notation (org/repo)
   else if (normalizedUri.match(/^[^\/]+\/[^\/]+$/)) {
-    format = UriFormat.SHORTHAND;
+    format = UriFormat?.SHORTHAND;
     // Shorthand is already in org/repo format
     normalizedName = normalizedUri;
 
     // Expand to full HTTPS URL if requested
     if (ensureFullyQualified) {
       normalizedUri = `https://github.com/${normalizedUri}`;
-      format = UriFormat.HTTPS;
+      format = UriFormat?.HTTPS;
     }
   }
   // No recognized format
@@ -191,11 +191,11 @@ export function normalizeRepositoryUri(
  * @throws ValidationError if the URI is invalid
  */
 export function validateRepositoryUri(
-  _uri: string,
+  uri: string,
   options: UriOptions = DEFAULT_URI_OPTIONS
 ): boolean {
   // This will throw if validation fails
-  normalizeRepositoryUri(_uri, _options);
+  normalizeRepositoryUri(uri, options);
   return true;
 }
 
@@ -212,17 +212,17 @@ export function convertRepositoryUri(uri: string, targetFormat: UriFormat): stri
   const normalized = normalizeRepositoryUri(uri);
 
   // If it's already in the target format, return as is
-  if (normalized.format === targetFormat) {
+  if (normalized?.format === targetFormat) {
     return normalized.uri;
   }
 
   // Local repositories can only be converted between PATH and FILE formats
-  if (normalized.isLocal) {
-    if (targetFormat === UriFormat.PATH) {
+  if (normalized?.isLocal) {
+    if (targetFormat === UriFormat?.PATH) {
       return normalized.uri.replace(/^file:\/\//, "");
     }
-    if (targetFormat === UriFormat.FILE) {
-      return normalized.uri.startsWith("file://") ? normalized.uri : `file://${normalized.uri}`;
+    if (targetFormat === UriFormat?.FILE) {
+      return normalized.uri.startsWith("file://") ? normalized?.uri : `file://${normalized.uri}`;
     }
     throw new ValidationError(`Cannot convert local repository to ${targetFormat} format`);
   }
@@ -231,14 +231,14 @@ export function convertRepositoryUri(uri: string, targetFormat: UriFormat): stri
   const [org, repo] = normalized.name.split("/");
 
   switch (targetFormat) {
-  case UriFormat.HTTPS:
-    return `https://github.com/${org}/${repo}`;
-  case UriFormat.SSH:
-    return `git@github.com:${org}/${repo}.git`;
-  case UriFormat.SHORTHAND:
-    return `${org}/${repo}`;
-  default:
-    throw new ValidationError(`Cannot convert remote repository to ${targetFormat} format`);
+    case UriFormat.HTTPS:
+      return `https://github.com/${org}/${repo}`;
+    case UriFormat.SSH:
+      return `git@github.com:${org}/${repo}.git`;
+    case UriFormat.SHORTHAND:
+      return `${org}/${repo}`;
+    default:
+      throw new ValidationError(`Cannot convert remote repository to ${targetFormat} format`);
   }
 }
 
@@ -270,8 +270,10 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
   try {
     // This will be implemented with actual Git detection code
     // For now, provide a placeholder implementation
-    const { execAsync } = await import("../utils/exec.js");
-    const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd });
+    const { execGitWithTimeout } = await import("../utils/git-exec.js");
+    const { stdout } = await execGitWithTimeout("rev-parse", "rev-parse --show-toplevel", {
+      workdir: cwd,
+    });
     return stdout.trim();
   } catch (_error) {
     // Not in a Git repository

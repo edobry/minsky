@@ -1,163 +1,88 @@
 /**
- * minsky config list command
- * 
- * Shows configuration from all sources with proper hierarchy display
+ * Config List Command
  */
 
+import { z } from "zod";
 import { Command } from "commander";
-import { configurationService } from "../../domain/configuration";
-import { ConfigurationSources } from "../../domain/configuration/types";
+import { log } from "../../utils/logger";
+import { exit } from "../../utils/process";
+import { getConfigurationProvider } from "../../domain/configuration";
 
 interface ListOptions {
   json?: boolean;
-  workingDir?: string;
 }
 
 export function createConfigListCommand(): Command {
   return new Command("list")
-    .alias("ls")
-    .description("List all configuration from all sources")
+    .description("List all configuration values and their sources")
     .option("--json", "Output in JSON format", false)
-    .option("--working-dir <dir>", "Working directory", process.cwd())
     .action(async (options: ListOptions) => {
       try {
-        const workingDir = options.workingDir || process.cwd();
-        const result = await configurationService.loadConfiguration(workingDir);
-        
+        // Use new configuration system with metadata support
+        const provider = getConfigurationProvider();
+        const config = provider.getConfig();
+        const metadata = provider.getMetadata();
+
+        const resolved = {
+          backend: config.backend,
+          backendConfig: config.backendConfig,
+          sessiondb: config.sessiondb,
+          ai: config.ai,
+          github: config.github,
+          logger: config.logger,
+        };
+
         if (options.json) {
-          console.log(JSON.stringify(result, null, 2));
+          const output = {
+            resolved,
+            metadata,
+            sources: metadata.sources || [],
+          };
+          await Bun.write(Bun.stdout, `${JSON.stringify(output, undefined, 2)}\n`);
         } else {
-          displayConfigurationSources(result.sources);
-          console.log(`\n${  "=".repeat(60)}`);
-          console.log("RESOLVED CONFIGURATION");
-          console.log("=".repeat(60));
-          displayResolvedConfiguration(result.resolved);
+          await displayConfigurationSources(resolved, metadata);
         }
       } catch (error) {
-        console.error("Failed to load configuration:", error);
-        process.exit(1);
+        await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
+        exit(1);
       }
     });
 }
 
-function displayConfigurationSources(sources: ConfigurationSources) {
-  console.log("CONFIGURATION SOURCES");
-  console.log("=".repeat(60));
+async function displayConfigurationSources(resolved: any, metadata: any) {
+  await Bun.write(Bun.stdout, "CONFIGURATION SOURCES\n");
+  await Bun.write(Bun.stdout, `${"=".repeat(40)}\n`);
 
-  // CLI Flags
-  console.log("\n1. CLI Flags (highest priority):");
-  if (Object.keys(sources.cliFlags).length > 0) {
-    displayConfigSection(sources.cliFlags);
-  } else {
-    console.log("  (none specified)");
-  }
-
-  // Environment Variables
-  console.log("\n2. Environment Variables:");
-  if (Object.keys(sources.environment).length > 0) {
-    displayConfigSection(sources.environment);
-  } else {
-    console.log("  (none set)");
-  }
-
-  // Global User Config
-  console.log("\n3. Global User Config (~/.config/minsky/config.yaml):");
-  if (sources.globalUser) {
-    console.log(`  Version: ${sources.globalUser.version}`);
-    if (sources.globalUser.credentials?.github) {
-      console.log(`  GitHub Credentials: ${sources.globalUser.credentials.github.source} source`);
-      if (sources.globalUser.credentials.github.token) {
-        console.log(`    Token: ${"*".repeat(20)} (hidden)`);
-      }
-      if (sources.globalUser.credentials.github.token_file) {
-        console.log(`    Token File: ${sources.globalUser.credentials.github.token_file}`);
-      }
+  // Show source precedence
+  if (metadata.sources && metadata.sources.length > 0) {
+    await Bun.write(Bun.stdout, "Source Precedence (highest to lowest):\n");
+    for (let i = 0; i < metadata.sources.length; i++) {
+      const source = metadata.sources[i];
+      await Bun.write(Bun.stdout, `  ${i + 1}. ${source.name || source.type || "Unknown"}\n`);
     }
   } else {
-    console.log("  (file not found)");
+    await Bun.write(Bun.stdout, "Source information not available\n");
   }
 
-  // Repository Config
-  console.log("\n4. Repository Config (.minsky/config.yaml):");
-  if (sources.repository) {
-    console.log(`  Version: ${sources.repository.version}`);
-    if (sources.repository.backends?.default) {
-      console.log(`  Default Backend: ${sources.repository.backends.default}`);
-    }
-    if (sources.repository.backends?.["github-issues"]) {
-      const github = sources.repository.backends["github-issues"];
-      console.log("  GitHub Issues Backend:");
-      console.log(`    Owner: ${github.owner}`);
-      console.log(`    Repo: ${github.repo}`);
-    }
-    if (sources.repository.repository?.auto_detect_backend !== undefined) {
-      console.log(`  Auto-detect Backend: ${sources.repository.repository.auto_detect_backend}`);
-    }
-    if (sources.repository.repository?.detection_rules) {
-      console.log(`  Detection Rules: ${sources.repository.repository.detection_rules.length} rules`);
-    }
-  } else {
-    console.log("  (file not found)");
+  await Bun.write(Bun.stdout, "\nResolved Configuration:\n");
+  await Bun.write(Bun.stdout, `Backend: ${resolved.backend}\n`);
+
+  if (resolved.sessiondb) {
+    await Bun.write(Bun.stdout, `SessionDB Backend: ${resolved.sessiondb.backend}\n`);
   }
 
-  // Defaults
-  console.log("\n5. Built-in Defaults (lowest priority):");
-  displayConfigSection(sources.defaults);
+  if (resolved.github && resolved.github.token) {
+    await Bun.write(Bun.stdout, "GitHub: Configured\n");
+  }
+
+  if (resolved.ai && resolved.ai.providers) {
+    const configuredProviders = Object.keys(resolved.ai.providers).filter(
+      (provider) => resolved.ai.providers[provider].apiKey
+    );
+    if (configuredProviders.length > 0) {
+      await Bun.write(Bun.stdout, `AI Providers: ${configuredProviders.join(", ")}\n`);
+    }
+  }
+
+  await Bun.write(Bun.stdout, "\nFor detailed configuration values, use: minsky config show\n");
 }
-
-function displayResolvedConfiguration(resolved: any) {
-  console.log(`Backend: ${resolved.backend}`);
-  
-  if (Object.keys(resolved.backendConfig).length > 0) {
-    console.log("\nBackend Configuration:");
-    for (const [backend, config] of Object.entries(resolved.backendConfig)) {
-      if (config && typeof config === "object" && Object.keys(config as object).length > 0) {
-        console.log(`  ${backend}:`);
-        for (const [key, value] of Object.entries(config as object)) {
-          console.log(`    ${key}: ${value}`);
-        }
-      }
-    }
-  }
-
-  if (Object.keys(resolved.credentials).length > 0) {
-    console.log("\nCredentials:");
-    for (const [service, creds] of Object.entries(resolved.credentials)) {
-      if (creds && typeof creds === "object") {
-        console.log(`  ${service}:`);
-        const credsObj = creds as any;
-        if (credsObj.source) {
-          console.log(`    Source: ${credsObj.source}`);
-        }
-        if (credsObj.token) {
-          console.log(`    Token: ${"*".repeat(20)} (hidden)`);
-        }
-      }
-    }
-  }
-
-  if (resolved.detectionRules && resolved.detectionRules.length > 0) {
-    console.log("\nDetection Rules:");
-    resolved.detectionRules.forEach((rule: any, index: number) => {
-      console.log(`  ${index + 1}. ${rule.condition} → ${rule.backend}`);
-    });
-  }
-}
-
-function displayConfigSection(config: any) {
-  if (!config || Object.keys(config).length === 0) {
-    console.log("  (empty)");
-    return;
-  }
-
-  for (const [key, value] of Object.entries(config)) {
-    if (typeof value === "object" && value !== null) {
-      console.log(`  ${key}:`);
-      for (const [subKey, subValue] of Object.entries(value)) {
-        console.log(`    ${subKey}: ${subValue}`);
-      }
-    } else {
-      console.log(`  ${key}: ${value}`);
-    }
-  }
-} 

@@ -11,7 +11,8 @@ import {
   UriFormat,
   extractRepositoryInfo,
   detectRepositoryFromCwd,
-} from "./uri-utils.js";
+} from "./uri-utils";
+import { getErrorMessage } from "../errors/index";
 
 /**
  * Repository URI types that match the formats in UriFormat
@@ -70,24 +71,24 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
 
     // Set the type based on the format
     switch (normalizedInfo.format) {
-    case UriFormat.HTTPS:
-      components.type = RepositoryURIType.HTTPS;
-      components.scheme = "https";
-      break;
-    case UriFormat.SSH:
-      components.type = RepositoryURIType.SSH;
-      components.scheme = "ssh";
-      break;
-    case UriFormat.FILE:
-      components.type = RepositoryURIType.LOCAL_FILE;
-      components.scheme = "file";
-      break;
-    case UriFormat.PATH:
-      components.type = RepositoryURIType.LOCAL_PATH;
-      break;
-    case UriFormat.SHORTHAND:
-      components.type = RepositoryURIType.GITHUB_SHORTHAND;
-      break;
+      case UriFormat.HTTPS:
+        components.type = RepositoryURIType?.HTTPS;
+        components.scheme = "https";
+        break;
+      case UriFormat.SSH:
+        components.type = RepositoryURIType?.SSH;
+        components.scheme = "ssh";
+        break;
+      case UriFormat.FILE:
+        components.type = RepositoryURIType?.LOCAL_FILE;
+        components.scheme = "file";
+        break;
+      case UriFormat.PATH:
+        components.type = RepositoryURIType?.LOCAL_PATH;
+        break;
+      case UriFormat.SHORTHAND:
+        components.type = RepositoryURIType?.GITHUB_SHORTHAND;
+        break;
     }
 
     // For non-local repositories, extract owner and repo
@@ -97,14 +98,14 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
       components.repo = repo;
 
       // For URLs, also extract host
-      if (components.type === RepositoryURIType.HTTPS) {
+      if (components?.type === RepositoryURIType?.HTTPS) {
         try {
           const url = new URL(normalizedInfo.uri);
-          components.host = url.hostname;
+          components.host = url?.hostname;
         } catch (error) {
           // Ignore URL parsing errors
         }
-      } else if (components.type === RepositoryURIType.SSH) {
+      } else if (components?.type === RepositoryURIType?.SSH) {
         // Extract host from SSH URL
         const match = uri.match(/^[^@]+@([^:]+):/);
         if (match && match[1]) {
@@ -113,10 +114,10 @@ export function parseRepositoryURI(uri: string): RepositoryURIComponents {
       }
     } else {
       // For local repositories, extract path
-      if (components.type === RepositoryURIType.LOCAL_FILE) {
+      if (components?.type === RepositoryURIType?.LOCAL_FILE) {
         components.path = normalizedInfo.uri.replace(/^file:\/\//, "");
       } else {
-        components.path = normalizedInfo.uri;
+        components.path = normalizedInfo?.uri;
       }
     }
 
@@ -142,9 +143,9 @@ export function normalizeRepositoryURI(uri: string): string {
   try {
     const result = normalizeRepositoryUri(uri, { validateLocalExists: false });
     return result.name;
-  } catch (_error) {
-    // Fallback to simple basename normalization
-    return `local/${basename(uri)}`;
+  } catch (error) {
+    // Fallback to simple basename normalization (filesystem-safe)
+    return `local-${basename(uri)}`;
   }
 }
 
@@ -164,7 +165,7 @@ export function validateRepositoryURI(uri: string): URIValidationResult {
   } catch (error) {
     return {
       valid: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error as any),
     };
   }
 }
@@ -176,13 +177,35 @@ export function validateRepositoryURI(uri: string): URIValidationResult {
  * @param targetType Target URI type
  * @returns Converted URI or null if conversion is not possible
  */
-export function convertRepositoryURI(uri: string, targetType: RepositoryURIType): string | null {
+export function convertRepositoryURI(
+  uri: string,
+  targetType: RepositoryURIType
+): string | undefined {
   try {
     // Map our RepositoryURIType to UriFormat
-    const targetFormat = targetType as unknown as UriFormat;
+    const targetFormat = targetType;
     return convertRepositoryUri(uri, targetFormat);
-  } catch (_error) {
-    return null;
+  } catch (error) {
+    return undefined;
+  }
+}
+
+/**
+ * Expand a shorthand repository reference to a full URI
+ *
+ * @param shorthand GitHub shorthand (e.g., "owner/repo")
+ * @param format Target format ("https" or "ssh")
+ * @returns Expanded URI or undefined if conversion fails
+ */
+export function expandShorthandRepositoryURI(
+  shorthand: string,
+  format: "https" | "ssh" = "https"
+): string | undefined {
+  try {
+    const targetFormat = format === "https" ? UriFormat?.HTTPS : UriFormat?.SSH;
+    return convertRepositoryUri(shorthand, targetFormat);
+  } catch (error) {
+    return undefined;
   }
 }
 
@@ -196,7 +219,7 @@ export function isLocalRepositoryURI(uri: string): boolean {
   try {
     const normalized = normalizeRepositoryUri(uri, { validateLocalExists: false });
     return normalized.isLocal;
-  } catch (_error) {
+  } catch (error) {
     // If we can"t parse it, assume it's a local path
     return true;
   }
@@ -212,28 +235,9 @@ export function getRepositoryName(uri: string): string {
   try {
     const { repo } = extractRepositoryInfo(uri);
     return repo;
-  } catch (_error) {
+  } catch (error) {
     // Fallback to basename for local paths
     return basename(uri);
-  }
-}
-
-/**
- * Convert a GitHub shorthand notation to a full URI
- *
- * @param shorthand GitHub shorthand (org/repo)
- * @param format Target format (https or ssh)
- * @returns Full repository URI
- */
-export function expandGitHubShorthand(
-  shorthand: string,
-  format: "https" | "ssh" = "https"
-): string | null {
-  try {
-    const targetFormat = format === "https" ? UriFormat.HTTPS : UriFormat.SSH;
-    return convertRepositoryUri(shorthand, targetFormat);
-  } catch (_error) {
-    return null;
   }
 }
 

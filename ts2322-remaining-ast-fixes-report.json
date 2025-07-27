@@ -1,0 +1,17 @@
+{
+  "timestamp": "2025-07-04T22:48:00.475Z",
+  "totalChanges": 1,
+  "fixes": [
+    {
+      "file": "src/domain/workspace.ts",
+      "line": 264,
+      "change": "sessionId: null → undefined",
+      "fixed": true
+    }
+  ],
+  "summary": {
+    "successful": 1,
+    "failed": 0,
+    "approach": "AST-based transformations for remaining TS2322 errors"
+  }
+}

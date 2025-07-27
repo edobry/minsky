@@ -14,9 +14,15 @@ import type {
   DatabaseQueryOptions,
 } from "./database-storage";
 import type { DatabaseStorage } from "./database-storage";
+import { getErrorMessage } from "../../errors/index";
 /**
  * Configuration options for JsonFileStorage
  */
+/**
+ * Type for schema validation function
+ */
+type SchemaValidator<S> = (data: unknown) => S;
+
 export interface JsonFileStorageOptions<S> {
   /**
    * Path to the JSON file
@@ -42,6 +48,11 @@ export interface JsonFileStorageOptions<S> {
    * Pretty print JSON (default: true)
    */
   prettyPrint?: boolean;
+
+  /**
+   * Optional schema validator function for type-safe JSON parsing
+   */
+  validateState?: SchemaValidator<S>;
 }
 
 // Simple file lock implementation to prevent concurrent access
@@ -56,7 +67,7 @@ class FileOperationLock {
 
     // Set our operation as the current lock
     const operationPromise = operation();
-    this.locks.set(_filePath, operationPromise);
+    this.locks.set(filePath, operationPromise);
 
     try {
       const result = await operationPromise;
@@ -79,6 +90,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
   private readonly idField: string;
   private readonly entitiesField: string;
   private readonly prettyPrint: boolean;
+  private readonly validateState?: SchemaValidator<S>;
 
   /**
    * Create a new JsonFileStorage instance
@@ -104,11 +116,11 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         return { success: true, data: state };
       }
 
-      const _data = readFileSync(this.filePath, "utf8");
-      const dataStr = typeof data === "string" ? data : data.toString();
+      const data = readFileSync(this.filePath, "utf8").toString();
+      const dataStr = typeof data === "string" ? data : String(data.toString());
 
       // Validate JSON before parsing to prevent stack overflow
-      if (!dataStr.trim()) {
+      if (!dataStr.toString().trim()) {
         // Handle empty file
         const state = this.initializeState();
         return { success: true, data: state };
@@ -127,12 +139,12 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
         return { success: true, data: state };
       } catch (error) {
-        log.error("JSON parse error, reinitializing state:", { error: parseError });
+        log.error("JSON parse error, reinitializing state:", { error });
         const state = this.initializeState();
         return { success: true, data: state };
       }
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
       log.error(`Error reading database file ${this.filePath}: ${typedError.message}`);
       return {
         success: false,
@@ -146,7 +158,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param state The state to write
    * @returns Promise resolving to the result of the write operation
    */
-  async writeState(_state: S): Promise<DatabaseWriteResult> {
+  async writeState(state: S): Promise<DatabaseWriteResult> {
     try {
       // Ensure directory exists
       this.ensureDirectory();
@@ -159,8 +171,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       // Serialize state to JSON with error handling for circular references
       let json: string;
       try {
-        json = this.prettyPrint ? JSON.stringify(_state, null, 2) : JSON.stringify(state);
-      } catch (_error) {
+        json = this.prettyPrint ? JSON.stringify(state, undefined, 2) : JSON.stringify(state);
+      } catch (serializationError) {
         if (
           serializationError instanceof Error &&
           serializationError.message.includes("circular")
@@ -178,7 +190,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         bytesWritten: json.length,
       };
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
       log.error(`Error writing database file ${this.filePath}: ${typedError.message}`);
       return {
         success: false,
@@ -211,7 +223,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to array of entities
    */
-  async getEntities(_options?: DatabaseQueryOptions): Promise<T[]> {
+  async getEntities(options?: DatabaseQueryOptions): Promise<T[]> {
     const result = await this.readState();
     if (!result.success || !result.data) {
       return [];
@@ -220,13 +232,13 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
     const state = result.data;
     const entities = this.getEntitiesFromState(state);
 
-    if (!_options) {
+    if (!options) {
       return entities;
     }
 
     // Filter entities based on query options
     return entities.filter((entity) => {
-      for (const [key, value] of Object.entries(_options)) {
+      for (const [key, value] of Object.entries(options)) {
         if ((entity as any)[key] !== value) {
           return false;
         }
@@ -240,12 +252,12 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param entity The entity to create
    * @returns Promise resolving to the created entity
    */
-  async createEntity(_entity: T): Promise<T> {
+  async createEntity(entity: T): Promise<T> {
     return FileOperationLock.withLock(this.filePath, async () => {
       const result = await this.readState();
       if (!result.success) {
         throw new Error(
-          `Failed to read database state: ${result.error?.message || "Unknown error"}`
+          `Failed to read database state: ${result.error.message || "Unknown error"}`
         );
       }
 
@@ -262,7 +274,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       entities.push(entity);
 
       // Update state with new entities collection
-      this.setEntitiesInState(_state, entities);
+      this.setEntitiesInState(state, entities);
 
       // Write updated state
       const writeResult = await this.writeState(state);
@@ -280,12 +292,12 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param updates Partial entity with updates
    * @returns Promise resolving to the updated entity or null if not found
    */
-  async updateEntity(id: string, _updates: Partial<T>): Promise<T | null> {
+  async updateEntity(id: string, updates: Partial<T>): Promise<T | null> {
     return FileOperationLock.withLock(this.filePath, async () => {
       const result = await this.readState();
       if (!result.success) {
         throw new Error(
-          `Failed to read database state: ${result.error?.message || "Unknown error"}`
+          `Failed to read database state: ${result.error.message || "Unknown error"}`
         );
       }
 
@@ -293,7 +305,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = entities.findIndex((e) => (e as any)[this.idField] === id);
+      const index = entities.findIndex((e) => e[this.idField] === id);
       if (index === -1) {
         return null;
       }
@@ -303,7 +315,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       entities[index] = updatedEntity;
 
       // Update state with modified entities collection
-      this.setEntitiesInState(_state, entities);
+      this.setEntitiesInState(state, entities);
 
       // Write updated state
       const writeResult = await this.writeState(state);
@@ -325,7 +337,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const result = await this.readState();
       if (!result.success) {
         throw new Error(
-          `Failed to read database state: ${result.error?.message || "Unknown error"}`
+          `Failed to read database state: ${result.error.message || "Unknown error"}`
         );
       }
 
@@ -333,16 +345,16 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const entities = this.getEntitiesFromState(state);
 
       // Find entity index
-      const index = entities.findIndex((e) => (e as any)[this.idField] === id);
+      const index = entities.findIndex((e) => e[this.idField] === id);
       if (index === -1) {
         return false;
       }
 
       // Remove entity
-      entities.splice(_index, 1);
+      entities.splice(index, 1);
 
       // Update state with modified entities collection
-      this.setEntitiesInState(_state, entities);
+      this.setEntitiesInState(state, entities);
 
       // Write updated state
       const writeResult = await this.writeState(state);
@@ -390,22 +402,19 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       return true;
     } catch (error) {
-      log.error(
-        `Error initializing storage: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error(`Error initializing storage: ${getErrorMessage(error as any)}`);
       return false;
     }
   }
 
   /**
-   * Helper method to ensure directory exists
-   * @private
+   * Ensure the directory exists before writing
+   * Fixed: Removed TOCTOU race condition by eliminating existsSync check
+   * mkdirSync with recursive: true is idempotent and safe for concurrent calls
    */
   private ensureDirectory(): void {
     const dir = dirname(this.filePath);
-    if (!existsSync(dir)) {
-      mkdirSync(_dir, { recursive: true });
-    }
+    mkdirSync(dir, { recursive: true });
   }
 
   /**
@@ -414,8 +423,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @returns Array of entities
    * @private
    */
-  private getEntitiesFromState(_state: S): T[] {
-    return (state as any)[this.entitiesField] || [];
+  private getEntitiesFromState(state: S): T[] {
+    return state[this.entitiesField] || [];
   }
 
   /**
@@ -424,8 +433,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param entities Array of entities
    * @private
    */
-  private setEntitiesInState(_state: S, entities: T[]): void {
-    (state as any)[this.entitiesField] = entities;
+  private setEntitiesInState(state: S, entities: T[]): void {
+    state[this.entitiesField] = entities;
   }
 }
 

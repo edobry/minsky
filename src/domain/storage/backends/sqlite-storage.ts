@@ -8,7 +8,7 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type {
   DatabaseStorage,
   DatabaseReadResult,
@@ -18,6 +18,7 @@ import type {
 import { log } from "../../../utils/logger";
 import { mkdirSync, existsSync } from "fs";
 import { dirname } from "path";
+import { getErrorMessage } from "../../../errors/index";
 
 export interface SqliteStorageConfig {
   dbPath: string;
@@ -43,7 +44,7 @@ type NewSessionRecord = typeof sessionsTable.$inferInsert;
  * SQLite storage implementation using Drizzle ORM with Bun's native driver
  */
 export class SqliteStorage<TEntity extends Record<string, any>, TState>
-implements DatabaseStorage<TEntity, TState>
+  implements DatabaseStorage<TEntity, TState>
 {
   private db: Database | null = null;
   private drizzleDb: ReturnType<typeof drizzle> | null = null;
@@ -121,14 +122,16 @@ implements DatabaseStorage<TEntity, TState>
       // and possibly other fields like baseDir
       const state = {
         sessions,
-        baseDir: process.env.XDG_STATE_HOME || `${process.env.HOME}/.local/state/minsky/git`,
-      } as TState;
+        baseDir: process.env.XDG_STATE_HOME
+          ? `${process.env.XDG_STATE_HOME}/minsky`
+          : `${process.env.HOME}/.local/state/minsky`,
+      };
 
       return { success: true, data: state };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: error instanceof Error ? error : new Error(String(error as any)),
       };
     }
   }
@@ -139,7 +142,7 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const sessions = (state as any).sessions || [];
+      const sessions = state.sessions || [];
 
       // Use Drizzle transaction
       await this.drizzleDb.transaction(async (tx) => {
@@ -166,12 +169,12 @@ implements DatabaseStorage<TEntity, TState>
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: error instanceof Error ? error : new Error(String(error as any)),
       };
     }
   }
 
-  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<TEntity | null> {
+  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<TEntity | null> {
     if (!this.drizzleDb) {
       return null;
     }
@@ -185,7 +188,7 @@ implements DatabaseStorage<TEntity, TState>
 
       return (result[0] as TEntity) || null;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
       return null;
     }
@@ -197,10 +200,41 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const sessions = await this.drizzleDb.select().from(sessionsTable);
+      let query = this.drizzleDb.select().from(sessionsTable);
+
+      // Apply filters if provided
+      if (options) {
+        const conditions: any[] = [];
+
+        if (options.taskId) {
+          // Normalize taskId by removing # prefix if present
+          const normalizedTaskId = options.taskId.replace(/^#/, "");
+          // BUGFIX: Use SQL to handle null values properly
+          // This finds sessions where taskId (without #) equals normalizedTaskId
+          // and excludes sessions with null taskId
+          conditions.push(
+            sql`TRIM(${sessionsTable.taskId}, '#') = ${normalizedTaskId} AND ${sessionsTable.taskId} IS NOT NULL`
+          );
+        }
+
+        if (options.repoName) {
+          conditions.push(eq(sessionsTable.repoName, options.repoName));
+        }
+
+        if (options.branch) {
+          conditions.push(eq(sessionsTable.branch, options.branch));
+        }
+
+        // Apply WHERE conditions if any exist
+        if (conditions.length > 0) {
+          query = query.where(and(...conditions));
+        }
+      }
+
+      const sessions = await query;
       return sessions as TEntity[];
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get sessions: ${errorMessage}`);
       return [];
     }
@@ -225,7 +259,7 @@ implements DatabaseStorage<TEntity, TState>
       await this.drizzleDb.insert(sessionsTable).values(sessionRecord);
       return entity;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error as any);
       log.debug(`Failed to create session '${entity.session}': ${errorMessage}`);
       throw error;
     }

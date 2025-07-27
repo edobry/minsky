@@ -1,0 +1,148 @@
+{
+  "timestamp": "2025-07-04T22:34:58.088Z",
+  "totalChanges": 17,
+  "totalFiles": 4,
+  "fixes": [
+    {
+      "file": "src/domain/tasks/taskFunctions.ts",
+      "line": 391,
+      "column": 50,
+      "from": "TaskState",
+      "to": "TaskStatus",
+      "fixed": true
+    },
+    {
+      "file": "src/domain/tasks/taskFunctions.ts",
+      "line": 400,
+      "column": 59,
+      "from": "TaskState",
+      "to": "TaskStatus",
+      "fixed": true
+    },
+    {
+      "file": "src/domain/workspace.ts",
+      "line": 239,
+      "column": 37,
+      "from": "SessionDB",
+      "to": "sessionDb",
+      "fixed": true
+    },
+    {
+      "file": "src/domain/workspace.ts",
+      "line": 248,
+      "column": 25,
+      "from": "SessionDB",
+      "to": "sessionDb",
+      "fixed": true
+    },
+    {
+      "file": "src/domain/workspace.ts",
+      "line": 255,
+      "column": 39,
+      "from": "SessionDB",
+      "to": "sessionDb",
+      "fixed": true
+    },
+    {
+      "file": "src/domain/workspace.ts",
+      "line": 271,
+      "column": 18,
+      "from": "SessionDB",
+      "to": "sessionDb",
+      "fixed": true
+    },
+    {
+      "file": "src/domain/workspace.ts",
+      "line": 272,
+      "column": 48,
+      "from": "SessionDB",
+      "to": "sessionDb",
+      "fixed": true
+    },
+    {
+      "file": "src/domain/workspace.ts",
+      "line": 285,
+      "column": 20,
+      "from": "currentSessionName",
+      "to": "getCurrentSessionFn",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils.ts",
+      "line": 40,
+      "column": 31,
+      "from": "_console",
+      "to": "console",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils.ts",
+      "line": 41,
+      "column": 34,
+      "from": "_console",
+      "to": "console",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils.ts",
+      "line": 42,
+      "column": 32,
+      "from": "_process",
+      "to": "process",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils/test-git-service.ts",
+      "line": 16,
+      "column": 53,
+      "from": "command",
+      "to": "__command",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils/test-git-service.ts",
+      "line": 32,
+      "column": 11,
+      "from": "command",
+      "to": "__command",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils/test-git-service.ts",
+      "line": 36,
+      "column": 57,
+      "from": "command",
+      "to": "__command",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils/test-git-service.ts",
+      "line": 38,
+      "column": 5,
+      "from": "command",
+      "to": "__command",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils/test-git-service.ts",
+      "line": 50,
+      "column": 37,
+      "from": "command",
+      "to": "__command",
+      "fixed": true
+    },
+    {
+      "file": "src/utils/test-utils/test-git-service.ts",
+      "line": 51,
+      "column": 52,
+      "from": "command",
+      "to": "__command",
+      "fixed": true
+    }
+  ],
+  "summary": {
+    "successful": 17,
+    "failed": 0,
+    "filesProcessed": 4
+  }
+}

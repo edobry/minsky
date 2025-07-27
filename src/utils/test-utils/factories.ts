@@ -58,21 +58,23 @@ export function createSessionData(
     session?: string;
     taskId?: string;
     repoName?: string;
+    repoUrl?: string;
     repoPath?: string;
     branch?: string;
     createdAt?: string;
   } = {}
 ): any {
-  const taskId = overrides.taskId || "123";
-  const session = overrides.session || `task#${taskId}`;
+  const taskId = overrides!.taskId || "123";
+  const session = overrides!.session || `task#${taskId}`;
 
   return {
     session,
     taskId,
-    repoName: overrides.repoName || "test/repo",
-    repoPath: overrides.repoPath || `/mock/repo/${createRandomId()}`,
-    branch: overrides.branch || `task-${taskId}`,
-    createdAt: overrides.createdAt || new Date().toISOString(),
+    repoName: overrides!.repoName || "test/repo",
+    repoUrl: overrides!.repoUrl || "https://github.com/test/repo.git",
+    repoPath: overrides!.repoPath || `/mock/repo/${createRandomId()}`,
+    branch: overrides?.branch || `task-${taskId}`,
+    createdAt: overrides?.createdAt || new Date().toISOString(),
   };
 }
 
@@ -111,10 +113,10 @@ export function createRepositoryData(
   } = {}
 ): any {
   return {
-    name: overrides.name || "test-repo",
-    type: overrides.type || "local",
-    repoUrl: overrides.repoUrl || "file:///mock/repo/path",
-    path: overrides.path || `/mock/repo/${createRandomId()}`,
+    name: overrides?.name || "test-repo",
+    type: overrides?.type || "local",
+    repoUrl: overrides!.repoUrl || "file:///mock/repo/path",
+    path: overrides?.path || `/mock/repo/${createRandomId()}`,
   };
 }
 
@@ -144,7 +146,7 @@ export function createRandomString(length: number = 10): string {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let result = "";
   for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+    result += chars.charAt(Math.floor(Math.random() * chars?.length));
   }
   return result;
 }
@@ -156,7 +158,7 @@ export function createRandomString(length: number = 10): string {
  */
 export function createRandomFilePath(extension: string = "txt"): string {
   const dirs = ["src", "test", "config", "docs"];
-  const dir = dirs[Math.floor(Math.random() * dirs.length)];
+  const dir = dirs[Math.floor(Math.random() * dirs?.length)];
   const filename = createRandomString(6);
   return `${dir}/${filename}.${extension}`;
 }
@@ -169,29 +171,29 @@ export function createRandomFilePath(extension: string = "txt"): string {
 export function createFieldData(fieldName: string): any {
   // Generate appropriate data based on common field names
   switch (fieldName.toLowerCase()) {
-  case "id":
-    return createRandomId();
-  case "name":
-    return `Test ${createRandomString(5)}`;
-  case "email":
-    return `test.${createRandomString(5)}@example.com`;
-  case "date":
-  case "createdat":
-  case "updatedat":
-  case "timestamp":
-    return new Date().toISOString();
-  case "active":
-  case "enabled":
-  case "visible":
-    return Math.random() > 0.5;
-  case "count":
-  case "age":
-  case "quantity":
-    return Math.floor(Math.random() * 100);
-  case "price":
-  case "amount":
-    return parseFloat((Math.random() * 100).toFixed(2));
-  default:
-    return `Test ${fieldName} ${createRandomString(5)}`;
+    case "id":
+      return createRandomId();
+    case "name":
+      return `Test ${createRandomString(5)}`;
+    case "email":
+      return `test.${createRandomString(5)}@example.com`;
+    case "date":
+    case "createdat":
+    case "updatedat":
+    case "timestamp":
+      return new Date().toISOString();
+    case "active":
+    case "enabled":
+    case "visible":
+      return Math.random() > 0.5;
+    case "count":
+    case "age":
+    case "quantity":
+      return Math.floor(Math.random() * 100);
+    case "price":
+    case "amount":
+      return parseFloat((Math.random() * 100).toFixed(2));
+    default:
+      return `Test ${fieldName} ${createRandomString(5)}`;
   }
 }

@@ -1,11 +1,86 @@
----
-description: REQUIRED to use this rule whenever you're authoring or modifying tests
-globs:
-alwaysApply: false
----
 # Test Infrastructure Patterns
 
-Standardize testing approaches for CLI applications with file system operations to improve reliability and maintenance:
+This rule establishes patterns for test infrastructure, utilities, and organization to ensure consistent, maintainable testing practices.
+
+## Test Utility Organization Standards
+
+**Established Pattern**: Organize test utilities into focused, single-responsibility modules following ecosystem standards.
+
+### Standard Test Utility Module Structure
+
+**REQUIRED PATTERN** for test utility organization:
+
+```
+src/utils/test-utils/
+├── setup.ts        # Global test environment and state management
+├── database.ts     # Database test utilities and isolation
+├── fixtures.ts     # Test data factories and fixtures
+├── mocking.ts      # Mock creation and management
+├── cleanup.ts      # Resource cleanup utilities
+└── index.ts        # Consolidated exports
+```
+
+### Module Responsibilities
+
+#### `setup.ts` - Global Test Environment
+- Test environment initialization
+- Global state reset and management
+- Environment variable isolation
+- Resource registration and tracking
+
+#### `database.ts` - Database Test Utilities
+- Isolated test database creation
+- Database cleanup and management
+- In-memory database configuration
+- Database state isolation between tests
+
+#### `fixtures.ts` - Test Data Factories
+- Test data generation and factories
+- Consistent test data patterns
+- Domain-specific test object creation
+- Test data isolation and uniqueness
+
+#### `mocking.ts` - Mock Management
+- Mock function creation
+- Module mocking utilities
+- Mock state management and cleanup
+- Framework-agnostic mock interfaces
+
+#### `cleanup.ts` - Resource Management
+- Temporary file/directory cleanup
+- Resource lifecycle management
+- Cleanup registration and execution
+- Error-safe cleanup procedures
+
+### Anti-Patterns to Avoid
+
+❌ **God Module Pattern**:
+```typescript
+// AVOID - Single module with mixed responsibilities
+// isolation.ts combining state + data + database utilities
+export class TestIsolation { /* state management */ }
+export class TestDataFactory { /* data generation */ }
+export class DatabaseIsolation { /* database utilities */ }
+```
+
+✅ **Focused Module Pattern**:
+```typescript
+// PREFER - Separate focused modules
+// setup.ts
+export function initializeTestEnvironment() { /* state only */ }
+
+// fixtures.ts
+export class TaskDataFactory { /* data only */ }
+
+// database.ts
+export function createTestDatabase() { /* database only */ }
+```
+
+❌ **Vague Naming**:
+- `isolation.ts`, `utils.ts`, `helpers.ts`
+
+✅ **Descriptive Naming**:
+- `setup.ts`, `database.ts`, `fixtures.ts`
 
 ## Test Environment Isolation
 

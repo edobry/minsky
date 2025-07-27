@@ -1,8 +1,3 @@
----
-description: REQUIRED workflow for implementing tasks from start to completion
-globs: 
-alwaysApply: false
----
 # Task Implementation Workflow
 
 This rule provides a detailed, step-by-step process for implementing tasks in the Minsky workflow.
@@ -58,20 +53,55 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
      minsky tasks spec <task-id>
      ```
    - Alternatively, locate the task spec file at `process/tasks/<task-id>-<task-name>.md`
+   - **CRITICAL**: If standard access methods fail, MUST investigate all possible locations:
+     - Search codebase for task specification using semantic search
+     - Check special workspace: `~/.local/state/minsky/task-operations/process/tasks/`
+     - Use file search tools to locate specification by task ID
+     - Investigate workspace routing architecture to understand storage patterns
+     - **NEVER proceed with implementation based on title/database info only**
    - Review all requirements and acceptance criteria
+   - **MANDATORY**: Confirm complete specification is located and read before proceeding
 
-2. **Plan your implementation**:
+2. **Understand architectural context**:
+   - **BEFORE starting implementation**, investigate relevant architectural patterns
+   - Search for documentation about systems being modified
+   - Understand workspace routing, backend systems, and integration points
+   - Take initiative to research unfamiliar concepts mentioned in specifications
+   - **REQUIREMENT**: Complete architectural understanding before code changes
+
+3. **Plan your implementation**:
    - Identify the files you need to modify
    - Sketch out the changes you'll make
    - Identify any dependencies or potential issues
 
-3. **Document your plan**:
+4. **Document your plan**:
    - Add your implementation plan to the task specification file
    - Commit this update:
      ```bash
      git add process/tasks/<task-id>-<task-name>.md
      git commit -m "Add implementation plan for task #<task-id>"
      ```
+
+### Documentation Consolidation Protocol
+
+**CRITICAL REQUIREMENT**: ALL progress, findings, and updates MUST be documented directly in the task specification file.
+
+**NEVER create separate files for:**
+- Progress summaries
+- Implementation summaries
+- Status updates
+- Results documentation
+- Analysis reports
+
+**ALWAYS update the task specification (`process/tasks/<task-id>-<task-name>.md`) directly with:**
+- Implementation progress
+- Test results
+- Design decisions
+- Problem findings
+- Solution implementations
+- Verification outcomes
+
+**Rationale**: The task specification is the single source of truth for all task-related information. Creating separate summary/progress documents leads to documentation fragmentation and makes it harder to track the complete task history.
 
 ### 4. Development Phase
 

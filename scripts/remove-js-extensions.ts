@@ -29,15 +29,17 @@ async function removeJsExtensions(filePath: string): Promise<{ changed: boolean;
   let count = 0;
 
   // Replace .js extensions in import statements
-  // Matches: import ... from ".../.../file.js"
+  // Matches: import ... from ".../.../file"
   // Captures: import ... from ".../.../file"
-  const newContent = content.replace(
-    /(\bimport\s+[^"']*\s+from\s+["'])([^"']+)\.js(["'])/g,
-    (match, prefix, path, suffix) => {
-      count++;
-      return `${prefix}${path}${suffix}`;
-    }
-  );
+  const newContent = content
+    .toString()
+    .replace(
+      /(\bimport\s+[^"']*\s+from\s+["'])([^"']+)\.js(["'])/g,
+      (match, prefix, path, suffix) => {
+        count++;
+        return `${prefix}${path}${suffix}`;
+      }
+    );
 
   const changed = content !== newContent;
 

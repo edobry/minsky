@@ -6,8 +6,8 @@ const TEST_VALUE = 123;
 
 export const initializeProjectParamsSchema = z.object({
   repoPath: z.string(),
-  backend: z.enum(["tasks.md", "tasks.csv"]),
-  ruleFormat: z.enum(["cursor", "generic"]),
+  backend: z.enum(["tasks.md", "tasks.csv"] as const),
+  ruleFormat: z.enum(["cursor", "generic"] as const),
   mcp: z
     .object({
       enabled: z.boolean().optional().default(true),
@@ -402,7 +402,7 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
           },
         },
       },
-      null,
+      undefined,
       2
     );
   }
@@ -418,7 +418,7 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
           },
         },
       },
-      null,
+      undefined,
       2
     );
   }
@@ -434,7 +434,7 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
           },
         },
       },
-      null,
+      undefined,
       2
     );
   }
@@ -449,7 +449,7 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
         },
       },
     },
-    null,
+    undefined,
     2
   );
 }
